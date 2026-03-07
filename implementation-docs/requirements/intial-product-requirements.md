@@ -134,7 +134,7 @@ The heart of the system. Runs as a background service, owns all WireGuard interf
 
 A local REST + WebSocket API served by the daemon (or a sidecar process), consumed by the web UI, mobile app, and CLI.
 
-- **FR-060** All API communication is over HTTPS (self-signed cert on first boot, with option to provide own cert)
+- **FR-060** ~~All API communication is over HTTPS (self-signed cert on first boot, with option to provide own cert)~~ **Decision: HTTP only.** This is a LAN-only appliance (like Pi-hole, Home Assistant). TLS adds complexity (cert management, trust store issues) with no real security benefit on a local network. If users need HTTPS they can put a reverse proxy in front.
 - **FR-061** Authentication via session tokens (username/password login); sessions expire after configurable idle timeout
 - **FR-062** Two roles: `admin` (full access) and `user` (access scoped to their registered devices only)
 - **FR-063** WebSocket endpoint for real-time push: device status changes, tunnel health events, fallback alerts
@@ -161,7 +161,7 @@ A local REST + WebSocket API served by the daemon (or a sidecar process), consum
 
 ### 3.3 Web Management UI
 
-Served directly from the Pi over HTTPS on port 443 (default). Accessible from any browser on the local network.
+Served directly from the Pi over HTTP on port 7411 (default). Accessible from any browser on the local network.
 
 #### 3.3.1 First-Run Setup Wizard
 
@@ -245,7 +245,7 @@ A command-line interface for power users and scripting. Communicates with the lo
 - **FR-140** Provide a one-line install script: `curl -sSL https://get.wardnet.dev | bash`
 - **FR-141** Script must: detect OS (Raspberry Pi OS / Debian/Ubuntu), install WireGuard, install Wardnet daemon + web UI, enable systemd services, and print the local URL to open
 - **FR-142** Provide a pre-built SD card image for Raspberry Pi (Raspberry Pi OS Lite base) that boots directly into Wardnet — flash-and-boot experience for non-technical users
-- **FR-143** On first boot from the SD image, Wardnet broadcasts itself via mDNS as `wardnet.local` so users can reach the setup wizard at `https://wardnet.local` without knowing the IP
+- **FR-143** On first boot from the SD image, Wardnet broadcasts itself via mDNS as `wardnet.local` so users can reach the setup wizard at `http://wardnet.local:7411` without knowing the IP
 - **FR-144** Document manual installation steps for users who want to install on an existing system
 
 ---
@@ -268,7 +268,7 @@ A command-line interface for power users and scripting. Communicates with the lo
 
 ### 4.3 Security
 
-- **NFR-010** Web UI served over HTTPS only — HTTP redirects to HTTPS
+- **NFR-010** ~~Web UI served over HTTPS only — HTTP redirects to HTTPS~~ **Decision: HTTP only.** See FR-060.
 - **NFR-011** Admin password must be set during first-run wizard — no default credentials
 - **NFR-012** API tokens must be rotatable without requiring re-login on all sessions
 - **NFR-013** WireGuard private keys must be stored with 600 permissions, never exposed via API or UI
@@ -358,9 +358,9 @@ Output formatted with `tabled` for human-readable tables, `serde_json` for `--js
 └──────────────────────────────────────────────────────────┘
 
 External consumers:
-  Browser / Web UI  ──► HTTPS :443 (LAN only)
-  pictl CLI         ──► HTTPS :443 (LAN only, token auth)
-  Mobile App (v2)   ──► HTTPS :443 (LAN only)
+  Browser / Web UI  ──► HTTP :7411 (LAN only)
+  wctl CLI          ──► HTTP :7411 (LAN only, token auth)
+  Mobile App (v2)   ──► HTTP :7411 (LAN only)
 ```
 
 ---
@@ -451,16 +451,13 @@ POST to a webhook URL (Discord, Slack, ntfy.sh) on events: tunnel down, device f
 
 ### Phase 1 — Foundation (MVP)
 - Core daemon: WireGuard tunnel management, policy routing engine, device detection
-- REST API (no auth yet — local network trust model)
+- REST API with auth (admin session + API key + unauthenticated self-service by IP)
 - Web UI: first-run wizard, device list, routing rule assignment, tunnel management
 - CLI: status, devices, set rule, tunnel add/remove
 - DNS leak prevention
 - Install script + SD card image
 
-### Phase 2 — Access Control & UX Polish
-- Auth system (admin + user roles)
-- Self-service device routing for users
-- Admin lock / override for devices
+### Phase 2 — UX Polish & Advanced Features
 - Temporary routing + schedule-based rules
 - Fallback alerts and tunnel health notifications
 - Ad blocking (blocklist integration)

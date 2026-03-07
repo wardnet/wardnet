@@ -20,46 +20,46 @@ Wardnet is a self-hosted network privacy gateway for Raspberry Pi that sits alon
 
 ```
 wardnet/
-├── Cargo.toml                    # workspace root
-├── crates/
-│   ├── wardnetd/                 # binary -- the daemon
-│   │   ├── src/
-│   │   │   ├── main.rs
-│   │   │   ├── api/              # axum REST + WebSocket + auth middleware
-│   │   │   ├── tunnel/           # WireGuard tunnel lifecycle
-│   │   │   ├── routing/          # policy routing (ip rule, nftables)
-│   │   │   ├── device/           # passive device detection
-│   │   │   ├── dns/              # Unbound config generation
-│   │   │   ├── db/               # SQLite via sqlx
-│   │   │   ├── event/            # internal event bus
-│   │   │   ├── config/           # daemon TOML config
-│   │   │   └── system/           # system stats
-│   │   └── migrations/           # sqlx SQL migrations
-│   ├── wctl/                     # binary -- CLI tool
-│   │   └── src/
-│   │       ├── main.rs
-│   │       ├── commands/         # one module per subcommand
-│   │       └── output/           # table vs JSON formatting
-│   └── wardnet-types/            # library -- shared types
+├── source/
+│   ├── daemon/                       # Rust workspace root (Cargo.toml here)
+│   │   └── crates/
+│   │       ├── wardnetd/             # binary -- the daemon
+│   │       │   ├── src/
+│   │       │   │   ├── main.rs       # entry point (thin, wires dependencies)
+│   │       │   │   ├── lib.rs        # crate root (re-exports modules)
+│   │       │   │   ├── api/          # axum REST handlers + auth middleware
+│   │       │   │   ├── service/      # business logic (traits + impls)
+│   │       │   │   ├── repository/   # data access (traits + SQLite impls)
+│   │       │   │   ├── config.rs     # TOML config loading
+│   │       │   │   ├── db.rs         # SQLite pool + migrations
+│   │       │   │   ├── error.rs      # AppError → IntoResponse
+│   │       │   │   ├── state.rs      # AppState (service trait objects)
+│   │       │   │   └── web.rs        # rust-embed static file serving
+│   │       │   └── migrations/       # sqlx SQL migrations
+│   │       ├── wctl/                 # binary -- CLI tool
+│   │       │   └── src/main.rs       # clap subcommands skeleton
+│   │       └── wardnet-types/        # library -- shared types
+│   │           └── src/
+│   │               ├── lib.rs
+│   │               ├── device.rs
+│   │               ├── tunnel.rs
+│   │               ├── routing.rs
+│   │               ├── api.rs        # request/response DTOs
+│   │               ├── auth.rs       # Session, ApiKeyRecord, Role
+│   │               └── event.rs      # WardnetEvent enum
+│   └── web-ui/                       # React + Vite project
 │       └── src/
-│           ├── lib.rs
-│           ├── device.rs
-│           ├── tunnel.rs
-│           ├── routing.rs
-│           ├── api.rs            # request/response DTOs
-│           └── event.rs          # event types
-├── web/                          # React + Vite project
-│   └── src/
-│       ├── api/                  # TanStack Query hooks
-│       ├── ws/                   # WebSocket client
-│       ├── stores/               # Zustand stores
-│       ├── pages/                # Dashboard, Devices, Tunnels, Settings, wizard/
-│       ├── components/           # layout/, devices/, tunnels/, shared/
-│       ├── types/                # TypeScript API types
-│       └── lib/                  # utils (countries, formatters)
-├── install/                      # install script + systemd unit + Unbound template
-└── implementation-docs/
+│           ├── api/                  # typed fetch client
+│           ├── pages/                # Dashboard, Devices, Tunnels, Settings
+│           ├── components/           # Layout, shared
+│           └── types/                # TypeScript API types
+├── .github/workflows/ci.yml
+├── implementation-docs/
+├── AGENTS.md
+└── README.md
 ```
+
+> **Note:** Modules for tunnel/, routing/, device/, dns/, event/ (event bus), and install/ will be added in later milestones.
 
 ### Crate Dependencies
 
@@ -209,27 +209,30 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 ## 3. Implementation Milestones
 
-### Milestone 1a: Project Scaffolding & Foundation
+### Milestone 1a: Project Scaffolding & Foundation ✅
 
 **Goal:** Compilable workspace, database, basic API endpoint, auth skeleton.
 
-- [ ] Initialize Cargo workspace with 3 crates
-- [ ] Define shared types in `wardnet-types`: Device, Tunnel, RoutingRule, RoutingTarget, WardnetEvent, API DTOs, auth types (ApiKey, Role, Session)
-- [ ] SQLite setup: initial migration (devices, tunnels, routing_rules, api_keys, sessions, system_config tables), WAL mode
-- [ ] Daemon config loading from TOML (`/etc/wardnet/wardnet.toml`)
-- [ ] Basic `main.rs`: parse args, load config, open DB, start axum
-- [ ] Tracing setup (console + JSON output)
-- [ ] Auth middleware: three-tier access (public self-service, admin session, admin API key)
-- [ ] `GET /api/devices/me` -- public, returns requesting device by source IP
-- [ ] `PUT /api/devices/me/rule` -- public, self-service routing change (blocked if admin-locked)
-- [ ] `GET /api/system/status` -- admin-only endpoint
-- [ ] `POST /api/auth/login` -- admin login, returns session cookie
-- [ ] Scaffold web UI: Vite + React + Tailwind + React Router + TanStack Query
-- [ ] `rust-embed` serving web UI dist from daemon
-- [ ] GitHub Actions CI: cargo check/test/clippy, npm build
-- [ ] Cross-compilation config for `aarch64-unknown-linux-gnu`
+- [x] Initialize Cargo workspace with 3 crates (`wardnetd`, `wardnet-types`, `wctl`)
+- [x] Define shared types in `wardnet-types`: Device, Tunnel, RoutingRule, RoutingTarget, WardnetEvent, API DTOs, auth types (ApiKey, Role, Session)
+- [x] SQLite setup: initial migration (devices, tunnels, routing_rules, api_keys, sessions, system_config tables), WAL mode
+- [x] Daemon config loading from TOML (default `./wardnet.toml`, configurable via `--config`)
+- [x] Basic `main.rs`: parse args (`--verbose`, `--config`, `--foreground`), load config, open DB, start axum on port 7411
+- [x] Tracing setup (default `error` level, `--verbose` enables `debug`)
+- [x] Auth middleware: three-tier access (public self-service, admin session, admin API key)
+- [x] `GET /api/devices/me` -- public, returns requesting device by source IP
+- [x] `PUT /api/devices/me/rule` -- public, self-service routing change (blocked if admin-locked)
+- [x] `GET /api/system/status` -- admin-only endpoint
+- [x] `POST /api/auth/login` -- admin login, returns session cookie
+- [x] Scaffold web UI: Vite 7 + React 19 + Tailwind CSS 4 + React Router 7 + TanStack Query 5 + Yarn 4
+- [x] `rust-embed` serving web UI dist from daemon
+- [x] GitHub Actions CI: cargo fmt/clippy/test, yarn type-check/lint/format/build
+- [x] Cross-compilation config for `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`
+- [x] Layered architecture with trait-based DI: repository → service → API handlers
+- [x] 61 tests: wardnet-types serde round-trips (21), repository integration with in-memory SQLite (19), service unit tests with mocks (20), config defaults (1)
+- [x] AGENTS.md, README.md, wctl CLI skeleton with clap subcommands
 
-**Deliverable:** `cargo run` starts daemon, serves placeholder web page, auth works, responds to `/api/system/status`.
+**Deliverable:** `cargo run` starts daemon, serves web UI, auth works, responds to `/api/system/status`.
 
 ### Milestone 1b: WireGuard Tunnel Management
 
@@ -384,9 +387,9 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 ## 6. Development Workflow
 
-- **Web UI dev:** `cd web && npm run dev` -- Vite on :5173, proxies `/api/*` to daemon
-- **Daemon dev:** `cargo run -p wardnetd` -- reads web/dist/ from filesystem in debug mode (rust-embed `debug_embed=false`)
-- **CLI dev:** `cargo run -p wctl -- <command>`
+- **Web UI dev:** `cd source/web-ui && yarn dev` -- Vite on :7412, proxies `/api/*` to daemon on :7411
+- **Daemon dev:** `cd source/daemon && cargo run -p wardnetd -- --verbose` -- reads web-ui/dist/ from filesystem in debug mode (rust-embed)
+- **CLI dev:** `cd source/daemon && cargo run -p wctl -- <command>`
 - **Networking dev on macOS:** Use a Linux VM (Multipass/Docker) for kernel networking tests
 - **Mock mode:** `wardnetd --mock-network` logs all kernel commands instead of executing (for UI development without real tunnels)
 
