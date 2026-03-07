@@ -1,0 +1,86 @@
+[workspace]
+members = [
+    "crates/wardnet-types",
+    "crates/wardnetd",
+    "crates/wctl",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[workspace.dependencies]
+# Internal
+wardnet-types = { path = "crates/wardnet-types" }
+
+# https://crates.io/crates/serde
+serde = { version = "1.0", features = ["derive"] }
+# https://crates.io/crates/serde_json
+serde_json = "1.0"
+
+# https://crates.io/crates/uuid
+uuid = { version = "1", features = ["v4", "serde"] }
+# https://crates.io/crates/chrono
+chrono = { version = "0.4", features = ["serde"] }
+
+# https://crates.io/crates/thiserror
+thiserror = "2"
+# https://crates.io/crates/tracing
+tracing = "0.1"
+
+# https://crates.io/crates/tokio
+tokio = { version = "1", features = ["full"] }
+# https://crates.io/crates/axum
+axum = { version = "0.8", features = ["macros"] }
+# https://crates.io/crates/axum-extra
+axum-extra = { version = "0.12", features = ["typed-header", "cookie"] }
+
+# https://crates.io/crates/sqlx
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
+
+# https://crates.io/crates/tower
+tower = { version = "0.5", features = ["util"] }
+# https://crates.io/crates/tower-http
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# https://crates.io/crates/rust-embed
+rust-embed = { version = "8", features = ["axum"] }
+# https://crates.io/crates/toml
+toml = "0.8"
+
+# https://crates.io/crates/tracing-subscriber
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# https://crates.io/crates/argon2
+argon2 = "0.5"
+# https://crates.io/crates/anyhow
+anyhow = "1"
+# https://crates.io/crates/rand
+rand = "0.9"
+# https://crates.io/crates/base64
+base64 = "0.22"
+
+# https://crates.io/crates/sha2
+sha2 = "0.10"
+# https://crates.io/crates/hex
+hex = "0.4"
+# https://crates.io/crates/mime_guess
+mime_guess = "2"
+
+# https://crates.io/crates/clap
+clap = { version = "4", features = ["derive"] }
+# https://crates.io/crates/reqwest
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
+# https://crates.io/crates/tabled
+tabled = "0.18"
+# https://crates.io/crates/async-trait
+async-trait = "0.1"

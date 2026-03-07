@@ -1,0 +1,25 @@
+[package]
+name = "wctl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# https://crates.io/crates/clap
+clap.workspace = true
+# https://crates.io/crates/reqwest
+reqwest.workspace = true
+# https://crates.io/crates/serde
+serde.workspace = true
+# https://crates.io/crates/serde_json
+serde_json.workspace = true
+# https://crates.io/crates/tokio
+tokio.workspace = true
+# https://crates.io/crates/tabled
+tabled.workspace = true
+# https://crates.io/crates/anyhow
+anyhow.workspace = true

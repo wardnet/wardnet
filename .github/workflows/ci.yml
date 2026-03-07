@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source/web-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+          cache: yarn
+          cache-dependency-path: source/web-ui/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Type check
+        run: yarn type-check
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Format check
+        run: yarn format:check
+
+      - name: Build
+        run: yarn build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ui-dist
+          path: source/web-ui/dist/
+          retention-days: 1
+
+  build-daemon:
+    name: Build Daemon (${{ matrix.target }})
+    needs: build-web
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: false
+            can-test: true
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
+            can-test: true
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+            can-test: false
+    defaults:
+      run:
+        working-directory: source/daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download web-ui dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-ui-dist
+          path: source/web-ui/dist/
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94"
+          targets: ${{ matrix.target }}
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source/daemon
+
+      - name: Format check
+        if: matrix.can-test
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: matrix.can-test
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        if: matrix.can-test
+        run: cargo test --workspace
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
