@@ -118,7 +118,8 @@ jobs:
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
+        working-directory: .
+        run: cross build --release --target ${{ matrix.target }} --manifest-path source/daemon/Cargo.toml
 
       - name: Build (native)
         if: "!matrix.cross"
