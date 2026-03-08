@@ -11,8 +11,8 @@ pub use api_key::ApiKeyRepository;
 pub use device::DeviceRepository;
 pub use session::SessionRepository;
 pub use sqlite::{
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
-    SqliteSessionRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteSessionRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository,
 };
 pub use system_config::SystemConfigRepository;
 pub use tunnel::{TunnelRepository, TunnelRow};

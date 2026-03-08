@@ -11,8 +11,8 @@ use wardnet_types::wireguard_config::WgPeerConfig;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::keys::KeyStore;
-use crate::repository::tunnel::TunnelRow;
 use crate::repository::TunnelRepository;
+use crate::repository::tunnel::TunnelRow;
 use crate::service::{TunnelService, TunnelServiceImpl};
 use crate::wireguard::{CreateInterfaceParams, WgInterfaceStats, WireGuardOps};
 
@@ -208,10 +208,7 @@ impl MockWireGuardOps {
 #[async_trait]
 impl WireGuardOps for MockWireGuardOps {
     async fn create_interface(&self, params: CreateInterfaceParams) -> anyhow::Result<()> {
-        self.created
-            .lock()
-            .unwrap()
-            .push(params.interface_name);
+        self.created.lock().unwrap().push(params.interface_name);
         Ok(())
     }
 
@@ -232,10 +229,7 @@ impl WireGuardOps for MockWireGuardOps {
     }
 
     async fn remove_interface(&self, interface_name: &str) -> anyhow::Result<()> {
-        self.removed
-            .lock()
-            .unwrap()
-            .push(interface_name.to_owned());
+        self.removed.lock().unwrap().push(interface_name.to_owned());
         Ok(())
     }
 
@@ -293,12 +287,7 @@ fn build_harness() -> TestHarness {
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
 
-    let svc = TunnelServiceImpl::new(
-        repo,
-        wireguard.clone(),
-        keys.clone(),
-        events.clone(),
-    );
+    let svc = TunnelServiceImpl::new(repo, wireguard.clone(), keys.clone(), events.clone());
 
     TestHarness {
         svc,

@@ -109,9 +109,7 @@ async fn stats_loop(
                 }
             };
 
-            let last_handshake_str = stats
-                .last_handshake
-                .map(|ts| ts.to_rfc3339());
+            let last_handshake_str = stats.last_handshake.map(|ts| ts.to_rfc3339());
 
             if let Err(e) = tunnels
                 .update_stats(

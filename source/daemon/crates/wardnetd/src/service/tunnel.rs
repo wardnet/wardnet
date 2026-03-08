@@ -13,8 +13,8 @@ use wardnet_types::wireguard_config;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::keys::KeyStore;
-use crate::repository::tunnel::TunnelRow;
 use crate::repository::TunnelRepository;
+use crate::repository::tunnel::TunnelRow;
 use crate::wireguard::{CreateInterfaceParams, WireGuardOps};
 
 /// Tunnel lifecycle management.
@@ -151,7 +151,10 @@ impl TunnelService for TunnelServiceImpl {
             listen_port: config.interface.listen_port,
         };
 
-        self.tunnels.insert(&row).await.map_err(AppError::Internal)?;
+        self.tunnels
+            .insert(&row)
+            .await
+            .map_err(AppError::Internal)?;
 
         let now = chrono::Utc::now();
         let tunnel = Tunnel {
@@ -175,11 +178,7 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn list_tunnels(&self) -> Result<ListTunnelsResponse, AppError> {
-        let tunnels = self
-            .tunnels
-            .find_all()
-            .await
-            .map_err(AppError::Internal)?;
+        let tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
         Ok(ListTunnelsResponse { tunnels })
     }
 
@@ -318,7 +317,10 @@ impl TunnelService for TunnelServiceImpl {
         }
 
         // Delete private key from key store.
-        self.keys.delete_key(&id).await.map_err(AppError::Internal)?;
+        self.keys
+            .delete_key(&id)
+            .await
+            .map_err(AppError::Internal)?;
 
         // Delete from database.
         self.tunnels
@@ -332,13 +334,12 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn restore_tunnels(&self) -> Result<(), AppError> {
-        let tunnels = self
-            .tunnels
-            .find_all()
-            .await
-            .map_err(AppError::Internal)?;
+        let tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
 
-        tracing::info!(count = tunnels.len(), "restored tunnel configurations from database");
+        tracing::info!(
+            count = tunnels.len(),
+            "restored tunnel configurations from database"
+        );
         Ok(())
     }
 }

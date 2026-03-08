@@ -3,8 +3,8 @@ use sqlx::SqlitePool;
 use wardnet_types::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_types::wireguard_config::WgPeerConfig;
 
-use super::super::tunnel::TunnelRow;
 use super::super::TunnelRepository;
+use super::super::tunnel::TunnelRow;
 
 /// SQLite-backed implementation of [`TunnelRepository`].
 pub struct SqliteTunnelRepository {
@@ -44,11 +44,7 @@ impl DbTunnelRow {
             _ => TunnelStatus::Down,
         };
 
-        let last_handshake = self
-            .last_handshake
-            .as_deref()
-            .map(str::parse)
-            .transpose()?;
+        let last_handshake = self.last_handshake.as_deref().map(str::parse).transpose()?;
 
         Ok(Tunnel {
             id: self.id.parse()?,

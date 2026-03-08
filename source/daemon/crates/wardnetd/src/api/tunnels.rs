@@ -2,7 +2,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use uuid::Uuid;
-use wardnet_types::api::{CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse};
+use wardnet_types::api::{
+    CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
+};
 
 use crate::api::middleware::AdminAuth;
 use crate::error::AppError;
