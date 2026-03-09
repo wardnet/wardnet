@@ -89,7 +89,7 @@ async-trait = "0.1"
 # https://crates.io/crates/wireguard-control
 wireguard-control = "1"
 # https://crates.io/crates/ipnetwork
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 # https://crates.io/crates/tokio-util
 tokio-util = { version = "0.7", features = ["rt"] }
 # https://crates.io/crates/pnet
