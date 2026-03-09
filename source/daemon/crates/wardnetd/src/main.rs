@@ -285,12 +285,10 @@ struct TracingGuards {
 fn otel_resource(config: &OtelConfig) -> opentelemetry_sdk::Resource {
     opentelemetry_sdk::Resource::builder()
         .with_service_name(config.service_name.clone())
-        .with_attributes([
-            KeyValue::new(
-                Key::new("service.version"),
-                Value::from(env!("WARDNET_VERSION")),
-            ),
-        ])
+        .with_attributes([KeyValue::new(
+            Key::new("service.version"),
+            Value::from(env!("WARDNET_VERSION")),
+        )])
         .build()
 }
 

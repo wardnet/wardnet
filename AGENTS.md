@@ -260,7 +260,7 @@ async fn create_and_find_by_username() {
 ## Boundaries
 
 ### Always do
-- Run formatter and linter before suggesting code changes
+- **Run `make check` (or the relevant `check-daemon` / `check-web` target) and fix ALL issues before pushing to remote.** This includes formatting (`cargo fmt`, `yarn format`), linting (`cargo clippy`, `yarn lint`), type checking (`yarn type-check`), and tests. CI will reject the push if any check fails — fix locally first.
 - Use parameterized `.bind()` queries for all SQL — never string-interpolate user input
 - Write tests for new functionality
 - Follow the layered architecture: handlers → services → repositories

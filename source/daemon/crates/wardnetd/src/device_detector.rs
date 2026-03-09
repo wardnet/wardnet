@@ -222,7 +222,11 @@ async fn departure_task(
 
         match discovery.scan_departures(timeout_secs).await {
             Ok(departed) => {
-                tracing::info!(count = departed.len(), "departure scan complete: count={count}", count = departed.len());
+                tracing::info!(
+                    count = departed.len(),
+                    "departure scan complete: count={count}",
+                    count = departed.len()
+                );
             }
             Err(e) => {
                 tracing::warn!(error = %e, "departure scan failed: {e}");
