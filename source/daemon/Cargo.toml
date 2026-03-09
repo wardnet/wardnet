@@ -55,7 +55,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # https://crates.io/crates/rust-embed
 rust-embed = { version = "8", features = ["axum"] }
 # https://crates.io/crates/toml
-toml = "0.8"
+toml = "1.0"
 
 # https://crates.io/crates/tracing-subscriber
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -67,7 +67,7 @@ argon2 = "0.5"
 # https://crates.io/crates/anyhow
 anyhow = "1"
 # https://crates.io/crates/rand
-rand = "0.9"
+rand = "0.10"
 # https://crates.io/crates/base64
 base64 = "0.22"
 
@@ -83,7 +83,7 @@ clap = { version = "4", features = ["derive"] }
 # https://crates.io/crates/reqwest
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
 # https://crates.io/crates/tabled
-tabled = "0.18"
+tabled = "0.20"
 # https://crates.io/crates/async-trait
 async-trait = "0.1"
 # https://crates.io/crates/wireguard-control
