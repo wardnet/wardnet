@@ -83,7 +83,7 @@ clap = { version = "4", features = ["derive"] }
 # https://crates.io/crates/reqwest
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
 # https://crates.io/crates/tabled
-tabled = "0.18"
+tabled = "0.20"
 # https://crates.io/crates/async-trait
 async-trait = "0.1"
 # https://crates.io/crates/wireguard-control
