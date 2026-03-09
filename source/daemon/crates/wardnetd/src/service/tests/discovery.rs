@@ -83,7 +83,8 @@ impl DeviceRepository for MockDeviceRepo {
             name: None,
             hostname: device.hostname.clone(),
             manufacturer: device.manufacturer.clone(),
-            device_type: serde_json::from_str(&device.device_type).unwrap_or(DeviceType::Unknown),
+            device_type: serde_json::from_str(&format!("\"{}\"", device.device_type))
+                .unwrap_or(DeviceType::Unknown),
             first_seen: device.first_seen.parse().unwrap(),
             last_seen: device.last_seen.parse().unwrap(),
             last_ip: device.last_ip.clone(),
@@ -140,7 +141,7 @@ impl DeviceRepository for MockDeviceRepo {
             if let Some(n) = name {
                 d.name = Some(n.to_owned());
             }
-            if let Ok(dt) = serde_json::from_str(device_type) {
+            if let Ok(dt) = serde_json::from_str(&format!("\"{device_type}\"")) {
                 d.device_type = dt;
             }
         }

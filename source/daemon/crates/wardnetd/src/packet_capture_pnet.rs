@@ -172,7 +172,7 @@ impl PacketCapture for PnetCapture {
         };
 
         let iface_name = interface.to_owned();
-        tracing::info!(interface = %iface_name, "packet capture started");
+        tracing::info!(interface = %iface_name, "packet capture started: interface={iface_name}");
 
         // Bridge blocking pnet receive loop to async world via spawn_blocking
         tokio::task::spawn_blocking(move || {
@@ -190,13 +190,13 @@ impl PacketCapture for PnetCapture {
                             tracing::warn!(
                                 interface = %iface_name,
                                 error = %e,
-                                "packet capture read error"
+                                "packet capture read error on {iface_name}: {e}"
                             );
                         }
                     }
                 }
             }
-            tracing::info!(interface = %iface_name, "packet capture stopped");
+            tracing::info!(interface = %iface_name, "packet capture stopped: interface={iface_name}");
         })
         .await?;
 
@@ -223,11 +223,12 @@ impl PacketCapture for PnetCapture {
         let mask = ipv4_net.mask();
         let hosts = subnet_hosts(src_ip, mask);
 
+        let host_count = hosts.len();
         tracing::info!(
             interface,
-            host_count = hosts.len(),
+            host_count,
             subnet = %ipv4_net,
-            "starting ARP scan"
+            "starting ARP scan: interface={interface}, host_count={host_count}, subnet={ipv4_net}"
         );
 
         let config = Config::default();
@@ -245,13 +246,13 @@ impl PacketCapture for PnetCapture {
                         interface = %iface_name,
                         target = %target_ip,
                         error = %e,
-                        "failed to send ARP request"
+                        "failed to send ARP request on {iface_name} to {target_ip}: {e}"
                     );
                 }
                 // Small delay to avoid flooding the network
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
-            tracing::info!(interface = %iface_name, "ARP scan complete");
+            tracing::info!(interface = %iface_name, "ARP scan complete: interface={iface_name}");
         })
         .await?;
 

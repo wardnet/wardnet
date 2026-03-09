@@ -20,15 +20,18 @@ impl PacketCapture for NoopPacketCapture {
     ) -> anyhow::Result<()> {
         tracing::info!(
             interface,
-            "noop: capture loop started, waiting for cancellation"
+            "noop: capture loop started on {interface}, waiting for cancellation"
         );
         cancel.cancelled().await;
-        tracing::info!(interface, "noop: capture loop cancelled");
+        tracing::info!(
+            interface,
+            "noop: capture loop cancelled: interface={interface}"
+        );
         Ok(())
     }
 
     async fn arp_scan(&self, interface: &str) -> anyhow::Result<()> {
-        tracing::info!(interface, "noop: arp scan");
+        tracing::info!(interface, "noop: arp scan: interface={interface}");
         Ok(())
     }
 }

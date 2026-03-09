@@ -1,8 +1,8 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 use async_trait::async_trait;
 
-/// Resolves IP addresses to hostnames via reverse DNS and mDNS.
+/// Resolves IP addresses to hostnames via reverse DNS.
 #[async_trait]
 pub trait HostnameResolver: Send + Sync {
     /// Attempt to resolve a hostname for the given IP address.
@@ -11,26 +11,15 @@ pub trait HostnameResolver: Send + Sync {
     async fn resolve(&self, ip: &str) -> Option<String>;
 }
 
-/// Real hostname resolver using system DNS and Avahi (on Linux).
+/// Real hostname resolver using system DNS.
 ///
-/// Tries reverse DNS first, then falls back to `avahi-resolve` for mDNS
-/// hostnames on Linux systems.
+/// Uses `getent hosts` for reverse DNS lookup. On Linux, falls back to
+/// `avahi-resolve` for mDNS hostnames if reverse DNS fails.
 pub struct SystemHostnameResolver;
 
 #[async_trait]
 impl HostnameResolver for SystemHostnameResolver {
     async fn resolve(&self, ip: &str) -> Option<String> {
-        let addr: IpAddr = ip.parse().ok()?;
-        let sock = SocketAddr::new(addr, 0);
-
-        // Try reverse DNS lookup.
-        if let Ok(hostname) = tokio::net::lookup_host(sock).await {
-            // lookup_host returns SocketAddr results; we want lookup_addr-style resolution.
-            // Unfortunately tokio doesn't have a direct lookup_addr, so we use the
-            // blocking DNS resolver via spawn_blocking.
-            let _ = hostname;
-        }
-
         // Use spawn_blocking for the blocking DNS reverse lookup.
         let ip_str = ip.to_owned();
         let rdns_result = tokio::task::spawn_blocking(move || {

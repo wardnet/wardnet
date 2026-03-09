@@ -160,7 +160,7 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
 
 ## Logging Guidelines
 
-All log messages must include structured fields **and** repeat key values in the message text. This ensures readability in both structured log aggregators (Loki, Grafana) and plain text output.
+When a log line includes structured fields, those key values **must** also appear in the message text. This ensures readability in both structured log aggregators (Loki, Grafana) and plain text output. Simple status messages without meaningful structured data (e.g. `"device detector shut down"`, `"using no-op network backends"`) are fine without structured fields.
 
 **Pattern:**
 ```rust
@@ -168,6 +168,9 @@ All log messages must include structured fields **and** repeat key values in the
 tracing::info!(mac = %obs.mac, ip = %obs.ip, "device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip);
 tracing::warn!(error = %e, interface = %iface, "ARP scan failed on {iface}: {e}");
 tracing::debug!(count, "flushed last_seen timestamps: count={count}");
+
+// CORRECT — simple status message, no structured fields needed
+tracing::info!("device detector shut down");
 
 // WRONG — fields only in structured args (message is opaque in plain text)
 tracing::info!(mac = %obs.mac, ip = %obs.ip, "device detected");

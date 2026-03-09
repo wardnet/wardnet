@@ -192,7 +192,7 @@ impl DeviceDiscoveryServiceImpl {
             hostname: None,
             manufacturer: manufacturer.clone(),
             device_type: serde_json::to_string(&device_type)
-                .unwrap_or_else(|_| "\"unknown\"".to_owned()),
+                .map_or_else(|_| "unknown".to_owned(), |s| s.trim_matches('"').to_owned()),
             first_seen: now.clone(),
             last_seen: now,
             last_ip: obs.ip.clone(),
@@ -271,7 +271,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         }
         drop(state);
 
-        tracing::info!(count, "restored device state from database");
+        tracing::info!(count, "restored device state from database: count={count}");
         Ok(())
     }
 
@@ -437,6 +437,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         // If a device_type was provided, serialize it; otherwise fetch the current one.
         let type_str = if let Some(dt) = device_type {
             serde_json::to_string(&dt)
+                .map(|s| s.trim_matches('"').to_owned())
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?
         } else {
             let current = self
@@ -446,6 +447,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
                 .map_err(AppError::Internal)?
                 .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
             serde_json::to_string(&current.device_type)
+                .map(|s| s.trim_matches('"').to_owned())
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?
         };
 
