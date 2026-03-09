@@ -6,11 +6,13 @@ on:
     paths:
       - "source/daemon/**/Cargo.toml"
       - "source/daemon/Cargo.lock"
+      - "source/daemon/audit.toml"
   pull_request:
     branches: [main]
     paths:
       - "source/daemon/**/Cargo.toml"
       - "source/daemon/Cargo.lock"
+      - "source/daemon/audit.toml"
   schedule:
     # Run daily at 06:00 UTC to catch newly disclosed advisories
     - cron: "0 6 * * *"
