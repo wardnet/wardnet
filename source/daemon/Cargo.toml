@@ -94,6 +94,8 @@ ipnetwork = "0.20"
 tokio-util = { version = "0.7", features = ["rt"] }
 # https://crates.io/crates/pnet
 pnet = "0.35"
+# https://crates.io/crates/sysinfo
+sysinfo = "0.35"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"

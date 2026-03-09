@@ -1,8 +1,8 @@
 source/daemon/target/
-source/web-ui/node_modules/
+node_modules/
 source/web-ui/dist/
 !source/web-ui/dist/index.html
-source/web-ui/.yarn/install-state.gz
+**/.yarn/install-state.gz
 *.db
 *.db-shm
 *.db-wal
@@ -10,4 +10,5 @@ source/web-ui/.yarn/install-state.gz
 .env
 .DS_Store
 .vscode/
+.idea/
 .claude/settings.local.json

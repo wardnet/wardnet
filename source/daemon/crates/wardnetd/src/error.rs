@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    #[error("conflict: {0}")]
+    Conflict(String),
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 
@@ -34,6 +37,7 @@ impl IntoResponse for AppError {
             }
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", Some(msg.clone())),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad request", Some(msg.clone())),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, "conflict", Some(msg.clone())),
             Self::Internal(err) => {
                 tracing::error!(error = %err, "internal server error");
                 (

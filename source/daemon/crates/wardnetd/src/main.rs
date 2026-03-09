@@ -116,13 +116,15 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Inner entry-point that runs inside the root `wardnetd{version=...}` span.
+#[allow(clippy::too_many_lines)]
 async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
     let pool = db::init_pool(&config.database.path).await?;
 
     // Create repository instances (concrete SQLite implementations).
-    let admin_repo = Arc::new(SqliteAdminRepository::new(pool.clone()));
+    let admin_repo: Arc<dyn wardnetd::repository::AdminRepository> =
+        Arc::new(SqliteAdminRepository::new(pool.clone()));
     let session_repo = Arc::new(SqliteSessionRepository::new(pool.clone()));
     let api_key_repo = Arc::new(SqliteApiKeyRepository::new(pool.clone()));
     let device_repo = Arc::new(SqliteDeviceRepository::new(pool.clone()));
@@ -138,10 +140,13 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let key_store = Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone()));
 
     // Create service instances, injecting repository traits.
+    // `system_config_repo` is shared between AuthServiceImpl and SystemServiceImpl,
+    // hence the clone — same pattern as `device_repo` which is shared across services.
     let auth_service = Arc::new(AuthServiceImpl::new(
         admin_repo,
         session_repo,
         api_key_repo,
+        system_config_repo.clone(),
         config.auth.session_expiry_hours,
     ));
     let device_service = Arc::new(DeviceServiceImpl::new(device_repo.clone()));
@@ -211,6 +216,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         tunnel_service,
         event_publisher,
         config.clone(),
+        started_at,
     );
 
     let app = api::router(state);

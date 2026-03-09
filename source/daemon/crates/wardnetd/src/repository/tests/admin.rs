@@ -41,3 +41,21 @@ async fn find_first_id_empty() {
     let result = repo.find_first_id().await.unwrap();
     assert!(result.is_none());
 }
+
+#[tokio::test]
+async fn exists_returns_false_when_empty() {
+    let pool = test_pool().await;
+    let repo = SqliteAdminRepository::new(pool);
+
+    assert!(!repo.exists().await.unwrap());
+}
+
+#[tokio::test]
+async fn exists_returns_true_when_admin_present() {
+    let pool = test_pool().await;
+    let repo = SqliteAdminRepository::new(pool);
+
+    repo.create("id-1", "alice", "hash").await.unwrap();
+
+    assert!(repo.exists().await.unwrap());
+}

@@ -46,6 +46,19 @@ pub struct SystemStatusResponse {
     pub device_count: u64,
     pub tunnel_count: u64,
     pub db_size_bytes: u64,
+    pub cpu_usage_percent: f32,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+}
+
+/// Response from the public info endpoint.
+///
+/// Returns basic server information without requiring authentication.
+/// Used by the web UI's connection status widget.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InfoResponse {
+    pub version: String,
+    pub uptime_seconds: u64,
 }
 
 /// Standard API error response.
@@ -102,4 +115,23 @@ pub struct DeviceDetailResponse {
 pub struct UpdateDeviceRequest {
     pub name: Option<String>,
     pub device_type: Option<DeviceType>,
+}
+
+/// Response for GET /api/setup/status.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupStatusResponse {
+    pub setup_completed: bool,
+}
+
+/// Request body for POST /api/setup.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupRequest {
+    pub username: String,
+    pub password: String,
+}
+
+/// Response for POST /api/setup.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupResponse {
+    pub message: String,
 }

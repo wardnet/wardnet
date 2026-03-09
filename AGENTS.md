@@ -17,10 +17,11 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make build-web`** — build web UI only
 - **`make build-daemon`** — build daemon for host target
 - **`make build-pi`** — cross-compile daemon for Raspberry Pi (`aarch64-unknown-linux-gnu`)
-- **`make check`** — run all checks (web + daemon: format, lint, tests)
-- **`make check-web`** — web UI typecheck + lint + format check
+- **`make check`** — run all checks (SDK + web + daemon: format, lint, tests)
+- **`make check-sdk`** — SDK typecheck + format check
+- **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
 - **`make check-daemon`** — Rust format + clippy + tests
-- **`make deploy PI_HOST=<ip>`** — build for Pi and deploy via SSH
+- **`make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>`** — cross-compile, deploy via SSH, run with verbose logging. Cleans database by default; `RESUME=true` keeps existing data. `OTEL=true` enables OpenTelemetry export.
 - **`make clean`** — clean all build artifacts
 
 ### Direct commands (when needed)
@@ -35,6 +36,14 @@ All commands run from `source/daemon/`.
 - **Format**: `cargo fmt` (check: `cargo fmt --check`)
 - **Run**: `cargo run -p wardnetd -- --verbose --mock-network`
 - **Single crate test**: `cargo test -p wardnetd`, `cargo test -p wardnet-types`
+
+#### SDK (`@wardnet/js`)
+
+All commands run from `source/sdk/wardnet-js/`. Uses **Yarn 4** (via Corepack).
+
+- **Install**: `yarn install`
+- **Type check**: `yarn type-check`
+- **Format**: `yarn format` (check: `yarn format:check`)
 
 #### Web UI
 
@@ -55,6 +64,8 @@ source/
 │   └── crates/
 │       ├── wardnet-types/           # Shared types: Device, Tunnel, RoutingTarget, Events, API DTOs
 │       ├── wardnetd/                # Daemon binary
+│       │   ├── build.rs             # Build script (version, OUI database generation)
+│       │   ├── data/oui.csv         # IEEE MA-L OUI database (~39K entries)
 │       │   ├── migrations/          # SQLite migrations (sqlx)
 │       │   └── src/
 │       │       ├── main.rs          # Entry point (thin — wires dependencies, starts server)
@@ -76,18 +87,30 @@ source/
 │       │       ├── packet_capture_noop.rs  # No-op impl (--mock-network)
 │       │       ├── hostname_resolver.rs    # HostnameResolver trait + SystemHostnameResolver
 │       │       ├── hostname_resolver_noop.rs  # No-op impl (--mock-network)
-│       │       ├── oui.rs             # MAC OUI prefix lookup (manufacturer database)
+│       │       ├── oui.rs             # MAC OUI prefix lookup (full IEEE MA-L database, ~39K entries)
+│       │       ├── bootstrap.rs      # (Legacy) Admin bootstrap — no longer called from main.rs
 │       │       ├── web.rs           # rust-embed static file serving
 │       │       ├── repository/      # Data access layer (traits in root, SQLite impls in sqlite/)
 │       │       ├── service/         # Business logic layer (traits + impls)
 │       │       └── api/             # HTTP handlers (thin, delegate to services)
 │       └── wctl/                    # CLI tool (clap)
+├── sdk/
+│   └── wardnet-js/                  # @wardnet/js — TypeScript SDK (browser + Node)
+│       └── src/
+│           ├── client.ts            # WardnetClient base HTTP client
+│           ├── services/            # AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService
+│           └── types/               # TypeScript type definitions (mirrors daemon API)
 └── web-ui/                          # React + TypeScript frontend
     └── src/
-        ├── api/                     # Typed fetch client
-        ├── components/              # Shared components
-        ├── pages/                   # Route pages
-        └── types/                   # TypeScript API type mirrors
+        ├── components/
+        │   ├── core/ui/             # shadcn/ui components (Button, Card, Sheet, etc.)
+        │   ├── compound/            # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo)
+        │   ├── features/            # Use-case components (DeviceList, TunnelList, LoginForm)
+        │   └── layouts/             # Page shells (AppLayout, AuthLayout)
+        ├── hooks/                   # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useTunnels, useSystemStatus, useDaemonStatus, useSetup)
+        ├── stores/                  # Zustand stores (authStore)
+        ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
+        └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
 ```
 
 ## Technical Stack
@@ -96,16 +119,26 @@ source/
 - Rust 1.94, edition 2024 (pinned in `rust-toolchain.toml`)
 - axum 0.8, tokio, tower-http
 - SQLite via sqlx 0.8 (runtime queries with `.bind()`, not compile-time macros)
-- argon2 for password/API key hashing, SHA-256 for session tokens
+- argon2 for password/API key hashing (Argon2id), SHA-256 for session tokens
+- sysinfo for host CPU/memory monitoring
 - rust-embed to serve web UI from the binary
 - async-trait for trait object interfaces
+
+### SDK (`@wardnet/js`)
+- TypeScript 5.9, zero runtime dependencies
+- Uses native `fetch` (works in browser and Node 18+)
+- No DOM types — minimal `fetch.d.ts` for cross-environment support
+- Linked to web-ui via Yarn `portal:` protocol (`"@wardnet/js": "portal:../sdk/wardnet-js"`)
+- Yarn 4 with `nodeLinker: node-modules`
 
 ### Web UI
 - React 19, TypeScript 5.9, Vite 7
 - Tailwind CSS 4 (CSS-first config: `@import "tailwindcss"` + `@tailwindcss/vite` plugin)
+- shadcn/ui (Radix UI primitives + Tailwind styling) — components in `src/components/core/ui/`
 - TanStack Query 5, React Router 7, Zustand 5
 - ESLint 10 + Prettier
 - Yarn 4 with `nodeLinker: node-modules`
+- Path alias: `@/` → `src/` (Vite + tsconfig)
 
 ## Architecture
 
@@ -129,6 +162,8 @@ SQLite        │  Parameterized queries only (`.bind()`), never string interpol
 - **API handlers never touch the database** — they call services, services call repositories
 
 ### Auth model
+- **Setup wizard**: On first run, no admin exists. `GET /api/setup/status` returns `setup_completed: false`. Web UI redirects to setup page. `POST /api/setup` creates the first admin (Argon2id hashed). Returns 409 if already completed.
+- **Unauthenticated endpoints**: `GET /api/info` (version + uptime), `GET /api/setup/status`, `POST /api/setup`, `GET /api/devices/me`, `PUT /api/devices/me/rule`
 - Unauthenticated self-service for users (auto-detected by source IP via `ConnectInfo<SocketAddr>`)
 - Admin login required for privileged operations (session cookie or API key)
 
@@ -152,6 +187,12 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
 3. Every `tokio::spawn(future)` must be `tokio::spawn(future.instrument(span.clone()))` — spawned tasks do NOT inherit parent spans
 4. For inner spawns (e.g. hostname resolution inside device_detector), capture `tracing::Span::current()` and instrument the spawned future
 5. `main.rs` captures `root_span = tracing::Span::current()` (which is the `wardnetd{version=...}` span) and passes it to all component `start()` calls
+
+**OUI Database:**
+- Full IEEE MA-L database (~39K entries) in `crates/wardnetd/data/oui.csv`
+- Parsed at build time by `crates/wardnetd/build.rs` → generates `oui_data.rs` in `OUT_DIR`
+- Locally administered MACs (bit 1 of first byte set) detected as "Randomized MAC" (typically phones using MAC randomization)
+- `cargo::rerun-if-changed=data/oui.csv` — only regenerates when CSV changes
 
 **Versioning:**
 - Version is derived from git tags at compile time via `build.rs` → `WARDNET_VERSION` env var
@@ -202,10 +243,24 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 - Infrastructure tests (event bus, key store) use dedicated test files under `src/tests/`
 - All traits (WireGuardOps, KeyStore, EventPublisher, repositories) have test doubles for unit testing
 
+### SDK (`@wardnet/js`)
+- Pure TypeScript — no React, no DOM dependencies
+- Service classes (AuthService, DeviceService, etc.) accept a `WardnetClient` instance
+- Types mirror daemon API DTOs — keep in sync when API changes
+
 ### Web UI
 - Prettier for formatting (configured in `.prettierrc`)
 - ESLint with Prettier integration
 - React Router 7 imports from `react-router` (not `react-router-dom`)
+- **Component layers** (strict separation):
+  - `core/ui/` — shadcn components, no business logic, do not modify directly (re-pull via shadcn CLI)
+  - `compound/` — compositions of core components, data via props only, no API calls
+  - `features/` — use-case views, data via props + callbacks, no direct API/service calls
+  - `layouts/` — page shells, navigation/routing, no business logic
+  - `pages/` — route-level, wire TanStack Query hooks → feature/compound components
+- **All business logic in `@wardnet/js`** — components are pure presentation
+- **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error
+- **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`
 
 ### Dependencies
 - Always add a comment with the crates.io or npmjs URL before each dependency in `Cargo.toml` / `package.json`
@@ -216,6 +271,9 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 ```bash
 # All Rust tests
 cd source/daemon && cargo test --workspace
+
+# SDK checks
+cd source/sdk/wardnet-js && yarn type-check && yarn format:check
 
 # Web UI checks
 cd source/web-ui && yarn type-check && yarn lint && yarn format:check

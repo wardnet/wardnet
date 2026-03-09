@@ -70,6 +70,8 @@ ipnetwork.workspace = true
 tokio-util.workspace = true
 # https://crates.io/crates/pnet
 pnet.workspace = true
+# https://crates.io/crates/sysinfo
+sysinfo.workspace = true
 # https://crates.io/crates/opentelemetry
 opentelemetry.workspace = true
 # https://crates.io/crates/opentelemetry_sdk
