@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::device::{Device, DeviceType};
+use crate::vpn_provider::{ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 
@@ -133,5 +134,71 @@ pub struct SetupRequest {
 /// Response for POST /api/setup.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetupResponse {
+    pub message: String,
+}
+
+/// Response for GET /api/providers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProvidersResponse {
+    /// List of available VPN providers.
+    pub providers: Vec<ProviderInfo>,
+}
+
+/// Request body for POST /api/providers/:id/validate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateCredentialsRequest {
+    /// Credentials to validate against the provider.
+    pub credentials: ProviderCredentials,
+}
+
+/// Response for POST /api/providers/:id/validate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateCredentialsResponse {
+    /// Whether the credentials are valid.
+    pub valid: bool,
+    /// Human-readable validation result message.
+    pub message: String,
+}
+
+/// Request body for POST /api/providers/:id/servers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListServersRequest {
+    /// Credentials for authenticating with the provider.
+    pub credentials: ProviderCredentials,
+    /// Optional filters for the server list.
+    #[serde(default)]
+    pub filter: ServerFilter,
+}
+
+/// Response for GET/POST /api/providers/:id/servers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListServersResponse {
+    /// List of available servers from the provider.
+    pub servers: Vec<ServerInfo>,
+}
+
+/// Request body for POST /api/providers/:id/setup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupProviderRequest {
+    /// Credentials for authenticating with the provider.
+    pub credentials: ProviderCredentials,
+    /// Country code for server selection.
+    pub country: String,
+    /// Optional label override; defaults to provider-generated label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// If set, use this specific server ID instead of auto-selecting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+}
+
+/// Response for POST /api/providers/:id/setup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupProviderResponse {
+    /// The created tunnel.
+    pub tunnel: Tunnel,
+    /// The selected server.
+    pub server: ServerInfo,
+    /// Human-readable result message.
     pub message: String,
 }

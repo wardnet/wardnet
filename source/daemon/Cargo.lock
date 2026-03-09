@@ -3482,6 +3482,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pnet",
  "rand 0.10.0",
+ "reqwest",
  "rust-embed",
  "serde",
  "serde_json",

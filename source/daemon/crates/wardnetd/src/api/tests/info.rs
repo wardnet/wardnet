@@ -11,7 +11,9 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_types::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
-    InfoResponse, ListTunnelsResponse, SetMyRuleResponse, SystemStatusResponse,
+    InfoResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
+    ListTunnelsResponse, SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse,
+    SystemStatusResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
 use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::event::WardnetEvent;
@@ -24,8 +26,8 @@ use crate::event::EventPublisher;
 use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, SystemService,
-    TunnelService,
+    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
+    SystemService, TunnelService,
 };
 use crate::state::AppState;
 
@@ -113,6 +115,35 @@ impl SystemService for StubSystemService {
     }
 }
 
+struct StubProviderService;
+#[async_trait]
+impl ProviderService for StubProviderService {
+    async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
+        unimplemented!()
+    }
+    async fn validate_credentials(
+        &self,
+        _provider_id: &str,
+        _request: ValidateCredentialsRequest,
+    ) -> Result<ValidateCredentialsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_servers(
+        &self,
+        _provider_id: &str,
+        _request: ListServersRequest,
+    ) -> Result<ListServersResponse, AppError> {
+        unimplemented!()
+    }
+    async fn setup_tunnel(
+        &self,
+        _provider_id: &str,
+        _request: SetupProviderRequest,
+    ) -> Result<SetupProviderResponse, AppError> {
+        unimplemented!()
+    }
+}
+
 struct StubTunnelService;
 #[async_trait]
 impl TunnelService for StubTunnelService {
@@ -161,6 +192,7 @@ fn make_state(started_at: Instant) -> AppState {
         Arc::new(StubAuthService),
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

@@ -32,9 +32,10 @@ use wardnetd::repository::{
     SqliteSystemConfigRepository, SqliteTunnelRepository,
 };
 use wardnetd::service::{
-    AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, SystemServiceImpl,
-    TunnelServiceImpl,
+    AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, ProviderServiceImpl,
+    SystemServiceImpl, TunnelServiceImpl,
 };
+use wardnetd::vpn_provider_registry::VpnProviderRegistry;
 use wardnetd::state::AppState;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_monitor::TunnelMonitor;
@@ -159,6 +160,14 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
             event_publisher.clone(),
         ));
 
+    // VPN provider registry and service.
+    let registry = Arc::new(VpnProviderRegistry::new(&config));
+    let provider_service: Arc<dyn wardnetd::service::ProviderService> =
+        Arc::new(ProviderServiceImpl::new(
+            registry,
+            tunnel_service.clone(),
+        ));
+
     // Create device discovery service.
     let discovery_service: Arc<dyn wardnetd::service::DeviceDiscoveryService> = Arc::new(
         DeviceDiscoveryServiceImpl::new(device_repo, event_publisher.clone(), hostname_resolver),
@@ -212,6 +221,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         auth_service,
         device_service,
         discovery_service,
+        provider_service,
         system_service,
         tunnel_service,
         event_publisher,

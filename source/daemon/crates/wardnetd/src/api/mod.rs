@@ -2,6 +2,7 @@ pub mod auth;
 pub mod devices;
 pub mod info;
 pub mod middleware;
+pub mod providers;
 pub mod setup;
 pub mod system;
 pub mod tunnels;
@@ -43,7 +44,14 @@ pub fn router(state: AppState) -> Router {
             "/tunnels",
             get(tunnels::list_tunnels).post(tunnels::create_tunnel),
         )
-        .route("/tunnels/{id}", delete(tunnels::delete_tunnel));
+        .route("/tunnels/{id}", delete(tunnels::delete_tunnel))
+        .route("/providers", get(providers::list_providers))
+        .route(
+            "/providers/{id}/validate",
+            post(providers::validate_credentials),
+        )
+        .route("/providers/{id}/servers", post(providers::list_servers))
+        .route("/providers/{id}/setup", post(providers::setup_tunnel));
 
     Router::new()
         .nest("/api", api)

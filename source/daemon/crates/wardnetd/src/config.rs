@@ -15,6 +15,7 @@ pub struct Config {
     pub tunnel: TunnelConfig,
     pub detection: DetectionConfig,
     pub otel: OtelConfig,
+    pub providers: ProvidersConfig,
 }
 
 /// HTTP server configuration.
@@ -260,7 +261,43 @@ impl Default for OtelConfig {
     }
 }
 
+/// Per-provider enable/disable overrides.
+///
+/// By default all registered providers are enabled. To disable a provider,
+/// set its ID to `false`:
+///
+/// ```toml
+/// [providers.enabled]
+/// nordvpn = false
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProvidersConfig {
+    /// Map of provider ID to enabled flag. Providers not listed here are
+    /// treated as enabled.
+    pub enabled: std::collections::HashMap<String, bool>,
+}
+
+impl Default for ProvidersConfig {
+    fn default() -> Self {
+        Self {
+            enabled: std::collections::HashMap::new(),
+        }
+    }
+}
+
 impl Config {
+    /// Check whether a provider is enabled. Returns `true` unless the provider
+    /// is explicitly set to `false` in the `[providers.enabled]` table.
+    #[must_use]
+    pub fn is_provider_enabled(&self, id: &str) -> bool {
+        self.providers
+            .enabled
+            .get(id)
+            .copied()
+            .unwrap_or(true)
+    }
+
     /// Load configuration from the given TOML file path. If the file does not
     /// exist, returns default configuration.
     pub fn load(path: &Path) -> anyhow::Result<Self> {

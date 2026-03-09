@@ -11,7 +11,9 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_types::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
-    ListTunnelsResponse, SetMyRuleResponse, SetupStatusResponse, SystemStatusResponse,
+    ListProvidersResponse, ListServersRequest, ListServersResponse, ListTunnelsResponse,
+    SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse, SetupStatusResponse,
+    SystemStatusResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
 use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::event::WardnetEvent;
@@ -24,8 +26,8 @@ use crate::event::EventPublisher;
 use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, SystemService,
-    TunnelService,
+    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
+    SystemService, TunnelService,
 };
 use crate::state::AppState;
 
@@ -89,6 +91,35 @@ struct StubSystemService;
 #[async_trait]
 impl SystemService for StubSystemService {
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+        unimplemented!()
+    }
+}
+
+struct StubProviderService;
+#[async_trait]
+impl ProviderService for StubProviderService {
+    async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
+        unimplemented!()
+    }
+    async fn validate_credentials(
+        &self,
+        _provider_id: &str,
+        _request: ValidateCredentialsRequest,
+    ) -> Result<ValidateCredentialsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_servers(
+        &self,
+        _provider_id: &str,
+        _request: ListServersRequest,
+    ) -> Result<ListServersResponse, AppError> {
+        unimplemented!()
+    }
+    async fn setup_tunnel(
+        &self,
+        _provider_id: &str,
+        _request: SetupProviderRequest,
+    ) -> Result<SetupProviderResponse, AppError> {
         unimplemented!()
     }
 }
@@ -173,6 +204,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(auth),
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

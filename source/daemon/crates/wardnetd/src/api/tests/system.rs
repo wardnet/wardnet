@@ -25,9 +25,14 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
+use wardnet_types::api::{
+    ListProvidersResponse, ListServersRequest, ListServersResponse, SetupProviderRequest,
+    SetupProviderResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
+};
+
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, SystemService,
-    TunnelService,
+    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
+    SystemService, TunnelService,
 };
 use crate::state::AppState;
 
@@ -126,6 +131,35 @@ impl EventPublisher for StubEventPublisher {
     }
 }
 
+struct StubProviderService;
+#[async_trait]
+impl ProviderService for StubProviderService {
+    async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
+        Ok(ListProvidersResponse { providers: vec![] })
+    }
+    async fn validate_credentials(
+        &self,
+        _id: &str,
+        _req: ValidateCredentialsRequest,
+    ) -> Result<ValidateCredentialsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_servers(
+        &self,
+        _id: &str,
+        _req: ListServersRequest,
+    ) -> Result<ListServersResponse, AppError> {
+        unimplemented!()
+    }
+    async fn setup_tunnel(
+        &self,
+        _id: &str,
+        _req: SetupProviderRequest,
+    ) -> Result<SetupProviderResponse, AppError> {
+        unimplemented!()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mock services
 // ---------------------------------------------------------------------------
@@ -208,6 +242,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(auth),
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
         Arc::new(system),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

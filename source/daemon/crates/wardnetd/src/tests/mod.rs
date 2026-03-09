@@ -8,3 +8,4 @@ mod packet_capture;
 mod tunnel_idle;
 mod tunnel_monitor;
 mod version;
+mod vpn_provider_nordvpn;

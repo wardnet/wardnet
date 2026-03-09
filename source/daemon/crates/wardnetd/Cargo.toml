@@ -60,6 +60,8 @@ hex.workspace = true
 mime_guess.workspace = true
 # https://crates.io/crates/async-trait
 async-trait.workspace = true
+# https://crates.io/crates/reqwest
+reqwest.workspace = true
 # https://crates.io/crates/clap
 clap.workspace = true
 # https://crates.io/crates/wireguard-control
