@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::config::Config;
 use crate::event::EventPublisher;
@@ -23,10 +24,12 @@ struct Inner {
     tunnel_service: Arc<dyn TunnelService>,
     event_publisher: Arc<dyn EventPublisher>,
     config: Config,
+    started_at: Instant,
 }
 
 impl AppState {
     /// Create a new application state with the given services and configuration.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         auth_service: Arc<dyn AuthService>,
         device_service: Arc<dyn DeviceService>,
@@ -35,6 +38,7 @@ impl AppState {
         tunnel_service: Arc<dyn TunnelService>,
         event_publisher: Arc<dyn EventPublisher>,
         config: Config,
+        started_at: Instant,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -45,6 +49,7 @@ impl AppState {
                 tunnel_service,
                 event_publisher,
                 config,
+                started_at,
             }),
         }
     }
@@ -82,5 +87,11 @@ impl AppState {
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    /// The instant when the daemon started, used to compute uptime.
+    #[must_use]
+    pub fn started_at(&self) -> Instant {
+        self.inner.started_at
     }
 }

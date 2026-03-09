@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use axum::Router;
@@ -50,6 +51,12 @@ impl AuthService for MockAuthService {
     }
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
         Ok(None)
+    }
+    async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
     }
 }
 
@@ -122,6 +129,9 @@ impl SystemService for StubSystemService {
             device_count: 0,
             tunnel_count: 0,
             db_size_bytes: 0,
+            cpu_usage_percent: 0.0,
+            memory_used_bytes: 0,
+            memory_total_bytes: 0,
         })
     }
 }
@@ -246,6 +256,7 @@ fn build_state(tunnel_svc: impl TunnelService + 'static) -> AppState {
         Arc::new(tunnel_svc),
         Arc::new(StubEventPublisher),
         Config::default(),
+        Instant::now(),
     )
 }
 

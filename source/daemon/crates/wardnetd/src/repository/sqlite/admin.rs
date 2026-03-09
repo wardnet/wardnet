@@ -44,4 +44,11 @@ impl AdminRepository for SqliteAdminRepository {
             .await?;
         Ok(row)
     }
+
+    async fn exists(&self) -> anyhow::Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM admins")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count > 0)
+    }
 }

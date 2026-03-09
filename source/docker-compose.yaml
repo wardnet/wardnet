@@ -7,7 +7,7 @@ services:
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
-      - "7411:3000"   # Grafana UI  →  http://localhost:3000  (admin/admin)
+      - "7413:3000"   # Grafana UI  →  http://localhost:3000  (admin/admin)
     volumes:
       - lgtm-data:/data
 

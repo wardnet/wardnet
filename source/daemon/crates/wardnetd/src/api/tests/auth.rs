@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use axum::Router;
@@ -161,6 +162,14 @@ impl AuthService for MockAuthService {
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
         Ok(None)
     }
+
+    async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +185,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
         Config::default(),
+        Instant::now(),
     )
 }
 

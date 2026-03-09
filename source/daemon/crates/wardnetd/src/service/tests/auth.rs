@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use crate::repository::{AdminRepository, ApiKeyRepository, SessionRepository};
+use crate::repository::{
+    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
+};
 use crate::service::{AuthService, AuthServiceImpl};
 
 // -- Mock repositories ---------------------------------------------------
@@ -23,6 +25,9 @@ impl AdminRepository for MockAdminRepo {
     }
     async fn find_first_id(&self) -> anyhow::Result<Option<String>> {
         Ok(self.first_id.lock().unwrap().clone())
+    }
+    async fn exists(&self) -> anyhow::Result<bool> {
+        Ok(self.find_result.lock().unwrap().is_some())
     }
 }
 
@@ -73,6 +78,28 @@ impl ApiKeyRepository for MockApiKeyRepo {
     }
 }
 
+/// Mock system config repo (unused in login/session tests).
+struct MockSystemConfigRepo;
+
+#[async_trait]
+impl SystemConfigRepository for MockSystemConfigRepo {
+    async fn get(&self, _key: &str) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    async fn set(&self, _key: &str, _value: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 fn argon2_hash(password: &str) -> String {
@@ -101,6 +128,7 @@ fn make_auth_service(
         Arc::new(MockApiKeyRepo {
             hashes: api_key_hashes,
         }),
+        Arc::new(MockSystemConfigRepo),
         24,
     )
 }

@@ -1,6 +1,6 @@
 # Wardnet Phase 1 (MVP) Implementation Plan
 
-**Last updated:** March 2026
+**Last updated:** March 9, 2026
 
 ---
 
@@ -58,12 +58,22 @@ wardnet/
 │   │               ├── auth.rs       # Session, ApiKeyRecord, Role
 │   │               ├── event.rs      # WardnetEvent enum
 │   │               └── wireguard_config.rs  # .conf parser + WgConfig types
+│   ├── sdk/
+│   │   └── wardnet-js/                  # @wardnet/js — TypeScript SDK (browser + Node)
+│   │       └── src/
+│   │           ├── client.ts            # WardnetClient base HTTP client
+│   │           ├── services/            # AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService
+│   │           └── types/               # TypeScript type definitions (mirrors daemon API)
 │   └── web-ui/                       # React + Vite project
 │       └── src/
-│           ├── api/                  # typed fetch client
-│           ├── pages/                # Dashboard, Devices, Tunnels, Settings
-│           ├── components/           # Layout, shared
-│           └── types/                # TypeScript API types
+│           ├── components/
+│           │   ├── core/ui/          # shadcn/ui components (Button, Card, Sheet, etc.)
+│           │   ├── compound/         # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo)
+│           │   └── layouts/          # Page shells (AppLayout, AuthLayout)
+│           ├── hooks/                # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useTunnels, useSystemStatus, useDaemonStatus, useSetup)
+│           ├── stores/               # Zustand stores (authStore)
+│           ├── pages/                # Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice
+│           └── lib/                  # SDK instance, utilities (cn, formatBytes, formatUptime, timeAgo)
 ├── .github/workflows/ci.yml
 ├── implementation-docs/
 ├── AGENTS.md
@@ -80,7 +90,11 @@ wardnet/
 
 ### Web UI Stack
 
-React + TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand, React Router
+React 19 + TypeScript 5.9, Vite 7, Tailwind CSS 4, shadcn/ui (Radix), TanStack Query 5, Zustand 5, React Router 7, Lucide icons
+
+### SDK Package
+
+`@wardnet/js` — TypeScript SDK with WardnetClient, service classes, and API types. Zero runtime deps (native `fetch`). Linked via Yarn `portal:` protocol.
 
 ---
 
@@ -89,20 +103,23 @@ React + TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand, React Router
 ### Startup Sequence
 
 1. Parse CLI args, load config from `/etc/wardnet/wardnet.toml`
-2. Initialize tracing/logging
+2. Initialize tracing/logging (hierarchical spans, optional OpenTelemetry export)
 3. Detect shutdown type: check for graceful shutdown flag file — if absent, record unclean shutdown in DB
 4. Open SQLite (WAL mode), run migrations
 5. Create EventPublisher (`BroadcastEventBus` wrapping `tokio::broadcast`)
-6. Start TunnelManager -- restore tunnels from DB (but do NOT bring interfaces up yet -- tunnels start on-demand)
-7. Start RoutingEngine -- reconcile DB state with kernel (ip rule, nftables)
+6. Create service instances with trait-based DI (AuthService, DeviceService, SystemService, TunnelService)
+7. Start TunnelManager -- restore tunnels from DB (but do NOT bring interfaces up yet -- tunnels start on-demand)
 8. Start DeviceDetector -- ARP/packet sniffing on LAN interface
-9. Start DhcpServer -- begin serving DHCP leases on LAN interface
-10. Start DnsManager -- generate Unbound config, reload Unbound
-11. Broadcast GARP reclaiming gateway role (announce gateway IP at Pi's MAC)
-12. Start hardware watchdog petting loop
-13. Start API server (axum) with shared AppState
-14. Write graceful shutdown flag file
-15. Signal readiness to systemd (`sd_notify`)
+9. _(Future)_ Start RoutingEngine -- reconcile DB state with kernel (ip rule, nftables)
+10. _(Future)_ Start DhcpServer -- begin serving DHCP leases on LAN interface
+11. _(Future)_ Start DnsManager -- generate Unbound config, reload Unbound
+12. _(Future)_ Broadcast GARP reclaiming gateway role (announce gateway IP at Pi's MAC)
+13. _(Future)_ Start hardware watchdog petting loop
+14. Start API server (axum) with shared AppState — serves REST API + embedded web UI
+15. _(Future)_ Write graceful shutdown flag file
+16. _(Future)_ Signal readiness to systemd (`sd_notify`)
+
+> **Note:** No admin account is bootstrapped on startup. The first admin is created via the web UI setup wizard (`POST /api/setup`). The daemon starts in "setup mode" until this is completed.
 
 ### Internal Event Bus
 
@@ -169,8 +186,9 @@ Tunnels are NOT kept up at all times. They are brought up on-demand and torn dow
 
 Two-tier model: unauthenticated self-service for regular users, admin login for privileged operations.
 
-- **Unauthenticated self-service** -- Any device on the LAN can access the web UI without logging in. The UI auto-detects the requesting device (by source IP/MAC) and shows a self-service view: the user can see their own device and change its routing rule (tunnel/direct/default). No login required. This is the default experience for household members.
-- **Admin login** -- The first-run wizard sets up an admin account (username + password). Admin logs in to access privileged features: tunnel management, all device management, user overrides, system settings. Login returns a session token (httpOnly cookie).
+- **Unauthenticated self-service** -- Any device on the LAN can access the web UI without logging in. The UI auto-detects the requesting device (by source IP via `ConnectInfo<SocketAddr>`) and shows a self-service "My Device" view: the user can see their own device info and routing status. No login required. This is the default experience for household members.
+- **Setup wizard** -- On first run, the daemon has no admin account. The web UI detects this via `GET /api/setup/status` and redirects to a setup page where the user creates the first admin account (username + password, min 8 chars, Argon2id hashed). `POST /api/setup` creates the account and marks setup as completed. No default credentials are ever generated.
+- **Admin login** -- After setup, admin logs in via `POST /api/auth/login` to access privileged features: tunnel management, all device management, system settings. Login returns a session cookie. Non-admin users see a "Sign in as admin" link in the sidebar.
 - **Admin API key** -- Generated during wizard setup. Stored hashed (argon2) in SQLite. Used by CLI and scripts for admin-level API access.
 - **CLI (wctl)** -- Authenticates with admin API key via `Authorization: Bearer <key>` header. Stored in `~/.config/wardnet/wctl.toml`.
 - **Auth middleware** -- axum middleware with three access levels:
@@ -193,8 +211,13 @@ Two-tier model: unauthenticated self-service for regular users, admin login for 
 10. **Built-in DHCP server** -- Wardnet runs its own DHCP server on the LAN interface, making the Pi the default gateway and DNS for all devices automatically. No per-device manual configuration needed. Short lease time (10 min) for fast recovery after restarts.
 11. **GARP failover** -- On graceful shutdown, broadcast GARP announcing router's MAC as gateway so devices fall back to the real router instantly. On startup, broadcast GARP reclaiming gateway role. Router MAC persisted to disk during setup so failover works even during crash recovery.
 12. **Hardware watchdog** -- Linux watchdog configured at install time. If wardnetd hangs, kernel reboots the Pi within 15 seconds. Combined with systemd Restart=always (RestartSec=2s), provides defence in depth.
-13. **Hierarchical tracing spans** -- Root span `wardnetd{version=...}` wraps the entire daemon. Each background component (`tunnel_monitor`, `device_detector`, `idle_watcher`, `api_server`) creates a child span. Per-HTTP-request spans include method and path. All `tokio::spawn` tasks must be `.instrument(span)` since spawned tasks don't inherit parent spans. Version appears in every log entry (console and JSON).
+13. **Hierarchical tracing spans** -- Root span `wardnetd{version=...}` wraps the entire daemon. Each background component (`tunnel_monitor`, `device_detector`, `idle_watcher`, `api_server`) creates a child span. Per-HTTP-request spans include method, path, content-length, response status, and latency. All `tokio::spawn` tasks must be `.instrument(span)` since spawned tasks don't inherit parent spans. Version appears in every log entry (console and JSON).
 14. **Git-based versioning** -- `build.rs` runs `git describe --tags` at compile time. Release builds from tags get clean SemVer (`0.1.0`). Dev builds get `0.1.1-dev.N+gabc1234`. Shared parsing logic in `build-support/version.rs` included by both `wardnetd` and `wctl` build scripts.
+15. **Setup wizard (no default credentials)** -- No admin account is bootstrapped on startup. The web UI detects first-run via `GET /api/setup/status` and presents a setup wizard to create the first admin. Passwords are Argon2id hashed. `POST /api/setup` is a one-time endpoint that returns 409 if already completed.
+16. **Unauthenticated info endpoint** -- `GET /api/info` returns version + uptime without auth. Used by the web UI connection status widget to show daemon reachability and version regardless of login state.
+17. **Full IEEE OUI database** -- MAC manufacturer lookup uses the complete IEEE MA-L database (~39K entries) parsed from `data/oui.csv` at build time via `build.rs`. Locally administered MACs (randomized by Android/iOS) are detected by checking bit 1 of the first byte.
+18. **Host resource monitoring** -- System status endpoint reports CPU usage, memory used/total via the `sysinfo` crate. A persistent `System` instance behind `tokio::sync::Mutex` provides accurate CPU readings across calls.
+19. **Separate SDK package** -- `@wardnet/js` in `source/sdk/wardnet-js/` contains all API client code, services, and TypeScript types. Zero runtime dependencies (uses native `fetch`). The web UI is pure presentation — no API calls or business logic in components.
 
 ### Running Without Root
 
@@ -294,7 +317,8 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - [x] `last_seen` batch updates every 30s
 - [x] Device departure: configurable timeout (default 5min), emit `DeviceGone` when exceeded
 - [x] Device reappearance: re-emit `DeviceDiscovered` if previously gone
-- [x] MAC OUI prefix lookup for manufacturer/device type hinting (embedded database)
+- [x] MAC OUI prefix lookup for manufacturer/device type hinting (full IEEE MA-L database, ~39K entries, parsed at build time from `data/oui.csv`)
+- [x] Locally administered MAC detection (randomized MACs from Android/iOS privacy features)
 - [x] DeviceDiscoveryService trait + impl with full observation processing pipeline
 - [x] API: `GET /api/devices` (admin: all, user: own), `GET /api/devices/:id`, `PUT /api/devices/:id` (admin: rename, set type)
 - [x] Unified build system: Makefile with `make init`, `make build-pi`, `make run-pi`, `make check`, used by both local dev and CI
@@ -374,21 +398,40 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** DNS queries from VPN-routed devices resolve through tunnel DNS.
 
-### Milestone 1h: Web UI -- Core Pages
+### Milestone 1h: Web UI -- Core Layout & Pages (In Progress)
 
-**Goal:** Functional web UI for managing the system.
+**Goal:** Functional web UI with branded design, responsive layout, and real API data.
 
-- [ ] API client layer: TanStack Query hooks, typed requests matching wardnet-types
-- [ ] Auth: no-login self-service view (auto-detect device by IP, show routing controls), admin login for full management
-- [ ] WebSocket client hook: connect to `/api/ws`, dispatch events to Zustand stores
-- [ ] App shell: sidebar nav (Dashboard, Devices, Tunnels, Settings)
-- [ ] **Dashboard:** device summary (active/gone), tunnel health overview (up/down/idle), quick-action route change
-- [ ] **Devices page:** table with name/IP/MAC/route/status/last_seen, click for detail, routing rule selector dropdown
-- [ ] **Tunnels page (admin):** list with status/country/bytes, add tunnel (upload .conf or paste), delete with confirmation (warn if devices assigned)
-- [ ] **Settings page (admin):** user management (create API keys, assign devices), global default policy, system info
-- [ ] **First-Run Wizard:** detect first-boot, steps: set admin username/password -> configure static IP -> DHCP onboarding (detect existing DHCP server, guide user to disable it or switch to per-device fallback mode) -> router MAC discovery (silent, surfaces only on failure) -> add first tunnel -> set default policy -> done
-- [ ] **Settings page additions:** last shutdown type (graceful/unclean) with warning banner, Safe Reboot button (prominent), Safe Shutdown button (with confirmation dialog), DHCP panel (active leases, static reservations, lease history)
-- [ ] Real-time updates via WebSocket (device status, tunnel health, device discovered/gone, DHCP conflict alerts, unclean shutdown warnings)
+#### Completed:
+- [x] **SDK package (`@wardnet/js`)**: TypeScript SDK with WardnetClient, AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService. Zero runtime deps, browser + Node 18+ support via native `fetch`. Linked via Yarn `portal:` protocol.
+- [x] **shadcn/ui integration**: Button, Card, Sheet, Input, Label, Badge components in `src/components/core/ui/`
+- [x] **Brand design**: Deep indigo + green accent palette (oklch), custom CSS variables for light/dark mode, Geist font
+- [x] **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`
+- [x] **Responsive layout**: Desktop persistent sidebar + mobile hamburger menu (shadcn Sheet). Deep indigo sidebar in both modes, frosted glass mobile header.
+- [x] **Logo**: PNG from `artwork/logo.png` embedded in sidebar and auth pages
+- [x] **Auth flow**: Zustand store, session cookie, admin vs self-service route guards, "Sign in as admin" / "Sign out" in sidebar
+- [x] **Setup wizard**: First-run detection via `GET /api/setup/status`, redirect to setup page, create admin account, auto-login after setup
+- [x] **Connection status widget**: Traffic-light indicator + version in sidebar footer, uses unauthenticated `/api/info` endpoint
+- [x] **TanStack Query hooks**: useDevices (10s poll), useTunnels (15s poll), useSystemStatus (30s poll), useDaemonStatus (30s poll), useSetup
+- [x] **Dashboard (admin)**: 6-card grid — Devices, Tunnels, Uptime, CPU, Memory, Database. Usage bars for CPU/memory with color thresholds.
+- [x] **Devices page (admin)**: Responsive table with device type icon, name/MAC, IP, type badge, manufacturer, last seen. Full IEEE OUI manufacturer data.
+- [x] **Tunnels page (admin)**: Card grid with status badges, traffic stats. CreateTunnelSheet for adding tunnels.
+- [x] **Settings page (admin)**: System info display (version, uptime, device/tunnel counts, database size)
+- [x] **My Device (self-service)**: Stacked layout with device icon, IP/MAC/manufacturer, routing status. Helpful hint when device not detected (SSH tunnel case).
+- [x] **Login page**: Full-screen indigo gradient hero with logo, username/password form, error handling (401 vs network error)
+- [x] **Device type icons**: Lucide icons mapped to device types (TV, Phone, Laptop, Tablet, Console, Set-top Box, IoT, Unknown)
+- [x] **Utility functions**: formatBytes, formatUptime, timeAgo
+- [x] **Polling**: Devices 10s, tunnels 15s, system status 30s, daemon info 30s
+
+#### Remaining:
+- [ ] WebSocket client hook: connect to `/api/ws`, dispatch events to Zustand stores for real-time updates
+- [ ] Device detail view: click to see full info, routing rule selector dropdown
+- [ ] Tunnel management: upload .conf or paste, delete with confirmation (warn if devices assigned)
+- [ ] Settings: user management (create API keys), global default policy
+- [ ] Extended first-run wizard: static IP config, DHCP onboarding, router MAC discovery, add first tunnel, set default policy
+- [ ] Shutdown/reboot controls: Safe Reboot button, Safe Shutdown button with confirmation
+- [ ] DHCP panel: active leases, static reservations, lease history (depends on Milestone 1e)
+- [ ] Unclean shutdown warning banner
 
 **Deliverable:** Full web UI for managing tunnels, devices, routing rules, DHCP, and system lifecycle with auth.
 
@@ -483,6 +526,12 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 | Shutdown orchestration | Flag file + DB tracking | Simple graceful vs unclean detection. Flag file written on startup, removed on graceful shutdown. Absence on next boot = unclean. |
 | Observability | `tracing` + optional OpenTelemetry | Hierarchical spans with version in every log entry. OTel OTLP export (traces + logs) opt-in via `[otel]` config. Bridges existing tracing spans via `tracing-opentelemetry`. |
 | Versioning | `git describe` at compile time | SemVer from tags (`0.1.0`), dev builds auto-increment patch with commit info (`0.1.1-dev.N+gabc1234`). Shared `build-support/version.rs`. |
+| Admin bootstrapping | Setup wizard (web UI) | No default credentials. First admin created via `POST /api/setup`. Passwords Argon2id hashed. One-time endpoint (409 after completion). |
+| OUI database | IEEE MA-L CSV, build-time | Full ~39K-entry database parsed by `build.rs` from `data/oui.csv`. Locally administered MACs detected as "Randomized MAC". |
+| Host monitoring | `sysinfo` crate | CPU usage, memory used/total reported in system status. Persistent `System` instance for accurate CPU readings. |
+| SDK architecture | Separate `@wardnet/js` package | Pure TypeScript, zero deps, native `fetch`. Linked via Yarn `portal:`. Web UI components are pure presentation. |
+| Component library | shadcn/ui (Radix + Tailwind) | Owned thin wrappers in `core/ui/`, not modified directly. Layered component architecture: core → compound → features → layouts → pages. |
+| Data polling | TanStack Query `refetchInterval` | Devices 10s, tunnels 15s, system status 30s, daemon info 30s. No WebSocket needed for MVP. |
 
 ---
 
@@ -512,7 +561,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - **Daemon dev:** `cd source/daemon && cargo run -p wardnetd -- --verbose --mock-network` -- reads web-ui/dist/ from filesystem in debug mode (rust-embed)
 - **CLI dev:** `cd source/daemon && cargo run -p wctl -- <command>`
 - **Build for Pi:** `make build-pi` -- cross-compiles with native `cargo` + aarch64-linux-gnu linker (no Docker)
-- **Deploy to Pi:** `make deploy PI_HOST=<ip>` -- builds and copies binary via SSH, restarts service
+- **Deploy to Pi:** `make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>` -- cross-compiles, deploys via SSH, starts with verbose logging. Deletes database by default; use `RESUME=true` to keep existing data. Optional: `OTEL=true` for OpenTelemetry export.
 - **Run checks:** `make check` -- runs all linting, formatting, and tests (web + daemon)
 - **Mock mode:** `wardnetd --mock-network` uses NoopWireGuard, NoopPacketCapture, NoopHostnameResolver for local development without real network interfaces
 - **Real testing:** Deploy to the Pi — real WireGuard, packet capture, and device detection require Linux with the correct kernel modules and capabilities

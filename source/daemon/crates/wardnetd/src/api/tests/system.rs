@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use axum::Router;
@@ -145,6 +146,12 @@ impl AuthService for AlwaysAuthService {
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
         Ok(Some(self.admin_id))
     }
+    async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock auth service that always rejects.
@@ -159,6 +166,12 @@ impl AuthService for NeverAuthService {
     }
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
         Ok(None)
+    }
+    async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
     }
 }
 
@@ -177,6 +190,9 @@ impl SystemService for MockSystemService {
                 device_count: r.device_count,
                 tunnel_count: r.tunnel_count,
                 db_size_bytes: r.db_size_bytes,
+                cpu_usage_percent: r.cpu_usage_percent,
+                memory_used_bytes: r.memory_used_bytes,
+                memory_total_bytes: r.memory_total_bytes,
             }),
             Err(_) => Err(AppError::Internal(anyhow::anyhow!("mock error"))),
         }
@@ -196,6 +212,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
         Config::default(),
+        Instant::now(),
     )
 }
 
@@ -225,6 +242,9 @@ async fn status_returns_200_with_correct_json() {
                 device_count: 10,
                 tunnel_count: 3,
                 db_size_bytes: 4096,
+                cpu_usage_percent: 25.5,
+                memory_used_bytes: 1_073_741_824,
+                memory_total_bytes: 4_294_967_296,
             }),
         },
     );
@@ -248,6 +268,9 @@ async fn status_returns_200_with_correct_json() {
     assert_eq!(json["device_count"], 10);
     assert_eq!(json["tunnel_count"], 3);
     assert_eq!(json["db_size_bytes"], 4096);
+    assert_eq!(json["cpu_usage_percent"], 25.5);
+    assert_eq!(json["memory_used_bytes"], 1_073_741_824_u64);
+    assert_eq!(json["memory_total_bytes"], 4_294_967_296_u64);
 }
 
 #[tokio::test]
@@ -261,6 +284,9 @@ async fn status_requires_authentication() {
                 device_count: 0,
                 tunnel_count: 0,
                 db_size_bytes: 0,
+                cpu_usage_percent: 0.0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
             }),
         },
     );
@@ -310,6 +336,9 @@ async fn status_authenticates_via_bearer_token() {
                 device_count: 0,
                 tunnel_count: 0,
                 db_size_bytes: 0,
+                cpu_usage_percent: 0.0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
             }),
         },
     );

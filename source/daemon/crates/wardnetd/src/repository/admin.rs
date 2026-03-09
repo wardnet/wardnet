@@ -14,4 +14,7 @@ pub trait AdminRepository: Send + Sync {
 
     /// Return the id of the first admin (used for single-admin MVP).
     async fn find_first_id(&self) -> anyhow::Result<Option<String>>;
+
+    /// Return `true` if at least one admin account exists.
+    async fn exists(&self) -> anyhow::Result<bool>;
 }

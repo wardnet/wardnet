@@ -51,4 +51,13 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
             .await?;
         Ok(count)
     }
+
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        let size = sqlx::query_scalar::<_, i64>(
+            "SELECT page_count * page_size AS size FROM pragma_page_count(), pragma_page_size()",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(size).unwrap_or(0))
+    }
 }

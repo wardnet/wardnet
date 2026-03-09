@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
+use argon2::PasswordHasher;
+use argon2::password_hash::rand_core::OsRng;
 use async_trait::async_trait;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::repository::{AdminRepository, ApiKeyRepository, SessionRepository};
+use crate::repository::{
+    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
+};
 
 /// Successful login result returned to the API layer.
 pub struct LoginResult {
@@ -32,6 +36,16 @@ pub trait AuthService: Send + Sync {
 
     /// Validate a raw API key. Returns the admin UUID if a matching key is found.
     async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError>;
+
+    /// Create the first admin account during initial setup.
+    ///
+    /// Validates the username (3-32 alphanumeric chars) and password (min 8 chars),
+    /// hashes the password with argon2, creates the admin, and marks setup as completed.
+    /// Returns [`AppError::Conflict`] if setup has already been completed.
+    async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError>;
+
+    /// Check whether the initial setup wizard has been completed.
+    async fn is_setup_completed(&self) -> Result<bool, AppError>;
 }
 
 /// Default implementation of [`AuthService`] backed by repository traits.
@@ -39,6 +53,7 @@ pub struct AuthServiceImpl {
     admins: Arc<dyn AdminRepository>,
     sessions: Arc<dyn SessionRepository>,
     api_keys: Arc<dyn ApiKeyRepository>,
+    system_config: Arc<dyn SystemConfigRepository>,
     session_expiry_hours: u64,
 }
 
@@ -47,12 +62,14 @@ impl AuthServiceImpl {
         admins: Arc<dyn AdminRepository>,
         sessions: Arc<dyn SessionRepository>,
         api_keys: Arc<dyn ApiKeyRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         session_expiry_hours: u64,
     ) -> Self {
         Self {
             admins,
             sessions,
             api_keys,
+            system_config,
             session_expiry_hours,
         }
     }
@@ -165,5 +182,63 @@ impl AuthService for AuthServiceImpl {
         }
 
         Ok(None)
+    }
+
+    async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError> {
+        // Guard: setup can only run once.
+        let completed = self
+            .system_config
+            .is_setup_completed()
+            .await
+            .map_err(AppError::Internal)?;
+        if completed {
+            return Err(AppError::Conflict("setup already completed".to_owned()));
+        }
+
+        // Validate username: non-empty, alphanumeric, 3-32 chars.
+        if username.len() < 3
+            || username.len() > 32
+            || !username.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return Err(AppError::BadRequest(
+                "username must be 3-32 alphanumeric characters".to_owned(),
+            ));
+        }
+
+        // Validate password: minimum 8 chars.
+        if password.len() < 8 {
+            return Err(AppError::BadRequest(
+                "password must be at least 8 characters".to_owned(),
+            ));
+        }
+
+        // Hash password with argon2.
+        let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
+        let password_hash = argon2::Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to hash password: {e}")))?
+            .to_string();
+
+        let id = Uuid::new_v4().to_string();
+        self.admins
+            .create(&id, username, &password_hash)
+            .await
+            .map_err(AppError::Internal)?;
+
+        self.system_config
+            .set_setup_completed(true)
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(username = %username, "setup completed: admin account created for username={username}");
+
+        Ok(())
+    }
+
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        self.system_config
+            .is_setup_completed()
+            .await
+            .map_err(AppError::Internal)
     }
 }

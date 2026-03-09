@@ -79,3 +79,31 @@ async fn device_count_with_data() {
     let repo = SqliteSystemConfigRepository::new(pool);
     assert_eq!(repo.device_count().await.unwrap(), 3);
 }
+
+#[tokio::test]
+async fn is_setup_completed_returns_false_by_default() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // The migration seeds setup_completed = "false".
+    assert!(!repo.is_setup_completed().await.unwrap());
+}
+
+#[tokio::test]
+async fn set_setup_completed_updates_value() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    repo.set_setup_completed(true).await.unwrap();
+    assert!(repo.is_setup_completed().await.unwrap());
+}
+
+#[tokio::test]
+async fn is_setup_completed_returns_true_after_set() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(!repo.is_setup_completed().await.unwrap());
+    repo.set_setup_completed(true).await.unwrap();
+    assert!(repo.is_setup_completed().await.unwrap());
+}

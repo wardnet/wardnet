@@ -172,6 +172,19 @@ impl Default for AuthConfig {
     }
 }
 
+/// Initial admin account credentials.
+///
+/// No longer part of the top-level [`Config`] (the setup wizard handles
+/// admin creation now), but kept as a standalone type while `bootstrap.rs`
+/// still references it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminConfig {
+    /// Admin username.
+    pub username: String,
+    /// Admin password (plaintext — will be hashed before storage).
+    pub password: String,
+}
+
 /// `WireGuard` tunnel management settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
