@@ -1,0 +1,14 @@
+# cargo-audit configuration
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+# RUSTSEC-2023-0071: rsa timing sidechannel (Marvin Attack)
+# Transitive dependency via sqlx-mysql, which we don't use (SQLite only).
+# No fix available upstream. Safe to ignore for our use case.
+ignore = ["RUSTSEC-2023-0071"]
+
+[warnings]
+# RUSTSEC-2024-0436: paste crate unmaintained
+# Transitive dependency via wireguard-control's netlink stack.
+# Nothing we can act on until wireguard-control updates.
+ignore = ["RUSTSEC-2024-0436"]
