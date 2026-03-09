@@ -1,0 +1,15 @@
+
+services:
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: observability
+    restart: unless-stopped
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "7411:3000"   # Grafana UI  →  http://localhost:3000  (admin/admin)
+    volumes:
+      - lgtm-data:/data
+
+volumes:
+  lgtm-data:

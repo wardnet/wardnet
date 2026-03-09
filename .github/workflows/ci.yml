@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "source/**"
+      - "Makefile"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "source/**"
+      - "Makefile"
       - ".github/workflows/ci.yml"
 
 env:
@@ -17,12 +19,9 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  build-web:
-    name: Build Web
+  check-web:
+    name: Check Web
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: source/web-ui
     steps:
       - uses: actions/checkout@v4
 
@@ -35,20 +34,27 @@ jobs:
           cache: yarn
           cache-dependency-path: source/web-ui/yarn.lock
 
-      - name: Install dependencies
-        run: yarn install --immutable
+      - name: Check
+        run: make check-web
 
-      - name: Type check
-        run: yarn type-check
+  build-web:
+    name: Build Web
+    needs: check-web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Lint
-        run: yarn lint
+      - name: Enable Corepack
+        run: corepack enable
 
-      - name: Format check
-        run: yarn format:check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+          cache: yarn
+          cache-dependency-path: source/web-ui/yarn.lock
 
       - name: Build
-        run: yarn build
+        run: make build-web
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
@@ -57,9 +63,28 @@ jobs:
           path: source/web-ui/dist/
           retention-days: 1
 
+  check-daemon:
+    name: Check Daemon
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94"
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source/daemon
+
+      - name: Check
+        run: make check-daemon
+
   build-daemon:
     name: Build Daemon (${{ matrix.target }})
-    needs: build-web
+    needs: [build-web, check-daemon]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -67,19 +92,13 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-            cross: false
-            can-test: true
+            make-target: build-daemon
           - target: aarch64-apple-darwin
             runner: macos-latest
-            cross: false
-            can-test: true
+            make-target: build-daemon
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            cross: true
-            can-test: false
-    defaults:
-      run:
-        working-directory: source/daemon
+            make-target: build-pi
     steps:
       - uses: actions/checkout@v4
 
@@ -94,33 +113,14 @@ jobs:
         with:
           toolchain: "1.94"
           targets: ${{ matrix.target }}
-          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: source/daemon
 
-      - name: Format check
-        if: matrix.can-test
-        run: cargo fmt --check
+      - name: Install cross-compilation toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Clippy
-        if: matrix.can-test
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Tests
-        if: matrix.can-test
-        run: cargo test --workspace
-
-      - name: Install cross
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build (cross)
-        if: matrix.cross
-        working-directory: .
-        run: cross build --release --target ${{ matrix.target }} --manifest-path source/daemon/Cargo.toml
-
-      - name: Build (native)
-        if: "!matrix.cross"
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build
+        run: make ${{ matrix.make-target }}

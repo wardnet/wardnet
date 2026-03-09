@@ -4,6 +4,7 @@ use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use super::super::DeviceRepository;
+use super::super::device::DeviceRow as InsertDeviceRow;
 
 /// SQLite-backed implementation of [`DeviceRepository`].
 pub struct SqliteDeviceRepository {
@@ -25,6 +26,7 @@ struct DeviceRow {
     mac: String,
     name: Option<String>,
     hostname: Option<String>,
+    manufacturer: Option<String>,
     device_type: String,
     first_seen: String,
     last_seen: String,
@@ -41,6 +43,7 @@ impl DeviceRow {
             mac: self.mac,
             name: self.name,
             hostname: self.hostname,
+            manufacturer: self.manufacturer,
             device_type,
             first_seen: self.first_seen.parse()?,
             last_seen: self.last_seen.parse()?,
@@ -58,28 +61,122 @@ struct RuleRow {
     created_by: String,
 }
 
+const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked";
+
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
-        let row = sqlx::query_as::<_, DeviceRow>(
-            "SELECT id, mac, name, hostname, device_type, first_seen, last_seen, last_ip, admin_locked \
-             FROM devices WHERE last_ip = ?",
-        )
-        .bind(ip)
-        .fetch_optional(&self.pool)
-        .await?;
+        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_ip = ?");
+        let row = sqlx::query_as::<_, DeviceRow>(&query)
+            .bind(ip)
+            .fetch_optional(&self.pool)
+            .await?;
         row.map(DeviceRow::into_device).transpose()
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>> {
-        let row = sqlx::query_as::<_, DeviceRow>(
-            "SELECT id, mac, name, hostname, device_type, first_seen, last_seen, last_ip, admin_locked \
-             FROM devices WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE id = ?");
+        let row = sqlx::query_as::<_, DeviceRow>(&query)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
         row.map(DeviceRow::into_device).transpose()
+    }
+
+    async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
+        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE mac = ?");
+        let row = sqlx::query_as::<_, DeviceRow>(&query)
+            .bind(mac)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(DeviceRow::into_device).transpose()
+    }
+
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        let query = format!("SELECT {SELECT_COLS} FROM devices ORDER BY last_seen DESC");
+        let rows = sqlx::query_as::<_, DeviceRow>(&query)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(DeviceRow::into_device).collect()
+    }
+
+    async fn insert(&self, device: &InsertDeviceRow) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&device.id)
+        .bind(&device.mac)
+        .bind(&device.hostname)
+        .bind(&device.manufacturer)
+        .bind(&device.device_type)
+        .bind(&device.first_seen)
+        .bind(&device.last_seen)
+        .bind(&device.last_ip)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_last_seen_and_ip(
+        &self,
+        id: &str,
+        ip: &str,
+        last_seen: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET last_seen = ?, last_ip = ? WHERE id = ?")
+            .bind(last_seen)
+            .bind(ip)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_last_seen_batch(&self, updates: &[(String, String)]) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for (device_id, last_seen) in updates {
+            sqlx::query("UPDATE devices SET last_seen = ? WHERE id = ?")
+                .bind(last_seen)
+                .bind(device_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn update_hostname(&self, id: &str, hostname: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET hostname = ? WHERE id = ?")
+            .bind(hostname)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_name_and_type(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        device_type: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET name = ?, device_type = ? WHERE id = ?")
+            .bind(name)
+            .bind(device_type)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn find_stale(&self, before: &str) -> anyhow::Result<Vec<Device>> {
+        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_seen < ?");
+        let rows = sqlx::query_as::<_, DeviceRow>(&query)
+            .bind(before)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(DeviceRow::into_device).collect()
     }
 
     async fn find_rule_for_device(&self, device_id: &str) -> anyhow::Result<Option<RoutingRule>> {

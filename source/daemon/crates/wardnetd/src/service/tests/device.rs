@@ -6,6 +6,7 @@ use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use crate::repository::DeviceRepository;
+use crate::repository::device::DeviceRow;
 use crate::service::{DeviceService, DeviceServiceImpl};
 
 // -- Mock repository ------------------------------------------------------
@@ -22,6 +23,40 @@ impl DeviceRepository for MockDeviceRepo {
     }
     async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
         Ok(self.device.clone())
+    }
+    async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(self.device.clone())
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        Ok(self.device.clone().into_iter().collect())
+    }
+    async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_and_ip(
+        &self,
+        _id: &str,
+        _ip: &str,
+        _last_seen: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_hostname(&self, _id: &str, _hostname: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _device_type: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
     }
     async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
         Ok(self.rule.clone())
@@ -42,6 +77,7 @@ fn sample_device(locked: bool) -> Device {
         mac: "AA:BB:CC:DD:EE:01".to_owned(),
         name: Some("My Phone".to_owned()),
         hostname: None,
+        manufacturer: Some("Apple".to_owned()),
         device_type: DeviceType::Phone,
         first_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),

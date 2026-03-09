@@ -59,6 +59,8 @@ toml = "0.8"
 
 # https://crates.io/crates/tracing-subscriber
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# https://crates.io/crates/tracing-appender
+tracing-appender = "0.2"
 
 # https://crates.io/crates/argon2
 argon2 = "0.5"
@@ -90,3 +92,16 @@ wireguard-control = "1"
 ipnetwork = "0.20"
 # https://crates.io/crates/tokio-util
 tokio-util = { version = "0.7", features = ["rt"] }
+# https://crates.io/crates/pnet
+pnet = "0.35"
+
+# https://crates.io/crates/opentelemetry
+opentelemetry = "0.31"
+# https://crates.io/crates/opentelemetry_sdk
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+# https://crates.io/crates/opentelemetry-otlp
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "trace", "logs"] }
+# https://crates.io/crates/tracing-opentelemetry
+tracing-opentelemetry = "0.32"
+# https://crates.io/crates/opentelemetry-appender-tracing
+opentelemetry-appender-tracing = "0.31"

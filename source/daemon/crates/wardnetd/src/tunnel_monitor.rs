@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 use wardnet_types::event::WardnetEvent;
 use wardnet_types::tunnel::TunnelStatus;
 
@@ -24,6 +25,10 @@ pub struct TunnelMonitor {
 impl TunnelMonitor {
     /// Start the monitor with the given dependencies and intervals.
     ///
+    /// The `parent` span is used as the parent for the `tunnel_monitor` child
+    /// span, ensuring all log output from spawned tasks includes the root
+    /// version field.
+    ///
     /// Returns a `TunnelMonitor` whose background tasks run until
     /// [`shutdown`](Self::shutdown) is called.
     pub fn start(
@@ -32,23 +37,31 @@ impl TunnelMonitor {
         events: Arc<dyn EventPublisher>,
         stats_interval_secs: u64,
         health_check_interval_secs: u64,
+        parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
+        let span = tracing::info_span!(parent: parent, "tunnel_monitor");
 
-        let stats_handle = tokio::spawn(stats_loop(
-            tunnels.clone(),
-            wireguard.clone(),
-            events,
-            stats_interval_secs,
-            cancel.clone(),
-        ));
+        let stats_handle = tokio::spawn(
+            stats_loop(
+                tunnels.clone(),
+                wireguard.clone(),
+                events,
+                stats_interval_secs,
+                cancel.clone(),
+            )
+            .instrument(span.clone()),
+        );
 
-        let health_handle = tokio::spawn(health_loop(
-            tunnels,
-            wireguard,
-            health_check_interval_secs,
-            cancel.clone(),
-        ));
+        let health_handle = tokio::spawn(
+            health_loop(
+                tunnels,
+                wireguard,
+                health_check_interval_secs,
+                cancel.clone(),
+            )
+            .instrument(span),
+        );
 
         Self {
             cancel,

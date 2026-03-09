@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS devices (
     mac          TEXT NOT NULL UNIQUE,
     name         TEXT,
     hostname     TEXT,
+    manufacturer TEXT,
     device_type  TEXT NOT NULL DEFAULT 'unknown',
     first_seen   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     last_seen    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

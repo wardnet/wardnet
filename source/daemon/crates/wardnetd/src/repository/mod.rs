@@ -8,7 +8,7 @@ pub mod tunnel;
 
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
-pub use device::DeviceRepository;
+pub use device::{DeviceRepository, DeviceRow};
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteSessionRepository,

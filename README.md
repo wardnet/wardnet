@@ -58,61 +58,97 @@ React 19 + Vite 7 + Tailwind CSS 4 + TanStack Query 5 + React Router 7. Built ar
 - Node.js 25+
 - Yarn 4 (enabled via Corepack)
 
+### First-time setup
+
+```bash
+make init
+```
+
+This installs the Rust cross-compilation target, the aarch64-linux-gnu linker (via Homebrew on macOS or apt on Linux), and yarn dependencies.
+
 ### Build
 
 ```bash
-# Build the web UI
-cd source/web-ui
-yarn install
-yarn build
+# Build everything (web UI + daemon for host target)
+make build
 
-# Build the daemon (embeds web UI dist/)
-cd source/daemon
-cargo build --release
+# Build only the web UI
+make build-web
+
+# Build only the daemon
+make build-daemon
+
+# Cross-compile for Raspberry Pi (aarch64-linux-gnu)
+make build-pi
 ```
 
 ### Run
 
 ```bash
 # Run with defaults (port 7411, SQLite at ./wardnet.db)
-./target/release/wardnetd
+./source/daemon/target/release/wardnetd
 
 # Run with custom config
-./target/release/wardnetd --config /path/to/wardnet.toml
+./source/daemon/target/release/wardnetd --config /path/to/wardnet.toml
 
-# Run with verbose logging
-./target/release/wardnetd --verbose
+# Run without real network backends (for local development)
+./source/daemon/target/release/wardnetd --mock-network --verbose
+```
 
-# Run without real WireGuard (for development)
-./target/release/wardnetd --mock-network --verbose
+### Deploy to Raspberry Pi
+
+```bash
+# Build and deploy via SSH (default: wardnet@gateway)
+make deploy
+
+# Override target host
+make deploy PI_HOST=192.168.1.50
 ```
 
 ### Development
 
 ```bash
 # Web UI dev server (port 7412, proxies API to daemon on 7411)
-cd source/web-ui
-yarn dev
+cd source/web-ui && yarn dev
 
-# Run daemon
-cd source/daemon
-cargo run -p wardnetd -- --verbose
+# Run daemon locally with mock network backends
+cd source/daemon && cargo run -p wardnetd -- --mock-network --verbose
 
-# Run tests
-cargo test --workspace
+# Run all checks (format, lint, tests for web + daemon)
+make check
+
+# Run tests only
+cd source/daemon && cargo test --workspace
 
 # CLI
-cargo run -p wctl -- status
+cd source/daemon && cargo run -p wctl -- status
 ```
+
+### Available Make targets
+
+Run `make help` for the full list:
+
+| Target           | Description                                            |
+|------------------|--------------------------------------------------------|
+| `make init`      | Install all dev dependencies                           |
+| `make build`     | Build web UI + daemon (host target)                    |
+| `make build-web` | Build web UI only                                      |
+| `make build-daemon` | Build daemon for host target                        |
+| `make build-pi`  | Cross-compile daemon for Pi (aarch64-linux-gnu)        |
+| `make check`     | Run all checks (web + daemon)                          |
+| `make check-web` | Typecheck + lint + format check for web UI             |
+| `make check-daemon` | Format + clippy + tests for daemon                  |
+| `make deploy`    | Build for Pi and deploy via SSH                        |
+| `make clean`     | Clean all build artifacts                              |
 
 ## CI
 
-GitHub Actions pipeline with 4 jobs:
+GitHub Actions pipeline using the same Makefile targets:
 
-1. **Build Web** — type-check, lint, format check, build
-2. **Build Daemon (x86_64-unknown-linux-gnu)** — fmt, clippy, tests, release build
-3. **Build Daemon (aarch64-apple-darwin)** — fmt, clippy, tests, release build
-4. **Build Daemon (aarch64-unknown-linux-gnu)** — cross-compiled release build
+1. **Check Web** — `make check-web`
+2. **Build Web** — `make build-web`
+3. **Check Daemon** — `make check-daemon`
+4. **Build Daemon** — `make build-daemon` (x86_64 Linux, aarch64 macOS) and `make build-pi` (aarch64 Linux)
 
 ## License
 

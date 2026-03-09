@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::device::Device;
+use crate::device::{Device, DeviceType};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 
@@ -82,4 +82,24 @@ pub struct ListTunnelsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteTunnelResponse {
     pub message: String,
+}
+
+/// Response for GET /api/devices (admin).
+#[derive(Debug, Serialize)]
+pub struct ListDevicesResponse {
+    pub devices: Vec<Device>,
+}
+
+/// Response for GET /api/devices/:id (admin).
+#[derive(Debug, Serialize)]
+pub struct DeviceDetailResponse {
+    pub device: Device,
+    pub current_rule: Option<RoutingTarget>,
+}
+
+/// Request body for PUT /api/devices/:id (admin).
+#[derive(Debug, Deserialize)]
+pub struct UpdateDeviceRequest {
+    pub name: Option<String>,
+    pub device_type: Option<DeviceType>,
 }
