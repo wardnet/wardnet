@@ -8,9 +8,9 @@
 
 Wardnet is a self-hosted network privacy gateway for Raspberry Pi that sits alongside an existing router. It encrypts traffic via WireGuard tunnels, provides per-device routing control, and prevents DNS leaks -- all managed from a single web UI. This plan covers Phase 1 (MVP): the foundational system that proves the core value proposition.
 
-**Phase 1 scope:** Core daemon with WireGuard tunnel management, policy routing, device detection, DNS leak prevention, REST+WebSocket API with API key auth, web UI (wizard + dashboard + device/tunnel management), CLI tool, and installation packaging.
+**Phase 1 scope:** Core daemon with WireGuard tunnel management, policy routing, device detection, DHCP server (gateway advertisement, static reservations, conflict detection), gateway resilience (hardware watchdog, GARP failover, graceful reboot/shutdown), VPN provider integration (pluggable architecture + NordVPN), DNS leak prevention, REST+WebSocket API with API key auth, web UI (wizard with DHCP onboarding + router MAC discovery, dashboard, device/tunnel management, guided provider setup, safe reboot/shutdown, DHCP panel), CLI tool (including reboot/shutdown commands), and installation packaging.
 
-**Out of scope for Phase 1:** Temporary/scheduled routing, ad blocking, kill switch per-device configuration, curated provider wizard, mobile app.
+**Out of scope for Phase 1:** Temporary/scheduled routing, ad blocking, kill switch per-device configuration, mobile app.
 
 ---
 
@@ -40,6 +40,10 @@ wardnet/
 │   │       │   │   ├── wireguard.rs  # WireGuardOps trait + types
 │   │       │   │   ├── tunnel_monitor.rs  # Background health/stats tasks
 │   │       │   │   ├── tunnel_idle.rs     # Idle tunnel teardown watcher
+│   │       │   │   ├── dhcp.rs       # DHCP server (lease mgmt, reservations, conflict detection)
+│   │       │   │   ├── garp.rs       # GARP (Gratuitous ARP) failover sequences
+│   │       │   │   ├── watchdog.rs   # Hardware watchdog integration
+│   │       │   │   ├── shutdown.rs   # Graceful shutdown/reboot orchestration
 │   │       │   │   └── web.rs        # rust-embed static file serving
 │   │       │   └── migrations/       # sqlx SQL migrations
 │   │       ├── wctl/                 # binary -- CLI tool
@@ -66,12 +70,12 @@ wardnet/
 └── README.md
 ```
 
-> **Note:** Modules for routing/, device/ (detection), dns/, and install/ will be added in later milestones. Tunnel management, event bus, and key storage are implemented in Milestone 1b.
+> **Note:** Modules for routing/, device/ (detection), dns/, dhcp/, garp/, watchdog/, and install/ will be added in later milestones. Tunnel management, event bus, and key storage are implemented in Milestone 1b.
 
 ### Crate Dependencies
 
 - `wardnet-types`: serde, uuid, chrono, thiserror (no runtime deps -- pure data types)
-- `wardnetd` depends on `wardnet-types` + tokio, axum, sqlx, wireguard-control, ipnetwork, tokio-util, rust-embed, toml, tracing, argon2, async-trait
+- `wardnetd` depends on `wardnet-types` + tokio, axum, sqlx, wireguard-control, ipnetwork, tokio-util, pnet (device detection + GARP), dhcproto (DHCP server), reqwest (for VPN provider APIs), rust-embed, toml, tracing, argon2, async-trait
 - `wctl` depends on `wardnet-types` + clap, reqwest, tabled, tokio
 
 ### Web UI Stack
@@ -86,14 +90,19 @@ React + TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand, React Router
 
 1. Parse CLI args, load config from `/etc/wardnet/wardnet.toml`
 2. Initialize tracing/logging
-3. Open SQLite (WAL mode), run migrations
-4. Create EventPublisher (`BroadcastEventBus` wrapping `tokio::broadcast`)
-5. Start TunnelManager -- restore tunnels from DB (but do NOT bring interfaces up yet -- tunnels start on-demand)
-6. Start RoutingEngine -- reconcile DB state with kernel (ip rule, nftables)
-7. Start DeviceDetector -- ARP/packet sniffing on LAN interface
-8. Start DnsManager -- generate Unbound config, reload Unbound
-9. Start API server (axum) with shared AppState
-10. Signal readiness to systemd (`sd_notify`)
+3. Detect shutdown type: check for graceful shutdown flag file — if absent, record unclean shutdown in DB
+4. Open SQLite (WAL mode), run migrations
+5. Create EventPublisher (`BroadcastEventBus` wrapping `tokio::broadcast`)
+6. Start TunnelManager -- restore tunnels from DB (but do NOT bring interfaces up yet -- tunnels start on-demand)
+7. Start RoutingEngine -- reconcile DB state with kernel (ip rule, nftables)
+8. Start DeviceDetector -- ARP/packet sniffing on LAN interface
+9. Start DhcpServer -- begin serving DHCP leases on LAN interface
+10. Start DnsManager -- generate Unbound config, reload Unbound
+11. Broadcast GARP reclaiming gateway role (announce gateway IP at Pi's MAC)
+12. Start hardware watchdog petting loop
+13. Start API server (axum) with shared AppState
+14. Write graceful shutdown flag file
+15. Signal readiness to systemd (`sd_notify`)
 
 ### Internal Event Bus
 
@@ -103,6 +112,8 @@ Components communicate via the `EventPublisher` trait (backed by `tokio::broadca
 TunnelManager  --> TunnelUp, TunnelDown, TunnelStatsUpdated
 DeviceDetector --> DeviceDiscovered, DeviceIpChanged, DeviceGone
 RoutingEngine  --> RoutingRuleChanged
+DhcpServer     --> DhcpLeaseAssigned, DhcpLeaseRenewed, DhcpConflictDetected
+GarpManager    --> GarpFailoverSent, GarpReclaimSent
 ```
 
 Subscribers:
@@ -110,6 +121,8 @@ Subscribers:
 - **RoutingEngine**: reacts to tunnel/device events
 - **TunnelManager**: reacts to device events (lazy bring-up/teardown)
 - **DnsManager**: reacts to routing changes
+- **DeviceDetector**: correlates DHCP lease events with device registry (MAC → IP → device identity)
+- **Dashboard/UI**: surfaces DHCP conflict alerts and unclean shutdown warnings
 
 ### Device Discovery -- Detailed Mechanism
 
@@ -125,9 +138,8 @@ The DeviceDetector passively discovers devices that are routing traffic through 
    - Insert into SQLite: MAC, source IP, first_seen timestamp, last_seen timestamp
    - Emit `DeviceDiscovered` event
    - Kick off async hostname resolution (runs in background, updates DB when complete):
-     - Reverse DNS lookup (`dig -x <ip>`)
-     - mDNS query via Avahi/Bonjour (`avahi-resolve -a <ip>`)
-     - Take whichever responds first; store as auto-detected hostname
+     - Current: reverse DNS via `getent hosts` (uses NSS, covers DNS and local name resolution)
+     - Future (Milestone 1e): DHCP lease table becomes primary source (option 12 hostname from client), with `getent hosts` as fallback
    - MAC OUI prefix lookup against an embedded manufacturer database (first 3 bytes of MAC -> vendor name). This gives a rough device type hint (e.g. "Apple" -> likely phone/laptop, "Samsung" -> could be TV or phone, "Espressif" -> IoT).
 
 3. **Known device tracking** -- For already-registered devices:
@@ -178,6 +190,11 @@ Two-tier model: unauthenticated self-service for regular users, admin login for 
 7. **Lazy tunnel lifecycle** -- tunnels brought up on-demand when devices need them, torn down after idle timeout
 8. **HTTP only for MVP** -- Plain HTTP on LAN (like Pi-hole, Home Assistant). Optional HTTPS with user-provided cert in Phase 2.
 9. **Dedicated wardnet user** -- No running as root. Daemon runs as `wardnet` user with Linux capabilities.
+10. **Built-in DHCP server** -- Wardnet runs its own DHCP server on the LAN interface, making the Pi the default gateway and DNS for all devices automatically. No per-device manual configuration needed. Short lease time (10 min) for fast recovery after restarts.
+11. **GARP failover** -- On graceful shutdown, broadcast GARP announcing router's MAC as gateway so devices fall back to the real router instantly. On startup, broadcast GARP reclaiming gateway role. Router MAC persisted to disk during setup so failover works even during crash recovery.
+12. **Hardware watchdog** -- Linux watchdog configured at install time. If wardnetd hangs, kernel reboots the Pi within 15 seconds. Combined with systemd Restart=always (RestartSec=2s), provides defence in depth.
+13. **Hierarchical tracing spans** -- Root span `wardnetd{version=...}` wraps the entire daemon. Each background component (`tunnel_monitor`, `device_detector`, `idle_watcher`, `api_server`) creates a child span. Per-HTTP-request spans include method and path. All `tokio::spawn` tasks must be `.instrument(span)` since spawned tasks don't inherit parent spans. Version appears in every log entry (console and JSON).
+14. **Git-based versioning** -- `build.rs` runs `git describe --tags` at compile time. Release builds from tags get clean SemVer (`0.1.0`). Dev builds get `0.1.1-dev.N+gabc1234`. Shared parsing logic in `build-support/version.rs` included by both `wardnetd` and `wctl` build scripts.
 
 ### Running Without Root
 
@@ -187,6 +204,8 @@ The daemon runs as a dedicated `wardnet` system user, never as root:
   ```ini
   User=wardnet
   Group=wardnet
+  Restart=always
+  RestartSec=2s
   AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
   CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
   ```
@@ -261,18 +280,28 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** Add tunnel via API, bring it up on demand, monitor health, tear it down.
 
-### Milestone 1c: Device Detection
+### Milestone 1c: Device Detection ✅
 
 **Goal:** Passively detect devices routing through the Pi, track presence, detect departure.
 
-- [ ] DeviceDetector using `pnet`: raw socket on LAN interface capturing ARP packets + IP traffic
-- [ ] New MAC -> insert to DB, emit `DeviceDiscovered`, start async hostname resolution (reverse DNS + mDNS via Avahi)
-- [ ] Known MAC with new IP -> update DB, emit `DeviceIpChanged`
-- [ ] `last_seen` batch updates every 30s
-- [ ] Device departure: configurable timeout (default 5min), emit `DeviceGone` when exceeded
-- [ ] Device reappearance: re-emit `DeviceDiscovered` if previously gone
-- [ ] MAC OUI prefix lookup for manufacturer/device type hinting (embedded database)
-- [ ] API: `GET /api/devices` (admin: all, user: own), `GET /api/devices/:id`, `PUT /api/devices/:id` (admin: rename, set type)
+> **Note:** VPN Provider Integration (Milestone 1k below) depends on tunnel management (1b) being complete but is independent of device detection. It can be implemented in parallel with 1c–1f or after them.
+
+- [x] DeviceDetector using `pnet`: raw socket on LAN interface capturing ARP packets + IP traffic
+- [x] PacketCapture trait + PnetCapture (real) + NoopPacketCapture (`--mock-network`)
+- [x] New MAC -> insert to DB, emit `DeviceDiscovered`, start async hostname resolution
+- [x] HostnameResolver trait + SystemHostnameResolver (getent hosts) + NoopHostnameResolver (`--mock-network`)
+- [x] Known MAC with new IP -> update DB, emit `DeviceIpChanged`
+- [x] `last_seen` batch updates every 30s
+- [x] Device departure: configurable timeout (default 5min), emit `DeviceGone` when exceeded
+- [x] Device reappearance: re-emit `DeviceDiscovered` if previously gone
+- [x] MAC OUI prefix lookup for manufacturer/device type hinting (embedded database)
+- [x] DeviceDiscoveryService trait + impl with full observation processing pipeline
+- [x] API: `GET /api/devices` (admin: all, user: own), `GET /api/devices/:id`, `PUT /api/devices/:id` (admin: rename, set type)
+- [x] Unified build system: Makefile with `make init`, `make build-pi`, `make run-pi`, `make check`, used by both local dev and CI
+- [x] CI updated: removed `cross` tool dependency, uses native `cargo` + cross-linker (same approach locally and on CI)
+- [x] Git-based version management: `build.rs` derives version from `git describe` (release: `0.1.0`, dev: `0.1.1-dev.N+gabc1234`). Shared logic in `build-support/version.rs`, used by both `wardnetd` and `wctl` via `include!()`
+- [x] Structured observability: hierarchical tracing spans (`wardnetd{version}` → `tunnel_monitor` / `idle_watcher` / `device_detector` / `api_server` → `http_request{method, path}`). Version appears in every log entry. JSON format includes span context via `with_current_span` / `with_span_list`. All background `tokio::spawn` tasks instrumented with parent spans.
+- [x] Optional OpenTelemetry export: `[otel]` config section (disabled by default). When enabled, exports traces (spans) and logs via OTLP gRPC to a configured endpoint. Uses `tracing-opentelemetry` to bridge existing tracing spans and `opentelemetry-appender-tracing` for log export. Providers gracefully shut down on daemon exit to flush buffered telemetry. `make run-pi OTEL=true` auto-detects local IP for the collector endpoint.
 
 **Deliverable:** Devices routing through Pi appear automatically, departures detected, hostname resolved.
 
@@ -294,7 +323,46 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** Assign device to tunnel, tunnel comes up automatically, traffic exits through VPN. Device leaves, tunnel tears down after timeout.
 
-### Milestone 1e: DNS Leak Prevention
+### Milestone 1e: DHCP Server
+
+**Goal:** Run a DHCP server on the LAN interface so all devices automatically use the Pi as their default gateway and DNS server — no per-device manual configuration.
+
+> **Note — Hostname resolution:** When implementing DHCP, revisit the HostnameResolver to use DHCP lease tables as the primary source for hostname resolution (client-provided hostname from DHCP DISCOVER/REQUEST option 12). Fall back to reverse DNS (`getent hosts`) only when the DHCP table has no hostname for a device. This eliminates the dependency on mDNS/Avahi and provides more reliable names since most devices send their hostname during DHCP negotiation.
+
+- [ ] Embedded DHCP server on the LAN interface (using `dhcproto` or similar crate), advertising Pi as default gateway (option 3) and DNS server (option 6)
+- [ ] Include router IP as secondary entry in option 3 for automatic failover on supported clients
+- [ ] Default lease time: 10 minutes (configurable)
+- [ ] Static DHCP reservations: bind MAC → fixed IP, persist in SQLite (`dhcp_reservations` table)
+- [ ] DHCP conflict detection: detect other DHCP servers on the network, emit `DhcpConflictDetected` event and surface admin alert
+- [ ] Log all lease assignments and renewals, correlating MAC → IP → device identity in the device registry
+- [ ] Per-device static configuration fallback mode: when router DHCP cannot be disabled, generate tailored static config instructions per device type
+- [ ] API (admin-only): `GET /api/dhcp/leases`, `PUT /api/dhcp/reservations`, `DELETE /api/dhcp/reservations/:mac`
+- [ ] DhcpServer trait + impl for testability; NoopDhcpServer for `--mock-network` mode
+- [ ] DB migration: `dhcp_reservations` table (mac, ip, label, created_at)
+
+**Deliverable:** Devices joining the network automatically receive the Pi as their gateway. Admin can manage static reservations via API. Conflict detection alerts if another DHCP server is present.
+
+### Milestone 1f: Gateway Resilience & Failover
+
+**Goal:** Ensure managed devices maintain internet connectivity during Pi downtime, and restore Wardnet routing quickly after reboot.
+
+- [ ] GARP (Gratuitous ARP) module: send raw ARP replies via `pnet` on the LAN interface
+- [ ] Graceful shutdown sequence: broadcast GARP announcing gateway IP at router's MAC, wait 500ms, repeat once, then proceed with shutdown/reboot. Must complete within 1 second (hard requirement).
+- [ ] Startup GARP: broadcast GARP reclaiming gateway role (gateway IP at Pi's MAC)
+- [ ] Persist router MAC to disk during setup (`/etc/wardnet/router_mac`) — GARP must not depend on live network scan
+- [ ] Shutdown type detection: write flag file on graceful shutdown, check on startup — if absent, record unclean shutdown in DB with timestamp
+- [ ] Unclean shutdown warning: surface in dashboard as persistent banner until acknowledged
+- [ ] Hardware watchdog integration: open `/dev/watchdog`, pet periodically from a dedicated tokio task. If wardnetd hangs, kernel reboots within 15 seconds.
+- [ ] systemd unit: `Restart=always`, `RestartSec=2s`
+- [ ] Boot sequence optimisation notes for install script (disable unnecessary services, target network-online.target early) — full restoration within 30 seconds
+- [ ] API (admin-only): `POST /api/system/reboot` (GARP-first), `POST /api/system/shutdown` (GARP-first)
+- [ ] DB migration: add `router_mac`, `last_shutdown`, `last_shutdown_at` to `system_config` table
+- [ ] GarpOps trait + impl for testability; NoopGarp for `--mock-network` mode
+- [ ] WatchdogOps trait + impl; NoopWatchdog for dev/test environments
+
+**Deliverable:** Safe reboot/shutdown via API triggers GARP failover. Devices fall back to router within 1 second. On startup, GARP reclaims gateway role. Hardware watchdog reboots Pi if daemon hangs.
+
+### Milestone 1g: DNS Leak Prevention
 
 **Goal:** VPN-routed devices use tunnel DNS; direct devices use Unbound with DoH/DoT.
 
@@ -306,7 +374,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** DNS queries from VPN-routed devices resolve through tunnel DNS.
 
-### Milestone 1f: Web UI -- Core Pages
+### Milestone 1h: Web UI -- Core Pages
 
 **Goal:** Functional web UI for managing the system.
 
@@ -318,41 +386,74 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - [ ] **Devices page:** table with name/IP/MAC/route/status/last_seen, click for detail, routing rule selector dropdown
 - [ ] **Tunnels page (admin):** list with status/country/bytes, add tunnel (upload .conf or paste), delete with confirmation (warn if devices assigned)
 - [ ] **Settings page (admin):** user management (create API keys, assign devices), global default policy, system info
-- [ ] **First-Run Wizard:** detect first-boot, steps: set admin username/password -> add first tunnel -> set default policy -> done
-- [ ] Real-time updates via WebSocket (device status, tunnel health, device discovered/gone)
+- [ ] **First-Run Wizard:** detect first-boot, steps: set admin username/password -> configure static IP -> DHCP onboarding (detect existing DHCP server, guide user to disable it or switch to per-device fallback mode) -> router MAC discovery (silent, surfaces only on failure) -> add first tunnel -> set default policy -> done
+- [ ] **Settings page additions:** last shutdown type (graceful/unclean) with warning banner, Safe Reboot button (prominent), Safe Shutdown button (with confirmation dialog), DHCP panel (active leases, static reservations, lease history)
+- [ ] Real-time updates via WebSocket (device status, tunnel health, device discovered/gone, DHCP conflict alerts, unclean shutdown warnings)
 
-**Deliverable:** Full web UI for managing tunnels, devices, and routing rules with auth.
+**Deliverable:** Full web UI for managing tunnels, devices, routing rules, DHCP, and system lifecycle with auth.
 
-### Milestone 1g: CLI Tool (wctl)
+### Milestone 1i: CLI Tool (wctl)
 
 **Goal:** Working CLI for power users and scripting.
 
-- [ ] clap command structure: `status`, `devices`, `set`, `tunnels`, `tunnel add/remove`
+- [ ] clap command structure: `status`, `devices`, `set`, `tunnels`, `tunnel add/remove`, `reboot`, `shutdown`
 - [ ] reqwest API client using `wardnet-types`, API key auth via `Authorization: Bearer <key>` header
+- [ ] `wctl reboot` and `wctl shutdown` commands: invoke graceful GARP-first sequence via API
 - [ ] Output: `tabled` for human mode, `serde_json` for `--json`
 - [ ] Config at `~/.config/wardnet/wctl.toml` (daemon URL + API key)
 
-**Deliverable:** All MVP CLI commands working against running daemon.
+**Deliverable:** All MVP CLI commands working against running daemon, including safe reboot/shutdown.
 
-### Milestone 1h: Installation & Packaging
+### Milestone 1j: Installation & Packaging
 
 **Goal:** One-command install on Raspberry Pi.
 
-- [ ] `install.sh`: detect OS, install WireGuard + Unbound + nftables, download binary, create `wardnet` user/group, set up dirs + permissions, install systemd unit, enable IP forwarding, print URL
-- [ ] `wardnetd.service`: User=wardnet, AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE, Restart=always
+- [ ] `install.sh`: detect OS, install WireGuard + Unbound + nftables, download binary, create `wardnet` user/group, set up dirs + permissions, install systemd unit, enable IP forwarding, configure hardware watchdog, disable unnecessary boot services, optimise boot sequence for fast restoration, print URL
+- [ ] `wardnetd.service`: User=wardnet, AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE, Restart=always, RestartSec=2s, WatchdogSec=15
 - [ ] mDNS advertisement as `wardnet.local`
 - [ ] GitHub Actions release workflow: cross-compile aarch64 + x86_64, build web UI, embed, publish release
 - [ ] Documentation: README quick start, manual install steps
 
-**Deliverable:** `curl -sSL https://get.wardnet.dev | bash` installs working Wardnet.
+**Deliverable:** `curl -sSL https://get.wardnet.dev | bash` installs working Wardnet with watchdog and boot optimisation.
 
-### Milestone 1i: Integration Testing & Hardening
+### Milestone 1k: VPN Provider Integration
+
+**Goal:** Pluggable VPN provider system with NordVPN as the first implementation. Allows adding tunnels via guided setup instead of manual .conf import.
+
+- [ ] `VpnProvider` trait defining the provider interface:
+  - `id()` — unique provider identifier (e.g. "nordvpn")
+  - `name()` — display name (e.g. "NordVPN")
+  - `auth_methods()` — supported authentication methods (credentials, token, OAuth)
+  - `validate_credentials(credentials)` — verify auth against provider API
+  - `list_servers(credentials, filters)` — fetch available servers (filterable by country, load, features)
+  - `generate_config(credentials, server)` — produce a WireGuard .conf string for the selected server
+- [ ] Provider registry: compile-time registration of providers, stored in a `Vec<Arc<dyn VpnProvider>>`. Exposed via `ProviderService` trait.
+- [ ] `ProviderService` trait + impl: list providers, validate credentials, list servers, setup tunnel (validate → list servers → generate config → import via TunnelService)
+- [ ] NordVPN provider implementation:
+  - Auth via NordVPN service credentials (username/password from NordVPN account dashboard) or access token
+  - Fetch server list from NordVPN API (`https://api.nordvpn.com/v1/servers`) filtered by WireGuard support + country
+  - Generate WireGuard config using NordVPN's WireGuard private key exchange endpoint
+  - Server selection: by country code, with optional "recommended" (lowest load)
+- [ ] API endpoints (admin-only):
+  - `GET /api/providers` — list registered providers with metadata
+  - `POST /api/providers/:id/validate` — validate credentials for a provider
+  - `GET /api/providers/:id/servers?country=XX` — list available servers
+  - `POST /api/providers/:id/setup` — full guided setup: validate + pick server + generate config + import tunnel
+- [ ] Provider types in `wardnet-types`: `ProviderInfo`, `ProviderAuthMethod`, `ServerInfo`, `SetupProviderRequest`, `SetupProviderResponse`
+- [ ] Tests: mock HTTP client for NordVPN API, test credential validation, server listing, config generation, full setup flow
+
+**Deliverable:** Admin can add a NordVPN tunnel from the API by providing credentials and picking a country — no manual .conf file needed. Architecture ready for community to add Mullvad, ProtonVPN, etc.
+
+### Milestone 1l: Integration Testing & Hardening
 
 **Goal:** Confidence that the system works end-to-end.
 
 - [ ] Network namespace test harness: automated setup/teardown of ns-client, ns-wardnet, ns-vpn-server
 - [ ] E2E tests: create tunnel -> detect device -> tunnel comes up -> apply rule -> verify routing -> device leaves -> tunnel tears down after timeout
-- [ ] Failure tests: tunnel down + fallback, daemon restart + state recovery, kill -9 + reconciliation
+- [ ] Failure tests: tunnel down + fallback, daemon restart + state recovery, kill -9 + reconciliation, unclean shutdown detection
+- [ ] DHCP tests: lease assignment, static reservation, conflict detection with second DHCP server, lease correlation with device registry
+- [ ] GARP tests: graceful shutdown sends GARP with router MAC, startup sends GARP reclaim, sequence completes within 1 second, internet interruption under 2 seconds for graceful restarts
+- [ ] Watchdog tests: verify daemon pets watchdog, verify reboot on simulated hang
 - [ ] Auth tests: self-service auto-detection by IP, admin login, admin-locked device rejection, API key validation
 - [ ] Cross-platform testing: Debian 11/12, Ubuntu 22.04/24.04
 - [ ] Hardware testing: Pi 4, Pi 5
@@ -376,6 +477,12 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 | Privileges | Dedicated `wardnet` user + Linux capabilities | No root. CAP_NET_ADMIN + CAP_NET_RAW + CAP_NET_BIND_SERVICE via systemd. |
 | SQLite concurrency | WAL mode + sqlx pool | Concurrent reads, single writer, sufficient for expected load |
 | Tunnel lifecycle | Lazy (on-demand up, idle teardown) | Don't waste resources on unused tunnels. Configurable idle timeout. |
+| DHCP server | Embedded in daemon (Rust crate) | Eliminates external dependency; full control over lease management, conflict detection, and device registry correlation. Short 10-min leases for fast recovery. |
+| GARP failover | Raw ARP via `pnet` | Instant gateway handoff on shutdown/startup. Router MAC persisted to disk so it works even during crash recovery. Must complete within 1 second. |
+| Hardware watchdog | Linux `/dev/watchdog` | Defence in depth: if daemon hangs (not crashes), kernel reboots within 15 seconds. Combined with systemd Restart=always + RestartSec=2s. |
+| Shutdown orchestration | Flag file + DB tracking | Simple graceful vs unclean detection. Flag file written on startup, removed on graceful shutdown. Absence on next boot = unclean. |
+| Observability | `tracing` + optional OpenTelemetry | Hierarchical spans with version in every log entry. OTel OTLP export (traces + logs) opt-in via `[otel]` config. Bridges existing tracing spans via `tracing-opentelemetry`. |
+| Versioning | `git describe` at compile time | SemVer from tags (`0.1.0`), dev builds auto-increment patch with commit info (`0.1.1-dev.N+gabc1234`). Shared `build-support/version.rs`. |
 
 ---
 
@@ -383,7 +490,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 | Risk | Mitigation |
 |------|------------|
-| Cross-compilation for ARM64 with C deps | Use `rustls` (not OpenSSL), bundled SQLite, minimize C deps. Use `cross` tool. |
+| Cross-compilation for ARM64 with C deps | Use `rustls` (not OpenSSL), bundled SQLite, minimize C deps. Native `cargo` + cross-linker (no Docker-based `cross` tool). |
 | nftables vs iptables across Debian versions | Target nftables; install script sets up iptables-nft on older systems. Abstract behind `Firewall` trait. |
 | Testing routing without root | Trait-based abstractions (NetlinkOps, WireGuardOps, FirewallOps) enable mocked unit tests. Real integration tests use network namespaces. |
 | WireGuard kernel module missing | Install script checks and falls back to wireguard-dkms or wireguard-go. |
@@ -391,16 +498,24 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 | SQLite write contention | WAL mode + short transactions. Write frequency is low (config changes, not high throughput). |
 | Daemon crash leaves stale kernel state | Reconciliation on startup: compare DB desired state with kernel actual state, fix drift. Graceful shutdown cleans up on SIGTERM. |
 | Unbound config writes need permissions | Add `wardnet` user to `unbound` group, or use sudoers entry scoped to `unbound-control reload` only. |
+| DHCP conflict with ISP router | Setup wizard detects existing DHCP servers and guides user to disable them. If router is locked (ISP device), falls back to per-device static config mode with generated instructions. Post-setup conflict detection alerts admin immediately. |
+| GARP not supported by all devices | GARP is best-effort for instant failover. Devices that ignore GARP will still recover via ARP cache expiry (typically 1-5 minutes) or on next DHCP renewal (10 minutes). Short lease time is the safety net. |
+| Hardware watchdog not available | Not all hardware has `/dev/watchdog`. Install script detects availability and skips if absent. Systemd Restart=always is the primary recovery mechanism; watchdog is defence in depth. |
+| Raw ARP requires CAP_NET_RAW | Already required for device detection via `pnet`. No additional capability needed for GARP. |
 
 ---
 
 ## 6. Development Workflow
 
+- **First-time setup:** `make init` -- installs Rust cross-compilation target + toolchain, yarn dependencies
 - **Web UI dev:** `cd source/web-ui && yarn dev` -- Vite on :7412, proxies `/api/*` to daemon on :7411
-- **Daemon dev:** `cd source/daemon && cargo run -p wardnetd -- --verbose` -- reads web-ui/dist/ from filesystem in debug mode (rust-embed)
+- **Daemon dev:** `cd source/daemon && cargo run -p wardnetd -- --verbose --mock-network` -- reads web-ui/dist/ from filesystem in debug mode (rust-embed)
 - **CLI dev:** `cd source/daemon && cargo run -p wctl -- <command>`
-- **Networking dev on macOS:** Use a Linux VM (Multipass/Docker) for kernel networking tests
-- **Mock mode:** `wardnetd --mock-network` uses NoopWireGuard (logs all operations instead of executing) for UI development without real tunnels
+- **Build for Pi:** `make build-pi` -- cross-compiles with native `cargo` + aarch64-linux-gnu linker (no Docker)
+- **Deploy to Pi:** `make deploy PI_HOST=<ip>` -- builds and copies binary via SSH, restarts service
+- **Run checks:** `make check` -- runs all linting, formatting, and tests (web + daemon)
+- **Mock mode:** `wardnetd --mock-network` uses NoopWireGuard, NoopPacketCapture, NoopHostnameResolver for local development without real network interfaces
+- **Real testing:** Deploy to the Pi — real WireGuard, packet capture, and device detection require Linux with the correct kernel modules and capabilities
 
 ---
 
@@ -420,3 +535,10 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 10. **Persistence:** Reboot the Pi, verify configs restored, tunnels stay down until devices are detected, routing rules re-applied correctly.
 11. **Web UI:** Complete first-run wizard, manage tunnels and devices from dashboard, verify real-time updates via WebSocket.
 12. **CLI:** Run `wctl status`, `wctl devices`, `wctl set <device> <tunnel>`, verify output matches UI state.
+13. **DHCP:** Connect a new device to the network with DHCP, verify it receives Pi as gateway and DNS, verify it appears in device list and DHCP lease panel.
+14. **Static reservations:** Add a MAC → IP reservation via API, verify device receives the reserved IP on next DHCP renewal.
+15. **DHCP conflict:** Start a second DHCP server on the network, verify admin alert appears within seconds.
+16. **Safe reboot:** Click Safe Reboot in UI (or `wctl reboot`), verify GARP is sent (tcpdump), verify devices fall back to router, verify Pi reboots and reclaims gateway via GARP on startup, verify internet interruption < 2 seconds.
+17. **Safe shutdown:** Click Safe Shutdown in UI (or `wctl shutdown`), verify GARP failover, verify warning about internet unavailability was shown.
+18. **Unclean shutdown:** Kill the Pi (pull power), verify on next boot the dashboard shows unclean shutdown warning with timestamp.
+19. **Watchdog:** Simulate daemon hang (SIGSTOP), verify Pi reboots within 15 seconds.

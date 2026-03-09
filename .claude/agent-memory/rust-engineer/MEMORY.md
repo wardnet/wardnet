@@ -10,6 +10,17 @@ NOT inside `source/daemon/`. Always read and update memory at the repo root, reg
 - `src/repository/mod.rs` re-exports both traits and SQLite structs
 - `src/repository/sqlite/mod.rs` re-exports all `Sqlite*Repository` types
 
+## DeviceRepository Trait
+- `DeviceRow` (insert struct) lives in `src/repository/device.rs`, re-exported from `repository/mod.rs`
+- SQLite impl uses a private `DeviceRow` (sqlx::FromRow) for reading, aliased `InsertDeviceRow` for the public one
+- `SELECT_COLS` constant used in SQLite impl to avoid repeating column lists
+- Clippy pedantic requires backticks around identifiers like `last_seen` in doc comments
+
+## OUI Module
+- `src/oui.rs` with ~200 OUI prefix entries in a `LazyLock<HashMap<[u8; 3], &'static str>>`
+- Tests in `src/tests/oui.rs`
+- `lookup_manufacturer()` parses MAC "AA:BB:CC" prefix, `guess_device_type()` uses substring matching
+
 ## Key Patterns
 - `replace_all` on identifiers like `WireGuard` is dangerous -- it replaces in code identifiers too, not just doc comments. Only use targeted edits for doc comment fixes.
 - sqlx for SQLite maps INTEGER columns to `i64`. When the domain type is `u16` (e.g. listen_port), use `u16::try_from()` at the DB boundary. For insert, sqlx `.bind()` accepts `Option<u16>` directly.

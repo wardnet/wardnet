@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "wctl", about = "Wardnet CLI", version)]
+#[command(name = "wctl", about = "Wardnet CLI", version = env!("WARDNET_VERSION"))]
 struct Cli {
     /// Output as JSON
     #[arg(long, global = true)]

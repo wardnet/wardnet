@@ -33,7 +33,7 @@ The ability to route different devices through different VPN exit points (Countr
 
 ### Out of Scope (v1)
 
-- Acting as a full router/DHCP server (Pi sits alongside, not replacing, the existing router)
+- Acting as a full router (Pi sits alongside, not replacing, the existing router — but it does run its own DHCP server to manage gateway assignment)
 - IPv6 tunnel routing
 - Paid/commercial VPN resale
 - Mobile native app (planned for v2 — v1 ships web UI only)
@@ -45,7 +45,7 @@ The ability to route different devices through different VPN exit points (Countr
 ```
 Internet
     │
-[ISP Router / Modem]  ← unchanged, still handles DHCP & WiFi
+[ISP Router / Modem]  ← handles WiFi; DHCP delegated to Wardnet Pi
     │
     ├─── [Pi Box: Wardnet]  ← new device on LAN, static IP
     │         │
@@ -60,7 +60,7 @@ Internet
     └─── Other devices ──────► default gateway = Router (unmanaged)
 ```
 
-Devices that want PiRoute routing point their gateway to the Pi's static IP. Devices that don't care continue to use the router as their gateway. The Pi never replaces the router — it is an opt-in gateway.
+Wardnet runs its own DHCP server on the LAN, advertising the Pi as the default gateway and DNS server for all managed devices. Devices automatically route through the Pi without manual configuration. The Pi never replaces the router — it acts as the network's gateway while the router handles WiFi and upstream connectivity.
 
 ---
 
@@ -74,7 +74,9 @@ The heart of the system. Runs as a background service, owns all WireGuard interf
 
 - **FR-001** Maintain multiple simultaneous outbound WireGuard tunnels (one per country/provider endpoint), each on its own network interface (wg_ward0, wg_ward1, …)
 - **FR-002** Support importing WireGuard configuration files (.conf) directly — "bring your own provider"
-- **FR-003** Support a curated provider registry with guided setup shortcuts (Mullvad, NordVPN, ProtonVPN, IVPN as initial set)
+- **FR-003** Support a pluggable VPN provider system with a `VpnProvider` trait/interface that defines how to authenticate, select servers, and generate WireGuard configurations for a specific provider. Each provider is registered at compile time and exposed via the API/UI. NordVPN is the first implementation (MVP); the architecture must allow other developers to add new providers (Mullvad, ProtonVPN, IVPN, etc.) by implementing the same interface
+- **FR-003a** NordVPN provider (MVP): authenticate via NordVPN service credentials or token, fetch available servers by country, generate WireGuard .conf for the selected server, and import it as a tunnel — all from a guided UI flow
+- **FR-003b** Provider registry: maintain a list of registered providers with metadata (name, logo URL, supported auth methods, setup instructions). The API exposes `GET /api/providers` to list available providers and `POST /api/providers/:id/setup` to initiate guided setup
 - **FR-004** Automatically reconnect tunnels on failure with configurable retry backoff
 - **FR-005** Monitor tunnel health via keepalive and last-handshake checks; expose health status over internal API
 - **FR-006** Support naming tunnels with a human-readable label and country flag (e.g. "🇺🇸 United States – Mullvad")
@@ -96,7 +98,7 @@ The heart of the system. Runs as a background service, owns all WireGuard interf
 
 - **FR-020** Passively detect devices that are routing traffic through the Pi by inspecting packet source MAC/IP
 - **FR-021** When a new device is first seen, record it in the device registry with: MAC address, first seen timestamp, IP address (most recent DHCP-assigned)
-- **FR-022** Attempt to resolve a friendly hostname via reverse DNS and mDNS (Bonjour/Avahi)
+- **FR-022** Attempt to resolve a friendly hostname — primary source is the DHCP lease table (client-provided hostname from option 12), falling back to reverse DNS (`getent hosts`). mDNS/Avahi is not required.
 - **FR-023** Devices with no admin or user rule are shown in the UI as "unmanaged" — they route per the global default but are visible
 - **FR-024** Allow admin to assign a persistent friendly name to any device (overrides auto-detected hostname)
 - **FR-025** Detect when a known device changes IP (DHCP renewal) and update policy routing accordingly
@@ -128,6 +130,35 @@ The heart of the system. Runs as a background service, owns all WireGuard interf
 - **FR-056** Allow admin to add custom blocklist sources (URL to a hosts/domain blocklist)
 - **FR-057** Blocked domain queries return NXDOMAIN; the UI shows a blocked query count per device
 
+#### 3.1.7 DHCP Server
+
+This is the mechanism that makes all other routing work without per-device manual configuration.
+
+- **FR-058** Wardnet runs its own DHCP server on the LAN interface, advertising itself as the default gateway (option 3) and DNS server (option 6) for all managed devices
+- **FR-059** DHCP leases must include the router's IP as a secondary entry in option 3 — clients that support multiple gateways (Linux/NetworkManager, some Windows versions) fall back to the router automatically if the Pi is unreachable
+- **FR-060** Default lease time: 10 minutes — short enough for fast recovery after a Pi restart, long enough to not flood the network
+- **FR-061** Support static DHCP reservations: bind a MAC address to a fixed IP, ensuring per-device routing rules remain stable across DHCP renewals
+- **FR-062** DHCP conflict detection: if another DHCP server is detected on the network after setup, surface an immediate admin alert — two DHCP servers on the same subnet will break the network
+- **FR-063** Log all lease assignments and renewals, correlating MAC → IP → device identity in the device registry
+- **FR-064** For routers where DHCP cannot be disabled (locked ISP devices), the setup wizard detects this and switches to per-device static configuration mode, generating tailored instructions per device type
+
+#### 3.1.8 Gateway Resilience & Failover
+
+- **FR-065** Configure the Linux hardware watchdog on install — if wardnetd stops responding, the kernel reboots the Pi within 15 seconds
+- **FR-066** systemd unit must use Restart=always and RestartSec=2s — daemon restarts immediately on crash before the watchdog fires
+- **FR-067** Boot sequence must be optimised at install time (disable unnecessary services, target network-online.target early) — full Wardnet restoration after reboot must complete within 30 seconds
+- **FR-068** On any graceful shutdown or reboot (via UI, CLI, or OS), wardnetd must execute a GARP (Gratuitous ARP) sequence before stopping:
+  - Broadcast ARP reply announcing the gateway IP is now at the router's MAC
+  - Wait 500ms, repeat once
+  - Then proceed with shutdown/reboot
+  - All managed devices immediately re-point their ARP cache at the real router, maintaining internet connectivity during the Pi's downtime
+- **FR-069** On startup, broadcast a GARP reclaiming the gateway role: announce the gateway IP is now at the Pi's MAC — restores routing through Wardnet without waiting for device ARP caches to expire naturally
+- **FR-070** Persist the router's MAC address to disk during setup — the GARP failover sequence must not depend on a live network scan at shutdown time (must work even during a crash-triggered reboot)
+- **FR-071** Detect on startup whether the previous shutdown was graceful (flag file present) or unclean (flag file absent) — unclean shutdowns surfaced as an informational warning in the dashboard
+- **FR-072** The web UI must expose a "Safe Reboot" button that triggers the graceful GARP sequence before rebooting — this must be the prominent, default reboot action, not buried in a settings page
+- **FR-073** The web UI must expose a "Safe Shutdown" button with the same GARP-first behaviour, with a clear warning that internet will be unavailable until the Pi is powered back on
+- **FR-074** wctl reboot and wctl shutdown CLI commands must invoke the graceful sequence, equivalent to the UI buttons
+
 ---
 
 ### 3.2 Management API
@@ -140,22 +171,29 @@ A local REST + WebSocket API served by the daemon (or a sidecar process), consum
 - **FR-063** WebSocket endpoint for real-time push: device status changes, tunnel health events, fallback alerts
 - **FR-064** REST endpoints required (minimum):
 
-| Method | Path                           | Description                          |
-|--------|--------------------------------|--------------------------------------|
-| GET    | /api/devices                   | List all devices                     |
-| GET    | /api/devices/:id               | Device detail + current routing rule |
-| PUT    | /api/devices/:id/rule          | Set permanent routing rule           |
-| POST   | /api/devices/:id/temporary     | Set temporary override               |
-| POST   | /api/devices/:id/schedule      | Add schedule rule                    |
-| DELETE | /api/devices/:id/schedule/:sid | Remove schedule                      |
-| GET    | /api/tunnels                   | List all tunnels + health            |
-| POST   | /api/tunnels                   | Add new tunnel (import config)       |
-| DELETE | /api/tunnels/:id               | Remove tunnel                        |
-| GET    | /api/dns/stats                 | Blocked query count, per device      |
-| PUT    | /api/dns/blocklists            | Update blocklist config              |
-| GET    | /api/system/status             | CPU, memory, uptime, version         |
-| POST   | /api/auth/login                | Authenticate                         |
-| POST   | /api/auth/logout               | Invalidate session                   |
+| Method | Path                           | Description                           |
+|--------|--------------------------------|---------------------------------------|
+| GET    | /api/devices                   | List all devices                      |
+| GET    | /api/devices/:id               | Device detail + current routing rule  |
+| PUT    | /api/devices/:id/rule          | Set permanent routing rule            |
+| POST   | /api/devices/:id/temporary     | Set temporary override                |
+| POST   | /api/devices/:id/schedule      | Add schedule rule                     |
+| DELETE | /api/devices/:id/schedule/:sid | Remove schedule                       |
+| GET    | /api/tunnels                   | List all tunnels + health             |
+| POST   | /api/tunnels                   | Add new tunnel (import config)        |
+| DELETE | /api/tunnels/:id               | Remove tunnel                         |
+| GET    | /api/providers                 | List registered VPN providers         |
+| POST   | /api/providers/:id/setup       | Guided provider setup (auth + config) |
+| GET    | /api/dns/stats                 | Blocked query count, per device       |
+| PUT    | /api/dns/blocklists            | Update blocklist config               |
+| GET    | /api/system/status             | CPU, memory, uptime, version          |
+| POST   | /api/auth/login                | Authenticate                          |
+| POST   | /api/auth/logout               | Invalidate session                    |
+| GET    | /api/dhcp/leases               | List active DHCP leases               |
+| PUT    | /api/dhcp/reservations         | Add/update static DHCP reservation    |
+| DELETE | /api/dhcp/reservations/:mac    | Remove static DHCP reservation        |
+| POST   | /api/system/reboot             | Trigger graceful GARP-first reboot    |
+| POST   | /api/system/shutdown           | Trigger graceful GARP-first shutdown  |
 
 ---
 
@@ -169,9 +207,11 @@ Served directly from the Pi over HTTP on port 7411 (default). Accessible from an
 - **FR-071** Wizard steps:
   1. Set admin username and password
   2. Configure the Pi's static IP (or confirm DHCP reservation)
-  3. Add first VPN tunnel (BYO config upload or guided provider setup)
-  4. Set global default routing policy
-  5. Confirm setup and reach the dashboard
+  3. Network onboarding mode selection — wizard detects whether a DHCP server is already active on the network, guides the user to disable it on their router (with model-specific instructions for common routers), then activates Wardnet's DHCP server and verifies at least one device has received a lease before proceeding. If the router is locked, switches to per-device fallback mode with generated instructions.
+  4. Router MAC discovery — wizard silently pings the router gateway and records its MAC address for GARP failover. No user interaction required; surfaced only if it fails.
+  5. Add first VPN tunnel (BYO config upload or guided provider setup)
+  6. Set global default routing policy
+  7. Confirm setup and reach the dashboard
 - **FR-072** Wizard must be completable without touching a terminal — entirely browser-based
 
 #### 3.3.2 Dashboard
@@ -199,7 +239,7 @@ Served directly from the Pi over HTTP on port 7411 (default). Accessible from an
 - **FR-101** Add tunnel via:
   - Upload a WireGuard .conf file
   - Paste WireGuard config text
-  - Guided wizard for curated providers (walks through getting API credentials or config from provider)
+  - Guided provider setup: select a registered provider → authenticate → pick server/country → auto-generate and import WireGuard config (NordVPN in MVP, extensible to other providers)
 - **FR-102** Remove tunnel — warns if any devices are actively using it and offers reassignment before deletion
 - **FR-103** Test tunnel button — sends a test request through the tunnel and reports the exit IP and country
 
@@ -220,6 +260,10 @@ Served directly from the Pi over HTTP on port 7411 (default). Accessible from an
 - **FR-123** Export/import full configuration (backup/restore)
 - **FR-124** Check for updates and view changelog
 - **FR-125** View logs: daemon log, tunnel events, DNS query log (filterable)
+- **FR-075** Display last shutdown type (graceful vs unclean) with timestamp — unclean shutdowns shown as a persistent warning banner until acknowledged
+- **FR-076** Safe Reboot button — prominently placed, labelled clearly as the recommended way to restart the Pi
+- **FR-077** Safe Shutdown button — same prominence, with confirmation dialog and consequence warning
+- **FR-078** DHCP panel: view active leases (device, MAC, IP, expiry), manage static reservations, view lease history
 
 ---
 
@@ -235,6 +279,8 @@ A command-line interface for power users and scripting. Communicates with the lo
 - **FR-135** `wctl tunnel test <id>` — test tunnel and print exit IP
 - **FR-136** `wctl logs [--follow]` — stream daemon logs
 - **FR-137** `wctl backup` / `wctl restore <file>` — config backup/restore
+- **FR-074a** `wctl reboot` — trigger graceful GARP-first reboot (equivalent to UI Safe Reboot)
+- **FR-074b** `wctl shutdown` — trigger graceful GARP-first shutdown (equivalent to UI Safe Shutdown)
 - **FR-138** CLI authenticates using an API token stored in `~/.wctl/token` (generated from web UI)
 - **FR-139** JSON output mode: `--json` flag on all commands for scripting
 
@@ -265,6 +311,9 @@ A command-line interface for power users and scripting. Communicates with the lo
 - **NFR-006** Tunnel reconnection must be attempted within 5 seconds of a detected disconnect
 - **NFR-007** The system must survive a Pi reboot and fully restore all routing rules within 30 seconds of boot
 - **NFR-008** Configuration must be persisted to disk and survive unexpected power loss (journaled writes, no in-memory-only state)
+- **NFR-009** Linux hardware watchdog configured at install — if wardnetd hangs without crashing, kernel reboots the Pi within 15 seconds
+- **NFR-010** Graceful reboot/shutdown GARP sequence must complete within 1 second before the system proceeds — hard requirement, not best-effort
+- **NFR-011** For graceful restarts, internet interruption for managed devices must be under 2 seconds end-to-end
 
 ### 4.3 Security
 
@@ -415,6 +464,21 @@ bytes_tx     u64
 bytes_rx     u64
 ```
 
+### SystemConfig (additional fields)
+```
+router_mac        String   — persisted during setup, used for GARP failover
+last_shutdown     Enum (graceful | unclean | unknown)
+last_shutdown_at  Timestamp
+```
+
+### DhcpReservation
+```
+mac          String (unique)
+ip           String
+label        String (nullable — friendly name)
+created_at   Timestamp
+```
+
 ---
 
 ## 8. Suggested Features Not Yet Mentioned
@@ -451,9 +515,12 @@ POST to a webhook URL (Discord, Slack, ntfy.sh) on events: tunnel down, device f
 
 ### Phase 1 — Foundation (MVP)
 - Core daemon: WireGuard tunnel management, policy routing engine, device detection
+- DHCP server: gateway advertisement, static reservations, conflict detection, lease logging
+- Gateway resilience: hardware watchdog, GARP failover on shutdown/startup, graceful reboot/shutdown
+- VPN provider integration: pluggable `VpnProvider` trait, provider registry, NordVPN as first implementation
 - REST API with auth (admin session + API key + unauthenticated self-service by IP)
-- Web UI: first-run wizard, device list, routing rule assignment, tunnel management
-- CLI: status, devices, set rule, tunnel add/remove
+- Web UI: first-run wizard (with DHCP onboarding + router MAC discovery), device list, routing rule assignment, tunnel management, guided provider setup, safe reboot/shutdown, DHCP panel
+- CLI: status, devices, set rule, tunnel add/remove, reboot, shutdown
 - DNS leak prevention
 - Install script + SD card image
 
@@ -466,7 +533,7 @@ POST to a webhook URL (Discord, Slack, ntfy.sh) on events: tunnel down, device f
 - Domain-based routing rules
 - Multi-tunnel failover groups
 - Traffic usage dashboard
-- Curated provider wizard (Mullvad, ProtonVPN, etc.)
+- Additional VPN providers (Mullvad, ProtonVPN, IVPN, Surfshark — community contributions welcome via VpnProvider trait)
 - Notification webhooks
 - Mobile app (React Native)
 
