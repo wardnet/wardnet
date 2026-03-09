@@ -23,7 +23,7 @@ jobs:
     name: Check Web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Enable Corepack
         run: corepack enable
@@ -42,7 +42,7 @@ jobs:
     needs: check-web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Enable Corepack
         run: corepack enable
@@ -67,7 +67,7 @@ jobs:
     name: Check Daemon
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -86,7 +86,7 @@ jobs:
     name: Code Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -128,7 +128,7 @@ jobs:
             runner: ubuntu-latest
             make-target: build-pi
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download web-ui dist
         uses: actions/download-artifact@v4
