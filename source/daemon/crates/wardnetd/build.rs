@@ -58,12 +58,11 @@ fn generate_oui_data() {
     println!("cargo::rerun-if-changed=data/oui.csv");
 
     let csv_path = Path::new("data/oui.csv");
-    if !csv_path.exists() {
-        panic!(
-            "OUI database not found at data/oui.csv. \
-             Download it from https://standards-oui.ieee.org/oui/oui.csv"
-        );
-    }
+    assert!(
+        csv_path.exists(),
+        "OUI database not found at data/oui.csv. \
+         Download it from https://standards-oui.ieee.org/oui/oui.csv"
+    );
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("oui_data.rs");
