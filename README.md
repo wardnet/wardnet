@@ -5,6 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.94-orange.svg)](https://www.rust-lang.org)
 [![dependency status](https://deps.rs/repo/github/pedromvgomes/wardnet/status.svg)](https://deps.rs/repo/github/pedromvgomes/wardnet)
 [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/pedromvgomes/wardnet)](https://rust-reportcard.xuri.me/report/github.com/pedromvgomes/wardnet)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Wardnet is a self-hosted network privacy gateway that runs on a Raspberry Pi. It sits alongside an existing home or small-office router and acts as the warden of every device's connection to the internet — encrypting traffic, blocking ads and trackers at the DNS level, and giving you per-device control over how each device connects.
 
