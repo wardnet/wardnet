@@ -301,6 +301,34 @@ async fn upsert_user_rule_insert_and_update() {
 }
 
 #[tokio::test]
+async fn update_admin_locked_sets_flag() {
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    repo.insert(&sample_device_row(
+        DEV1,
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.10",
+    ))
+    .await
+    .unwrap();
+
+    // Initially unlocked.
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(!device.admin_locked);
+
+    // Lock.
+    repo.update_admin_locked(DEV1, true).await.unwrap();
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(device.admin_locked);
+
+    // Unlock.
+    repo.update_admin_locked(DEV1, false).await.unwrap();
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(!device.admin_locked);
+}
+
+#[tokio::test]
 async fn count_devices() {
     let pool = test_pool().await;
     insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;

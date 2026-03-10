@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use uuid::Uuid;
+use wardnet_types::auth::AuthContext;
 use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
+use crate::auth_context;
 use crate::repository::DeviceRepository;
 use crate::repository::device::DeviceRow;
 use crate::service::{DeviceService, DeviceServiceImpl};
@@ -64,6 +66,9 @@ impl DeviceRepository for MockDeviceRepo {
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
@@ -94,14 +99,37 @@ fn sample_rule() -> RoutingRule {
     }
 }
 
-// -- Tests ----------------------------------------------------------------
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::new_v4(),
+    }
+}
+
+fn device_ctx(mac: &str) -> AuthContext {
+    AuthContext::Device {
+        mac: mac.to_owned(),
+    }
+}
+
+fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
+    DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
+        device: Some(sample_device(locked)),
+        rule,
+    }))
+}
+
+fn make_svc_no_device() -> DeviceServiceImpl {
+    DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
+        device: None,
+        rule: None,
+    }))
+}
+
+// -- Tests: get_device_for_ip --------------------------------------------
 
 #[tokio::test]
 async fn get_device_found_with_rule() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: Some(sample_device(false)),
-        rule: Some(sample_rule()),
-    }));
+    let svc = make_svc(false, Some(sample_rule()));
 
     let resp = svc.get_device_for_ip("192.168.1.10").await.unwrap();
     assert!(resp.device.is_some());
@@ -111,10 +139,7 @@ async fn get_device_found_with_rule() {
 
 #[tokio::test]
 async fn get_device_found_no_rule() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: Some(sample_device(false)),
-        rule: None,
-    }));
+    let svc = make_svc(false, None);
 
     let resp = svc.get_device_for_ip("192.168.1.10").await.unwrap();
     assert!(resp.device.is_some());
@@ -123,10 +148,7 @@ async fn get_device_found_no_rule() {
 
 #[tokio::test]
 async fn get_device_not_found() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: None,
-        rule: None,
-    }));
+    let svc = make_svc_no_device();
 
     let resp = svc.get_device_for_ip("10.0.0.99").await.unwrap();
     assert!(resp.device.is_none());
@@ -134,43 +156,215 @@ async fn get_device_not_found() {
     assert!(!resp.admin_locked);
 }
 
-#[tokio::test]
-async fn set_rule_success() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: Some(sample_device(false)),
-        rule: None,
-    }));
+// -- Tests: set_rule_for_ip (auth context) --------------------------------
 
-    let resp = svc
-        .set_rule_for_ip("192.168.1.10", RoutingTarget::Default)
-        .await
-        .unwrap();
+#[tokio::test]
+async fn set_rule_device_context_own_device() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+
+    let resp = auth_context::with_context(ctx, async {
+        svc.set_rule_for_ip("192.168.1.10", RoutingTarget::Default)
+            .await
+    })
+    .await
+    .unwrap();
+
     assert_eq!(resp.target, RoutingTarget::Default);
     assert_eq!(resp.message, "routing rule updated");
 }
 
 #[tokio::test]
-async fn set_rule_admin_locked() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: Some(sample_device(true)),
-        rule: None,
-    }));
+async fn set_rule_device_context_wrong_device_forbidden() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("FF:FF:FF:FF:FF:FF");
 
-    let result = svc
-        .set_rule_for_ip("192.168.1.10", RoutingTarget::Direct)
-        .await;
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule_for_ip("192.168.1.10", RoutingTarget::Direct)
+            .await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn set_rule_admin_locked_device_context_forbidden() {
+    let svc = make_svc(true, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule_for_ip("192.168.1.10", RoutingTarget::Direct)
+            .await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn set_rule_admin_context_bypasses_lock() {
+    let svc = make_svc(true, None);
+    let ctx = admin_ctx();
+
+    let resp = auth_context::with_context(ctx, async {
+        svc.set_rule_for_ip("192.168.1.10", RoutingTarget::Direct)
+            .await
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(resp.target, RoutingTarget::Direct);
+}
+
+#[tokio::test]
+async fn set_rule_anonymous_forbidden() {
+    let svc = make_svc(false, None);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, async {
+        svc.set_rule_for_ip("192.168.1.10", RoutingTarget::Direct)
+            .await
+    })
+    .await;
+
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn set_rule_device_not_found() {
-    let svc = DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: None,
-        rule: None,
-    }));
+    let svc = make_svc_no_device();
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
 
-    let result = svc
-        .set_rule_for_ip("10.0.0.99", RoutingTarget::Direct)
-        .await;
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule_for_ip("10.0.0.99", RoutingTarget::Direct)
+            .await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+// -- Tests: set_rule (by device ID) --------------------------------------
+
+#[tokio::test]
+async fn set_rule_by_id_admin_allowed() {
+    let svc = make_svc(true, None);
+    let ctx = admin_ctx();
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    auth_context::with_context(ctx, async {
+        svc.set_rule(device_id, RoutingTarget::Direct).await
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn set_rule_by_id_device_context_own_device() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    auth_context::with_context(ctx, async {
+        svc.set_rule(device_id, RoutingTarget::Default).await
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn set_rule_by_id_device_context_foreign_device_forbidden() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("FF:FF:FF:FF:FF:FF");
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule(device_id, RoutingTarget::Default).await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn set_rule_by_id_admin_locked_own_device_forbidden() {
+    let svc = make_svc(true, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule(device_id, RoutingTarget::Default).await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn set_rule_by_id_anonymous_forbidden() {
+    let svc = make_svc(false, None);
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    let result = auth_context::with_context(AuthContext::Anonymous, async {
+        svc.set_rule(device_id, RoutingTarget::Default).await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn set_rule_by_id_device_not_found() {
+    let svc = make_svc_no_device();
+    let ctx = admin_ctx();
+    let device_id = "00000000-0000-0000-0000-000000000099";
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_rule(device_id, RoutingTarget::Default).await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+// -- Tests: update_admin_locked ------------------------------------------
+
+#[tokio::test]
+async fn update_admin_locked_admin_allowed() {
+    let svc = make_svc(false, None);
+    let ctx = admin_ctx();
+
+    auth_context::with_context(ctx, async {
+        svc.update_admin_locked("00000000-0000-0000-0000-000000000001", true)
+            .await
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn update_admin_locked_device_context_forbidden() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.update_admin_locked("00000000-0000-0000-0000-000000000001", true)
+            .await
+    })
+    .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn update_admin_locked_anonymous_forbidden() {
+    let svc = make_svc(false, None);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, async {
+        svc.update_admin_locked("00000000-0000-0000-0000-000000000001", true)
+            .await
+    })
+    .await;
+
     assert!(result.is_err());
 }

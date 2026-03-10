@@ -3,6 +3,7 @@ mod devices;
 mod info;
 mod middleware;
 mod providers;
+mod router;
 mod setup;
 mod system;
 mod tunnels;

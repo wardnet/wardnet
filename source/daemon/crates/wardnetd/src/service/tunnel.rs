@@ -10,6 +10,7 @@ use wardnet_types::event::WardnetEvent;
 use wardnet_types::tunnel::{Tunnel, TunnelStatus};
 use wardnet_types::wireguard_config;
 
+use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::keys::KeyStore;
@@ -100,6 +101,8 @@ impl TunnelService for TunnelServiceImpl {
         &self,
         req: CreateTunnelRequest,
     ) -> Result<CreateTunnelResponse, AppError> {
+        auth_context::require_admin()?;
+
         // Parse the `WireGuard` .conf content.
         let config = wireguard_config::parse(&req.config)
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -178,15 +181,21 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn list_tunnels(&self) -> Result<ListTunnelsResponse, AppError> {
+        auth_context::require_authenticated()?;
+
         let tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
         Ok(ListTunnelsResponse { tunnels })
     }
 
     async fn get_tunnel(&self, id: Uuid) -> Result<Tunnel, AppError> {
+        auth_context::require_authenticated()?;
+
         self.require_tunnel(id).await
     }
 
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         let tunnel = self.require_tunnel(id).await?;
 
         // No-op if already up.
@@ -274,6 +283,8 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn tear_down(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         let tunnel = self.require_tunnel(id).await?;
 
         // No-op if already down.
@@ -309,6 +320,8 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn delete_tunnel(&self, id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
+        auth_context::require_admin()?;
+
         let tunnel = self.require_tunnel(id).await?;
 
         // If the tunnel is up, tear it down first.

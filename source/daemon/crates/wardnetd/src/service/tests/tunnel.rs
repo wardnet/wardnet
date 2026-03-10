@@ -8,6 +8,9 @@ use wardnet_types::event::WardnetEvent;
 use wardnet_types::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_types::wireguard_config::WgPeerConfig;
 
+use wardnet_types::auth::AuthContext;
+
+use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::keys::KeyStore;
@@ -15,6 +18,13 @@ use crate::repository::TunnelRepository;
 use crate::repository::tunnel::TunnelRow;
 use crate::service::{TunnelService, TunnelServiceImpl};
 use crate::wireguard::{CreateInterfaceParams, WgInterfaceStats, WireGuardOps};
+
+/// Helper to create an admin auth context for tests.
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::new_v4(),
+    }
+}
 
 // -- Sample WireGuard config text -----------------------------------------
 
@@ -311,7 +321,9 @@ fn sample_request() -> CreateTunnelRequest {
 #[tokio::test]
 async fn import_tunnel_success() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
 
     assert_eq!(resp.tunnel.label, "Sweden VPN");
     assert_eq!(resp.tunnel.country_code, "SE");
@@ -325,6 +337,17 @@ async fn import_tunnel_success() {
 }
 
 #[tokio::test]
+async fn import_tunnel_anonymous_forbidden() {
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.import_tunnel(sample_request()),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
 async fn import_tunnel_invalid_config() {
     let h = build_harness();
     let req = CreateTunnelRequest {
@@ -334,7 +357,7 @@ async fn import_tunnel_invalid_config() {
         config: "this is not a valid config".to_owned(),
     };
 
-    let result = h.svc.import_tunnel(req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req)).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::BadRequest(_)));
 }
@@ -342,10 +365,14 @@ async fn import_tunnel_invalid_config() {
 #[tokio::test]
 async fn bring_up_success() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
-    h.svc.bring_up(id).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
 
     // Verify WireGuard ops were called.
     {
@@ -365,14 +392,24 @@ async fn bring_up_success() {
     assert!(matches!(&events[0], WardnetEvent::TunnelUp { tunnel_id, .. } if *tunnel_id == id));
 
     // Verify tunnel status is now up.
-    let tunnel = h.svc.get_tunnel(id).await.unwrap();
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
     assert_eq!(tunnel.status, TunnelStatus::Up);
+}
+
+#[tokio::test]
+async fn bring_up_anonymous_forbidden() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.bring_up(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
 async fn bring_up_not_found() {
     let h = build_harness();
-    let result = h.svc.bring_up(Uuid::new_v4()).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.bring_up(Uuid::new_v4())).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
@@ -381,11 +418,17 @@ async fn bring_up_not_found() {
 #[tokio::test]
 async fn tear_down_success() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
-    h.svc.bring_up(id).await.unwrap();
-    h.svc.tear_down(id, "manual").await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.tear_down(id, "manual"))
+        .await
+        .unwrap();
 
     // Verify tear_down and remove_interface were called.
     {
@@ -404,17 +447,34 @@ async fn tear_down_success() {
     assert!(events.iter().any(|e| matches!(e, WardnetEvent::TunnelDown { tunnel_id, reason, .. } if *tunnel_id == id && reason == "manual")));
 
     // Verify tunnel status is now down.
-    let tunnel = h.svc.get_tunnel(id).await.unwrap();
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
     assert_eq!(tunnel.status, TunnelStatus::Down);
+}
+
+#[tokio::test]
+async fn tear_down_anonymous_forbidden() {
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.tear_down(Uuid::new_v4(), "test"),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
 async fn delete_tunnel_success() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
-    let del = h.svc.delete_tunnel(id).await.unwrap();
+    let del = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(id))
+        .await
+        .unwrap();
     assert!(del.message.contains("Sweden VPN"));
 
     // Verify key was deleted.
@@ -422,38 +482,84 @@ async fn delete_tunnel_success() {
     assert!(key_result.is_err());
 
     // Verify tunnel is gone from the repo.
-    let get_result = h.svc.get_tunnel(id).await;
+    let get_result = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id)).await;
     assert!(matches!(get_result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn delete_tunnel_anonymous_forbidden() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.delete_tunnel(Uuid::new_v4()))
+            .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
 async fn list_tunnels_returns_all() {
     let h = build_harness();
-    h.svc.import_tunnel(sample_request()).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
 
     let mut req2 = sample_request();
     req2.label = "Germany VPN".to_owned();
     req2.country_code = "DE".to_owned();
-    h.svc.import_tunnel(req2).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req2))
+        .await
+        .unwrap();
 
-    let list = h.svc.list_tunnels().await.unwrap();
+    let list = auth_context::with_context(admin_ctx(), h.svc.list_tunnels())
+        .await
+        .unwrap();
     assert_eq!(list.tunnels.len(), 2);
+}
+
+#[tokio::test]
+async fn list_tunnels_anonymous_forbidden() {
+    let h = build_harness();
+    let result = auth_context::with_context(AuthContext::Anonymous, h.svc.list_tunnels()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn list_tunnels_as_device_allowed() {
+    let h = build_harness();
+    let ctx = AuthContext::Device {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+    };
+    let result = auth_context::with_context(ctx, h.svc.list_tunnels()).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn get_tunnel_anonymous_forbidden() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.get_tunnel(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
 async fn bring_up_already_up_is_noop() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
     // Bring up the first time.
-    h.svc.bring_up(id).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
 
     // Clear events from the first bring_up.
     h.events.events.lock().unwrap().clear();
 
     // Bring up again -- should be a no-op.
-    h.svc.bring_up(id).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
 
     // No additional WireGuard calls.
     assert_eq!(h.wireguard.created.lock().unwrap().len(), 1);
@@ -467,11 +573,15 @@ async fn bring_up_already_up_is_noop() {
 #[tokio::test]
 async fn tear_down_already_down_is_noop() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
     // Tunnel starts down, so tear_down should be a no-op.
-    h.svc.tear_down(id, "test").await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.tear_down(id, "test"))
+        .await
+        .unwrap();
 
     // No WireGuard calls.
     assert!(h.wireguard.torn_down.lock().unwrap().is_empty());
@@ -481,7 +591,8 @@ async fn tear_down_already_down_is_noop() {
 #[tokio::test]
 async fn tear_down_not_found() {
     let h = build_harness();
-    let result = h.svc.tear_down(Uuid::new_v4(), "test").await;
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.tear_down(Uuid::new_v4(), "test")).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
 }
@@ -489,14 +600,20 @@ async fn tear_down_not_found() {
 #[tokio::test]
 async fn delete_tunnel_tears_down_if_up() {
     let h = build_harness();
-    let resp = h.svc.import_tunnel(sample_request()).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
     let id = resp.tunnel.id;
 
     // Bring the tunnel up first.
-    h.svc.bring_up(id).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
 
     // Delete should tear down before removing.
-    let del = h.svc.delete_tunnel(id).await.unwrap();
+    let del = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(id))
+        .await
+        .unwrap();
     assert!(del.message.contains("Sweden VPN"));
 
     // Verify tear_down + remove_interface were called.
@@ -508,7 +625,7 @@ async fn delete_tunnel_tears_down_if_up() {
 
     // Verify tunnel is gone.
     assert!(matches!(
-        h.svc.get_tunnel(id).await,
+        auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id)).await,
         Err(AppError::NotFound(_))
     ));
 }
@@ -516,7 +633,7 @@ async fn delete_tunnel_tears_down_if_up() {
 #[tokio::test]
 async fn delete_tunnel_not_found() {
     let h = build_harness();
-    let result = h.svc.delete_tunnel(Uuid::new_v4()).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(Uuid::new_v4())).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
 }
@@ -525,7 +642,9 @@ async fn delete_tunnel_not_found() {
 async fn restore_tunnels_succeeds() {
     let h = build_harness();
     // Import a couple of tunnels.
-    h.svc.import_tunnel(sample_request()).await.unwrap();
+    auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
 
     // restore_tunnels should succeed and not bring any tunnels up.
     h.svc.restore_tunnels().await.unwrap();

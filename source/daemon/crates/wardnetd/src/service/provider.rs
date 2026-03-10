@@ -8,6 +8,7 @@ use wardnet_types::api::{
 };
 use wardnet_types::vpn_provider::ServerFilter;
 
+use crate::auth_context;
 use crate::error::AppError;
 use crate::service::TunnelService;
 use crate::vpn_provider::VpnProvider;
@@ -69,6 +70,8 @@ impl ProviderServiceImpl {
 #[async_trait]
 impl ProviderService for ProviderServiceImpl {
     async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
+        auth_context::require_admin()?;
+
         Ok(ListProvidersResponse {
             providers: self.registry.list(),
         })
@@ -79,6 +82,8 @@ impl ProviderService for ProviderServiceImpl {
         provider_id: &str,
         request: ValidateCredentialsRequest,
     ) -> Result<ValidateCredentialsResponse, AppError> {
+        auth_context::require_admin()?;
+
         let provider = self.require_provider(provider_id)?;
 
         let valid = provider
@@ -100,6 +105,8 @@ impl ProviderService for ProviderServiceImpl {
         provider_id: &str,
         request: ListServersRequest,
     ) -> Result<ListServersResponse, AppError> {
+        auth_context::require_admin()?;
+
         let provider = self.require_provider(provider_id)?;
 
         let servers = provider
@@ -115,6 +122,8 @@ impl ProviderService for ProviderServiceImpl {
         provider_id: &str,
         request: SetupProviderRequest,
     ) -> Result<SetupProviderResponse, AppError> {
+        auth_context::require_admin()?;
+
         let provider = self.require_provider(provider_id)?;
         let info = provider.info();
 

@@ -8,6 +8,9 @@ use uuid::Uuid;
 use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::event::WardnetEvent;
 
+use wardnet_types::auth::AuthContext;
+
+use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::hostname_resolver::HostnameResolver;
@@ -417,15 +420,47 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn get_all_devices(&self) -> Result<Vec<Device>, AppError> {
-        self.devices.find_all().await.map_err(AppError::Internal)
+        auth_context::require_authenticated()?;
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        match ctx {
+            AuthContext::Admin { .. } => self.devices.find_all().await.map_err(AppError::Internal),
+            AuthContext::Device { mac } => {
+                match self
+                    .devices
+                    .find_by_mac(&mac)
+                    .await
+                    .map_err(AppError::Internal)?
+                {
+                    Some(d) => Ok(vec![d]),
+                    None => Ok(vec![]),
+                }
+            }
+            // Already handled by require_authenticated above.
+            AuthContext::Anonymous => unreachable!(),
+        }
     }
 
     async fn get_device_by_id(&self, id: Uuid) -> Result<Device, AppError> {
-        self.devices
+        auth_context::require_authenticated()?;
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+
+        let device = self
+            .devices
             .find_by_id(&id.to_string())
             .await
             .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))
+            .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
+
+        // Device callers can only view their own device.
+        if let AuthContext::Device { mac } = &ctx
+            && device.mac != *mac
+        {
+            return Err(AppError::Forbidden(
+                "not authorised to view this device".to_owned(),
+            ));
+        }
+
+        Ok(device)
     }
 
     async fn update_device(
@@ -434,6 +469,28 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         name: Option<&str>,
         device_type: Option<DeviceType>,
     ) -> Result<Device, AppError> {
+        auth_context::require_authenticated()?;
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+
+        // Device callers can only update their own device, and only if not admin-locked.
+        if let AuthContext::Device { mac } = &ctx {
+            let device = self
+                .devices
+                .find_by_id(&id.to_string())
+                .await
+                .map_err(AppError::Internal)?
+                .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
+
+            if device.mac != *mac {
+                return Err(AppError::Forbidden(
+                    "not authorised to modify this device".to_owned(),
+                ));
+            }
+            if device.admin_locked {
+                return Err(AppError::Forbidden("device is locked by admin".to_owned()));
+            }
+        }
+
         // If a device_type was provided, serialize it; otherwise fetch the current one.
         let type_str = if let Some(dt) = device_type {
             serde_json::to_string(&dt)

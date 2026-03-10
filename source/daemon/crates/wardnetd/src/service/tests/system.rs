@@ -2,7 +2,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use uuid::Uuid;
+use wardnet_types::auth::AuthContext;
 
+use crate::auth_context;
+use crate::error::AppError;
 use crate::repository::SystemConfigRepository;
 use crate::service::{SystemService, SystemServiceImpl};
 
@@ -33,20 +37,34 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     }
 }
 
+// -- Helpers --------------------------------------------------------------
+
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::new_v4(),
+    }
+}
+
+fn build_service(devices: i64, tunnels: i64, db_size: u64) -> SystemServiceImpl {
+    SystemServiceImpl::new(
+        Arc::new(MockSystemConfigRepo {
+            devices,
+            tunnels,
+            db_size,
+        }),
+        Instant::now(),
+    )
+}
+
 // -- Tests ----------------------------------------------------------------
 
 #[tokio::test]
 async fn status_returns_correct_values() {
-    let svc = SystemServiceImpl::new(
-        Arc::new(MockSystemConfigRepo {
-            devices: 5,
-            tunnels: 2,
-            db_size: 8192,
-        }),
-        Instant::now(),
-    );
+    let svc = build_service(5, 2, 8192);
 
-    let resp = svc.status().await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
     assert_eq!(resp.version, env!("WARDNET_VERSION"));
     assert_eq!(resp.device_count, 5);
     assert_eq!(resp.tunnel_count, 2);
@@ -59,16 +77,28 @@ async fn status_returns_correct_values() {
 
 #[tokio::test]
 async fn status_version_comes_from_compile_time_env() {
-    let svc = SystemServiceImpl::new(
-        Arc::new(MockSystemConfigRepo {
-            devices: 0,
-            tunnels: 0,
-            db_size: 0,
-        }),
-        Instant::now(),
-    );
+    let svc = build_service(0, 0, 0);
 
-    let resp = svc.status().await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
     // Version is always the compile-time constant, never "unknown".
     assert_eq!(resp.version, env!("WARDNET_VERSION"));
+}
+
+#[tokio::test]
+async fn status_anonymous_forbidden() {
+    let svc = build_service(0, 0, 0);
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.status()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn status_device_forbidden() {
+    let svc = build_service(0, 0, 0);
+    let ctx = AuthContext::Device {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+    };
+    let result = auth_context::with_context(ctx, svc.status()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }

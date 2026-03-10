@@ -337,7 +337,15 @@ make check
 ```
 
 **Code coverage (MANDATORY for Rust changes):**
-Before starting work, compute the current coverage baseline by running `cargo tarpaulin --workspace` on `main` (or during planning). After implementation, run it again on your branch and verify coverage **does not decrease**. New code must have tests — coverage should stay the same or increase. It must never go down. Config: `source/daemon/tarpaulin.toml`.
+We use `cargo-llvm-cov` for code coverage. Before starting work, compute the current coverage baseline on `main` (or during planning). After implementation, run it again on your branch and verify coverage **does not decrease**. New code must have tests — coverage should stay the same or increase. It must never go down.
+
+```sh
+cd source/daemon
+cargo llvm-cov --package wardnetd --summary-only \
+  --ignore-filename-regex '(main\.rs|wireguard_real\.rs|wireguard_noop\.rs|packet_capture_noop\.rs|hostname_resolver_noop\.rs|db\.rs|web\.rs|auth_context\.rs)'
+```
+
+The `--ignore-filename-regex` excludes files that are not unit-testable (binary entrypoints, no-op/stub implementations, Tower middleware boilerplate, database pool setup, and static file serving). CI uses the same exclusions — see `.github/workflows/ci.yml`.
 
 ## Boundaries
 

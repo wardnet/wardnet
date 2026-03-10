@@ -116,6 +116,10 @@ pub struct DeviceDetailResponse {
 pub struct UpdateDeviceRequest {
     pub name: Option<String>,
     pub device_type: Option<DeviceType>,
+    /// Routing target to set for this device (admin bypasses lock check).
+    pub routing_target: Option<RoutingTarget>,
+    /// Whether to lock routing changes for this device.
+    pub admin_locked: Option<bool>,
 }
 
 /// Response for GET /api/setup/status.

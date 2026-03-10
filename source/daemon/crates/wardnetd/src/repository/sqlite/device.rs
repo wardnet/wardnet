@@ -224,6 +224,15 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(())
     }
 
+    async fn update_admin_locked(&self, id: &str, locked: bool) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET admin_locked = ? WHERE id = ?")
+            .bind(locked)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM devices")
             .fetch_one(&self.pool)
