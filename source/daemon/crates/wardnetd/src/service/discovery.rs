@@ -423,11 +423,14 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         auth_context::require_authenticated()?;
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         match ctx {
-            AuthContext::Admin { .. } => {
-                self.devices.find_all().await.map_err(AppError::Internal)
-            }
+            AuthContext::Admin { .. } => self.devices.find_all().await.map_err(AppError::Internal),
             AuthContext::Device { mac } => {
-                match self.devices.find_by_mac(&mac).await.map_err(AppError::Internal)? {
+                match self
+                    .devices
+                    .find_by_mac(&mac)
+                    .await
+                    .map_err(AppError::Internal)?
+                {
                     Some(d) => Ok(vec![d]),
                     None => Ok(vec![]),
                 }
@@ -484,9 +487,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
                 ));
             }
             if device.admin_locked {
-                return Err(AppError::Forbidden(
-                    "device is locked by admin".to_owned(),
-                ));
+                return Err(AppError::Forbidden("device is locked by admin".to_owned()));
             }
         }
 

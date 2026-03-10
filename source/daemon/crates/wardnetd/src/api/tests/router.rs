@@ -128,8 +128,7 @@ async fn info_endpoint_works_through_full_router() {
     let body = axum::body::to_bytes(resp.into_body(), 4096)
         .await
         .expect("readable body");
-    let json: wardnet_types::api::InfoResponse =
-        serde_json::from_slice(&body).expect("valid JSON");
+    let json: wardnet_types::api::InfoResponse = serde_json::from_slice(&body).expect("valid JSON");
     assert!(!json.version.is_empty());
 }
 

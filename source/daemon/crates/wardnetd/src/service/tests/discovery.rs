@@ -484,7 +484,9 @@ async fn get_all_devices_as_admin() {
     );
     let h = build_harness_with_devices(vec![device]);
 
-    let devices = auth_context::with_context(admin_ctx(), h.svc.get_all_devices()).await.unwrap();
+    let devices = auth_context::with_context(admin_ctx(), h.svc.get_all_devices())
+        .await
+        .unwrap();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].mac, "AA:BB:CC:DD:EE:01");
 }
@@ -503,12 +505,10 @@ async fn get_all_devices_as_device_returns_own_only() {
     );
     let h = build_harness_with_devices(vec![device1, device2]);
 
-    let devices = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:01"),
-        h.svc.get_all_devices(),
-    )
-    .await
-    .unwrap();
+    let devices =
+        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:01"), h.svc.get_all_devices())
+            .await
+            .unwrap();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].mac, "AA:BB:CC:DD:EE:01");
 }
@@ -523,7 +523,8 @@ async fn get_all_devices_anonymous_forbidden() {
 #[tokio::test]
 async fn get_device_by_id_not_found() {
     let h = build_harness();
-    let result = auth_context::with_context(admin_ctx(), h.svc.get_device_by_id(Uuid::new_v4())).await;
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.get_device_by_id(Uuid::new_v4())).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
 }
@@ -549,11 +550,9 @@ async fn get_device_by_id_device_can_view_own() {
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
-    let result = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:01"),
-        h.svc.get_device_by_id(id),
-    )
-    .await;
+    let result =
+        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:01"), h.svc.get_device_by_id(id))
+            .await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().mac, "AA:BB:CC:DD:EE:01");
 }
@@ -568,11 +567,9 @@ async fn get_device_by_id_device_cannot_view_other() {
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
-    let result = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:99"),
-        h.svc.get_device_by_id(id),
-    )
-    .await;
+    let result =
+        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:99"), h.svc.get_device_by_id(id))
+            .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -588,7 +585,8 @@ async fn update_device_sets_name_and_type_as_admin() {
 
     let result = auth_context::with_context(
         admin_ctx(),
-        h.svc.update_device(id, Some("Living Room TV"), Some(DeviceType::Tv)),
+        h.svc
+            .update_device(id, Some("Living Room TV"), Some(DeviceType::Tv)),
     )
     .await
     .unwrap();
@@ -799,7 +797,9 @@ async fn get_device_by_id_success() {
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
-    let result = auth_context::with_context(admin_ctx(), h.svc.get_device_by_id(id)).await.unwrap();
+    let result = auth_context::with_context(admin_ctx(), h.svc.get_device_by_id(id))
+        .await
+        .unwrap();
     assert_eq!(result.id, id);
     assert_eq!(result.mac, "AA:BB:CC:DD:EE:01");
 }

@@ -330,8 +330,7 @@ async fn list_providers_empty_when_no_providers() {
 #[tokio::test]
 async fn list_providers_anonymous_forbidden() {
     let h = build_empty_harness();
-    let result =
-        auth_context::with_context(AuthContext::Anonymous, h.svc.list_providers()).await;
+    let result = auth_context::with_context(AuthContext::Anonymous, h.svc.list_providers()).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -553,8 +552,7 @@ async fn setup_tunnel_invalid_credentials() {
         server_id: None,
         hostname: None,
     };
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::Unauthorized(_)));
@@ -573,8 +571,7 @@ async fn setup_tunnel_no_servers_found() {
         server_id: None,
         hostname: None,
     };
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -594,8 +591,7 @@ async fn setup_tunnel_server_id_not_found() {
         server_id: Some("nonexistent-server".to_owned()),
         hostname: None,
     };
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -679,8 +675,7 @@ async fn setup_tunnel_with_hostname_not_found() {
         server_id: None,
         hostname: Some("bad.nordvpn.com".to_owned()),
     };
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::Internal(_)));
@@ -700,8 +695,7 @@ async fn setup_tunnel_with_hostname_unsupported_provider() {
         server_id: None,
         hostname: Some("pt131.nordvpn.com".to_owned()),
     };
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();

@@ -339,9 +339,11 @@ async fn import_tunnel_success() {
 #[tokio::test]
 async fn import_tunnel_anonymous_forbidden() {
     let h = build_harness();
-    let result =
-        auth_context::with_context(AuthContext::Anonymous, h.svc.import_tunnel(sample_request()))
-            .await;
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.import_tunnel(sample_request()),
+    )
+    .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -487,11 +489,9 @@ async fn delete_tunnel_success() {
 #[tokio::test]
 async fn delete_tunnel_anonymous_forbidden() {
     let h = build_harness();
-    let result = auth_context::with_context(
-        AuthContext::Anonymous,
-        h.svc.delete_tunnel(Uuid::new_v4()),
-    )
-    .await;
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.delete_tunnel(Uuid::new_v4()))
+            .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -633,8 +633,7 @@ async fn delete_tunnel_tears_down_if_up() {
 #[tokio::test]
 async fn delete_tunnel_not_found() {
     let h = build_harness();
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(Uuid::new_v4())).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(Uuid::new_v4())).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
 }
