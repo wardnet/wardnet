@@ -2,6 +2,8 @@ source/daemon/target/
 node_modules/
 source/web-ui/dist/
 !source/web-ui/dist/index.html
+source/site/dist/
+source/site/coverage/
 **/.yarn/install-state.gz
 *.db
 *.db-shm

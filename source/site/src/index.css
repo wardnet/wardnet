@@ -1,0 +1,53 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+
+/*
+ * Brand palette (matches admin web-ui):
+ *   Deep indigo  ~#1a1a5e  oklch(0.22 0.12 275)
+ *   Dark slate   ~#2d4050  oklch(0.32 0.03 230)
+ *   Green accent ~#6cc070  oklch(0.62 0.16 145)
+ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+:root {
+  --brand-indigo: oklch(0.22 0.12 275);
+  --brand-slate: oklch(0.32 0.03 230);
+  --brand-green: oklch(0.62 0.16 145);
+  --brand-green-hover: oklch(0.56 0.16 145);
+}
+
+body {
+  font-family:
+    "Geist Variable",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: oklch(0.13 0.02 270);
+    color: oklch(0.92 0.005 240);
+  }
+}
+
+/* Fade-in animation for scroll reveals */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out both;
+}

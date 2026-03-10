@@ -37,6 +37,24 @@ jobs:
       - name: Check
         run: make check-web
 
+  check-site:
+    name: Check Site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "25"
+          cache: yarn
+          cache-dependency-path: source/site/yarn.lock
+
+      - name: Check
+        run: make check-site
+
   build-web:
     name: Build Web
     needs: check-web
@@ -100,16 +118,31 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage
+      - name: Generate daemon coverage
         run: |
           mkdir -p coverage
-          cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/lcov.info \
+          cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/daemon-lcov.info \
             --ignore-filename-regex '(main\.rs|wireguard_real\.rs|wireguard_noop\.rs|packet_capture_noop\.rs|hostname_resolver_noop\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs)'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "25"
+          cache: yarn
+          cache-dependency-path: source/site/yarn.lock
+
+      - name: Generate site coverage
+        run: cd source/site && yarn install --immutable && yarn test:coverage
+
+      - name: Collect site coverage
+        run: cp source/site/coverage/lcov.info coverage/site-lcov.info
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage/lcov.info
+          files: coverage/daemon-lcov.info,coverage/site-lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

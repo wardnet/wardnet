@@ -1,0 +1,84 @@
+# Documentation content for the public site.
+# Each entry represents a documentation page. The "recommended" entries
+# appear in the highlighted section at the top of the docs page.
+# Update this file to change what is shown — no code changes needed.
+
+recommended:
+  - slug: installation
+    title: Installation
+    icon: download
+    excerpt: >
+      Get Wardnet running on your Raspberry Pi in minutes. Download the
+      latest release, configure the daemon, and start protecting your
+      network with a single command.
+
+  - slug: device-routing
+    title: Device routing
+    icon: route
+    excerpt: >
+      Learn how to assign each device on your network to a specific VPN
+      tunnel, direct internet access, or the network default. Routing
+      changes take effect immediately — no restarts required.
+
+  - slug: dhcp-server
+    title: DHCP server
+    icon: network
+    excerpt: >
+      Enable the built-in DHCP server to automatically discover and manage
+      devices as they join your network. No manual IP configuration needed.
+
+topics:
+  - slug: installation
+    title: Installation
+    icon: download
+    description: Download, install, and run Wardnet on a Raspberry Pi.
+
+  - slug: configuration
+    title: Configuration
+    icon: settings
+    description: Configure the daemon via wardnet.toml — database, logging, networking, and more.
+
+  - slug: dhcp-server
+    title: DHCP server
+    icon: network
+    description: Set up the built-in DHCP server to auto-detect devices on your LAN.
+
+  - slug: device-routing
+    title: Device routing
+    icon: route
+    description: Assign devices to specific VPN tunnels, direct internet, or the network default.
+
+  - slug: wireguard-tunnels
+    title: WireGuard tunnels
+    icon: shield
+    description: Create and manage WireGuard tunnels — manual or via VPN provider integration.
+
+  - slug: vpn-providers
+    title: VPN providers
+    icon: globe
+    description: Connect NordVPN and other providers using your credentials.
+
+  - slug: dns-ad-blocking
+    title: DNS ad blocking
+    icon: ban
+    description: Block ads and trackers at the DNS level for all managed devices.
+
+  - slug: users-permissions
+    title: Users & permissions
+    icon: users
+    description: Admin vs self-service model — how device ownership and access control work.
+
+  - slug: cli-reference
+    title: CLI reference
+    icon: terminal
+    description: Command-line interface for managing Wardnet from the terminal.
+
+  - slug: api-reference
+    title: API reference
+    icon: book-open
+    description: REST API endpoints for programmatic access to Wardnet.
+
+  - slug: sdk-reference
+    title: SDK reference
+    icon: code
+    description: JavaScript/TypeScript SDK for integrating with Wardnet programmatically.

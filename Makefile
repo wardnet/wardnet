@@ -7,6 +7,7 @@ PI_TARGET    := aarch64-unknown-linux-gnu
 DAEMON_DIR   := source/daemon
 SDK_DIR      := source/sdk/wardnet-js
 WEBUI_DIR    := source/web-ui
+SITE_DIR     := source/site
 
 # Override on CLI: make deploy PI_HOST=wardnet.local
 PI_HOST      ?= gateway
@@ -19,8 +20,8 @@ OTEL_HOST    ?=
 
 # ---------- Phony targets ----------
 
-.PHONY: all init build build-daemon build-sdk build-web build-pi \
-        check check-sdk check-web check-daemon fmt clippy test \
+.PHONY: all init build build-daemon build-sdk build-web build-site build-pi \
+        check check-sdk check-web check-site check-daemon fmt clippy test \
         deploy run-pi clean help
 
 all: build
@@ -43,6 +44,7 @@ init:
 	fi
 	cd $(SDK_DIR) && yarn install
 	cd $(WEBUI_DIR) && yarn install
+	cd $(SITE_DIR) && yarn install
 	@echo ""
 	@echo "Dev environment ready. Run 'make help' to see available targets."
 
@@ -64,6 +66,17 @@ check-web: check-sdk
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
 
+# ---------- Public Site ----------
+
+build-site:
+	cd $(SITE_DIR) && yarn install --immutable && yarn build
+
+check-site:
+	cd $(SITE_DIR) && yarn install --immutable
+	cd $(SITE_DIR) && yarn type-check
+	cd $(SITE_DIR) && yarn format:check
+	cd $(SITE_DIR) && yarn test
+
 # ---------- Daemon ----------
 
 build-daemon:
@@ -81,7 +94,7 @@ check-daemon:
 
 build: build-web build-daemon
 
-check: check-web check-daemon
+check: check-web check-site check-daemon
 
 # ---------- Deploy & Run ----------
 
@@ -117,7 +130,7 @@ run-pi: build-pi
 
 clean:
 	cd $(DAEMON_DIR) && cargo clean
-	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist
+	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist $(SITE_DIR)/dist
 
 help:
 	@echo "Wardnet build targets:"
@@ -129,9 +142,10 @@ help:
 	@echo "  build-daemon   Build daemon for host target"
 	@echo "  build-pi       Cross-compile daemon for Pi (aarch64-linux-gnu)"
 	@echo ""
-	@echo "  check          Run all checks (SDK + web + daemon)"
+	@echo "  check          Run all checks (SDK + web + site + daemon)"
 	@echo "  check-sdk      Typecheck + format check for SDK"
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
+	@echo "  check-site     Typecheck + format check + tests for public site"
 	@echo "  check-daemon   Format + clippy + tests for daemon"
 	@echo ""
 	@echo "  run-pi         Build, deploy, and run on Pi via SSH (interactive)"
