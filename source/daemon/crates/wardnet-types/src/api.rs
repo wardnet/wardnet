@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use crate::device::{Device, DeviceType};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
-use crate::vpn_provider::{ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo};
+use crate::vpn_provider::{
+    CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
+};
 
 /// Login request body.
 #[derive(Debug, Deserialize)]
@@ -63,11 +65,14 @@ pub struct InfoResponse {
 }
 
 /// Standard API error response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiError {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// Request ID for correlation with server logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 /// Request body for POST /api/tunnels (import .conf file).
@@ -164,6 +169,13 @@ pub struct ValidateCredentialsResponse {
     pub message: String,
 }
 
+/// Response for GET /api/providers/:id/countries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListCountriesResponse {
+    /// Available countries for this provider.
+    pub countries: Vec<CountryInfo>,
+}
+
 /// Request body for POST /api/providers/:id/servers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListServersRequest {
@@ -186,8 +198,9 @@ pub struct ListServersResponse {
 pub struct SetupProviderRequest {
     /// Credentials for authenticating with the provider.
     pub credentials: ProviderCredentials,
-    /// Country code for server selection.
-    pub country: String,
+    /// Country code for server selection (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
     /// Optional label override; defaults to provider-generated label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,

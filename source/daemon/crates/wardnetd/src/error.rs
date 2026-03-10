@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use wardnet_types::api::ApiError;
 
+use crate::request_context;
+
 /// Application-level error type that maps to HTTP responses.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -59,6 +61,7 @@ impl IntoResponse for AppError {
         let body = ApiError {
             error: error_message.to_owned(),
             detail,
+            request_id: request_context::current_request_id(),
         };
 
         (status, Json(body)).into_response()

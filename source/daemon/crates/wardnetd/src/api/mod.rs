@@ -17,9 +17,9 @@ use axum::http;
 use axum::routing::{delete, get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::Level;
 
 use crate::auth_context::AuthContextLayer;
+use crate::request_context::RequestContextLayer;
 use crate::state::AppState;
 use crate::web::static_handler;
 
@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router {
             "/providers/{id}/validate",
             post(providers::validate_credentials),
         )
+        .route("/providers/{id}/countries", get(providers::list_countries))
         .route("/providers/{id}/servers", post(providers::list_servers))
         .route("/providers/{id}/setup", post(providers::setup_tunnel));
 
@@ -58,9 +59,13 @@ pub fn router(state: AppState) -> Router {
         .nest("/api", api)
         .fallback(static_handler)
         .layer(AuthContextLayer)
+        .layer(RequestContextLayer)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::resolve_auth_context,
+        ))
+        .layer(axum::middleware::from_fn(
+            middleware::inject_request_context,
         ))
         .layer(
             TraceLayer::new_for_http()
@@ -79,20 +84,15 @@ pub fn router(state: AppState) -> Router {
                         content_length = %content_length,
                         status = tracing::field::Empty,
                         latency_ms = tracing::field::Empty,
+                        request_id = tracing::field::Empty,
+                        correlation_id = tracing::field::Empty,
                     )
                 })
                 .on_response(
                     |response: &http::Response<_>, latency: Duration, span: &tracing::Span| {
-                        let status = response.status().as_u16();
-                        let latency_ms = latency.as_millis();
-                        span.record("status", status);
-                        span.record("latency_ms", latency_ms);
-                        tracing::event!(
-                            Level::DEBUG,
-                            status = status,
-                            latency_ms = latency_ms,
-                            "response: status={status}, latency_ms={latency_ms}",
-                        );
+                        span.record("status", response.status().as_u16());
+                        span.record("latency_ms", latency.as_millis());
+                        tracing::debug!("response");
                     },
                 ),
         )

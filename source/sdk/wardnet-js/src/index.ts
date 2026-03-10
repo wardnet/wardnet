@@ -6,6 +6,7 @@ export type { WardnetClientOptions } from "./client.js";
 export { AuthService } from "./services/auth.js";
 export { DeviceService } from "./services/devices.js";
 export { TunnelService } from "./services/tunnels.js";
+export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
@@ -21,6 +22,16 @@ export type {
 
 // Types — tunnels
 export type { Tunnel, TunnelStatus } from "./types/tunnel.js";
+
+// Types — providers
+export type {
+  ProviderAuthMethod,
+  ProviderInfo,
+  ProviderCredentials,
+  CountryInfo,
+  ServerFilter,
+  ServerInfo,
+} from "./types/provider.js";
 
 // Types — auth
 export type { LoginRequest, LoginResponse } from "./types/auth.js";
@@ -47,4 +58,12 @@ export type {
   CreateTunnelResponse,
   ListTunnelsResponse,
   DeleteTunnelResponse,
+  ListProvidersResponse,
+  ValidateCredentialsRequest,
+  ValidateCredentialsResponse,
+  ListServersRequest,
+  ListServersResponse,
+  ListCountriesResponse,
+  SetupProviderRequest,
+  SetupProviderResponse,
 } from "./types/api.js";

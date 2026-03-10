@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use wardnet_types::api::{
-    CreateTunnelRequest, ListProvidersResponse, ListServersRequest, ListServersResponse,
-    SetupProviderRequest, SetupProviderResponse, ValidateCredentialsRequest,
+    CreateTunnelRequest, ListCountriesResponse, ListProvidersResponse, ListServersRequest,
+    ListServersResponse, SetupProviderRequest, SetupProviderResponse, ValidateCredentialsRequest,
     ValidateCredentialsResponse,
 };
 use wardnet_types::vpn_provider::ServerFilter;
@@ -27,6 +27,9 @@ pub trait ProviderService: Send + Sync {
         provider_id: &str,
         request: ValidateCredentialsRequest,
     ) -> Result<ValidateCredentialsResponse, AppError>;
+
+    /// List countries where a provider has servers.
+    async fn list_countries(&self, provider_id: &str) -> Result<ListCountriesResponse, AppError>;
 
     /// List available servers from a provider, with optional filtering.
     async fn list_servers(
@@ -86,18 +89,32 @@ impl ProviderService for ProviderServiceImpl {
 
         let provider = self.require_provider(provider_id)?;
 
-        let valid = provider
-            .validate_credentials(&request.credentials)
-            .await
-            .map_err(AppError::Internal)?;
-
-        let message = if valid {
-            "credentials are valid".to_owned()
-        } else {
-            "credentials are invalid".to_owned()
+        let (valid, message) = match provider.validate_credentials(&request.credentials).await {
+            Ok(true) => (true, "credentials are valid".to_owned()),
+            Ok(false) => (false, "credentials are invalid".to_owned()),
+            Err(e) => (false, e.to_string()),
         };
 
         Ok(ValidateCredentialsResponse { valid, message })
+    }
+
+    async fn list_countries(&self, provider_id: &str) -> Result<ListCountriesResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let provider = self.require_provider(provider_id)?;
+
+        // NordVPN's country list is public; we pass a dummy credential since
+        // the trait signature requires it for providers that need auth.
+        let dummy = wardnet_types::vpn_provider::ProviderCredentials::Token {
+            token: String::new(),
+        };
+
+        let countries = provider
+            .list_countries(&dummy)
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(ListCountriesResponse { countries })
     }
 
     async fn list_servers(
@@ -131,7 +148,7 @@ impl ProviderService for ProviderServiceImpl {
         let valid = provider
             .validate_credentials(&request.credentials)
             .await
-            .map_err(AppError::Internal)?;
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
         if !valid {
             return Err(AppError::Unauthorized(
                 "invalid provider credentials".to_owned(),
@@ -154,7 +171,7 @@ impl ProviderService for ProviderServiceImpl {
         } else {
             // Standard flow: list servers filtered by country, then select.
             let filter = ServerFilter {
-                country: Some(request.country.clone()),
+                country: request.country.clone(),
                 max_load: None,
             };
             let servers = provider
@@ -163,9 +180,9 @@ impl ProviderService for ProviderServiceImpl {
                 .map_err(AppError::Internal)?;
 
             if servers.is_empty() {
+                let country_label = request.country.as_deref().unwrap_or("any");
                 return Err(AppError::NotFound(format!(
-                    "no servers found for country '{}'",
-                    request.country
+                    "no servers found for country '{country_label}'"
                 )));
             }
 

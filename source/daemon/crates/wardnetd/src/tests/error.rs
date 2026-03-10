@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
 use crate::error::AppError;
+use crate::request_context;
 
 /// Extract status code and JSON body from an `AppError` response.
 async fn error_response(err: AppError) -> (StatusCode, serde_json::Value) {
@@ -76,4 +77,26 @@ async fn anyhow_converts_to_internal() {
     let err: AppError = anyhow::anyhow!("something broke").into();
     let (status, _) = error_response(err).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn error_includes_request_id_when_set() {
+    let (_, json) = request_context::with_request_id(
+        "test-req-id-456".to_owned(),
+        error_response(AppError::NotFound("missing".to_owned())),
+    )
+    .await;
+
+    assert_eq!(json["request_id"], "test-req-id-456");
+}
+
+#[tokio::test]
+async fn error_omits_request_id_when_not_set() {
+    let (_, json) = error_response(AppError::NotFound("missing".to_owned())).await;
+
+    // request_id should be absent (skip_serializing_if = "Option::is_none").
+    assert!(
+        json.get("request_id").is_none(),
+        "request_id should be absent when no task-local is set"
+    );
 }

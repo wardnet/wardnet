@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { RoutingTarget, UpdateDeviceRequest } from "@wardnet/js";
 import { deviceService } from "@/lib/sdk";
 
 export function useDevices() {
@@ -21,5 +22,24 @@ export function useMyDevice() {
   return useQuery({
     queryKey: ["devices", "me"],
     queryFn: () => deviceService.getMe(),
+  });
+}
+
+export function useSetMyRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (target: RoutingTarget) => deviceService.setMyRule(target),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["devices", "me"] }),
+  });
+}
+
+export function useUpdateDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateDeviceRequest }) =>
+      deviceService.update(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["devices"] });
+    },
   });
 }

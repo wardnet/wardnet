@@ -13,8 +13,9 @@ use axum::routing::{get, post};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_types::api::{
-    ListProvidersResponse, ListServersRequest, ListServersResponse, SetupProviderRequest,
-    SetupProviderResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
+    ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
+    SetupProviderRequest, SetupProviderResponse, ValidateCredentialsRequest,
+    ValidateCredentialsResponse,
 };
 use wardnet_types::tunnel::{Tunnel, TunnelStatus};
 use wardnet_types::vpn_provider::{ProviderAuthMethod, ProviderInfo, ServerInfo};
@@ -73,6 +74,7 @@ impl MockProviderService {
                 auth_methods: vec![ProviderAuthMethod::Credentials],
                 icon_url: None,
                 website_url: None,
+                credentials_hint: None,
             }],
         }
     }
@@ -84,6 +86,10 @@ impl ProviderService for MockProviderService {
         Ok(ListProvidersResponse {
             providers: self.providers.clone(),
         })
+    }
+
+    async fn list_countries(&self, _provider_id: &str) -> Result<ListCountriesResponse, AppError> {
+        Ok(ListCountriesResponse { countries: vec![] })
     }
 
     async fn validate_credentials(

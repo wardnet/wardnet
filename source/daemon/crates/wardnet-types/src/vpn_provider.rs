@@ -25,6 +25,9 @@ pub struct ProviderInfo {
     /// URL to the provider's website.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub website_url: Option<String>,
+    /// Hint text explaining where to find credentials (shown in the UI).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_hint: Option<String>,
 }
 
 /// Credentials submitted by the admin for provider operations.
@@ -54,6 +57,15 @@ pub struct ServerFilter {
     /// Maximum server load percentage (0-100).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_load: Option<u8>,
+}
+
+/// A country available from a VPN provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountryInfo {
+    /// ISO 3166-1 alpha-2 country code (e.g. "US").
+    pub code: String,
+    /// Human-readable country name (e.g. "United States").
+    pub name: String,
 }
 
 /// Information about a single VPN server.

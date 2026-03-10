@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { WardnetApiError } from "@wardnet/js";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,6 +23,25 @@ export function formatUptime(seconds: number): string {
   if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+/** Extract a user-friendly error message from an API error. */
+export function apiErrorMessage(error: unknown, fallback = "Something went wrong"): string {
+  if (error instanceof WardnetApiError) {
+    return error.body.detail ?? error.body.error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+}
+
+/** Extract the request ID from an API error (for log correlation). */
+export function apiRequestId(error: unknown): string | undefined {
+  if (error instanceof WardnetApiError) {
+    return error.requestId;
+  }
+  return undefined;
 }
 
 /** Format an ISO timestamp to a relative "time ago" string. */

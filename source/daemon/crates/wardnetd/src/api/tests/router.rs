@@ -75,6 +75,7 @@ async fn all_api_routes_are_reachable() {
         ("DELETE", format!("/api/tunnels/{fake_uuid}")),
         ("GET", "/api/providers".to_owned()),
         ("POST", format!("/api/providers/{fake_uuid}/validate")),
+        ("GET", format!("/api/providers/{fake_uuid}/countries")),
         ("POST", format!("/api/providers/{fake_uuid}/servers")),
         ("POST", format!("/api/providers/{fake_uuid}/setup")),
     ];

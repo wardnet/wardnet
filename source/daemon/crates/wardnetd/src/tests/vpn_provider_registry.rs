@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use wardnet_types::vpn_provider::{
-    ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
+    CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
 use crate::config::Config;
@@ -23,6 +23,7 @@ impl FakeProvider {
                 auth_methods: vec![ProviderAuthMethod::Token],
                 icon_url: None,
                 website_url: None,
+                credentials_hint: None,
             },
         }
     }
@@ -39,6 +40,13 @@ impl VpnProvider for FakeProvider {
         _credentials: &ProviderCredentials,
     ) -> anyhow::Result<bool> {
         Ok(true)
+    }
+
+    async fn list_countries(
+        &self,
+        _credentials: &ProviderCredentials,
+    ) -> anyhow::Result<Vec<CountryInfo>> {
+        Ok(vec![])
     }
 
     async fn list_servers(

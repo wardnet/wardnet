@@ -20,6 +20,7 @@ fn api_error_skips_none_detail() {
     let err = ApiError {
         error: "not found".to_owned(),
         detail: None,
+        request_id: None,
     };
     let json = serde_json::to_string(&err).unwrap();
     assert!(!json.contains("detail"));
@@ -30,6 +31,7 @@ fn api_error_includes_some_detail() {
     let err = ApiError {
         error: "bad request".to_owned(),
         detail: Some("invalid field".to_owned()),
+        request_id: None,
     };
     let json = serde_json::to_string(&err).unwrap();
     assert!(json.contains("\"detail\":\"invalid field\""));

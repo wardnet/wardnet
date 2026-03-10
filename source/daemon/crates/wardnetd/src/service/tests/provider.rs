@@ -8,7 +8,7 @@ use wardnet_types::api::{
 };
 use wardnet_types::tunnel::{Tunnel, TunnelStatus};
 use wardnet_types::vpn_provider::{
-    ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
+    CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
 use wardnet_types::auth::AuthContext;
@@ -50,6 +50,7 @@ impl MockVpnProvider {
                 auth_methods: vec![ProviderAuthMethod::Credentials],
                 icon_url: None,
                 website_url: None,
+                credentials_hint: None,
             },
             validate_result: Mutex::new(Ok(true)),
             servers: Mutex::new(Vec::new()),
@@ -95,6 +96,13 @@ impl VpnProvider for MockVpnProvider {
             Ok(v) => Ok(*v),
             Err(msg) => Err(anyhow::anyhow!("{msg}")),
         }
+    }
+
+    async fn list_countries(
+        &self,
+        _credentials: &ProviderCredentials,
+    ) -> anyhow::Result<Vec<CountryInfo>> {
+        Ok(vec![])
     }
 
     async fn list_servers(
@@ -419,8 +427,10 @@ async fn validate_credentials_api_error() {
     let result =
         auth_context::with_context(admin_ctx(), h.svc.validate_credentials("test", req)).await;
 
-    assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), AppError::Internal(_)));
+    // Provider errors are caught and returned as valid=false with the error message.
+    let resp = result.expect("should return Ok with valid=false, not Err");
+    assert!(!resp.valid);
+    assert!(resp.message.contains("API timeout"));
 }
 
 #[tokio::test]
@@ -476,7 +486,7 @@ async fn setup_tunnel_happy_path() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: None,
         hostname: None,
@@ -508,7 +518,7 @@ async fn setup_tunnel_anonymous_forbidden() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: None,
         hostname: None,
@@ -525,7 +535,7 @@ async fn setup_tunnel_with_specific_server_id() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: Some("se-3".to_owned()),
         hostname: None,
@@ -547,7 +557,7 @@ async fn setup_tunnel_invalid_credentials() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: None,
         hostname: None,
@@ -566,7 +576,7 @@ async fn setup_tunnel_no_servers_found() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "XX".to_owned(),
+        country: Some("XX".to_owned()),
         label: None,
         server_id: None,
         hostname: None,
@@ -586,7 +596,7 @@ async fn setup_tunnel_server_id_not_found() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: Some("nonexistent-server".to_owned()),
         hostname: None,
@@ -606,7 +616,7 @@ async fn setup_tunnel_with_custom_label() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: Some("My Custom Tunnel".to_owned()),
         server_id: None,
         hostname: None,
@@ -641,7 +651,7 @@ async fn setup_tunnel_with_hostname_happy_path() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "PT".to_owned(),
+        country: Some("PT".to_owned()),
         label: None,
         server_id: None,
         hostname: Some("pt131.nordvpn.com".to_owned()),
@@ -670,7 +680,7 @@ async fn setup_tunnel_with_hostname_not_found() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "XX".to_owned(),
+        country: Some("XX".to_owned()),
         label: None,
         server_id: None,
         hostname: Some("bad.nordvpn.com".to_owned()),
@@ -690,7 +700,7 @@ async fn setup_tunnel_with_hostname_unsupported_provider() {
 
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: None,
         hostname: Some("pt131.nordvpn.com".to_owned()),
@@ -713,7 +723,7 @@ async fn setup_tunnel_hostname_takes_precedence_over_server_id() {
     // Both hostname and server_id are set; hostname should win.
     let req = SetupProviderRequest {
         credentials: sample_credentials(),
-        country: "SE".to_owned(),
+        country: Some("SE".to_owned()),
         label: None,
         server_id: Some("se-1".to_owned()),
         hostname: Some("pt131.nordvpn.com".to_owned()),

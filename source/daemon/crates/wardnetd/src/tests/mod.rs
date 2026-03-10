@@ -7,6 +7,7 @@ mod hostname_resolver;
 mod keys;
 mod oui;
 mod packet_capture;
+mod request_context;
 mod state;
 pub mod stubs;
 mod tunnel_idle;

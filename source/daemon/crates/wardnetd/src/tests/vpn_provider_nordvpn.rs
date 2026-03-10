@@ -196,10 +196,7 @@ async fn info_returns_correct_metadata() {
     let info = provider.info();
     assert_eq!(info.id, "nordvpn");
     assert_eq!(info.name, "NordVPN");
-    assert_eq!(
-        info.auth_methods,
-        vec![ProviderAuthMethod::Token, ProviderAuthMethod::Credentials]
-    );
+    assert_eq!(info.auth_methods, vec![ProviderAuthMethod::Token]);
     assert_eq!(
         info.icon_url.as_deref(),
         Some("https://nordvpn.com/favicon.ico")
@@ -529,9 +526,9 @@ async fn list_servers_with_unknown_country_code_passes_none() {
 async fn generate_config_rejects_credentials_auth_via_api() {
     let mock = MockNordVpnApi::new();
     *mock.server_by_hostname.lock().await = Some(sample_server("se142.nordvpn.com", 25, "SE"));
-    // Simulate the real API behavior: Credentials auth returns an error for WireGuard key generation.
+    // Simulate the real API behavior: Credentials auth returns an error.
     *mock.private_key_result.lock().await =
-        Err("NordVPN requires token authentication for WireGuard key generation".to_string());
+        Err("NordVPN no longer supports service credentials; use a token instead".to_string());
     let provider = NordVpnProvider::new(Arc::new(mock));
 
     let server_info = ServerInfo {
@@ -551,7 +548,10 @@ async fn generate_config_rejects_credentials_auth_via_api() {
     let result = provider.generate_config(&creds, &server_info).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("token authentication"), "got: {err}");
+    assert!(
+        err.contains("no longer supports service credentials"),
+        "got: {err}"
+    );
 }
 
 #[tokio::test]

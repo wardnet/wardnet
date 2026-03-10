@@ -1,14 +1,15 @@
 use std::net::{IpAddr, SocketAddr};
 
 use axum::extract::{ConnectInfo, FromRequestParts, State};
-use axum::http::HeaderMap;
 use axum::http::request::Parts;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
 use uuid::Uuid;
 use wardnet_types::auth::AuthContext;
 
 use crate::error::AppError;
+use crate::request_context::RequestId;
 use crate::state::AppState;
 
 /// Extractor that resolves the client IP from the TCP connection.
@@ -160,4 +161,66 @@ pub async fn resolve_auth_context(
 
     req.extensions_mut().insert(ctx);
     next.run(req).await
+}
+
+/// Axum middleware that generates a request ID, propagates correlation IDs,
+/// and emits a W3C `traceparent` header on every response.
+///
+/// For each request this middleware:
+/// 1. Generates a UUID v4 as the `X-Request-Id`.
+/// 2. Reads `X-Correlation-Id` from the incoming headers (if present).
+/// 3. Records both values in the current tracing span.
+/// 4. Stores the request ID in request extensions as [`RequestId`] so the
+///    [`RequestContextLayer`](crate::request_context::RequestContextLayer)
+///    can propagate it into the `tokio::task_local` scope.
+/// 5. After the inner handler completes, sets response headers:
+///    - `X-Request-Id`
+///    - `X-Correlation-Id` (only if it was present on the request)
+///    - `traceparent` per W3C Trace Context (version `00`, sampled)
+pub async fn inject_request_context(mut req: axum::extract::Request, next: Next) -> Response {
+    let request_id = Uuid::new_v4();
+    let request_id_str = request_id.to_string();
+
+    // Read optional correlation ID from incoming headers.
+    let correlation_id = req
+        .headers()
+        .get("x-correlation-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
+    // Record in the current tracing span so they appear in structured logs.
+    let span = tracing::Span::current();
+    span.record("request_id", &request_id_str);
+    if let Some(ref cid) = correlation_id {
+        span.record("correlation_id", cid.as_str());
+    }
+
+    // Store in request extensions for the RequestContextLayer task-local.
+    req.extensions_mut()
+        .insert(RequestId(request_id_str.clone()));
+
+    // Build the traceparent header (W3C Trace Context).
+    // trace_id: UUID without hyphens (32 hex chars).
+    // span_id:  first 16 hex chars of a new UUID (8 bytes = 16 hex chars).
+    let trace_id = request_id.as_simple().to_string();
+    let span_id = &Uuid::new_v4().as_simple().to_string()[..16];
+    let traceparent = format!("00-{trace_id}-{span_id}-01");
+
+    let mut response = next.run(req).await;
+
+    // Inject response headers.
+    let headers = response.headers_mut();
+    if let Ok(v) = HeaderValue::from_str(&request_id_str) {
+        headers.insert("x-request-id", v);
+    }
+    if let Some(ref cid) = correlation_id
+        && let Ok(v) = HeaderValue::from_str(cid)
+    {
+        headers.insert("x-correlation-id", v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&traceparent) {
+        headers.insert("traceparent", v);
+    }
+
+    response
 }

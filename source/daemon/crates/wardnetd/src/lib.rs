@@ -14,6 +14,7 @@ pub mod packet_capture;
 pub mod packet_capture_noop;
 pub mod packet_capture_pnet;
 pub mod repository;
+pub mod request_context;
 pub mod service;
 pub mod state;
 pub mod tunnel_idle;

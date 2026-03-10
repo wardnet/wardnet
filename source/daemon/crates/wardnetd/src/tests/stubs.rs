@@ -15,9 +15,9 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 use wardnet_types::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
-    ListProvidersResponse, ListServersRequest, ListServersResponse, ListTunnelsResponse,
-    SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse, SystemStatusResponse,
-    ValidateCredentialsRequest, ValidateCredentialsResponse,
+    ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
+    ListTunnelsResponse, SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse,
+    SystemStatusResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
 use wardnet_types::device::{Device, DeviceType};
 use wardnet_types::event::WardnetEvent;
@@ -159,6 +159,9 @@ pub struct StubProviderService;
 impl ProviderService for StubProviderService {
     async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
         unimplemented!()
+    }
+    async fn list_countries(&self, _id: &str) -> Result<ListCountriesResponse, AppError> {
+        Ok(ListCountriesResponse { countries: vec![] })
     }
     async fn validate_credentials(
         &self,

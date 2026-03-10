@@ -8,13 +8,18 @@ export interface WardnetClientOptions {
 
 /** Error thrown when an API request fails. */
 export class WardnetApiError extends Error {
+  /** Server-generated request ID for correlating with server logs. */
+  public readonly requestId: string | undefined;
+
   constructor(
     public readonly status: number,
     public readonly statusText: string,
     public readonly body: ApiError,
+    requestId?: string,
   ) {
     super(body.error);
     this.name = "WardnetApiError";
+    this.requestId = requestId ?? body.request_id;
   }
 }
 
@@ -40,10 +45,11 @@ export class WardnetClient {
     });
 
     if (!res.ok) {
+      const requestId = res.headers.get("X-Request-Id") ?? undefined;
       const body = (await res.json().catch(() => ({
         error: res.statusText,
       }))) as ApiError;
-      throw new WardnetApiError(res.status, res.statusText, body);
+      throw new WardnetApiError(res.status, res.statusText, body, requestId);
     }
 
     return (await res.json()) as T;

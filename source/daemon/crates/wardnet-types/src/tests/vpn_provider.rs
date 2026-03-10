@@ -46,6 +46,7 @@ fn provider_info_with_all_fields() {
         auth_methods: vec![ProviderAuthMethod::Credentials, ProviderAuthMethod::Token],
         icon_url: Some("https://example.com/icon.png".to_owned()),
         website_url: Some("https://nordvpn.com".to_owned()),
+        credentials_hint: Some("Use your service credentials".to_owned()),
     };
     let json = serde_json::to_string(&info).unwrap();
     let parsed: ProviderInfo = serde_json::from_str(&json).unwrap();
@@ -68,6 +69,7 @@ fn provider_info_without_optional_fields() {
         auth_methods: vec![ProviderAuthMethod::Token],
         icon_url: None,
         website_url: None,
+        credentials_hint: None,
     };
     let json = serde_json::to_string(&info).unwrap();
     // Optional fields should be omitted from JSON

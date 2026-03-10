@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::Deserialize;
 use wardnet_types::vpn_provider::{
-    ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
+    CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
 use crate::vpn_provider::VpnProvider;
@@ -175,18 +175,16 @@ impl NordVpnApi for RealNordVpnApi {
                     .send()
                     .await?
             }
-            ProviderCredentials::Credentials { username, password } => {
-                self.client
-                    .post(format!("{}/v1/users/tokens", self.base_url))
-                    .basic_auth(username, Some(password))
-                    .send()
-                    .await?
+            ProviderCredentials::Credentials { .. } => {
+                return Err(anyhow::anyhow!(
+                    "NordVPN no longer supports service credentials; use a token instead"
+                ));
             }
         };
 
         match response.status().as_u16() {
             200 => Ok(true),
-            401 | 403 => Ok(false),
+            400 | 401 | 403 => Ok(false),
             status => {
                 let body = response.text().await.unwrap_or_default();
                 Err(anyhow::anyhow!(
@@ -245,7 +243,7 @@ impl NordVpnApi for RealNordVpnApi {
                 Ok(resp.nordlynx_private_key)
             }
             ProviderCredentials::Credentials { .. } => Err(anyhow::anyhow!(
-                "NordVPN requires token authentication for WireGuard key generation"
+                "NordVPN no longer supports service credentials; use a token instead"
             )),
         }
     }
@@ -315,9 +313,13 @@ impl VpnProvider for NordVpnProvider {
         ProviderInfo {
             id: "nordvpn".to_string(),
             name: "NordVPN".to_string(),
-            auth_methods: vec![ProviderAuthMethod::Token, ProviderAuthMethod::Credentials],
+            auth_methods: vec![ProviderAuthMethod::Token],
             icon_url: Some("https://nordvpn.com/favicon.ico".to_string()),
             website_url: Some("https://nordvpn.com".to_string()),
+            credentials_hint: Some(
+                "Get your access token from https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/"
+                    .to_string(),
+            ),
         }
     }
 
@@ -326,6 +328,20 @@ impl VpnProvider for NordVpnProvider {
         credentials: &ProviderCredentials,
     ) -> anyhow::Result<bool> {
         self.api.validate_credentials(credentials).await
+    }
+
+    async fn list_countries(
+        &self,
+        _credentials: &ProviderCredentials,
+    ) -> anyhow::Result<Vec<CountryInfo>> {
+        let countries = self.api.list_countries().await?;
+        Ok(countries
+            .into_iter()
+            .map(|c| CountryInfo {
+                code: c.code,
+                name: c.name,
+            })
+            .collect())
     }
 
     async fn list_servers(

@@ -1,29 +1,171 @@
+import { useState } from "react";
 import { Card, CardContent } from "@/components/core/ui/card";
 import { Badge } from "@/components/core/ui/badge";
+import { Button } from "@/components/core/ui/button";
+import { Input } from "@/components/core/ui/input";
+import { Label } from "@/components/core/ui/label";
+import { Switch } from "@/components/core/ui/switch";
+import { Sheet, SheetContent, SheetTitle } from "@/components/core/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/core/ui/select";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
-import { useDevices } from "@/hooks/useDevices";
+import { RoutingSelector } from "@/components/compound/RoutingSelector";
+import { useDevices, useDevice, useUpdateDevice } from "@/hooks/useDevices";
+import { useTunnels } from "@/hooks/useTunnels";
 import { timeAgo } from "@/lib/utils";
-import type { Device } from "@wardnet/js";
+import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import type { Device, DeviceType, RoutingTarget } from "@wardnet/js";
+
+const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
+  { value: "tv", label: "TV" },
+  { value: "phone", label: "Phone" },
+  { value: "laptop", label: "Laptop" },
+  { value: "tablet", label: "Tablet" },
+  { value: "game_console", label: "Console" },
+  { value: "settop_box", label: "Set-top Box" },
+  { value: "iot", label: "IoT" },
+  { value: "unknown", label: "Unknown" },
+];
 
 function deviceTypeLabel(type: Device["device_type"]): string {
-  const labels: Record<Device["device_type"], string> = {
-    tv: "TV",
-    phone: "Phone",
-    laptop: "Laptop",
-    tablet: "Tablet",
-    game_console: "Console",
-    settop_box: "Set-top Box",
-    iot: "IoT",
-    unknown: "Unknown",
-  };
-  return labels[type] ?? type;
+  return DEVICE_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
+}
+
+function EditDeviceSheet({
+  deviceId,
+  open,
+  onOpenChange,
+}: {
+  deviceId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data } = useDevice(deviceId);
+  const device = data?.device;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full overflow-y-auto p-6">
+        <SheetTitle>Edit Device</SheetTitle>
+        {device ? (
+          <EditDeviceForm
+            key={device.id + String(data?.current_rule?.type)}
+            device={device}
+            currentRule={data?.current_rule ?? null}
+            onClose={() => onOpenChange(false)}
+          />
+        ) : (
+          <p className="mt-6 text-sm text-muted-foreground">Loading device...</p>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function EditDeviceForm({
+  device,
+  currentRule,
+  onClose,
+}: {
+  device: Device;
+  currentRule: RoutingTarget | null;
+  onClose: () => void;
+}) {
+  const { data: tunnelData } = useTunnels();
+  const updateDevice = useUpdateDevice();
+  const tunnels = tunnelData?.tunnels ?? [];
+
+  const [name, setName] = useState(device.name ?? "");
+  const [deviceType, setDeviceType] = useState<DeviceType>(device.device_type);
+  const [routingTarget, setRoutingTarget] = useState<RoutingTarget | null>(currentRule);
+  const [adminLocked, setAdminLocked] = useState(device.admin_locked);
+
+  async function handleSave() {
+    await updateDevice.mutateAsync({
+      id: device.id,
+      body: {
+        name: name || undefined,
+        device_type: deviceType,
+        routing_target: routingTarget ?? undefined,
+        admin_locked: adminLocked,
+      },
+    });
+    onClose();
+  }
+
+  return (
+    <div className="mt-6 flex flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <DeviceIcon type={device.device_type} size={24} className="text-foreground/60" />
+        <div>
+          <p className="font-medium">{device.name ?? device.hostname ?? device.mac}</p>
+          <p className="text-xs text-muted-foreground">{device.mac}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="edit-name">Friendly Name</Label>
+        <Input
+          id="edit-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={device.hostname ?? device.mac}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Device Type</Label>
+        <Select value={deviceType} onValueChange={(v) => setDeviceType(v as DeviceType)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DEVICE_TYPE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Routing</Label>
+        <RoutingSelector
+          value={routingTarget}
+          onChange={setRoutingTarget}
+          tunnels={tunnels}
+          isAdmin
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Label htmlFor="edit-lock">Lock routing (prevent user changes)</Label>
+        <Switch id="edit-lock" checked={adminLocked} onCheckedChange={setAdminLocked} />
+      </div>
+
+      {updateDevice.isError && (
+        <ApiErrorAlert error={updateDevice.error} fallback="Failed to update device" />
+      )}
+
+      <Button onClick={handleSave} disabled={updateDevice.isPending} className="w-full">
+        {updateDevice.isPending ? "Saving..." : "Save Changes"}
+      </Button>
+    </div>
+  );
 }
 
 /** Devices page showing all discovered network devices. */
 export default function Devices() {
   const { data, isLoading, isError } = useDevices();
   const devices = data?.devices ?? [];
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   return (
     <>
@@ -75,7 +217,11 @@ export default function Devices() {
             </thead>
             <tbody>
               {devices.map((device) => (
-                <tr key={device.id} className="border-b border-border last:border-0">
+                <tr
+                  key={device.id}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50"
+                  onClick={() => setSelectedDeviceId(device.id)}
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <DeviceIcon type={device.device_type} />
@@ -106,6 +252,16 @@ export default function Devices() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedDeviceId && (
+        <EditDeviceSheet
+          deviceId={selectedDeviceId}
+          open={!!selectedDeviceId}
+          onOpenChange={(open) => {
+            if (!open) setSelectedDeviceId(null);
+          }}
+        />
       )}
     </>
   );

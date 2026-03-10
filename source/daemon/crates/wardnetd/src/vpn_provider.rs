@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use wardnet_types::vpn_provider::{ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo};
+use wardnet_types::vpn_provider::{
+    CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
+};
 
 /// A pluggable VPN provider that can validate credentials, list servers,
 /// and generate `WireGuard` configuration files.
@@ -15,6 +17,12 @@ pub trait VpnProvider: Send + Sync {
     /// Validate that the given credentials are accepted by the provider.
     async fn validate_credentials(&self, credentials: &ProviderCredentials)
     -> anyhow::Result<bool>;
+
+    /// List countries where this provider has servers.
+    async fn list_countries(
+        &self,
+        credentials: &ProviderCredentials,
+    ) -> anyhow::Result<Vec<CountryInfo>>;
 
     /// Fetch available servers, optionally filtered.
     async fn list_servers(
