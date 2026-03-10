@@ -102,6 +102,7 @@ jobs:
 
       - name: Generate coverage
         run: |
+          mkdir -p coverage
           cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/lcov.info \
             --ignore-filename-regex '(main\.rs|wireguard_real\.rs|wireguard_noop\.rs|packet_capture_noop\.rs|hostname_resolver_noop\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs)'
 
