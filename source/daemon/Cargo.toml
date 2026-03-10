@@ -95,7 +95,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # https://crates.io/crates/pnet
 pnet = "0.35"
 # https://crates.io/crates/sysinfo
-sysinfo = "0.35"
+sysinfo = "0.38"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"
