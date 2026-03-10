@@ -22,7 +22,7 @@ fn full_router() -> axum::Router {
 }
 
 /// Send an OPTIONS request and return the status code.
-async fn options_status(router: axum::Router, uri: &str) -> StatusCode {
+async fn options_status(app: axum::Router, uri: &str) -> StatusCode {
     let req = Request::builder()
         .method("OPTIONS")
         .uri(uri)
@@ -31,7 +31,7 @@ async fn options_status(router: axum::Router, uri: &str) -> StatusCode {
         .body(Body::empty())
         .expect("valid request");
 
-    let resp = router.oneshot(req).await.expect("router should respond");
+    let resp = app.oneshot(req).await.expect("router should respond");
     resp.status()
 }
 
@@ -80,7 +80,7 @@ async fn all_api_routes_are_reachable() {
     ];
 
     for (method, path) in &routes {
-        let router = full_router();
+        let app = full_router();
 
         let req = Request::builder()
             .method("OPTIONS")
@@ -90,7 +90,7 @@ async fn all_api_routes_are_reachable() {
             .body(Body::empty())
             .unwrap_or_else(|_| panic!("valid request for {method} {path}"));
 
-        let resp = router
+        let resp = app
             .oneshot(req)
             .await
             .unwrap_or_else(|_| panic!("router should respond for {method} {path}"));
@@ -114,7 +114,7 @@ async fn all_api_routes_are_reachable() {
 /// complete router stack (not just a mini-router).
 #[tokio::test]
 async fn info_endpoint_works_through_full_router() {
-    let router = full_router();
+    let app = full_router();
 
     let req = Request::builder()
         .method("GET")
@@ -122,7 +122,7 @@ async fn info_endpoint_works_through_full_router() {
         .body(Body::empty())
         .expect("valid request");
 
-    let resp = router.oneshot(req).await.expect("router should respond");
+    let resp = app.oneshot(req).await.expect("router should respond");
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(resp.into_body(), 4096)
@@ -144,7 +144,7 @@ async fn authenticated_routes_return_401_without_credentials() {
     ];
 
     for (method, path) in &protected_routes {
-        let router = full_router();
+        let app = full_router();
 
         let req = Request::builder()
             .method(*method)
@@ -152,7 +152,7 @@ async fn authenticated_routes_return_401_without_credentials() {
             .body(Body::empty())
             .unwrap_or_else(|_| panic!("valid request for {method} {path}"));
 
-        let resp = router
+        let resp = app
             .oneshot(req)
             .await
             .unwrap_or_else(|_| panic!("router should respond for {method} {path}"));

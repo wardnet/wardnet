@@ -493,24 +493,24 @@ async fn get_all_devices_as_admin() {
 
 #[tokio::test]
 async fn get_all_devices_as_device_returns_own_only() {
-    let device1 = sample_device(
+    let dev_a = sample_device(
         "00000000-0000-0000-0000-000000000001",
         "AA:BB:CC:DD:EE:01",
         "192.168.1.10",
     );
-    let device2 = sample_device(
+    let dev_b = sample_device(
         "00000000-0000-0000-0000-000000000002",
         "AA:BB:CC:DD:EE:02",
         "192.168.1.11",
     );
-    let h = build_harness_with_devices(vec![device1, device2]);
+    let h = build_harness_with_devices(vec![dev_a, dev_b]);
 
-    let devices =
+    let found =
         auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:01"), h.svc.get_all_devices())
             .await
             .unwrap();
-    assert_eq!(devices.len(), 1);
-    assert_eq!(devices[0].mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].mac, "AA:BB:CC:DD:EE:01");
 }
 
 #[tokio::test]
