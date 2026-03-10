@@ -19,6 +19,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 
+use crate::auth_context::AuthContextLayer;
 use crate::state::AppState;
 use crate::web::static_handler;
 
@@ -56,6 +57,11 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api", api)
         .fallback(static_handler)
+        .layer(AuthContextLayer)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::resolve_auth_context,
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::extract::Request| {

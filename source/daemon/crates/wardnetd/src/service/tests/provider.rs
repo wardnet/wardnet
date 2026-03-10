@@ -11,12 +11,22 @@ use wardnet_types::vpn_provider::{
     ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
+use wardnet_types::auth::AuthContext;
+
+use crate::auth_context;
 use crate::config::Config;
 use crate::error::AppError;
 use crate::service::provider::ProviderServiceImpl;
 use crate::service::{ProviderService, TunnelService};
 use crate::vpn_provider::VpnProvider;
 use crate::vpn_provider_registry::VpnProviderRegistry;
+
+/// Helper to create an admin auth context for tests.
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::new_v4(),
+    }
+}
 
 // -- Mock VpnProvider ---------------------------------------------------------
 
@@ -298,7 +308,9 @@ async fn list_providers_returns_registered_providers() {
     let tunnel_service = Arc::new(MockTunnelService::new());
 
     let svc = ProviderServiceImpl::new(registry, tunnel_service);
-    let resp = svc.list_providers().await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), svc.list_providers())
+        .await
+        .unwrap();
 
     assert_eq!(resp.providers.len(), 2);
     let ids: Vec<&str> = resp.providers.iter().map(|p| p.id.as_str()).collect();
@@ -309,8 +321,27 @@ async fn list_providers_returns_registered_providers() {
 #[tokio::test]
 async fn list_providers_empty_when_no_providers() {
     let h = build_empty_harness();
-    let resp = h.svc.list_providers().await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.list_providers())
+        .await
+        .unwrap();
     assert!(resp.providers.is_empty());
+}
+
+#[tokio::test]
+async fn list_providers_anonymous_forbidden() {
+    let h = build_empty_harness();
+    let result = auth_context::with_context(AuthContext::Anonymous, h.svc.list_providers()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn list_providers_device_forbidden() {
+    let h = build_empty_harness();
+    let ctx = AuthContext::Device {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+    };
+    let result = auth_context::with_context(ctx, h.svc.list_providers()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -321,7 +352,9 @@ async fn validate_credentials_success() {
     let req = ValidateCredentialsRequest {
         credentials: sample_credentials(),
     };
-    let resp = h.svc.validate_credentials("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.validate_credentials("test", req))
+        .await
+        .unwrap();
 
     assert!(resp.valid);
     assert_eq!(resp.message, "credentials are valid");
@@ -335,7 +368,9 @@ async fn validate_credentials_invalid() {
     let req = ValidateCredentialsRequest {
         credentials: sample_credentials(),
     };
-    let resp = h.svc.validate_credentials("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.validate_credentials("test", req))
+        .await
+        .unwrap();
 
     assert!(!resp.valid);
     assert_eq!(resp.message, "credentials are invalid");
@@ -348,10 +383,28 @@ async fn validate_credentials_unknown_provider() {
     let req = ValidateCredentialsRequest {
         credentials: sample_credentials(),
     };
-    let result = h.svc.validate_credentials("nonexistent", req).await;
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.validate_credentials("nonexistent", req))
+            .await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn validate_credentials_anonymous_forbidden() {
+    let provider = MockVpnProvider::new("test", "Test VPN");
+    let h = build_harness_with_provider(provider);
+
+    let req = ValidateCredentialsRequest {
+        credentials: sample_credentials(),
+    };
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.validate_credentials("test", req),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -363,7 +416,8 @@ async fn validate_credentials_api_error() {
     let req = ValidateCredentialsRequest {
         credentials: sample_credentials(),
     };
-    let result = h.svc.validate_credentials("test", req).await;
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.validate_credentials("test", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::Internal(_)));
@@ -378,7 +432,9 @@ async fn list_servers_success() {
         credentials: sample_credentials(),
         filter: ServerFilter::default(),
     };
-    let resp = h.svc.list_servers("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.list_servers("test", req))
+        .await
+        .unwrap();
 
     assert_eq!(resp.servers.len(), 3);
     assert_eq!(resp.servers[0].id, "se-1");
@@ -392,10 +448,25 @@ async fn list_servers_unknown_provider() {
         credentials: sample_credentials(),
         filter: ServerFilter::default(),
     };
-    let result = h.svc.list_servers("nonexistent", req).await;
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.list_servers("nonexistent", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn list_servers_anonymous_forbidden() {
+    let provider = MockVpnProvider::new("test", "Test VPN").with_servers(sample_servers());
+    let h = build_harness_with_provider(provider);
+
+    let req = ListServersRequest {
+        credentials: sample_credentials(),
+        filter: ServerFilter::default(),
+    };
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.list_servers("test", req)).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -410,7 +481,9 @@ async fn setup_tunnel_happy_path() {
         server_id: None,
         hostname: None,
     };
-    let resp = h.svc.setup_tunnel("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req))
+        .await
+        .unwrap();
 
     // Should auto-select the lowest-load server (se-2, load 20).
     assert_eq!(resp.server.id, "se-2");
@@ -429,6 +502,23 @@ async fn setup_tunnel_happy_path() {
 }
 
 #[tokio::test]
+async fn setup_tunnel_anonymous_forbidden() {
+    let provider = MockVpnProvider::new("test", "Test VPN").with_servers(sample_servers());
+    let h = build_harness_with_provider(provider);
+
+    let req = SetupProviderRequest {
+        credentials: sample_credentials(),
+        country: "SE".to_owned(),
+        label: None,
+        server_id: None,
+        hostname: None,
+    };
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, h.svc.setup_tunnel("test", req)).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
 async fn setup_tunnel_with_specific_server_id() {
     let provider = MockVpnProvider::new("test", "Test VPN").with_servers(sample_servers());
     let h = build_harness_with_provider(provider);
@@ -440,7 +530,9 @@ async fn setup_tunnel_with_specific_server_id() {
         server_id: Some("se-3".to_owned()),
         hostname: None,
     };
-    let resp = h.svc.setup_tunnel("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req))
+        .await
+        .unwrap();
 
     assert_eq!(resp.server.id, "se-3");
     assert_eq!(resp.server.name, "Sweden #3");
@@ -460,7 +552,7 @@ async fn setup_tunnel_invalid_credentials() {
         server_id: None,
         hostname: None,
     };
-    let result = h.svc.setup_tunnel("test", req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::Unauthorized(_)));
@@ -479,7 +571,7 @@ async fn setup_tunnel_no_servers_found() {
         server_id: None,
         hostname: None,
     };
-    let result = h.svc.setup_tunnel("test", req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -499,7 +591,7 @@ async fn setup_tunnel_server_id_not_found() {
         server_id: Some("nonexistent-server".to_owned()),
         hostname: None,
     };
-    let result = h.svc.setup_tunnel("test", req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -519,7 +611,9 @@ async fn setup_tunnel_with_custom_label() {
         server_id: None,
         hostname: None,
     };
-    let resp = h.svc.setup_tunnel("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req))
+        .await
+        .unwrap();
 
     assert_eq!(resp.tunnel.label, "My Custom Tunnel");
 
@@ -552,7 +646,9 @@ async fn setup_tunnel_with_hostname_happy_path() {
         server_id: None,
         hostname: Some("pt131.nordvpn.com".to_owned()),
     };
-    let resp = h.svc.setup_tunnel("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req))
+        .await
+        .unwrap();
 
     // Should use the resolved server, not list_servers.
     assert_eq!(resp.server.hostname, "pt131.nordvpn.com");
@@ -579,7 +675,7 @@ async fn setup_tunnel_with_hostname_not_found() {
         server_id: None,
         hostname: Some("bad.nordvpn.com".to_owned()),
     };
-    let result = h.svc.setup_tunnel("test", req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::Internal(_)));
@@ -599,7 +695,7 @@ async fn setup_tunnel_with_hostname_unsupported_provider() {
         server_id: None,
         hostname: Some("pt131.nordvpn.com".to_owned()),
     };
-    let result = h.svc.setup_tunnel("test", req).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req)).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -622,7 +718,9 @@ async fn setup_tunnel_hostname_takes_precedence_over_server_id() {
         server_id: Some("se-1".to_owned()),
         hostname: Some("pt131.nordvpn.com".to_owned()),
     };
-    let resp = h.svc.setup_tunnel("test", req).await.unwrap();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.setup_tunnel("test", req))
+        .await
+        .unwrap();
 
     // The resolved server from hostname, not the server_id one.
     assert_eq!(resp.server.hostname, "pt131.nordvpn.com");

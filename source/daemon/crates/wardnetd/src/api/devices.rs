@@ -73,7 +73,10 @@ pub async fn get_device(
     }))
 }
 
-/// PUT /api/devices/:id — Update device name and/or type (admin only).
+/// PUT /api/devices/:id — Update device properties (admin only).
+///
+/// Supports updating name, device type, routing target, and admin-locked flag.
+/// Each field is optional; only provided fields are changed.
 pub async fn update_device(
     State(state): State<AppState>,
     _auth: AdminAuth,
@@ -83,10 +86,31 @@ pub async fn update_device(
     let uuid: Uuid = id
         .parse()
         .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
+
+    // Update name and type if provided.
     let device = state
         .discovery_service()
         .update_device(uuid, body.name.as_deref(), body.device_type)
         .await?;
+
+    let device_id_str = device.id.to_string();
+
+    // Update admin_locked if provided.
+    if let Some(locked) = body.admin_locked {
+        state
+            .device_service()
+            .update_admin_locked(&device_id_str, locked)
+            .await?;
+    }
+
+    // Update routing rule if provided.
+    if let Some(target) = body.routing_target {
+        state
+            .device_service()
+            .set_rule(&device_id_str, target)
+            .await?;
+    }
+
     // Fetch current rule for the response.
     let rule = state
         .device_service()
@@ -94,6 +118,7 @@ pub async fn update_device(
         .await
         .ok()
         .and_then(|r| r.current_rule);
+
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,

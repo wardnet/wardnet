@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use sysinfo::System;
 use wardnet_types::api::SystemStatusResponse;
 
+use crate::auth_context;
 use crate::error::AppError;
 use crate::repository::SystemConfigRepository;
 
@@ -43,6 +44,8 @@ impl SystemServiceImpl {
 #[async_trait]
 impl SystemService for SystemServiceImpl {
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+        auth_context::require_admin()?;
+
         let version = env!("WARDNET_VERSION").to_owned();
 
         let device_count = self

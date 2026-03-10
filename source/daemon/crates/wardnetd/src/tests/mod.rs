@@ -8,6 +8,7 @@ mod keys;
 mod oui;
 mod packet_capture;
 mod state;
+pub mod stubs;
 mod tunnel_idle;
 mod tunnel_monitor;
 mod version;

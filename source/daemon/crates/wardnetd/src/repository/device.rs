@@ -72,6 +72,9 @@ pub trait DeviceRepository: Send + Sync {
         now: &str,
     ) -> anyhow::Result<()>;
 
+    /// Update the `admin_locked` flag for a device.
+    async fn update_admin_locked(&self, id: &str, locked: bool) -> anyhow::Result<()>;
+
     /// Return the total number of devices.
     async fn count(&self) -> anyhow::Result<i64>;
 }

@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auth_context;
 pub mod bootstrap;
 pub mod config;
 pub mod db;

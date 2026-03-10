@@ -97,16 +97,19 @@ jobs:
         with:
           workspaces: source/daemon
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate coverage
-        run: cd source/daemon && cargo tarpaulin --workspace --out xml --output-dir ../../coverage
+        run: |
+          mkdir -p coverage
+          cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/lcov.info \
+            --ignore-filename-regex '(main\.rs|wireguard_real\.rs|wireguard_noop\.rs|packet_capture_noop\.rs|hostname_resolver_noop\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs)'
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage/cobertura.xml
+          files: coverage/lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

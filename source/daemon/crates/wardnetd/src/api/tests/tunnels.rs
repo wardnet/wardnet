@@ -1,3 +1,5 @@
+//! Tests for the tunnel API endpoints (GET/POST /api/tunnels, DELETE /api/tunnels/:id).
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,38 +10,28 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{delete, get};
-use tokio::sync::broadcast;
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_types::api::{
-    CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
-    ListTunnelsResponse, SetMyRuleResponse, SystemStatusResponse,
+    CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
 };
-use wardnet_types::device::{Device, DeviceType};
-use wardnet_types::event::WardnetEvent;
-use wardnet_types::routing::RoutingTarget;
 use wardnet_types::tunnel::{Tunnel, TunnelStatus};
 
 use crate::config::Config;
 use crate::error::AppError;
-use crate::event::EventPublisher;
-use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
-use wardnet_types::api::{
-    ListProvidersResponse, ListServersRequest, ListServersResponse, SetupProviderRequest,
-    SetupProviderResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
-};
-
-use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
-    SystemService, TunnelService,
-};
+use crate::service::{AuthService, TunnelService};
 use crate::state::AppState;
+use crate::tests::stubs::{
+    StubDeviceService, StubDiscoveryService, StubEventPublisher, StubProviderService,
+    StubSystemService,
+};
 
 // ---------------------------------------------------------------------------
 // Mock / stub services
 // ---------------------------------------------------------------------------
 
+/// Mock auth service that always validates sessions.
 struct MockAuthService;
 #[async_trait]
 impl AuthService for MockAuthService {
@@ -62,92 +54,6 @@ impl AuthService for MockAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         unimplemented!()
-    }
-}
-
-struct StubDeviceService;
-#[async_trait]
-impl DeviceService for StubDeviceService {
-    async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
-        Ok(DeviceMeResponse {
-            device: None,
-            current_rule: None,
-            admin_locked: false,
-        })
-    }
-    async fn set_rule_for_ip(
-        &self,
-        _ip: &str,
-        target: RoutingTarget,
-    ) -> Result<SetMyRuleResponse, AppError> {
-        Ok(SetMyRuleResponse {
-            message: "ok".to_owned(),
-            target,
-        })
-    }
-}
-
-struct StubDiscoveryService;
-#[async_trait]
-impl DeviceDiscoveryService for StubDiscoveryService {
-    async fn restore_devices(&self) -> Result<(), AppError> {
-        Ok(())
-    }
-    async fn process_observation(
-        &self,
-        _obs: &ObservedDevice,
-    ) -> Result<ObservationResult, AppError> {
-        unimplemented!()
-    }
-    async fn flush_last_seen(&self) -> Result<u64, AppError> {
-        Ok(0)
-    }
-    async fn scan_departures(&self, _timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
-        Ok(vec![])
-    }
-    async fn resolve_hostname(&self, _id: Uuid, _ip: String) -> Result<(), AppError> {
-        Ok(())
-    }
-    async fn get_all_devices(&self) -> Result<Vec<Device>, AppError> {
-        Ok(vec![])
-    }
-    async fn get_device_by_id(&self, id: Uuid) -> Result<Device, AppError> {
-        Err(AppError::NotFound(format!("device {id} not found")))
-    }
-    async fn update_device(
-        &self,
-        id: Uuid,
-        _name: Option<&str>,
-        _dt: Option<DeviceType>,
-    ) -> Result<Device, AppError> {
-        Err(AppError::NotFound(format!("device {id} not found")))
-    }
-}
-
-struct StubSystemService;
-#[async_trait]
-impl SystemService for StubSystemService {
-    async fn status(&self) -> Result<SystemStatusResponse, AppError> {
-        Ok(SystemStatusResponse {
-            version: "test".to_owned(),
-            uptime_seconds: 0,
-            device_count: 0,
-            tunnel_count: 0,
-            db_size_bytes: 0,
-            cpu_usage_percent: 0.0,
-            memory_used_bytes: 0,
-            memory_total_bytes: 0,
-        })
-    }
-}
-
-struct StubEventPublisher;
-impl EventPublisher for StubEventPublisher {
-    fn publish(&self, _event: WardnetEvent) {}
-    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
-        let (tx, rx) = broadcast::channel(1);
-        drop(tx);
-        rx
     }
 }
 
@@ -225,35 +131,6 @@ impl TunnelService for MockTunnelService {
 
     async fn restore_tunnels(&self) -> Result<(), AppError> {
         Ok(())
-    }
-}
-
-struct StubProviderService;
-#[async_trait]
-impl ProviderService for StubProviderService {
-    async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
-        Ok(ListProvidersResponse { providers: vec![] })
-    }
-    async fn validate_credentials(
-        &self,
-        _id: &str,
-        _req: ValidateCredentialsRequest,
-    ) -> Result<ValidateCredentialsResponse, AppError> {
-        unimplemented!()
-    }
-    async fn list_servers(
-        &self,
-        _id: &str,
-        _req: ListServersRequest,
-    ) -> Result<ListServersResponse, AppError> {
-        unimplemented!()
-    }
-    async fn setup_tunnel(
-        &self,
-        _id: &str,
-        _req: SetupProviderRequest,
-    ) -> Result<SetupProviderResponse, AppError> {
-        unimplemented!()
     }
 }
 

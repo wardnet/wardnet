@@ -1,9 +1,12 @@
 use std::net::{IpAddr, SocketAddr};
 
-use axum::extract::{ConnectInfo, FromRequestParts};
+use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
+use axum::middleware::Next;
+use axum::response::Response;
 use uuid::Uuid;
+use wardnet_types::auth::AuthContext;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -104,4 +107,57 @@ async fn try_api_key(headers: &HeaderMap, state: &AppState) -> Result<Option<Uui
     };
 
     state.auth_service().validate_api_key(bearer_token).await
+}
+
+/// Axum middleware that resolves the [`AuthContext`] for every request.
+///
+/// If the request carries a valid admin session or API key the context is
+/// [`AuthContext::Admin`]. Otherwise, the caller's IP is looked up in the
+/// device repository to produce [`AuthContext::Device`] with the device's
+/// MAC address. If neither succeeds, [`AuthContext::Anonymous`] is used.
+///
+/// The resolved context is inserted into the request extensions so that
+/// [`AuthContextLayer`](crate::auth_context::AuthContextLayer) can propagate
+/// it into the `tokio::task_local` scope.
+pub async fn resolve_auth_context(
+    State(state): State<AppState>,
+    mut req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let headers = req.headers();
+
+    // Try admin auth first (session cookie, then API key).
+    let admin_id = try_session_cookie(headers, &state)
+        .await
+        .ok()
+        .flatten()
+        .or(try_api_key(headers, &state).await.ok().flatten());
+
+    let ctx = if let Some(id) = admin_id {
+        AuthContext::Admin { admin_id: id }
+    } else {
+        // Try to identify the caller by client IP -> device MAC.
+        let ip = req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ci| ci.0.ip());
+
+        if let Some(ip) = ip {
+            match state
+                .device_service()
+                .get_device_for_ip(&ip.to_string())
+                .await
+            {
+                Ok(resp) if resp.device.is_some() => AuthContext::Device {
+                    mac: resp.device.unwrap().mac,
+                },
+                _ => AuthContext::Anonymous,
+            }
+        } else {
+            AuthContext::Anonymous
+        }
+    };
+
+    req.extensions_mut().insert(ctx);
+    next.run(req).await
 }
