@@ -134,9 +134,10 @@ jobs:
           cache-dependency-path: source/site/yarn.lock
 
       - name: Generate site coverage
-        run: |
-          cd source/site && yarn install --immutable && yarn test:coverage
-          cp source/site/coverage/lcov.info coverage/site-lcov.info
+        run: cd source/site && yarn install --immutable && yarn test:coverage
+
+      - name: Collect site coverage
+        run: cp source/site/coverage/lcov.info coverage/site-lcov.info
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
