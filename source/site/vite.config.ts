@@ -6,6 +6,7 @@ import yaml from "@modyfi/vite-plugin-yaml";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react(), tailwindcss(), yaml()],
   resolve: {
     alias: {
