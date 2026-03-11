@@ -18,30 +18,36 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use wardnet_types::auth::AuthContext;
 use wardnetd::config::{Config, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::event::{BroadcastEventBus, EventPublisher};
+use wardnetd::firewall::FirewallManager;
+use wardnetd::firewall_nftables::NftablesFirewallManager;
 use wardnetd::hostname_resolver::HostnameResolver;
-use wardnetd::hostname_resolver_noop::NoopHostnameResolver;
 use wardnetd::keys::FileKeyStore;
+use wardnetd::noop_hostname_resolver::NoopHostnameResolver;
+use wardnetd::noop_network::{NoopFirewallManager, NoopPolicyRouter, NoopTunnelInterface};
+use wardnetd::noop_packet_capture::NoopPacketCapture;
 use wardnetd::packet_capture::PacketCapture;
-use wardnetd::packet_capture_noop::NoopPacketCapture;
 use wardnetd::packet_capture_pnet::PnetCapture;
+use wardnetd::policy_router::PolicyRouter;
+use wardnetd::policy_router_iproute::IproutePolicyRouter;
 use wardnetd::repository::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteSessionRepository,
     SqliteSystemConfigRepository, SqliteTunnelRepository,
 };
+use wardnetd::routing_listener::RoutingListener;
 use wardnetd::service::{
     AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, ProviderServiceImpl,
-    SystemServiceImpl, TunnelServiceImpl,
+    RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
 };
 use wardnetd::state::AppState;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
+use wardnetd::tunnel_interface::TunnelInterface;
+use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd::vpn_provider_registry::VpnProviderRegistry;
-use wardnetd::wireguard::WireGuardOps;
-use wardnetd::wireguard_noop::NoopWireGuard;
-use wardnetd::wireguard_real::RealWireGuard;
 use wardnetd::{api, db};
 
 /// Wardnet daemon — self-hosted network privacy gateway.
@@ -69,7 +75,7 @@ struct Cli {
     #[arg(long)]
     foreground: bool,
 
-    /// Use a no-op `WireGuard` backend instead of real kernel interfaces.
+    /// Use no-op network backends instead of real kernel interfaces.
     #[arg(long)]
     mock_network: bool,
 }
@@ -135,7 +141,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     // Create event publisher.
     let event_publisher: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(256));
 
-    let (wireguard, packet_capture, hostname_resolver) = network_backends(mock_network);
+    let backends = network_backends(mock_network);
 
     // Create key store.
     let key_store = Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone()));
@@ -150,12 +156,15 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         system_config_repo.clone(),
         config.auth.session_expiry_hours,
     ));
-    let device_service = Arc::new(DeviceServiceImpl::new(device_repo.clone()));
+    let device_service = Arc::new(DeviceServiceImpl::new(
+        device_repo.clone(),
+        event_publisher.clone(),
+    ));
     let system_service = Arc::new(SystemServiceImpl::new(system_config_repo, started_at));
     let tunnel_service: Arc<dyn wardnetd::service::TunnelService> =
         Arc::new(TunnelServiceImpl::new(
             tunnel_repo.clone(),
-            wireguard.clone(),
+            backends.tunnel_interface.clone(),
             key_store,
             event_publisher.clone(),
         ));
@@ -166,9 +175,23 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         Arc::new(ProviderServiceImpl::new(registry, tunnel_service.clone()));
 
     // Create device discovery service.
-    let discovery_service: Arc<dyn wardnetd::service::DeviceDiscoveryService> = Arc::new(
-        DeviceDiscoveryServiceImpl::new(device_repo, event_publisher.clone(), hostname_resolver),
-    );
+    let discovery_service: Arc<dyn wardnetd::service::DeviceDiscoveryService> =
+        Arc::new(DeviceDiscoveryServiceImpl::new(
+            device_repo.clone(),
+            event_publisher.clone(),
+            backends.hostname_resolver.clone(),
+        ));
+
+    // Create routing service (policy routing engine).
+    let routing_service: Arc<dyn wardnetd::service::RoutingService> =
+        Arc::new(RoutingServiceImpl::new(
+            device_repo.clone(),
+            tunnel_repo.clone(),
+            tunnel_service.clone(),
+            backends.policy_router.clone(),
+            backends.firewall.clone(),
+            config.network.default_policy.clone(),
+        ));
 
     // Restore state from the database.
     tunnel_service
@@ -184,10 +207,20 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     // inherit the `wardnetd{version=...}` context.
     let root_span = tracing::Span::current();
 
+    // Reconcile routing state with kernel on startup.
+    wardnetd::auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        routing_service.reconcile(),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
     // Start background monitors.
     let monitor = TunnelMonitor::start(
-        tunnel_repo,
-        wireguard,
+        tunnel_repo.clone(),
+        backends.tunnel_interface.clone(),
         event_publisher.clone(),
         config.tunnel.stats_interval_secs,
         config.tunnel.health_check_interval_secs,
@@ -196,14 +229,21 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let idle_watcher = IdleTunnelWatcher::start(
         event_publisher.clone(),
         tunnel_service.clone(),
+        routing_service.clone(),
         config.tunnel.idle_timeout_secs,
+        &root_span,
+    );
+    let routing_listener = RoutingListener::start(
+        &event_publisher,
+        routing_service.clone(),
+        device_repo.clone(),
         &root_span,
     );
 
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
-            packet_capture,
+            backends.packet_capture.clone(),
             discovery_service.clone(),
             &config.detection,
             config.network.lan_interface.clone(),
@@ -215,13 +255,14 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     };
 
     let state = AppState::new(
-        auth_service,
-        device_service,
-        discovery_service,
-        provider_service,
-        system_service,
-        tunnel_service,
-        event_publisher,
+        auth_service.clone(),
+        device_service.clone(),
+        discovery_service.clone(),
+        provider_service.clone(),
+        routing_service.clone(),
+        system_service.clone(),
+        tunnel_service.clone(),
+        event_publisher.clone(),
         config.clone(),
         started_at,
     );
@@ -250,8 +291,9 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     .await?;
 
     tracing::info!("server stopped, shutting down background tasks");
-    monitor.shutdown().await;
+    routing_listener.shutdown().await;
     idle_watcher.shutdown().await;
+    monitor.shutdown().await;
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }
@@ -259,27 +301,35 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Network backends selected at startup based on the `--mock-network` flag.
+struct NetworkBackends {
+    tunnel_interface: Arc<dyn TunnelInterface>,
+    packet_capture: Arc<dyn PacketCapture>,
+    hostname_resolver: Arc<dyn HostnameResolver>,
+    policy_router: Arc<dyn PolicyRouter>,
+    firewall: Arc<dyn FirewallManager>,
+}
+
 /// Select real or no-op network backends based on the `--mock-network` flag.
-fn network_backends(
-    mock: bool,
-) -> (
-    Arc<dyn WireGuardOps>,
-    Arc<dyn PacketCapture>,
-    Arc<dyn HostnameResolver>,
-) {
+fn network_backends(mock: bool) -> NetworkBackends {
     if mock {
         tracing::info!("using no-op network backends (--mock-network)");
-        (
-            Arc::new(NoopWireGuard),
-            Arc::new(NoopPacketCapture),
-            Arc::new(NoopHostnameResolver),
-        )
+        NetworkBackends {
+            tunnel_interface: Arc::new(NoopTunnelInterface),
+            packet_capture: Arc::new(NoopPacketCapture),
+            hostname_resolver: Arc::new(NoopHostnameResolver),
+            policy_router: Arc::new(NoopPolicyRouter),
+            firewall: Arc::new(NoopFirewallManager),
+        }
     } else {
-        (
-            Arc::new(RealWireGuard),
-            Arc::new(PnetCapture),
-            Arc::new(wardnetd::hostname_resolver::SystemHostnameResolver),
-        )
+        let executor = Arc::new(wardnetd::command::ShellCommandExecutor);
+        NetworkBackends {
+            tunnel_interface: Arc::new(WireGuardTunnelInterface),
+            packet_capture: Arc::new(PnetCapture),
+            hostname_resolver: Arc::new(wardnetd::hostname_resolver::SystemHostnameResolver),
+            policy_router: Arc::new(IproutePolicyRouter::new(executor.clone())),
+            firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
+        }
     }
 }
 

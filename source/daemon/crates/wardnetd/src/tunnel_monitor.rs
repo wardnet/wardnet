@@ -9,7 +9,7 @@ use wardnet_types::tunnel::TunnelStatus;
 
 use crate::event::EventPublisher;
 use crate::repository::TunnelRepository;
-use crate::wireguard::WireGuardOps;
+use crate::tunnel_interface::TunnelInterface;
 
 /// Background tasks for monitoring active `WireGuard` tunnels.
 ///
@@ -33,7 +33,7 @@ impl TunnelMonitor {
     /// [`shutdown`](Self::shutdown) is called.
     pub fn start(
         tunnels: Arc<dyn TunnelRepository>,
-        wireguard: Arc<dyn WireGuardOps>,
+        wireguard: Arc<dyn TunnelInterface>,
         events: Arc<dyn EventPublisher>,
         stats_interval_secs: u64,
         health_check_interval_secs: u64,
@@ -82,7 +82,7 @@ impl TunnelMonitor {
 /// Periodically poll byte counters for all `Up` tunnels.
 async fn stats_loop(
     tunnels: Arc<dyn TunnelRepository>,
-    wireguard: Arc<dyn WireGuardOps>,
+    wireguard: Arc<dyn TunnelInterface>,
     events: Arc<dyn EventPublisher>,
     interval_secs: u64,
     cancel: CancellationToken,
@@ -156,7 +156,7 @@ async fn stats_loop(
 /// Periodically check health of all `Up` tunnels via handshake age.
 async fn health_loop(
     tunnels: Arc<dyn TunnelRepository>,
-    wireguard: Arc<dyn WireGuardOps>,
+    wireguard: Arc<dyn TunnelInterface>,
     interval_secs: u64,
     cancel: CancellationToken,
 ) {

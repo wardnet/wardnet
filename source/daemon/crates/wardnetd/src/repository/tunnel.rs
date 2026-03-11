@@ -47,7 +47,7 @@ pub trait TunnelRepository: Send + Sync {
     /// Retrieve the stored `WireGuard` configuration for a tunnel.
     ///
     /// Returns the address list, DNS servers, listen port, and peer config
-    /// needed to build [`CreateInterfaceParams`](crate::wireguard::CreateInterfaceParams)
+    /// needed to build [`CreateTunnelParams`](crate::tunnel_interface::CreateTunnelParams)
     /// when bringing a tunnel up.
     async fn find_config_by_id(&self, id: &str) -> anyhow::Result<Option<TunnelConfig>>;
 

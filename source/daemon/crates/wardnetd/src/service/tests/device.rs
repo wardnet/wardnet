@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 use wardnet_types::auth::AuthContext;
 use wardnet_types::device::{Device, DeviceType};
+use wardnet_types::event::WardnetEvent;
 use wardnet_types::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use crate::auth_context;
+use crate::event::EventPublisher;
 use crate::repository::DeviceRepository;
 use crate::repository::device::DeviceRow;
 use crate::service::{DeviceService, DeviceServiceImpl};
@@ -74,6 +77,20 @@ impl DeviceRepository for MockDeviceRepo {
     }
 }
 
+// -- Mock event publisher -------------------------------------------------
+
+/// Stub event publisher that discards all events.
+struct MockEventPublisher;
+
+impl EventPublisher for MockEventPublisher {
+    fn publish(&self, _event: WardnetEvent) {}
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        let (tx, rx) = broadcast::channel(1);
+        drop(tx);
+        rx
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 fn sample_device(locked: bool) -> Device {
@@ -112,17 +129,23 @@ fn device_ctx(mac: &str) -> AuthContext {
 }
 
 fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
-    DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: Some(sample_device(locked)),
-        rule,
-    }))
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(locked)),
+            rule,
+        }),
+        Arc::new(MockEventPublisher),
+    )
 }
 
 fn make_svc_no_device() -> DeviceServiceImpl {
-    DeviceServiceImpl::new(Arc::new(MockDeviceRepo {
-        device: None,
-        rule: None,
-    }))
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+        }),
+        Arc::new(MockEventPublisher),
+    )
 }
 
 // -- Tests: get_device_for_ip --------------------------------------------

@@ -5,7 +5,7 @@ use wardnet_types::vpn_provider::ProviderInfo;
 
 use crate::config::Config;
 use crate::vpn_provider::VpnProvider;
-use crate::vpn_provider_nordvpn::{NordVpnProvider, RealNordVpnApi};
+use crate::vpn_provider_nordvpn::{HttpNordVpnApi, NordVpnProvider};
 
 /// Thread-safe registry of available VPN providers.
 ///
@@ -26,7 +26,7 @@ impl VpnProviderRegistry {
 
         // Register NordVPN provider.
         if config.is_provider_enabled("nordvpn") {
-            let api = Arc::new(RealNordVpnApi::new());
+            let api = Arc::new(HttpNordVpnApi::new());
             registry.register(Arc::new(NordVpnProvider::new(api)));
         }
 

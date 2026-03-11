@@ -16,7 +16,9 @@ use crate::event::EventPublisher;
 use crate::keys::KeyStore;
 use crate::repository::TunnelRepository;
 use crate::repository::tunnel::TunnelRow;
-use crate::wireguard::{CreateInterfaceParams, WireGuardOps};
+use crate::tunnel_interface::{
+    CreateTunnelParams, TunnelConfig as TiTunnelConfig, TunnelInterface,
+};
 
 /// Tunnel lifecycle management.
 ///
@@ -47,6 +49,18 @@ pub trait TunnelService: Send + Sync {
     /// Delete a tunnel entirely (removes config, key, and interface).
     async fn delete_tunnel(&self, id: Uuid) -> Result<DeleteTunnelResponse, AppError>;
 
+    /// Bring a tunnel interface up without requiring admin authentication.
+    ///
+    /// Used internally by the routing engine when a device's routing rule
+    /// targets a tunnel that is currently down.
+    async fn bring_up_internal(&self, id: Uuid) -> Result<(), AppError>;
+
+    /// Tear down a tunnel interface without requiring admin authentication.
+    ///
+    /// Used internally by the idle tunnel watcher and routing engine for
+    /// automated lifecycle management.
+    async fn tear_down_internal(&self, id: Uuid, reason: &str) -> Result<(), AppError>;
+
     /// Restore tunnel configs from the database on startup (does NOT bring interfaces up).
     async fn restore_tunnels(&self) -> Result<(), AppError>;
 }
@@ -54,7 +68,7 @@ pub trait TunnelService: Send + Sync {
 /// Default implementation of [`TunnelService`].
 pub struct TunnelServiceImpl {
     tunnels: Arc<dyn TunnelRepository>,
-    wireguard: Arc<dyn WireGuardOps>,
+    tunnel_interface: Arc<dyn TunnelInterface>,
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
 }
@@ -63,13 +77,13 @@ impl TunnelServiceImpl {
     /// Create a new tunnel service with the given dependencies.
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
-        wireguard: Arc<dyn WireGuardOps>,
+        tunnel_interface: Arc<dyn TunnelInterface>,
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self {
             tunnels,
-            wireguard,
+            tunnel_interface,
             keys,
             events,
         }
@@ -92,6 +106,132 @@ impl TunnelServiceImpl {
         bytes
             .try_into()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("WireGuard key must be 32 bytes")))
+    }
+
+    /// Core logic for bringing a tunnel up (no auth check).
+    async fn bring_up_core(&self, id: Uuid) -> Result<(), AppError> {
+        let tunnel = self.require_tunnel(id).await?;
+
+        // No-op if already up.
+        if tunnel.status == TunnelStatus::Up {
+            return Ok(());
+        }
+
+        // Load stored `WireGuard` configuration.
+        let tunnel_config = self
+            .tunnels
+            .find_config_by_id(&id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound(format!("tunnel config {id} not found")))?;
+
+        // Load and decode private key from key store.
+        let private_key_b64 = self.keys.load_key(&id).await.map_err(AppError::Internal)?;
+        let private_key = Self::decode_key(&private_key_b64)?;
+
+        // Decode peer public key.
+        let peer_public_key = Self::decode_key(&tunnel_config.peer.public_key)?;
+
+        // Decode optional preshared key.
+        let peer_preshared_key = tunnel_config
+            .peer
+            .preshared_key
+            .as_deref()
+            .map(Self::decode_key)
+            .transpose()?;
+
+        // Parse peer endpoint.
+        let peer_endpoint = tunnel_config
+            .peer
+            .endpoint
+            .as_deref()
+            .map(str::parse)
+            .transpose()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid peer endpoint: {e}")))?;
+
+        // Parse allowed IPs.
+        let peer_allowed_ips = tunnel_config
+            .peer
+            .allowed_ips
+            .iter()
+            .map(|ip| ip.parse())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid allowed IP: {e}")))?;
+
+        let params = CreateTunnelParams {
+            interface_name: tunnel.interface_name.clone(),
+            config: TiTunnelConfig::WireGuard {
+                private_key,
+                listen_port: tunnel_config.listen_port,
+                peer_public_key,
+                peer_endpoint,
+                peer_allowed_ips,
+                peer_preshared_key,
+                persistent_keepalive: tunnel_config.peer.persistent_keepalive,
+            },
+        };
+
+        // Create the tunnel interface and bring it up.
+        self.tunnel_interface
+            .create(params)
+            .await
+            .map_err(AppError::Internal)?;
+        self.tunnel_interface
+            .bring_up(&tunnel.interface_name)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Update status in the database.
+        self.tunnels
+            .update_status(&id.to_string(), "up")
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Publish domain event.
+        self.events.publish(WardnetEvent::TunnelUp {
+            tunnel_id: id,
+            interface_name: tunnel.interface_name,
+            endpoint: tunnel.endpoint,
+            timestamp: chrono::Utc::now(),
+        });
+
+        Ok(())
+    }
+
+    /// Core logic for tearing down a tunnel (no auth check).
+    async fn tear_down_core(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
+        let tunnel = self.require_tunnel(id).await?;
+
+        // No-op if already down.
+        if tunnel.status == TunnelStatus::Down {
+            return Ok(());
+        }
+
+        // Tear down and remove the tunnel interface.
+        self.tunnel_interface
+            .tear_down(&tunnel.interface_name)
+            .await
+            .map_err(AppError::Internal)?;
+        self.tunnel_interface
+            .remove(&tunnel.interface_name)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Update status in the database.
+        self.tunnels
+            .update_status(&id.to_string(), "down")
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Publish domain event.
+        self.events.publish(WardnetEvent::TunnelDown {
+            tunnel_id: id,
+            interface_name: tunnel.interface_name,
+            reason: reason.to_owned(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        Ok(())
     }
 }
 
@@ -195,128 +335,20 @@ impl TunnelService for TunnelServiceImpl {
 
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
-
-        let tunnel = self.require_tunnel(id).await?;
-
-        // No-op if already up.
-        if tunnel.status == TunnelStatus::Up {
-            return Ok(());
-        }
-
-        // Load stored `WireGuard` configuration.
-        let tunnel_config = self
-            .tunnels
-            .find_config_by_id(&id.to_string())
-            .await
-            .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::NotFound(format!("tunnel config {id} not found")))?;
-
-        // Load and decode private key from key store.
-        let private_key_b64 = self.keys.load_key(&id).await.map_err(AppError::Internal)?;
-        let private_key = Self::decode_key(&private_key_b64)?;
-
-        // Decode peer public key.
-        let peer_public_key = Self::decode_key(&tunnel_config.peer.public_key)?;
-
-        // Decode optional preshared key.
-        let peer_preshared_key = tunnel_config
-            .peer
-            .preshared_key
-            .as_deref()
-            .map(Self::decode_key)
-            .transpose()?;
-
-        // Parse peer endpoint.
-        let peer_endpoint = tunnel_config
-            .peer
-            .endpoint
-            .as_deref()
-            .map(str::parse)
-            .transpose()
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid peer endpoint: {e}")))?;
-
-        // Parse allowed IPs.
-        let peer_allowed_ips = tunnel_config
-            .peer
-            .allowed_ips
-            .iter()
-            .map(|ip| ip.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid allowed IP: {e}")))?;
-
-        let params = CreateInterfaceParams {
-            interface_name: tunnel.interface_name.clone(),
-            private_key,
-            listen_port: tunnel_config.listen_port,
-            peer_public_key,
-            peer_endpoint,
-            peer_allowed_ips,
-            peer_preshared_key,
-            persistent_keepalive: tunnel_config.peer.persistent_keepalive,
-        };
-
-        // Create the `WireGuard` interface and bring it up.
-        self.wireguard
-            .create_interface(params)
-            .await
-            .map_err(AppError::Internal)?;
-        self.wireguard
-            .bring_up(&tunnel.interface_name)
-            .await
-            .map_err(AppError::Internal)?;
-
-        // Update status in the database.
-        self.tunnels
-            .update_status(&id.to_string(), "up")
-            .await
-            .map_err(AppError::Internal)?;
-
-        // Publish domain event.
-        self.events.publish(WardnetEvent::TunnelUp {
-            tunnel_id: id,
-            interface_name: tunnel.interface_name,
-            endpoint: tunnel.endpoint,
-            timestamp: chrono::Utc::now(),
-        });
-
-        Ok(())
+        self.bring_up_core(id).await
     }
 
     async fn tear_down(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
         auth_context::require_admin()?;
+        self.tear_down_core(id, reason).await
+    }
 
-        let tunnel = self.require_tunnel(id).await?;
+    async fn bring_up_internal(&self, id: Uuid) -> Result<(), AppError> {
+        self.bring_up_core(id).await
+    }
 
-        // No-op if already down.
-        if tunnel.status == TunnelStatus::Down {
-            return Ok(());
-        }
-
-        // Tear down and remove the `WireGuard` interface.
-        self.wireguard
-            .tear_down(&tunnel.interface_name)
-            .await
-            .map_err(AppError::Internal)?;
-        self.wireguard
-            .remove_interface(&tunnel.interface_name)
-            .await
-            .map_err(AppError::Internal)?;
-
-        // Update status in the database.
-        self.tunnels
-            .update_status(&id.to_string(), "down")
-            .await
-            .map_err(AppError::Internal)?;
-
-        // Publish domain event.
-        self.events.publish(WardnetEvent::TunnelDown {
-            tunnel_id: id,
-            interface_name: tunnel.interface_name,
-            reason: reason.to_owned(),
-            timestamp: chrono::Utc::now(),
-        });
-
-        Ok(())
+    async fn tear_down_internal(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
+        self.tear_down_core(id, reason).await
     }
 
     async fn delete_tunnel(&self, id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
@@ -326,7 +358,7 @@ impl TunnelService for TunnelServiceImpl {
 
         // If the tunnel is up, tear it down first.
         if tunnel.status == TunnelStatus::Up {
-            self.tear_down(id, "tunnel deleted").await?;
+            self.tear_down_core(id, "tunnel deleted").await?;
         }
 
         // Delete private key from key store.

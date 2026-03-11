@@ -21,7 +21,7 @@ use crate::service::{AuthService, SystemService};
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDiscoveryService, StubEventPublisher, StubProviderService,
-    StubTunnelService,
+    StubRoutingService, StubTunnelService,
 };
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
         Arc::new(system),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

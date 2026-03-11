@@ -84,3 +84,7 @@ opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
 # https://crates.io/crates/opentelemetry-appender-tracing
 opentelemetry-appender-tracing.workspace = true
+
+[dev-dependencies]
+# https://crates.io/crates/tokio — test-util feature for time control in tests
+tokio = { version = "1", features = ["test-util"] }

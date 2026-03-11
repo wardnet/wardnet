@@ -11,6 +11,7 @@ fn accessors_return_correct_types() {
     let _ = state.device_service();
     let _ = state.discovery_service();
     let _ = state.provider_service();
+    let _ = state.routing_service();
     let _ = state.system_service();
     let _ = state.tunnel_service();
     let _ = state.event_publisher();

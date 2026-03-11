@@ -10,8 +10,8 @@ use wardnet_types::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use crate::event::EventPublisher;
 use crate::repository::TunnelRepository;
 use crate::repository::tunnel::TunnelRow;
+use crate::tunnel_interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel_monitor::TunnelMonitor;
-use crate::wireguard::{CreateInterfaceParams, WgInterfaceStats, WireGuardOps};
 
 // -- Mock TunnelRepository ------------------------------------------------
 
@@ -98,16 +98,16 @@ impl TunnelRepository for MockTunnelRepo {
     }
 }
 
-// -- Mock WireGuardOps ----------------------------------------------------
+// -- Mock TunnelInterface -------------------------------------------------
 
 /// Returns predetermined stats for `get_stats`.
-struct MockWireGuardOps {
-    stats: Mutex<Option<WgInterfaceStats>>,
+struct MockTunnelInterface {
+    stats: Mutex<Option<TunnelStats>>,
     get_stats_error: Mutex<bool>,
 }
 
-impl MockWireGuardOps {
-    fn with_stats(stats: WgInterfaceStats) -> Self {
+impl MockTunnelInterface {
+    fn with_stats(stats: TunnelStats) -> Self {
         Self {
             stats: Mutex::new(Some(stats)),
             get_stats_error: Mutex::new(false),
@@ -130,8 +130,8 @@ impl MockWireGuardOps {
 }
 
 #[async_trait]
-impl WireGuardOps for MockWireGuardOps {
-    async fn create_interface(&self, _params: CreateInterfaceParams) -> anyhow::Result<()> {
+impl TunnelInterface for MockTunnelInterface {
+    async fn create(&self, _params: CreateTunnelParams) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -143,18 +143,18 @@ impl WireGuardOps for MockWireGuardOps {
         Ok(())
     }
 
-    async fn remove_interface(&self, _interface_name: &str) -> anyhow::Result<()> {
+    async fn remove(&self, _interface_name: &str) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn get_stats(&self, _interface_name: &str) -> anyhow::Result<Option<WgInterfaceStats>> {
+    async fn get_stats(&self, _interface_name: &str) -> anyhow::Result<Option<TunnelStats>> {
         if *self.get_stats_error.lock().unwrap() {
             anyhow::bail!("simulated get_stats error");
         }
         Ok(self.stats.lock().unwrap().clone())
     }
 
-    async fn list_interfaces(&self) -> anyhow::Result<Vec<String>> {
+    async fn list(&self) -> anyhow::Result<Vec<String>> {
         Ok(Vec::new())
     }
 }
@@ -207,12 +207,8 @@ fn make_tunnel(id: Uuid, interface_name: &str, status: TunnelStatus) -> Tunnel {
     }
 }
 
-fn make_stats(
-    bytes_tx: u64,
-    bytes_rx: u64,
-    last_handshake: Option<DateTime<Utc>>,
-) -> WgInterfaceStats {
-    WgInterfaceStats {
+fn make_stats(bytes_tx: u64, bytes_rx: u64, last_handshake: Option<DateTime<Utc>>) -> TunnelStats {
+    TunnelStats {
         bytes_tx,
         bytes_rx,
         last_handshake,
@@ -227,7 +223,7 @@ async fn stats_loop_updates_stats_for_up_tunnel() {
     let tunnel = make_tunnel(tunnel_id, "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::with_stats(make_stats(
+    let wg = Arc::new(MockTunnelInterface::with_stats(make_stats(
         1000,
         2000,
         Some(Utc::now()),
@@ -278,7 +274,7 @@ async fn stats_loop_skips_down_tunnels() {
     let tunnel = make_tunnel(Uuid::new_v4(), "wg_ward0", TunnelStatus::Down);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::with_stats(make_stats(100, 200, None)));
+    let wg = Arc::new(MockTunnelInterface::with_stats(make_stats(100, 200, None)));
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -306,7 +302,7 @@ async fn stats_loop_handles_get_stats_error_gracefully() {
     let tunnel = make_tunnel(Uuid::new_v4(), "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::returning_error());
+    let wg = Arc::new(MockTunnelInterface::returning_error());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -331,7 +327,7 @@ async fn stats_loop_handles_none_stats() {
     let tunnel = make_tunnel(Uuid::new_v4(), "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::returning_none());
+    let wg = Arc::new(MockTunnelInterface::returning_none());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -351,7 +347,7 @@ async fn health_loop_runs_without_error_for_healthy_tunnel() {
 
     // Recent handshake -- should not generate warnings (just verifying no crash).
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::with_stats(make_stats(
+    let wg = Arc::new(MockTunnelInterface::with_stats(make_stats(
         0,
         0,
         Some(Utc::now()),
@@ -374,7 +370,7 @@ async fn health_loop_handles_stale_handshake() {
     // Handshake from 10 minutes ago -- stale.
     let stale_time = Utc::now() - chrono::Duration::minutes(10);
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::with_stats(make_stats(
+    let wg = Arc::new(MockTunnelInterface::with_stats(make_stats(
         0,
         0,
         Some(stale_time),
@@ -394,7 +390,7 @@ async fn health_loop_handles_missing_interface() {
     let tunnel = make_tunnel(Uuid::new_v4(), "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::returning_none());
+    let wg = Arc::new(MockTunnelInterface::returning_none());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -410,7 +406,7 @@ async fn health_loop_handles_get_stats_error() {
     let tunnel = make_tunnel(Uuid::new_v4(), "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::returning_error());
+    let wg = Arc::new(MockTunnelInterface::returning_error());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -424,7 +420,7 @@ async fn health_loop_handles_get_stats_error() {
 #[tokio::test]
 async fn shutdown_stops_both_loops() {
     let repo = Arc::new(MockTunnelRepo::new(vec![]));
-    let wg = Arc::new(MockWireGuardOps::returning_none());
+    let wg = Arc::new(MockTunnelInterface::returning_none());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -438,7 +434,7 @@ async fn shutdown_stops_both_loops() {
 async fn stats_loop_handles_find_all_error() {
     let repo = Arc::new(MockTunnelRepo::new(vec![]));
     *repo.find_all_error.lock().unwrap() = true;
-    let wg = Arc::new(MockWireGuardOps::returning_none());
+    let wg = Arc::new(MockTunnelInterface::returning_none());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -458,7 +454,7 @@ async fn stats_loop_handles_find_all_error() {
 async fn health_loop_handles_find_all_error() {
     let repo = Arc::new(MockTunnelRepo::new(vec![]));
     *repo.find_all_error.lock().unwrap() = true;
-    let wg = Arc::new(MockWireGuardOps::returning_none());
+    let wg = Arc::new(MockTunnelInterface::returning_none());
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");
@@ -475,7 +471,7 @@ async fn stats_loop_handles_no_last_handshake() {
     let tunnel = make_tunnel(tunnel_id, "wg_ward0", TunnelStatus::Up);
 
     let repo = Arc::new(MockTunnelRepo::new(vec![tunnel]));
-    let wg = Arc::new(MockWireGuardOps::with_stats(make_stats(500, 600, None)));
+    let wg = Arc::new(MockTunnelInterface::with_stats(make_stats(500, 600, None)));
     let events = Arc::new(MockEventPublisher::new());
 
     let parent = tracing::info_span!("test");

@@ -4,8 +4,8 @@ use std::time::Instant;
 use crate::config::Config;
 use crate::event::EventPublisher;
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ProviderService, SystemService,
-    TunnelService,
+    AuthService, DeviceDiscoveryService, DeviceService, ProviderService, RoutingService,
+    SystemService, TunnelService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -22,6 +22,7 @@ struct Inner {
     device_service: Arc<dyn DeviceService>,
     discovery_service: Arc<dyn DeviceDiscoveryService>,
     provider_service: Arc<dyn ProviderService>,
+    routing_service: Arc<dyn RoutingService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
     event_publisher: Arc<dyn EventPublisher>,
@@ -37,6 +38,7 @@ impl AppState {
         device_service: Arc<dyn DeviceService>,
         discovery_service: Arc<dyn DeviceDiscoveryService>,
         provider_service: Arc<dyn ProviderService>,
+        routing_service: Arc<dyn RoutingService>,
         system_service: Arc<dyn SystemService>,
         tunnel_service: Arc<dyn TunnelService>,
         event_publisher: Arc<dyn EventPublisher>,
@@ -49,6 +51,7 @@ impl AppState {
                 device_service,
                 discovery_service,
                 provider_service,
+                routing_service,
                 system_service,
                 tunnel_service,
                 event_publisher,
@@ -77,6 +80,12 @@ impl AppState {
     #[must_use]
     pub fn provider_service(&self) -> &dyn ProviderService {
         self.inner.provider_service.as_ref()
+    }
+
+    /// Access the policy routing service.
+    #[must_use]
+    pub fn routing_service(&self) -> &dyn RoutingService {
+        self.inner.routing_service.as_ref()
     }
 
     #[must_use]
