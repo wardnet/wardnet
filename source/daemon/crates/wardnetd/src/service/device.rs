@@ -3,10 +3,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use wardnet_types::api::{DeviceMeResponse, SetMyRuleResponse};
 use wardnet_types::auth::AuthContext;
-use wardnet_types::routing::RoutingTarget;
+use wardnet_types::event::WardnetEvent;
+use wardnet_types::routing::{RoutingTarget, RuleCreator};
 
 use crate::auth_context;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 use crate::repository::DeviceRepository;
 
 /// Device lookup and self-service routing management.
@@ -48,12 +50,13 @@ pub trait DeviceService: Send + Sync {
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
 pub struct DeviceServiceImpl {
     devices: Arc<dyn DeviceRepository>,
+    events: Arc<dyn EventPublisher>,
 }
 
 impl DeviceServiceImpl {
-    /// Create a new service backed by the given device repository.
-    pub fn new(devices: Arc<dyn DeviceRepository>) -> Self {
-        Self { devices }
+    /// Create a new service backed by the given device repository and event publisher.
+    pub fn new(devices: Arc<dyn DeviceRepository>, events: Arc<dyn EventPublisher>) -> Self {
+        Self { devices, events }
     }
 
     /// Check whether the current auth context authorises a mutation on the
@@ -124,6 +127,12 @@ impl DeviceService for DeviceServiceImpl {
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         Self::check_device_mutation_auth(&ctx, &device.mac, device.admin_locked)?;
 
+        let previous = self
+            .devices
+            .find_rule_for_device(&device.id.to_string())
+            .await
+            .map_err(AppError::Internal)?;
+
         let target_json =
             serde_json::to_string(&target).map_err(|e| AppError::Internal(e.into()))?;
         let now = chrono::Utc::now().to_rfc3339();
@@ -132,6 +141,18 @@ impl DeviceService for DeviceServiceImpl {
             .upsert_user_rule(&device.id.to_string(), &target_json, &now)
             .await
             .map_err(AppError::Internal)?;
+
+        let changed_by = match &ctx {
+            AuthContext::Admin { .. } => RuleCreator::Admin,
+            _ => RuleCreator::User,
+        };
+        self.events.publish(WardnetEvent::RoutingRuleChanged {
+            device_id: device.id,
+            target: target.clone(),
+            previous_target: previous.map(|r| r.target),
+            changed_by,
+            timestamp: chrono::Utc::now(),
+        });
 
         Ok(SetMyRuleResponse {
             message: "routing rule updated".to_owned(),
@@ -150,6 +171,12 @@ impl DeviceService for DeviceServiceImpl {
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         Self::check_device_mutation_auth(&ctx, &device.mac, device.admin_locked)?;
 
+        let previous = self
+            .devices
+            .find_rule_for_device(&device.id.to_string())
+            .await
+            .map_err(AppError::Internal)?;
+
         let target_json =
             serde_json::to_string(&target).map_err(|e| AppError::Internal(e.into()))?;
         let now = chrono::Utc::now().to_rfc3339();
@@ -158,6 +185,18 @@ impl DeviceService for DeviceServiceImpl {
             .upsert_user_rule(device_id, &target_json, &now)
             .await
             .map_err(AppError::Internal)?;
+
+        let changed_by = match &ctx {
+            AuthContext::Admin { .. } => RuleCreator::Admin,
+            _ => RuleCreator::User,
+        };
+        self.events.publish(WardnetEvent::RoutingRuleChanged {
+            device_id: device.id,
+            target,
+            previous_target: previous.map(|r| r.target),
+            changed_by,
+            timestamp: chrono::Utc::now(),
+        });
 
         Ok(())
     }

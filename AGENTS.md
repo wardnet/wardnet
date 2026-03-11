@@ -342,10 +342,10 @@ We use `cargo-llvm-cov` for code coverage. Before starting work, compute the cur
 ```sh
 cd source/daemon
 cargo llvm-cov --package wardnetd --summary-only \
-  --ignore-filename-regex '(main\.rs|wireguard_real\.rs|wireguard_noop\.rs|packet_capture_noop\.rs|hostname_resolver_noop\.rs|db\.rs|web\.rs|auth_context\.rs)'
+  --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs)'
 ```
 
-The `--ignore-filename-regex` excludes files that are not unit-testable (binary entrypoints, no-op/stub implementations, Tower middleware boilerplate, database pool setup, and static file serving). CI uses the same exclusions — see `.github/workflows/ci.yml`.
+The `--ignore-filename-regex` excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, and auth context thread-locals). CI uses the same exclusions — see `.github/workflows/ci.yml`.
 
 ## Boundaries
 

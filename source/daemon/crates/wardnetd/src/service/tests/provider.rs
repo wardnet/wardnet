@@ -198,6 +198,14 @@ impl TunnelService for MockTunnelService {
         Ok(())
     }
 
+    async fn bring_up_internal(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn tear_down_internal(&self, _id: Uuid, _reason: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn delete_tunnel(&self, _id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
         Ok(DeleteTunnelResponse {
             message: "deleted".to_owned(),

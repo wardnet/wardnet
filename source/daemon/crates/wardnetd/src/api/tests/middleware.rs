@@ -26,7 +26,7 @@ use wardnet_types::routing::RoutingTarget;
 use crate::auth_context;
 use crate::tests::stubs::{
     StubDeviceService, StubDiscoveryService, StubEventPublisher, StubProviderService,
-    StubSystemService, StubTunnelService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
 
 // ---------------------------------------------------------------------------
@@ -71,6 +71,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
@@ -343,6 +344,7 @@ fn make_state_with_device(
         Arc::new(device_svc),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

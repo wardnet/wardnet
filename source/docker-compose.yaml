@@ -1,15 +1,77 @@
+#
+# Wardnet Development Environment
+# ─────────────────────────────────────────────────────────────────────────────
+# Configure everything in .env — no edits needed in this file.
+#
+# Services:
+#   lgtm          — Grafana + Loki + Tempo + Mimir + Pyroscope + OTEL Collector
+#   test_alpine   — Alpine container routed through Wardnet Pi
+#   test_ubuntu   — Ubuntu container routed through Wardnet Pi
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-wardnet-client: &wardnet-client
+  networks:
+    wardnet_test:
+  dns:
+    - ${WARDNET_PI_IP}
+  cap_add:
+    - NET_ADMIN
+  entrypoint: >
+    sh -c "
+      ip route del default 2>/dev/null;
+      ip route add default via ${WARDNET_PI_IP};
+      exec \"$$@\"
+    " --
+  depends_on:
+    - lgtm
+
+networks:
+  wardnet_test:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: ${WARDNET_SUBNET}
+          gateway: ${WARDNET_PI_IP}
+  observability:
+    driver: bridge
+
+volumes:
+  lgtm-data:
 
 services:
+
   lgtm:
     image: grafana/otel-lgtm:latest
     container_name: observability
     restart: unless-stopped
+    networks:
+      - observability
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "7414:3000"   # Grafana UI  →  http://localhost:3000  (admin/admin)
+      - "4317:4317"           # OTLP gRPC
+      - "4318:4318"           # OTLP HTTP
+      - "4040:4040"           # Pyroscope
+      - "${GRAFANA_PORT}:3000" # Grafana UI
     volumes:
       - lgtm-data:/data
 
-volumes:
-  lgtm-data:
+  test_alpine:
+    <<: *wardnet-client
+    image: alpine
+    container_name: wardnet_test_alpine
+    restart: unless-stopped
+    command: sleep infinity
+    networks:
+      wardnet_test:
+        ipv4_address: ${TEST_ALPINE_IP}
+
+  test_ubuntu:
+    <<: *wardnet-client
+    image: ubuntu
+    container_name: wardnet_test_ubuntu
+    restart: unless-stopped
+    command: sleep infinity
+    networks:
+      wardnet_test:
+        ipv4_address: ${TEST_UBUNTU_IP}

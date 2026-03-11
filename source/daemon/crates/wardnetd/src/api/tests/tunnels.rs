@@ -24,7 +24,7 @@ use crate::service::{AuthService, TunnelService};
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDiscoveryService, StubEventPublisher, StubProviderService,
-    StubSystemService,
+    StubRoutingService, StubSystemService,
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +119,14 @@ impl TunnelService for MockTunnelService {
         Ok(())
     }
 
+    async fn bring_up_internal(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn tear_down_internal(&self, _id: Uuid, _reason: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn delete_tunnel(&self, id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
         if self.tunnels.iter().any(|t| t.id == id) {
             Ok(DeleteTunnelResponse {
@@ -164,6 +172,7 @@ fn build_state(tunnel_svc: impl TunnelService + 'static) -> AppState {
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(tunnel_svc),
         Arc::new(StubEventPublisher),

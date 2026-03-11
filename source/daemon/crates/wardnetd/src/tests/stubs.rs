@@ -31,7 +31,7 @@ use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
 use crate::service::{
     AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
-    SystemService, TunnelService,
+    RoutingService, SystemService, TunnelService,
 };
 use crate::state::AppState;
 
@@ -213,10 +213,62 @@ impl TunnelService for StubTunnelService {
     async fn tear_down(&self, _id: Uuid, _r: &str) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn bring_up_internal(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn tear_down_internal(&self, _id: Uuid, _r: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn delete_tunnel(&self, _id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
         unimplemented!()
     }
     async fn restore_tunnels(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubRoutingService
+// ---------------------------------------------------------------------------
+
+/// Stub routing service — all methods panic with `unimplemented!()`.
+pub struct StubRoutingService;
+
+#[async_trait]
+impl RoutingService for StubRoutingService {
+    async fn apply_rule(
+        &self,
+        _device_id: Uuid,
+        _device_ip: &str,
+        _target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn remove_device_routes(
+        &self,
+        _device_id: Uuid,
+        _device_ip: &str,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn handle_ip_change(
+        &self,
+        _device_id: Uuid,
+        _old_ip: &str,
+        _new_ip: &str,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn handle_tunnel_down(&self, _tunnel_id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn handle_tunnel_up(&self, _tunnel_id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn reconcile(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn devices_using_tunnel(&self, _tunnel_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         unimplemented!()
     }
 }
@@ -252,6 +304,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDeviceService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),

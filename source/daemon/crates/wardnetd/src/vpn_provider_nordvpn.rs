@@ -128,20 +128,20 @@ struct NordCredentialsResponse {
 }
 
 /// HTTP client for `NordVPN`'s REST API using async reqwest.
-pub struct RealNordVpnApi {
+pub struct HttpNordVpnApi {
     /// Shared HTTP client for connection pooling.
     client: reqwest::Client,
     /// Base URL for the `NordVPN` API (overridable for tests).
     base_url: String,
 }
 
-impl Default for RealNordVpnApi {
+impl Default for HttpNordVpnApi {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RealNordVpnApi {
+impl HttpNordVpnApi {
     /// Create a client pointing at the production `NordVPN` API.
     #[must_use]
     pub fn new() -> Self {
@@ -162,7 +162,7 @@ impl RealNordVpnApi {
 }
 
 #[async_trait]
-impl NordVpnApi for RealNordVpnApi {
+impl NordVpnApi for HttpNordVpnApi {
     async fn validate_credentials(
         &self,
         credentials: &ProviderCredentials,

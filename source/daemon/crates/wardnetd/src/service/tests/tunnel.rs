@@ -17,7 +17,7 @@ use crate::keys::KeyStore;
 use crate::repository::TunnelRepository;
 use crate::repository::tunnel::TunnelRow;
 use crate::service::{TunnelService, TunnelServiceImpl};
-use crate::wireguard::{CreateInterfaceParams, WgInterfaceStats, WireGuardOps};
+use crate::tunnel_interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 
 /// Helper to create an admin auth context for tests.
 fn admin_ctx() -> AuthContext {
@@ -194,17 +194,17 @@ impl KeyStore for MockKeyStore {
     }
 }
 
-// -- Mock WireGuardOps ----------------------------------------------------
+// -- Mock TunnelInterface -------------------------------------------------
 
-/// Records calls to `WireGuard` operations for assertion.
-struct MockWireGuardOps {
+/// Records calls to tunnel interface operations for assertion.
+struct MockTunnelInterface {
     created: Mutex<Vec<String>>,
     brought_up: Mutex<Vec<String>>,
     torn_down: Mutex<Vec<String>>,
     removed: Mutex<Vec<String>>,
 }
 
-impl MockWireGuardOps {
+impl MockTunnelInterface {
     fn new() -> Self {
         Self {
             created: Mutex::new(Vec::new()),
@@ -216,8 +216,8 @@ impl MockWireGuardOps {
 }
 
 #[async_trait]
-impl WireGuardOps for MockWireGuardOps {
-    async fn create_interface(&self, params: CreateInterfaceParams) -> anyhow::Result<()> {
+impl TunnelInterface for MockTunnelInterface {
+    async fn create(&self, params: CreateTunnelParams) -> anyhow::Result<()> {
         self.created.lock().unwrap().push(params.interface_name);
         Ok(())
     }
@@ -238,16 +238,16 @@ impl WireGuardOps for MockWireGuardOps {
         Ok(())
     }
 
-    async fn remove_interface(&self, interface_name: &str) -> anyhow::Result<()> {
+    async fn remove(&self, interface_name: &str) -> anyhow::Result<()> {
         self.removed.lock().unwrap().push(interface_name.to_owned());
         Ok(())
     }
 
-    async fn get_stats(&self, _interface_name: &str) -> anyhow::Result<Option<WgInterfaceStats>> {
+    async fn get_stats(&self, _interface_name: &str) -> anyhow::Result<Option<TunnelStats>> {
         Ok(None)
     }
 
-    async fn list_interfaces(&self) -> anyhow::Result<Vec<String>> {
+    async fn list(&self) -> anyhow::Result<Vec<String>> {
         Ok(Vec::new())
     }
 }
@@ -286,22 +286,22 @@ impl EventPublisher for MockEventPublisher {
 
 struct TestHarness {
     svc: TunnelServiceImpl,
-    wireguard: Arc<MockWireGuardOps>,
+    tunnel_iface: Arc<MockTunnelInterface>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
 }
 
 fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
-    let wireguard = Arc::new(MockWireGuardOps::new());
+    let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
 
-    let svc = TunnelServiceImpl::new(repo, wireguard.clone(), keys.clone(), events.clone());
+    let svc = TunnelServiceImpl::new(repo, tunnel_iface.clone(), keys.clone(), events.clone());
 
     TestHarness {
         svc,
-        wireguard,
+        tunnel_iface,
         events,
         keys,
     }
@@ -376,12 +376,12 @@ async fn bring_up_success() {
 
     // Verify WireGuard ops were called.
     {
-        let created = h.wireguard.created.lock().unwrap();
+        let created = h.tunnel_iface.created.lock().unwrap();
         assert_eq!(created.len(), 1);
         assert_eq!(created[0], "wg_ward0");
     }
     {
-        let brought_up = h.wireguard.brought_up.lock().unwrap();
+        let brought_up = h.tunnel_iface.brought_up.lock().unwrap();
         assert_eq!(brought_up.len(), 1);
         assert_eq!(brought_up[0], "wg_ward0");
     }
@@ -432,12 +432,12 @@ async fn tear_down_success() {
 
     // Verify tear_down and remove_interface were called.
     {
-        let torn_down = h.wireguard.torn_down.lock().unwrap();
+        let torn_down = h.tunnel_iface.torn_down.lock().unwrap();
         assert_eq!(torn_down.len(), 1);
         assert_eq!(torn_down[0], "wg_ward0");
     }
     {
-        let removed = h.wireguard.removed.lock().unwrap();
+        let removed = h.tunnel_iface.removed.lock().unwrap();
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0], "wg_ward0");
     }
@@ -540,6 +540,45 @@ async fn get_tunnel_anonymous_forbidden() {
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
+/// `bring_up_internal` bypasses auth, used by the routing engine for on-demand tunnel startup.
+#[tokio::test]
+async fn bring_up_internal_succeeds_without_admin_context() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Call bring_up_internal without admin context — should still succeed.
+    h.svc.bring_up_internal(id).await.unwrap();
+
+    let created = h.tunnel_iface.created.lock().unwrap();
+    assert_eq!(created.len(), 1, "interface should be created");
+}
+
+/// `tear_down_internal` bypasses auth, used by the idle tunnel watcher.
+#[tokio::test]
+async fn tear_down_internal_succeeds_without_admin_context() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Bring up first so we can tear down.
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    // Call tear_down_internal without admin context — should still succeed.
+    h.svc.tear_down_internal(id, "idle timeout").await.unwrap();
+
+    let torn_down = h.tunnel_iface.torn_down.lock().unwrap();
+    assert_eq!(torn_down.len(), 1, "interface should be torn down");
+    let removed = h.tunnel_iface.removed.lock().unwrap();
+    assert_eq!(removed.len(), 1, "interface should be removed");
+}
+
 #[tokio::test]
 async fn bring_up_already_up_is_noop() {
     let h = build_harness();
@@ -562,8 +601,8 @@ async fn bring_up_already_up_is_noop() {
         .unwrap();
 
     // No additional WireGuard calls.
-    assert_eq!(h.wireguard.created.lock().unwrap().len(), 1);
-    assert_eq!(h.wireguard.brought_up.lock().unwrap().len(), 1);
+    assert_eq!(h.tunnel_iface.created.lock().unwrap().len(), 1);
+    assert_eq!(h.tunnel_iface.brought_up.lock().unwrap().len(), 1);
 
     // No additional events.
     let events = h.events.published_events();
@@ -584,8 +623,8 @@ async fn tear_down_already_down_is_noop() {
         .unwrap();
 
     // No WireGuard calls.
-    assert!(h.wireguard.torn_down.lock().unwrap().is_empty());
-    assert!(h.wireguard.removed.lock().unwrap().is_empty());
+    assert!(h.tunnel_iface.torn_down.lock().unwrap().is_empty());
+    assert!(h.tunnel_iface.removed.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -617,8 +656,8 @@ async fn delete_tunnel_tears_down_if_up() {
     assert!(del.message.contains("Sweden VPN"));
 
     // Verify tear_down + remove_interface were called.
-    assert_eq!(h.wireguard.torn_down.lock().unwrap().len(), 1);
-    assert_eq!(h.wireguard.removed.lock().unwrap().len(), 1);
+    assert_eq!(h.tunnel_iface.torn_down.lock().unwrap().len(), 1);
+    assert_eq!(h.tunnel_iface.removed.lock().unwrap().len(), 1);
 
     // Verify key was deleted.
     assert!(h.keys.load_key(&id).await.is_err());
@@ -650,6 +689,6 @@ async fn restore_tunnels_succeeds() {
     h.svc.restore_tunnels().await.unwrap();
 
     // No WireGuard calls should have been made by restore.
-    assert!(h.wireguard.created.lock().unwrap().is_empty());
-    assert!(h.wireguard.brought_up.lock().unwrap().is_empty());
+    assert!(h.tunnel_iface.created.lock().unwrap().is_empty());
+    assert!(h.tunnel_iface.brought_up.lock().unwrap().is_empty());
 }
