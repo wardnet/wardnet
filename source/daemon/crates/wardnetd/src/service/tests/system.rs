@@ -7,11 +7,14 @@ use wardnet_types::auth::AuthContext;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::repository::SystemConfigRepository;
+use crate::repository::tunnel::TunnelRow;
+use crate::repository::{SystemConfigRepository, TunnelRepository};
 use crate::service::{SystemService, SystemServiceImpl};
+use wardnet_types::tunnel::{Tunnel, TunnelConfig};
 
-// -- Mock repository ------------------------------------------------------
+// -- Mock repositories ----------------------------------------------------
 
+/// Mock system config repository returning fixed counts.
 struct MockSystemConfigRepo {
     devices: i64,
     tunnels: i64,
@@ -37,6 +40,51 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     }
 }
 
+/// Mock tunnel repository returning a fixed active count.
+struct MockTunnelRepo {
+    active: i64,
+}
+
+#[async_trait]
+impl TunnelRepository for MockTunnelRepo {
+    async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
+        Ok(vec![])
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Tunnel>> {
+        Ok(None)
+    }
+    async fn find_config_by_id(&self, _id: &str) -> anyhow::Result<Option<TunnelConfig>> {
+        Ok(None)
+    }
+    async fn insert(&self, _row: &TunnelRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_stats(
+        &self,
+        _id: &str,
+        _tx: i64,
+        _rx: i64,
+        _hs: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn next_interface_index(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn count_active(&self) -> anyhow::Result<i64> {
+        Ok(self.active)
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 fn admin_ctx() -> AuthContext {
@@ -45,12 +93,20 @@ fn admin_ctx() -> AuthContext {
     }
 }
 
-fn build_service(devices: i64, tunnels: i64, db_size: u64) -> SystemServiceImpl {
+fn build_service(
+    devices: i64,
+    tunnels: i64,
+    active_tunnels: i64,
+    db_size: u64,
+) -> SystemServiceImpl {
     SystemServiceImpl::new(
         Arc::new(MockSystemConfigRepo {
             devices,
             tunnels,
             db_size,
+        }),
+        Arc::new(MockTunnelRepo {
+            active: active_tunnels,
         }),
         Instant::now(),
     )
@@ -60,7 +116,7 @@ fn build_service(devices: i64, tunnels: i64, db_size: u64) -> SystemServiceImpl 
 
 #[tokio::test]
 async fn status_returns_correct_values() {
-    let svc = build_service(5, 2, 8192);
+    let svc = build_service(5, 2, 1, 8192);
 
     let resp = auth_context::with_context(admin_ctx(), svc.status())
         .await
@@ -68,6 +124,7 @@ async fn status_returns_correct_values() {
     assert_eq!(resp.version, env!("WARDNET_VERSION"));
     assert_eq!(resp.device_count, 5);
     assert_eq!(resp.tunnel_count, 2);
+    assert_eq!(resp.tunnel_active_count, 1);
     assert_eq!(resp.db_size_bytes, 8192);
     assert!(resp.uptime_seconds < 2); // just created
     assert!(resp.cpu_usage_percent >= 0.0);
@@ -77,7 +134,7 @@ async fn status_returns_correct_values() {
 
 #[tokio::test]
 async fn status_version_comes_from_compile_time_env() {
-    let svc = build_service(0, 0, 0);
+    let svc = build_service(0, 0, 0, 0);
 
     let resp = auth_context::with_context(admin_ctx(), svc.status())
         .await
@@ -88,14 +145,14 @@ async fn status_version_comes_from_compile_time_env() {
 
 #[tokio::test]
 async fn status_anonymous_forbidden() {
-    let svc = build_service(0, 0, 0);
+    let svc = build_service(0, 0, 0, 0);
     let result = auth_context::with_context(AuthContext::Anonymous, svc.status()).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
 async fn status_device_forbidden() {
-    let svc = build_service(0, 0, 0);
+    let svc = build_service(0, 0, 0, 0);
     let ctx = AuthContext::Device {
         mac: "AA:BB:CC:DD:EE:01".to_owned(),
     };

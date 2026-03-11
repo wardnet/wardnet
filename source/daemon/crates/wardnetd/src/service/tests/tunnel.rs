@@ -132,6 +132,10 @@ impl TunnelRepository for MockTunnelRepo {
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(i64::try_from(self.rows.lock().unwrap().len()).unwrap())
     }
+
+    async fn count_active(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
 }
 
 /// Convert a `TunnelRow` into a `Tunnel` for mock responses.

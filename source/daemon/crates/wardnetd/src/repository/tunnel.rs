@@ -74,4 +74,7 @@ pub trait TunnelRepository: Send + Sync {
 
     /// Return the total number of tunnels.
     async fn count(&self) -> anyhow::Result<i64>;
+
+    /// Count tunnels with status `"up"`.
+    async fn count_active(&self) -> anyhow::Result<i64>;
 }

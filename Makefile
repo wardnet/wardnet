@@ -109,7 +109,7 @@ run-pi: build-pi
 		if [ -z "$$OTEL_EP" ]; then \
 			OTEL_EP=$$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $$1}'); \
 		fi; \
-		OTEL_SECTION=$$(printf '\n[otel]\nenabled = true\nendpoint = "http://%s:4317"\n' "$$OTEL_EP"); \
+		OTEL_SECTION=$$(printf '\n[otel]\nenabled = true\nendpoint = "http://%s:4317"\n\n[otel.metrics]\nenabled = true\n\n[pyroscope]\nenabled = true\nendpoint = "http://%s:4040"\n' "$$OTEL_EP" "$$OTEL_EP"); \
 	fi && \
 	printf '[database]\npath = "%s/wardnet-dev/wardnet.db"\n\n[logging]\npath = "%s/wardnet-dev/logs/wardnetd.log"\nlevel = "debug"\n\n[network]\nlan_interface = "%s"\n\n[tunnel]\nkeys_dir = "%s/wardnet-dev/keys"\n%s' \
 		"$$PI_HOME" "$$PI_HOME" "$(PI_LAN_IF)" "$$PI_HOME" "$$OTEL_SECTION" > /tmp/wardnet-dev.toml && \

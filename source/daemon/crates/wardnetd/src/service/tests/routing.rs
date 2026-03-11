@@ -170,6 +170,10 @@ impl TunnelRepository for MockTunnelRepo {
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
+
+    async fn count_active(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
 }
 
 // -- Mock TunnelService -------------------------------------------------------
