@@ -203,4 +203,12 @@ impl TunnelRepository for SqliteTunnelRepository {
             .await?;
         Ok(count)
     }
+
+    async fn count_active(&self) -> anyhow::Result<i64> {
+        let count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tunnels WHERE status = 'up'")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(count)
+    }
 }

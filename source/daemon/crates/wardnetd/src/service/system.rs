@@ -7,7 +7,7 @@ use wardnet_types::api::SystemStatusResponse;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::repository::SystemConfigRepository;
+use crate::repository::{SystemConfigRepository, TunnelRepository};
 
 /// System-wide status and health information.
 ///
@@ -27,14 +27,20 @@ pub trait SystemService: Send + Sync {
 /// (sysinfo needs two measurement points to compute CPU usage).
 pub struct SystemServiceImpl {
     system_config: Arc<dyn SystemConfigRepository>,
+    tunnel_repo: Arc<dyn TunnelRepository>,
     started_at: Instant,
     sysinfo: tokio::sync::Mutex<System>,
 }
 
 impl SystemServiceImpl {
-    pub fn new(system_config: Arc<dyn SystemConfigRepository>, started_at: Instant) -> Self {
+    pub fn new(
+        system_config: Arc<dyn SystemConfigRepository>,
+        tunnel_repo: Arc<dyn TunnelRepository>,
+        started_at: Instant,
+    ) -> Self {
         Self {
             system_config,
+            tunnel_repo,
             started_at,
             sysinfo: tokio::sync::Mutex::new(System::new_all()),
         }
@@ -83,6 +89,13 @@ impl SystemService for SystemServiceImpl {
             uptime_seconds: self.started_at.elapsed().as_secs(),
             device_count: u64::try_from(device_count).unwrap_or(0),
             tunnel_count: u64::try_from(tunnel_count).unwrap_or(0),
+            tunnel_active_count: u64::try_from(
+                self.tunnel_repo
+                    .count_active()
+                    .await
+                    .map_err(AppError::Internal)?,
+            )
+            .unwrap_or(0),
             db_size_bytes,
             cpu_usage_percent,
             memory_used_bytes,

@@ -48,6 +48,7 @@ pub struct SystemStatusResponse {
     pub uptime_seconds: u64,
     pub device_count: u64,
     pub tunnel_count: u64,
+    pub tunnel_active_count: u64,
     pub db_size_bytes: u64,
     pub cpu_usage_percent: f32,
     pub memory_used_bytes: u64,

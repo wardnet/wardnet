@@ -10,6 +10,7 @@ use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{Key, KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use tokio::net::TcpListener;
 use tracing::Instrument;
@@ -26,6 +27,7 @@ use wardnetd::firewall::FirewallManager;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
 use wardnetd::hostname_resolver::HostnameResolver;
 use wardnetd::keys::FileKeyStore;
+use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::noop_hostname_resolver::NoopHostnameResolver;
 use wardnetd::noop_network::{NoopFirewallManager, NoopPolicyRouter, NoopTunnelInterface};
 use wardnetd::noop_packet_capture::NoopPacketCapture;
@@ -33,6 +35,7 @@ use wardnetd::packet_capture::PacketCapture;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router::PolicyRouter;
 use wardnetd::policy_router_iproute::IproutePolicyRouter;
+use wardnetd::profiling::ProfilingAgent;
 use wardnetd::repository::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteSessionRepository,
     SqliteSystemConfigRepository, SqliteTunnelRepository,
@@ -89,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
         _log_guard,
         otel_tracer_provider,
         otel_logger_provider,
+        otel_meter_provider,
     } = init_tracing(
         &config,
         cli.log_level.as_deref(),
@@ -108,6 +112,12 @@ async fn main() -> anyhow::Result<()> {
         .await;
 
     // Flush remaining spans and logs to the OTel collector before exiting.
+    // Meter provider must be shut down before tracer/logger providers.
+    if let Some(provider) = otel_meter_provider
+        && let Err(e) = provider.shutdown()
+    {
+        eprintln!("failed to shut down OTel meter provider: {e}");
+    }
     if let Some(provider) = otel_tracer_provider
         && let Err(e) = provider.shutdown()
     {
@@ -160,7 +170,11 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         device_repo.clone(),
         event_publisher.clone(),
     ));
-    let system_service = Arc::new(SystemServiceImpl::new(system_config_repo, started_at));
+    let system_service = Arc::new(SystemServiceImpl::new(
+        system_config_repo,
+        tunnel_repo.clone(),
+        started_at,
+    ));
     let tunnel_service: Arc<dyn wardnetd::service::TunnelService> =
         Arc::new(TunnelServiceImpl::new(
             tunnel_repo.clone(),
@@ -254,6 +268,25 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         None
     };
 
+    // Start metrics collector (conditionally).
+    let metrics_collector = if config.otel.enabled && config.otel.metrics.enabled {
+        let meter = opentelemetry::global::meter("wardnetd");
+        Some(MetricsCollector::start(
+            system_service.clone(),
+            &config.otel.metrics,
+            meter,
+            started_at,
+            config.otel.interval_secs,
+            &root_span,
+        ))
+    } else {
+        tracing::info!("OTel metrics collection disabled");
+        None
+    };
+
+    // Start Pyroscope profiling agent (conditionally).
+    let profiling_agent = ProfilingAgent::start(&config.pyroscope);
+
     let state = AppState::new(
         auth_service.clone(),
         device_service.clone(),
@@ -296,6 +329,12 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     monitor.shutdown().await;
     if let Some(detector) = device_detector {
         detector.shutdown().await;
+    }
+    if let Some(collector) = metrics_collector {
+        collector.shutdown().await;
+    }
+    if let Some(agent) = profiling_agent {
+        agent.shutdown();
     }
 
     Ok(())
@@ -342,6 +381,8 @@ struct TracingGuards {
     otel_tracer_provider: Option<SdkTracerProvider>,
     /// When `Some`, the OTLP logger provider that must be shut down on exit.
     otel_logger_provider: Option<SdkLoggerProvider>,
+    /// When `Some`, the OTLP meter provider that must be shut down on exit.
+    otel_meter_provider: Option<SdkMeterProvider>,
 }
 
 /// Build the `OTel` resource with service name and version attributes.
@@ -357,7 +398,7 @@ fn otel_resource(config: &OtelConfig) -> opentelemetry_sdk::Resource {
 
 /// Build an OTLP tracer provider if `OTel` is enabled.
 fn init_otel_tracer(config: &OtelConfig) -> Option<SdkTracerProvider> {
-    if !config.enabled {
+    if !config.enabled || !config.traces.enabled {
         return None;
     }
 
@@ -379,7 +420,7 @@ fn init_otel_tracer(config: &OtelConfig) -> Option<SdkTracerProvider> {
 
 /// Build an OTLP logger provider if `OTel` is enabled.
 fn init_otel_logger(config: &OtelConfig) -> Option<SdkLoggerProvider> {
-    if !config.enabled {
+    if !config.enabled || !config.logs.enabled {
         return None;
     }
 
@@ -393,6 +434,32 @@ fn init_otel_logger(config: &OtelConfig) -> Option<SdkLoggerProvider> {
         .with_batch_exporter(log_exporter)
         .with_resource(otel_resource(config))
         .build();
+
+    Some(provider)
+}
+
+/// Build an OTLP meter provider if `OTel` metrics are enabled.
+fn init_otel_meter(config: &OtelConfig) -> Option<SdkMeterProvider> {
+    if !config.enabled || !config.metrics.enabled {
+        return None;
+    }
+
+    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint(&config.endpoint)
+        .build()
+        .expect("failed to create OTLP metric exporter");
+
+    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+        .with_interval(std::time::Duration::from_secs(config.interval_secs))
+        .build();
+
+    let provider = SdkMeterProvider::builder()
+        .with_reader(reader)
+        .with_resource(otel_resource(config))
+        .build();
+
+    opentelemetry::global::set_meter_provider(provider.clone());
 
     Some(provider)
 }
@@ -520,10 +587,13 @@ fn init_tracing(
         }
     }
 
+    let otel_meter_provider = init_otel_meter(&config.otel);
+
     TracingGuards {
         _log_guard: guard,
         otel_tracer_provider,
         otel_logger_provider,
+        otel_meter_provider,
     }
 }
 

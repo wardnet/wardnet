@@ -16,6 +16,7 @@ pub struct Config {
     pub detection: DetectionConfig,
     pub otel: OtelConfig,
     pub providers: ProvidersConfig,
+    pub pyroscope: PyroscopeConfig,
 }
 
 /// HTTP server configuration.
@@ -249,6 +250,14 @@ pub struct OtelConfig {
     pub endpoint: String,
     /// Service name reported to the collector as a resource attribute.
     pub service_name: String,
+    /// Shared export interval in seconds for all `OTel` signals.
+    pub interval_secs: u64,
+    /// Trace export settings.
+    pub traces: OtelTracesConfig,
+    /// Log export settings.
+    pub logs: OtelLogsConfig,
+    /// Metrics collection and export settings.
+    pub metrics: OtelMetricsConfig,
 }
 
 impl Default for OtelConfig {
@@ -257,7 +266,39 @@ impl Default for OtelConfig {
             enabled: false,
             endpoint: "http://localhost:4317".to_owned(),
             service_name: "wardnetd".to_owned(),
+            interval_secs: 10,
+            traces: OtelTracesConfig::default(),
+            logs: OtelLogsConfig::default(),
+            metrics: OtelMetricsConfig::default(),
         }
+    }
+}
+
+/// `OTel` trace export settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtelTracesConfig {
+    /// Whether trace export is enabled when `OTel` is active.
+    pub enabled: bool,
+}
+
+impl Default for OtelTracesConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// `OTel` log export settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtelLogsConfig {
+    /// Whether log export is enabled when `OTel` is active.
+    pub enabled: bool,
+}
+
+impl Default for OtelLogsConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -276,6 +317,88 @@ pub struct ProvidersConfig {
     /// Map of provider ID to enabled flag. Providers not listed here are
     /// treated as enabled.
     pub enabled: std::collections::HashMap<String, bool>,
+}
+
+/// OpenTelemetry metrics collection configuration.
+///
+/// Controls which system and application metrics are collected and at what
+/// interval they are recorded via the OpenTelemetry metrics SDK.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtelMetricsConfig {
+    /// Whether metrics collection and export is enabled when `OTel` is active.
+    pub enabled: bool,
+    /// Individual metric toggles.
+    pub enabled_metrics: EnabledMetrics,
+}
+
+impl Default for OtelMetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enabled_metrics: EnabledMetrics::default(),
+        }
+    }
+}
+
+/// Per-metric enable/disable toggles for the metrics collector.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnabledMetrics {
+    /// Host CPU utilization (fraction 0.0 to 1.0).
+    pub system_cpu_utilization: bool,
+    /// Host used memory in bytes.
+    pub system_memory_usage: bool,
+    /// Host temperature in degrees Celsius.
+    pub system_temperature: bool,
+    /// Cumulative network I/O in bytes per interface.
+    pub system_network_io: bool,
+    /// Total number of known devices.
+    pub wardnet_device_count: bool,
+    /// Total number of configured tunnels.
+    pub wardnet_tunnel_count: bool,
+    /// Number of tunnels currently in up status.
+    pub wardnet_tunnel_active_count: bool,
+    /// Daemon uptime in seconds.
+    pub wardnet_uptime_seconds: bool,
+    /// `SQLite` database file size in bytes.
+    pub wardnet_db_size_bytes: bool,
+}
+
+impl Default for EnabledMetrics {
+    fn default() -> Self {
+        Self {
+            system_cpu_utilization: true,
+            system_memory_usage: true,
+            system_temperature: true,
+            system_network_io: true,
+            wardnet_device_count: true,
+            wardnet_tunnel_count: true,
+            wardnet_tunnel_active_count: true,
+            wardnet_uptime_seconds: true,
+            wardnet_db_size_bytes: true,
+        }
+    }
+}
+
+/// Pyroscope continuous profiling agent configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PyroscopeConfig {
+    /// Whether to enable the Pyroscope profiling agent.
+    pub enabled: bool,
+    /// Pyroscope server endpoint (e.g. `http://localhost:4040`).
+    pub endpoint: String,
+}
+
+impl Default for PyroscopeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: "http://localhost:4040".to_owned(),
+        }
+    }
 }
 
 impl Config {
