@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod device;
+pub mod dhcp;
 pub mod discovery;
 pub mod provider;
 pub mod routing;
@@ -8,6 +9,7 @@ pub mod tunnel;
 
 pub use auth::{AuthService, AuthServiceImpl};
 pub use device::{DeviceService, DeviceServiceImpl};
+pub use dhcp::{DhcpService, DhcpServiceImpl};
 pub use discovery::{DeviceDiscoveryService, DeviceDiscoveryServiceImpl, ObservationResult};
 pub use provider::{ProviderService, ProviderServiceImpl};
 pub use routing::{RoutingService, RoutingServiceImpl};

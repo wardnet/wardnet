@@ -6,6 +6,7 @@
 pub mod admin;
 pub mod api_key;
 pub mod device;
+pub mod dhcp;
 pub mod session;
 pub mod system_config;
 pub mod tunnel;
@@ -13,6 +14,7 @@ pub mod tunnel;
 pub use admin::SqliteAdminRepository;
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
+pub use dhcp::SqliteDhcpRepository;
 pub use session::SqliteSessionRepository;
 pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;

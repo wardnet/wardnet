@@ -55,3 +55,61 @@ fn routing_rule_changed_round_trip() {
     let back: WardnetEvent = serde_json::from_str(&json).unwrap();
     assert!(matches!(back, WardnetEvent::RoutingRuleChanged { .. }));
 }
+
+#[test]
+fn dhcp_lease_assigned_tagged() {
+    let event = WardnetEvent::DhcpLeaseAssigned {
+        lease_id: Uuid::nil(),
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip: "192.168.1.100".to_owned(),
+        hostname: Some("myphone".to_owned()),
+        timestamp: "2026-03-07T00:00:00Z".parse().unwrap(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"dhcp_lease_assigned\""));
+    let back: WardnetEvent = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back, WardnetEvent::DhcpLeaseAssigned { .. }));
+}
+
+#[test]
+fn dhcp_lease_renewed_tagged() {
+    let event = WardnetEvent::DhcpLeaseRenewed {
+        lease_id: Uuid::nil(),
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip: "192.168.1.100".to_owned(),
+        new_expiry: "2026-03-09T00:00:00Z".parse().unwrap(),
+        timestamp: "2026-03-08T00:00:00Z".parse().unwrap(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"dhcp_lease_renewed\""));
+    let back: WardnetEvent = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back, WardnetEvent::DhcpLeaseRenewed { .. }));
+}
+
+#[test]
+fn dhcp_lease_expired_tagged() {
+    let event = WardnetEvent::DhcpLeaseExpired {
+        lease_id: Uuid::nil(),
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip: "192.168.1.100".to_owned(),
+        timestamp: "2026-03-08T00:00:00Z".parse().unwrap(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"dhcp_lease_expired\""));
+    let back: WardnetEvent = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back, WardnetEvent::DhcpLeaseExpired { .. }));
+}
+
+#[test]
+fn dhcp_conflict_detected_tagged() {
+    let event = WardnetEvent::DhcpConflictDetected {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip: "192.168.1.100".to_owned(),
+        details: "IP already in use by another device".to_owned(),
+        timestamp: "2026-03-08T00:00:00Z".parse().unwrap(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"dhcp_conflict_detected\""));
+    let back: WardnetEvent = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back, WardnetEvent::DhcpConflictDetected { .. }));
+}

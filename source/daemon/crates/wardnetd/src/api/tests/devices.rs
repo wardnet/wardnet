@@ -23,8 +23,8 @@ use crate::service::auth::LoginResult;
 use crate::service::{AuthService, DeviceDiscoveryService, DeviceService};
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubEventPublisher, StubProviderService, StubRoutingService, StubSystemService,
-    StubTunnelService,
+    StubDhcpService, StubEventPublisher, StubProviderService, StubRoutingService,
+    StubSystemService, StubTunnelService,
 };
 
 // ---------------------------------------------------------------------------
@@ -214,6 +214,7 @@ fn build_state(
     AppState::new(
         Arc::new(MockAuthService),
         Arc::new(device_svc),
+        Arc::new(StubDhcpService),
         Arc::new(discovery_svc),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),

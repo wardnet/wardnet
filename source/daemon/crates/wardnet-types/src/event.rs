@@ -56,4 +56,30 @@ pub enum WardnetEvent {
         changed_by: RuleCreator,
         timestamp: DateTime<Utc>,
     },
+    DhcpLeaseAssigned {
+        lease_id: Uuid,
+        mac: String,
+        ip: String,
+        hostname: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
+    DhcpLeaseRenewed {
+        lease_id: Uuid,
+        mac: String,
+        ip: String,
+        new_expiry: DateTime<Utc>,
+        timestamp: DateTime<Utc>,
+    },
+    DhcpLeaseExpired {
+        lease_id: Uuid,
+        mac: String,
+        ip: String,
+        timestamp: DateTime<Utc>,
+    },
+    DhcpConflictDetected {
+        mac: String,
+        ip: String,
+        details: String,
+        timestamp: DateTime<Utc>,
+    },
 }

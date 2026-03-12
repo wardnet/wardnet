@@ -21,6 +21,13 @@ NOT inside `source/daemon/`. Always read and update memory at the repo root, reg
 - Tests in `src/tests/oui.rs`
 - `lookup_manufacturer()` parses MAC "AA:BB:CC" prefix, `guess_device_type()` uses substring matching
 
+## Auth Context in Services (HARD REQUIREMENT)
+- Every service method MUST call `auth_context::require_admin()?;` or `auth_context::require_authenticated()?;` as its first line
+- Private helper methods (e.g. `load_config`) are exempt -- they're only called from guarded public methods
+- Background tasks wrap service calls in `auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() }, ...)` to establish admin identity
+- Tests wrap service calls in `auth_context::with_context(admin_ctx, svc.method())` to simulate caller identity
+- Only exception: startup/restore methods that run before system is ready (e.g. `restore_tunnels`) -- document with comment
+
 ## Key Patterns
 - `replace_all` on identifiers like `WireGuard` is dangerous -- it replaces in code identifiers too, not just doc comments. Only use targeted edits for doc comment fixes.
 - sqlx for SQLite maps INTEGER columns to `i64`. When the domain type is `u16` (e.g. listen_port), use `u16::try_from()` at the DB boundary. For insert, sqlx `.bind()` accepts `Option<u16>` directly.

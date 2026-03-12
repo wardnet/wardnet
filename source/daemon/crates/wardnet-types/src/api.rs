@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::device::{Device, DeviceType};
+use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 use crate::vpn_provider::{
@@ -224,5 +225,82 @@ pub struct SetupProviderResponse {
     /// The selected server.
     pub server: ServerInfo,
     /// Human-readable result message.
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DHCP API types
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dhcp/config.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DhcpConfigResponse {
+    pub config: DhcpConfig,
+}
+
+/// Request body for PUT /api/dhcp/config.
+#[derive(Debug, Deserialize)]
+pub struct UpdateDhcpConfigRequest {
+    pub pool_start: String,
+    pub pool_end: String,
+    pub subnet_mask: String,
+    pub upstream_dns: Vec<String>,
+    pub lease_duration_secs: u32,
+    pub router_ip: Option<String>,
+}
+
+/// Request body for POST /api/dhcp/config/toggle.
+#[derive(Debug, Deserialize)]
+pub struct ToggleDhcpRequest {
+    pub enabled: bool,
+}
+
+/// Response for GET /api/dhcp/leases.
+#[derive(Debug, Serialize)]
+pub struct ListDhcpLeasesResponse {
+    pub leases: Vec<DhcpLease>,
+}
+
+/// Response for GET /api/dhcp/reservations.
+#[derive(Debug, Serialize)]
+pub struct ListDhcpReservationsResponse {
+    pub reservations: Vec<DhcpReservation>,
+}
+
+/// Request body for POST /api/dhcp/reservations.
+#[derive(Debug, Deserialize)]
+pub struct CreateDhcpReservationRequest {
+    pub mac_address: String,
+    pub ip_address: String,
+    pub hostname: Option<String>,
+    pub description: Option<String>,
+}
+
+/// Response for POST /api/dhcp/reservations.
+#[derive(Debug, Serialize)]
+pub struct CreateDhcpReservationResponse {
+    pub reservation: DhcpReservation,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dhcp/reservations/:id.
+#[derive(Debug, Serialize)]
+pub struct DeleteDhcpReservationResponse {
+    pub message: String,
+}
+
+/// Response for GET /api/dhcp/status.
+#[derive(Debug, Serialize)]
+pub struct DhcpStatusResponse {
+    pub enabled: bool,
+    pub running: bool,
+    pub active_lease_count: u64,
+    pub pool_total: u64,
+    pub pool_used: u64,
+}
+
+/// Response for DELETE /api/dhcp/leases/:id.
+#[derive(Debug, Serialize)]
+pub struct RevokeDhcpLeaseResponse {
     pub message: String,
 }
