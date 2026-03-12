@@ -78,3 +78,50 @@ INSERT OR IGNORE INTO system_config (key, value) VALUES
     ('global_default_policy', '{"type":"direct"}'),
     ('setup_completed', 'false'),
     ('daemon_version', '0.1.0');
+
+-- DHCP leases: active and expired leases assigned by the built-in DHCP server.
+CREATE TABLE IF NOT EXISTS dhcp_leases (
+    id          TEXT PRIMARY KEY NOT NULL,
+    mac_address TEXT NOT NULL,
+    ip_address  TEXT NOT NULL,
+    hostname    TEXT,
+    lease_start TEXT NOT NULL,
+    lease_end   TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'active',
+    device_id   TEXT REFERENCES devices(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_dhcp_leases_mac ON dhcp_leases(mac_address);
+CREATE INDEX IF NOT EXISTS idx_dhcp_leases_ip_status ON dhcp_leases(ip_address, status);
+
+-- DHCP reservations: static MAC-to-IP bindings.
+CREATE TABLE IF NOT EXISTS dhcp_reservations (
+    id          TEXT PRIMARY KEY NOT NULL,
+    mac_address TEXT NOT NULL UNIQUE,
+    ip_address  TEXT NOT NULL UNIQUE,
+    hostname    TEXT,
+    description TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+-- DHCP lease log: audit trail for lease lifecycle events.
+CREATE TABLE IF NOT EXISTS dhcp_lease_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    lease_id   TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    details    TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_dhcp_lease_log_lease ON dhcp_lease_log(lease_id);
+
+-- Seed default DHCP config.
+INSERT OR IGNORE INTO system_config (key, value) VALUES
+    ('dhcp_enabled', 'false'),
+    ('dhcp_pool_start', '192.168.1.100'),
+    ('dhcp_pool_end', '192.168.1.200'),
+    ('dhcp_subnet_mask', '255.255.255.0'),
+    ('dhcp_upstream_dns', '["1.1.1.1","8.8.8.8"]'),
+    ('dhcp_lease_duration_secs', '86400'),
+    ('dhcp_router_ip', '');

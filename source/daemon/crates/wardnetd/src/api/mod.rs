@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod devices;
+pub mod dhcp;
 pub mod info;
 pub mod middleware;
 pub mod providers;
@@ -53,7 +54,20 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/providers/{id}/countries", get(providers::list_countries))
         .route("/providers/{id}/servers", post(providers::list_servers))
-        .route("/providers/{id}/setup", post(providers::setup_tunnel));
+        .route("/providers/{id}/setup", post(providers::setup_tunnel))
+        .route(
+            "/dhcp/config",
+            get(dhcp::get_config).put(dhcp::update_config),
+        )
+        .route("/dhcp/config/toggle", post(dhcp::toggle))
+        .route("/dhcp/leases", get(dhcp::list_leases))
+        .route("/dhcp/leases/{id}", delete(dhcp::revoke_lease))
+        .route(
+            "/dhcp/reservations",
+            get(dhcp::list_reservations).post(dhcp::create_reservation),
+        )
+        .route("/dhcp/reservations/{id}", delete(dhcp::delete_reservation))
+        .route("/dhcp/status", get(dhcp::status));
 
     Router::new()
         .nest("/api", api)
