@@ -740,3 +740,47 @@ async fn delete_reservation_unauthorized_without_session() {
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
+
+// ---------------------------------------------------------------------------
+// Invalid UUID paths
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn revoke_lease_invalid_uuid_returns_error() {
+    let state = build_state(MockDhcpService);
+    let app = dhcp_router(state);
+
+    let (status, _json) = delete_json(app, "/api/dhcp/leases/not-a-uuid").await;
+    assert!(
+        status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
+        "expected 400 or 404 for invalid UUID, got {status}"
+    );
+}
+
+#[tokio::test]
+async fn delete_reservation_invalid_uuid_returns_error() {
+    let state = build_state(MockDhcpService);
+    let app = dhcp_router(state);
+
+    let (status, _json) = delete_json(app, "/api/dhcp/reservations/not-a-uuid").await;
+    assert!(
+        status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
+        "expected 400 or 404 for invalid UUID, got {status}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/dhcp/status -- full response shape
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn status_response_shape() {
+    let state = build_state(MockDhcpService);
+    let app = dhcp_router(state);
+
+    let (status, json) = get_json(app, "/api/dhcp/status").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!json["enabled"].as_bool().unwrap());
+    assert!(!json["running"].as_bool().unwrap());
+    assert_eq!(json["pool_used"], 0);
+}

@@ -97,7 +97,7 @@ pnet = "0.35"
 # https://crates.io/crates/sysinfo
 sysinfo = "0.38"
 # https://crates.io/crates/dhcproto
-dhcproto = "0.12"
+dhcproto = "0.14"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"

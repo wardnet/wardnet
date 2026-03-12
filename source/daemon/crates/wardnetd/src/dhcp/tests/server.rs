@@ -988,3 +988,378 @@ async fn server_loop_handles_discover_then_request_sequence() {
     assert_eq!(calls[0].0, "assign_lease");
     assert_eq!(calls[1].0, "renew_lease");
 }
+
+// ---------------------------------------------------------------------------
+// server_loop: recv error recovery
+// ---------------------------------------------------------------------------
+
+/// Mock socket that returns an IO error on the first recv, then blocks forever.
+struct RecvErrorSocket {
+    error_returned: std::sync::atomic::AtomicBool,
+    /// Packets sent via `send_to`.
+    outgoing: Mutex<Vec<(Vec<u8>, SocketAddr)>>,
+    notify: tokio::sync::Notify,
+}
+
+impl RecvErrorSocket {
+    fn new() -> Self {
+        Self {
+            error_returned: std::sync::atomic::AtomicBool::new(false),
+            outgoing: Mutex::new(Vec::new()),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl DhcpSocket for RecvErrorSocket {
+    async fn recv_from(&self, _buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        if !self.error_returned.swap(true, Ordering::SeqCst) {
+            return Err(std::io::Error::other("simulated recv error"));
+        }
+        // Block forever after the error so the test can cancel.
+        self.notify.notified().await;
+        unreachable!()
+    }
+
+    async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize> {
+        let data = buf.to_vec();
+        let len = data.len();
+        self.outgoing.lock().await.push((data, target));
+        Ok(len)
+    }
+}
+
+#[tokio::test]
+async fn server_loop_continues_after_recv_error() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(RecvErrorSocket::new());
+
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let config = Arc::new(tokio::sync::RwLock::new(test_config()));
+
+    let cancel_clone = cancel.clone();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let running_clone = Arc::clone(&running);
+
+    let handle = tokio::spawn(async move {
+        server::server_loop(socket_dyn, service, config, running_clone, cancel_clone).await;
+    });
+
+    // Give the loop time to hit the error and continue.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // The server should still be running (error was recovered from).
+    assert!(running.load(Ordering::SeqCst));
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+// ---------------------------------------------------------------------------
+// server_loop: ignores unsupported message type
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn server_loop_ignores_unsupported_message_type() {
+    let lease = test_lease();
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // Build a DHCP INFORM message (unsupported type).
+    let mut msg = Message::default();
+    msg.set_opcode(Opcode::BootRequest)
+        .set_chaddr(&[0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.opts_mut()
+        .insert(DhcpOption::MessageType(MessageType::Inform));
+    socket.push_message(&msg, client_addr()).await;
+
+    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+
+    // No response should be sent for an unsupported type.
+    let messages = socket.sent_messages().await;
+    assert!(
+        messages.is_empty(),
+        "unsupported message type should be ignored"
+    );
+
+    // Service should not have been called.
+    let calls = mock_service.recorded_calls().await;
+    assert!(calls.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// send_response: send_to error
+// ---------------------------------------------------------------------------
+
+/// Mock socket that always fails on `send_to`.
+struct SendErrorSocket;
+
+#[async_trait]
+impl DhcpSocket for SendErrorSocket {
+    async fn recv_from(&self, _buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        unreachable!()
+    }
+
+    async fn send_to(&self, _buf: &[u8], _target: SocketAddr) -> std::io::Result<usize> {
+        Err(std::io::Error::other("simulated send error"))
+    }
+}
+
+#[tokio::test]
+async fn send_response_handles_send_error_gracefully() {
+    let socket = SendErrorSocket;
+    let lease = test_lease();
+    let config = test_config();
+    let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let response = server::build_response(&request, MessageType::Offer, &lease, &config);
+    let dest: SocketAddr = "192.168.1.50:68".parse().unwrap();
+
+    // Should not panic -- just logs the error.
+    server::send_response(&socket, &response, dest).await;
+}
+
+// ---------------------------------------------------------------------------
+// UdpDhcpServer::update_config
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn udp_server_update_config() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
+
+    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+
+    // Update the config and verify it does not panic.
+    let mut new_config = test_config();
+    new_config.lease_duration_secs = 7200;
+    new_config.pool_end = Ipv4Addr::new(192, 168, 1, 250);
+    server.update_config(new_config).await;
+}
+
+// ---------------------------------------------------------------------------
+// build_response: router_ip == server_ip (no duplicate in routers list)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_response_router_ip_same_as_server_ip_no_duplicate() {
+    let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let lease = test_lease();
+    let mut config = test_config();
+    // Set router_ip == server_ip (which is pool_start when router_ip is present).
+    config.router_ip = Some(Ipv4Addr::new(192, 168, 1, 1));
+
+    let response =
+        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
+
+    // Encode/decode to inspect the Router option.
+    let mut buf = Vec::new();
+    let mut encoder = Encoder::new(&mut buf);
+    response.encode(&mut encoder).unwrap();
+    let decoded = Message::decode(&mut Decoder::new(&buf)).unwrap();
+
+    // The Router option should contain exactly one entry (no duplicate).
+    for (_code, opt) in decoded.opts().iter() {
+        if let DhcpOption::Router(routers) = opt {
+            assert_eq!(
+                routers.len(),
+                1,
+                "router list should have 1 entry when router_ip == server_ip"
+            );
+            assert_eq!(routers[0], Ipv4Addr::new(192, 168, 1, 1));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// server_loop: discover/request error paths within the loop
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn server_loop_handles_discover_error_gracefully() {
+    /// Mock service that fails on `assign_lease` but tracks calls.
+    struct FailAssignService;
+
+    #[async_trait]
+    impl DhcpService for FailAssignService {
+        async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn update_config(
+            &self,
+            _r: UpdateDhcpConfigRequest,
+        ) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+            unimplemented!()
+        }
+        async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+            unimplemented!()
+        }
+        async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+            unimplemented!()
+        }
+        async fn create_reservation(
+            &self,
+            _r: CreateDhcpReservationRequest,
+        ) -> Result<CreateDhcpReservationResponse, AppError> {
+            unimplemented!()
+        }
+        async fn delete_reservation(
+            &self,
+            _id: Uuid,
+        ) -> Result<DeleteDhcpReservationResponse, AppError> {
+            unimplemented!()
+        }
+        async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn assign_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
+            Err(AppError::Conflict("pool exhausted".to_owned()))
+        }
+        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+            Err(AppError::NotFound("no lease".to_owned()))
+        }
+        async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn cleanup_expired(&self) -> Result<u64, AppError> {
+            Ok(0)
+        }
+        async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+            Ok(test_config())
+        }
+    }
+
+    let service: Arc<dyn DhcpService> = Arc::new(FailAssignService);
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // Push a DISCOVER that will fail, followed by a RELEASE that will succeed.
+    let discover = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&discover, client_addr()).await;
+
+    let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&release, client_addr()).await;
+
+    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+
+    // No OFFER should be sent (discover failed), and no response for RELEASE.
+    let messages = socket.sent_messages().await;
+    assert!(messages.is_empty());
+}
+
+#[tokio::test]
+async fn server_loop_handles_request_error_gracefully() {
+    /// Mock service that fails on `renew_lease`.
+    struct FailRenewService;
+
+    #[async_trait]
+    impl DhcpService for FailRenewService {
+        async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn update_config(
+            &self,
+            _r: UpdateDhcpConfigRequest,
+        ) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+            unimplemented!()
+        }
+        async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+            unimplemented!()
+        }
+        async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+            unimplemented!()
+        }
+        async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+            unimplemented!()
+        }
+        async fn create_reservation(
+            &self,
+            _r: CreateDhcpReservationRequest,
+        ) -> Result<CreateDhcpReservationResponse, AppError> {
+            unimplemented!()
+        }
+        async fn delete_reservation(
+            &self,
+            _id: Uuid,
+        ) -> Result<DeleteDhcpReservationResponse, AppError> {
+            unimplemented!()
+        }
+        async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn assign_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
+            unimplemented!()
+        }
+        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+            Err(AppError::Internal(anyhow::anyhow!("db error")))
+        }
+        async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn cleanup_expired(&self) -> Result<u64, AppError> {
+            Ok(0)
+        }
+        async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+            Ok(test_config())
+        }
+    }
+
+    let service: Arc<dyn DhcpService> = Arc::new(FailRenewService);
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&request, client_addr()).await;
+
+    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+
+    // No ACK should be sent (renew failed).
+    let messages = socket.sent_messages().await;
+    assert!(messages.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// UdpDhcpServer: restart cycle (stop then start again)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn udp_server_restart_cycle() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
+
+    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+
+    // First cycle.
+    server.start().await.unwrap();
+    assert!(server.is_running());
+    server.stop().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!server.is_running());
+
+    // Second cycle should work (fresh cancellation token).
+    server.start().await.unwrap();
+    assert!(server.is_running());
+    server.stop().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!server.is_running());
+}

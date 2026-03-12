@@ -359,3 +359,133 @@ async fn insert_and_find_lease_logs() {
     assert_eq!(logs[1].event_type, DhcpLeaseEventType::Renewed);
     assert!(logs[1].details.is_none());
 }
+
+#[tokio::test]
+async fn find_lease_by_id_released_status() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000003";
+
+    let mut row = sample_lease_row(id, "AA:BB:CC:DD:EE:03", "192.168.1.103");
+    row.status = "released".to_owned();
+    repo.insert_lease(&row).await.unwrap();
+
+    let lease = repo.find_lease_by_id(id).await.unwrap().unwrap();
+    assert_eq!(lease.status, DhcpLeaseStatus::Released);
+}
+
+#[tokio::test]
+async fn find_lease_by_id_expired_status() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000004";
+
+    let mut row = sample_lease_row(id, "AA:BB:CC:DD:EE:04", "192.168.1.104");
+    row.status = "expired".to_owned();
+    repo.insert_lease(&row).await.unwrap();
+
+    let lease = repo.find_lease_by_id(id).await.unwrap().unwrap();
+    assert_eq!(lease.status, DhcpLeaseStatus::Expired);
+}
+
+#[tokio::test]
+async fn insert_and_find_lease_log_all_event_types() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+    let lease_id = "00000000-0000-0000-0000-000000000010";
+
+    repo.insert_lease(&sample_lease_row(
+        lease_id,
+        "AA:BB:CC:DD:EE:10",
+        "192.168.1.110",
+    ))
+    .await
+    .unwrap();
+
+    // Insert all known event types.
+    for event_type in &["assigned", "renewed", "released", "expired", "conflict"] {
+        repo.insert_lease_log(&DhcpLeaseLogRow {
+            lease_id: lease_id.to_owned(),
+            event_type: (*event_type).to_owned(),
+            details: Some(format!("test {event_type}")),
+        })
+        .await
+        .unwrap();
+    }
+
+    let logs = repo.find_lease_logs(lease_id).await.unwrap();
+    assert_eq!(logs.len(), 5);
+    assert_eq!(logs[0].event_type, DhcpLeaseEventType::Assigned);
+    assert_eq!(logs[1].event_type, DhcpLeaseEventType::Renewed);
+    assert_eq!(logs[2].event_type, DhcpLeaseEventType::Released);
+    assert_eq!(logs[3].event_type, DhcpLeaseEventType::Expired);
+    assert_eq!(logs[4].event_type, DhcpLeaseEventType::Conflict);
+}
+
+#[tokio::test]
+async fn find_lease_logs_empty_for_no_logs() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    let logs = repo
+        .find_lease_logs("00000000-0000-0000-0000-000000000099")
+        .await
+        .unwrap();
+    assert!(logs.is_empty());
+}
+
+#[tokio::test]
+async fn expire_stale_leases_none_to_expire() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    // Insert only a fresh lease.
+    repo.insert_lease(&sample_lease_row(
+        "00000000-0000-0000-0000-000000000005",
+        "AA:BB:CC:DD:EE:05",
+        "192.168.1.105",
+    ))
+    .await
+    .unwrap();
+
+    let count = repo.expire_stale_leases().await.unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn delete_reservation_nonexistent() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    // Deleting a non-existent reservation should succeed (no-op in SQL).
+    repo.delete_reservation("00000000-0000-0000-0000-000000000099")
+        .await
+        .unwrap();
+
+    let reservations = repo.list_reservations().await.unwrap();
+    assert!(reservations.is_empty());
+}
+
+#[tokio::test]
+async fn reservation_without_optional_fields() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000006";
+
+    let row = DhcpReservationRow {
+        id: id.to_owned(),
+        mac_address: "AA:BB:CC:DD:EE:06".to_owned(),
+        ip_address: "192.168.1.60".to_owned(),
+        hostname: None,
+        description: None,
+    };
+    repo.insert_reservation(&row).await.unwrap();
+
+    let res = repo
+        .find_reservation_by_mac("AA:BB:CC:DD:EE:06")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(res.hostname.is_none());
+    assert!(res.description.is_none());
+}

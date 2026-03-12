@@ -1197,3 +1197,212 @@ async fn multiple_macs_get_distinct_ips() {
     assert_eq!(lease2.ip_address, Ipv4Addr::new(192, 168, 1, 101));
     assert_eq!(lease3.ip_address, Ipv4Addr::new(192, 168, 1, 102));
 }
+
+// =========================================================================
+// create_reservation: invalid IP address
+// =========================================================================
+
+#[tokio::test]
+async fn create_reservation_invalid_ip() {
+    let svc = build_service();
+    let req = CreateDhcpReservationRequest {
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip_address: "not-an-ip".to_owned(),
+        hostname: None,
+        description: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.create_reservation(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// =========================================================================
+// revoke_lease: lease exists but is not active
+// =========================================================================
+
+#[tokio::test]
+async fn revoke_lease_not_active() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    // Seed a lease, then mark it as released.
+    let lease_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:70", "192.168.1.170");
+    dhcp.leases
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|r| r.id == lease_id)
+        .unwrap()
+        .status = "released".to_owned();
+
+    let id: Uuid = lease_id.parse().unwrap();
+    let result = auth_context::with_context(admin_ctx(), svc.revoke_lease(id)).await;
+    assert!(
+        matches!(result, Err(AppError::BadRequest(_))),
+        "revoking a non-active lease should return BadRequest"
+    );
+}
+
+// =========================================================================
+// revoke_lease: success path
+// =========================================================================
+
+#[tokio::test]
+async fn revoke_lease_success() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    let lease_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:71", "192.168.1.171");
+    let id: Uuid = lease_id.parse().unwrap();
+
+    let resp = auth_context::with_context(admin_ctx(), svc.revoke_lease(id))
+        .await
+        .unwrap();
+
+    assert!(resp.message.contains(&id.to_string()));
+
+    // Verify the status was changed.
+    let rows = dhcp.leases.lock().unwrap();
+    let row = rows.iter().find(|r| r.id == lease_id).unwrap();
+    assert_eq!(row.status, "released");
+
+    // Verify an audit log was created.
+    let logs = dhcp.logs.lock().unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].event_type, "released");
+    assert_eq!(logs[0].details.as_deref(), Some("admin revoked"));
+}
+
+// =========================================================================
+// delete_reservation: success path
+// =========================================================================
+
+#[tokio::test]
+async fn delete_reservation_success() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    // Create a reservation via the service.
+    let req = CreateDhcpReservationRequest {
+        mac_address: "AA:BB:CC:DD:EE:80".to_owned(),
+        ip_address: "192.168.1.80".to_owned(),
+        hostname: Some("res-host".to_owned()),
+        description: None,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.create_reservation(req))
+        .await
+        .unwrap();
+
+    // Delete it.
+    let del_resp =
+        auth_context::with_context(admin_ctx(), svc.delete_reservation(resp.reservation.id))
+            .await
+            .unwrap();
+
+    assert!(del_resp.message.contains(&resp.reservation.id.to_string()));
+
+    // Verify it's gone.
+    let reservations = dhcp.reservations.lock().unwrap();
+    assert!(reservations.is_empty());
+}
+
+// =========================================================================
+// update_config: additional validation edge cases
+// =========================================================================
+
+#[tokio::test]
+async fn update_config_invalid_pool_end() {
+    let svc = build_service();
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "not-valid".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_invalid_subnet_mask() {
+    let svc = build_service();
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "192.168.1.200".to_owned(),
+        subnet_mask: "bad".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_invalid_upstream_dns() {
+    let svc = build_service();
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "192.168.1.200".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["not-an-ip".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_invalid_router_ip() {
+    let svc = build_service();
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "192.168.1.200".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: Some("bad-ip".to_owned()),
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_with_valid_router_ip() {
+    let svc = build_service();
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "192.168.1.200".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: Some("192.168.1.1".to_owned()),
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+    assert_eq!(resp.config.router_ip, Some(Ipv4Addr::new(192, 168, 1, 1)));
+}
+
+// =========================================================================
+// pool_size edge cases
+// =========================================================================
+
+#[tokio::test]
+async fn pool_size_zero_when_end_before_start() {
+    // pool_size is private, but we can test it indirectly via status() with
+    // a config where pool_end < pool_start.
+    let (svc, _dhcp, system_config) = build_service_with_deps();
+    system_config
+        .set("dhcp_pool_start", "192.168.1.200")
+        .await
+        .unwrap();
+    system_config
+        .set("dhcp_pool_end", "192.168.1.100")
+        .await
+        .unwrap();
+
+    let resp = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
+    assert_eq!(resp.pool_total, 0);
+}
