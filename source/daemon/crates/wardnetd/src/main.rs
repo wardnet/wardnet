@@ -22,6 +22,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_types::auth::AuthContext;
 use wardnetd::config::{Config, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
+use wardnetd::dhcp::runner::DhcpRunner;
+use wardnetd::dhcp::server::{NoopDhcpServer, UdpDhcpServer};
 use wardnetd::event::{BroadcastEventBus, EventPublisher};
 use wardnetd::firewall::FirewallManager;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
@@ -37,13 +39,13 @@ use wardnetd::policy_router::PolicyRouter;
 use wardnetd::policy_router_iproute::IproutePolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
 use wardnetd::repository::{
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteSessionRepository,
-    SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
+    SqliteSessionRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
 };
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::service::{
-    AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, ProviderServiceImpl,
-    RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
+    AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, DhcpServiceImpl,
+    ProviderServiceImpl, RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
 };
 use wardnetd::state::AppState;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
@@ -146,6 +148,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let api_key_repo = Arc::new(SqliteApiKeyRepository::new(pool.clone()));
     let device_repo = Arc::new(SqliteDeviceRepository::new(pool.clone()));
     let system_config_repo = Arc::new(SqliteSystemConfigRepository::new(pool.clone()));
+    let dhcp_repo = Arc::new(SqliteDhcpRepository::new(pool.clone()));
     let tunnel_repo = Arc::new(SqliteTunnelRepository::new(pool));
 
     // Create event publisher.
@@ -170,6 +173,8 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         device_repo.clone(),
         event_publisher.clone(),
     ));
+    let dhcp_service: Arc<dyn wardnetd::service::DhcpService> =
+        Arc::new(DhcpServiceImpl::new(dhcp_repo, system_config_repo.clone()));
     let system_service = Arc::new(SystemServiceImpl::new(
         system_config_repo,
         tunnel_repo.clone(),
@@ -287,9 +292,44 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     // Start Pyroscope profiling agent (conditionally).
     let profiling_agent = ProfilingAgent::start(&config.pyroscope);
 
+    // Start DHCP server and runner.
+    let dhcp_server: Arc<dyn wardnetd::dhcp::server::DhcpServer> = if mock_network {
+        Arc::new(NoopDhcpServer)
+    } else {
+        // Startup: load initial DHCP config under admin context.
+        let admin_ctx = wardnet_types::auth::AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        };
+        let initial_config = wardnetd::auth_context::with_context(
+            admin_ctx,
+            dhcp_service.get_dhcp_config(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "failed to load initial DHCP config, using defaults");
+            wardnet_types::dhcp::DhcpConfig {
+                enabled: false,
+                pool_start: "192.168.1.100".parse().expect("valid IP"),
+                pool_end: "192.168.1.200".parse().expect("valid IP"),
+                subnet_mask: "255.255.255.0".parse().expect("valid IP"),
+                upstream_dns: vec!["1.1.1.1".parse().expect("valid IP")],
+                lease_duration_secs: 86400,
+                router_ip: None,
+            }
+        });
+        Arc::new(UdpDhcpServer::new(dhcp_service.clone(), initial_config))
+    };
+    let dhcp_runner = DhcpRunner::start(
+        dhcp_service.clone(),
+        dhcp_server,
+        event_publisher.as_ref(),
+        &root_span,
+    );
+
     let state = AppState::new(
         auth_service.clone(),
         device_service.clone(),
+        dhcp_service,
         discovery_service.clone(),
         provider_service.clone(),
         routing_service.clone(),
@@ -327,6 +367,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     routing_listener.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
+    dhcp_runner.shutdown().await;
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }

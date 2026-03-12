@@ -30,10 +30,16 @@ use crate::event::EventPublisher;
 use crate::packet_capture::ObservedDevice;
 use crate::service::auth::LoginResult;
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, ObservationResult, ProviderService,
-    RoutingService, SystemService, TunnelService,
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, ObservationResult,
+    ProviderService, RoutingService, SystemService, TunnelService,
 };
 use crate::state::AppState;
+use wardnet_types::api::{
+    CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
+    DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
+    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+};
+use wardnet_types::dhcp::{DhcpConfig, DhcpLease};
 
 // ---------------------------------------------------------------------------
 // StubAuthService
@@ -274,6 +280,72 @@ impl RoutingService for StubRoutingService {
 }
 
 // ---------------------------------------------------------------------------
+// StubDhcpService
+// ---------------------------------------------------------------------------
+
+/// Stub DHCP service — all methods panic with `unimplemented!()`.
+pub struct StubDhcpService;
+
+#[async_trait]
+impl DhcpService for StubDhcpService {
+    async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _r: UpdateDhcpConfigRequest,
+    ) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_reservation(
+        &self,
+        _r: CreateDhcpReservationRequest,
+    ) -> Result<CreateDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn assign_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+    async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubEventPublisher
 // ---------------------------------------------------------------------------
 
@@ -302,6 +374,7 @@ pub fn test_app_state() -> AppState {
     AppState::new(
         Arc::new(StubAuthService),
         Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),

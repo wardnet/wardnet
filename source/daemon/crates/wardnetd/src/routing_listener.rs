@@ -158,8 +158,12 @@ async fn handle_event(
             }
         }
 
-        // TunnelStatsUpdated does not affect routing.
-        WardnetEvent::TunnelStatsUpdated { .. } => {}
+        // Events that do not affect routing.
+        WardnetEvent::TunnelStatsUpdated { .. }
+        | WardnetEvent::DhcpLeaseAssigned { .. }
+        | WardnetEvent::DhcpLeaseRenewed { .. }
+        | WardnetEvent::DhcpLeaseExpired { .. }
+        | WardnetEvent::DhcpConflictDetected { .. } => {}
     }
 }
 

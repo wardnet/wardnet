@@ -1,6 +1,7 @@
 mod admin;
 mod api_key;
 mod device;
+mod dhcp;
 mod session;
 mod system_config;
 mod tunnel;

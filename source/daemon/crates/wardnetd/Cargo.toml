@@ -74,6 +74,8 @@ tokio-util.workspace = true
 pnet.workspace = true
 # https://crates.io/crates/sysinfo
 sysinfo.workspace = true
+# https://crates.io/crates/dhcproto
+dhcproto.workspace = true
 # https://crates.io/crates/opentelemetry
 opentelemetry.workspace = true
 # https://crates.io/crates/opentelemetry_sdk

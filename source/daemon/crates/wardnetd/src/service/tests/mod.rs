@@ -1,5 +1,6 @@
 mod auth;
 mod device;
+mod dhcp;
 mod discovery;
 mod provider;
 mod routing;
