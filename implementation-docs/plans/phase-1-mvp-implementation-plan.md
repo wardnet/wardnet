@@ -1,6 +1,6 @@
 # Wardnet Phase 1 (MVP) Implementation Plan
 
-**Last updated:** March 9, 2026
+**Last updated:** April 12, 2026
 
 ---
 
@@ -8,9 +8,28 @@
 
 Wardnet is a self-hosted network privacy gateway for Raspberry Pi that sits alongside an existing router. It encrypts traffic via WireGuard tunnels, provides per-device routing control, and prevents DNS leaks -- all managed from a single web UI. This plan covers Phase 1 (MVP): the foundational system that proves the core value proposition.
 
-**Phase 1 scope:** Core daemon with WireGuard tunnel management, policy routing, device detection, DHCP server (gateway advertisement, static reservations, conflict detection), gateway resilience (hardware watchdog, GARP failover, graceful reboot/shutdown), VPN provider integration (pluggable architecture + NordVPN), DNS leak prevention, REST+WebSocket API with API key auth, web UI (wizard with DHCP onboarding + router MAC discovery, dashboard, device/tunnel management, guided provider setup, safe reboot/shutdown, DHCP panel), CLI tool (including reboot/shutdown commands), and installation packaging.
+**Phase 1 scope:** Core daemon with WireGuard tunnel management, policy routing, device detection, DHCP server (gateway advertisement, static reservations, conflict detection), gateway resilience (hardware watchdog, GARP failover, graceful reboot/shutdown), VPN provider integration (pluggable architecture + NordVPN), built-in DNS server with network-wide ad blocking (replaces Pi-hole) and VPN DNS leak prevention, REST+WebSocket API with API key auth, web UI (wizard with DHCP onboarding + router MAC discovery, dashboard, device/tunnel management, guided provider setup, DNS/ad-blocking config, safe reboot/shutdown, DHCP panel), CLI tool (including reboot/shutdown commands), and installation packaging.
 
-**Out of scope for Phase 1:** Temporary/scheduled routing, ad blocking, kill switch per-device configuration, mobile app.
+**Out of scope for Phase 1:** Temporary/scheduled routing, kill switch per-device configuration, mobile app.
+
+### Progress Summary
+
+| Milestone | Status | Description |
+|-----------|--------|-------------|
+| 1a: Scaffolding & Foundation | ✅ Done | Workspace, DB, auth, basic API |
+| 1b: WireGuard Tunnel Management | ✅ Done | Tunnel CRUD, monitoring, lazy lifecycle |
+| 1c: Device Detection | ✅ Done | ARP/IP sniffing, OUI lookup, departure tracking |
+| 1d: Policy Routing Engine | ✅ Done | ip rule, nftables, event-driven routing, reconciliation |
+| 1e: DHCP Server | ✅ Done | dhcproto server, leases, reservations, API |
+| 1f: Gateway Resilience & Failover | Not started | GARP, watchdog, graceful shutdown |
+| 1g: DNS Server & Ad Blocking | Not started | Built-in DNS, ad blocking (replaces Pi-hole), leak prevention |
+| 1h: Web UI | In progress | Core layout done; detail views, DHCP panel, wizard remaining |
+| 1i: CLI Tool (wctl) | In progress | Commands scaffolded; output formatting, reboot/shutdown remaining |
+| 1j: Installation & Packaging | Not started | install.sh, systemd unit, release workflow |
+| 1k: VPN Provider Integration | ✅ Done | NordVPN provider, pluggable architecture |
+| 1l: Integration Testing | In progress | Test agent + 7 E2E suites done; failure/DHCP/GARP tests remaining |
+
+**~695 unit/integration tests** across the workspace. 7 system test suites targeting real Pi deployment.
 
 ---
 
@@ -31,62 +50,91 @@ wardnet/
 │   │       │   │   ├── service/      # business logic (traits + impls)
 │   │       │   │   ├── repository/   # data access traits
 │   │       │   │   │   └── sqlite/   # SQLite implementations
+│   │       │   │   ├── dhcp/         # DHCP server (mod, runner, server + tests)
 │   │       │   │   ├── config.rs     # TOML config loading
 │   │       │   │   ├── db.rs         # SQLite pool + migrations
 │   │       │   │   ├── error.rs      # AppError → IntoResponse
 │   │       │   │   ├── state.rs      # AppState (service trait objects)
 │   │       │   │   ├── event.rs      # EventPublisher trait + BroadcastEventBus
 │   │       │   │   ├── keys.rs       # KeyStore trait + FileKeyStore
-│   │       │   │   ├── wireguard.rs  # WireGuardOps trait + types
+│   │       │   │   ├── tunnel_interface.rs         # TunnelInterface trait + types
+│   │       │   │   ├── tunnel_interface_wireguard.rs  # WireGuard impl (Linux kernel + macOS userspace)
 │   │       │   │   ├── tunnel_monitor.rs  # Background health/stats tasks
 │   │       │   │   ├── tunnel_idle.rs     # Idle tunnel teardown watcher
-│   │       │   │   ├── dhcp.rs       # DHCP server (lease mgmt, reservations, conflict detection)
-│   │       │   │   ├── garp.rs       # GARP (Gratuitous ARP) failover sequences
-│   │       │   │   ├── watchdog.rs   # Hardware watchdog integration
-│   │       │   │   ├── shutdown.rs   # Graceful shutdown/reboot orchestration
-│   │       │   │   └── web.rs        # rust-embed static file serving
-│   │       │   └── migrations/       # sqlx SQL migrations
-│   │       ├── wctl/                 # binary -- CLI tool
-│   │       │   └── src/main.rs       # clap subcommands skeleton
-│   │       └── wardnet-types/        # library -- shared types
+│   │       │   │   ├── firewall.rs        # FirewallManager trait
+│   │       │   │   ├── firewall_nftables.rs  # nftables impl (masquerade, DNS DNAT)
+│   │       │   │   ├── policy_router.rs      # PolicyRouter trait
+│   │       │   │   ├── policy_router_iproute.rs  # iproute2 impl (ip rule, ip route, sysctl)
+│   │       │   │   ├── routing_listener.rs   # Background event→routing dispatcher
+│   │       │   │   ├── device_detector.rs    # Background ARP/IP packet sniffer
+│   │       │   │   ├── packet_capture.rs     # PacketCapture trait + types
+│   │       │   │   ├── packet_capture_pnet.rs  # pnet impl (raw socket)
+│   │       │   │   ├── hostname_resolver.rs  # HostnameResolver trait + impl
+│   │       │   │   ├── oui.rs         # MAC OUI lookup (IEEE MA-L database)
+│   │       │   │   ├── bootstrap.rs   # Daemon initialisation logic
+│   │       │   │   ├── command.rs     # CommandExecutor trait (shell command abstraction)
+│   │       │   │   ├── garp.rs        # GARP (Gratuitous ARP) failover sequences (future)
+│   │       │   │   ├── watchdog.rs    # Hardware watchdog integration (future)
+│   │       │   │   ├── shutdown.rs    # Graceful shutdown/reboot orchestration (future)
+│   │       │   │   └── web.rs         # rust-embed static file serving
+│   │       │   └── migrations/        # sqlx SQL migrations
+│   │       ├── wctl/                  # binary -- CLI tool
+│   │       │   └── src/main.rs        # clap subcommands (status, devices, tunnels)
+│   │       ├── wardnet-types/         # library -- shared types
+│   │       │   └── src/
+│   │       │       ├── lib.rs
+│   │       │       ├── device.rs
+│   │       │       ├── tunnel.rs      # Tunnel, TunnelStatus, TunnelConfig
+│   │       │       ├── routing.rs
+│   │       │       ├── dhcp.rs        # DhcpConfig, DhcpLease, DhcpReservation
+│   │       │       ├── api.rs         # request/response DTOs
+│   │       │       ├── auth.rs        # Session, ApiKeyRecord, Role, AuthContext
+│   │       │       ├── event.rs       # WardnetEvent enum
+│   │       │       ├── vpn_provider.rs   # ProviderInfo, ServerInfo, credentials
+│   │       │       └── wireguard_config.rs  # .conf parser + WgConfig types
+│   │       └── wardnet-test-agent/    # binary -- Pi-side kernel state inspector for system tests
 │   │           └── src/
-│   │               ├── lib.rs
-│   │               ├── device.rs
-│   │               ├── tunnel.rs     # Tunnel, TunnelStatus, TunnelConfig
-│   │               ├── routing.rs
-│   │               ├── api.rs        # request/response DTOs
-│   │               ├── auth.rs       # Session, ApiKeyRecord, Role
-│   │               ├── event.rs      # WardnetEvent enum
-│   │               └── wireguard_config.rs  # .conf parser + WgConfig types
+│   │               ├── main.rs        # HTTP server exposing ip rule, nft, wg show, ip link
+│   │               ├── models.rs      # IpRule, NftRulesResponse, WgShowResponse, etc.
+│   │               ├── fixtures.rs    # Test fixture generation (WG configs, keys)
+│   │               ├── container.rs   # Container exec abstraction
+│   │               └── kernel/        # Kernel state query modules
 │   ├── sdk/
 │   │   └── wardnet-js/                  # @wardnet/js — TypeScript SDK (browser + Node)
 │   │       └── src/
 │   │           ├── client.ts            # WardnetClient base HTTP client
-│   │           ├── services/            # AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService
+│   │           ├── services/            # AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService
 │   │           └── types/               # TypeScript type definitions (mirrors daemon API)
-│   └── web-ui/                       # React + Vite project
+│   ├── web-ui/                       # React + Vite project
+│   │   └── src/
+│   │       ├── components/
+│   │       │   ├── core/ui/          # shadcn/ui components (Button, Card, Sheet, Dialog, Select, Tabs, Switch, etc.)
+│   │       │   ├── compound/         # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo, CountryCombobox, RoutingSelector, ApiErrorAlert)
+│   │       │   └── layouts/          # Page shells (AppLayout, AuthLayout)
+│   │       ├── hooks/                # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useDevice, useMyDevice, useTunnels, useProviders, useSystemStatus, useDaemonStatus, useSetup, mutations)
+│   │       ├── stores/               # Zustand stores (authStore)
+│   │       ├── pages/                # Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice
+│   │       └── lib/                  # SDK instance, utilities (cn, formatBytes, formatUptime, timeAgo)
+│   └── system-tests/                 # TypeScript E2E tests targeting real Pi deployment
 │       └── src/
-│           ├── components/
-│           │   ├── core/ui/          # shadcn/ui components (Button, Card, Sheet, etc.)
-│           │   ├── compound/         # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo)
-│           │   └── layouts/          # Page shells (AppLayout, AuthLayout)
-│           ├── hooks/                # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useTunnels, useSystemStatus, useDaemonStatus, useSetup)
-│           ├── stores/               # Zustand stores (authStore)
-│           ├── pages/                # Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice
-│           └── lib/                  # SDK instance, utilities (cn, formatBytes, formatUptime, timeAgo)
+│           ├── helpers/              # client.ts, agent.ts (test-agent client), setup.ts
+│           ├── runner.ts             # Test orchestrator
+│           └── tests/                # 01-health, 02-tunnel-import, 03-device-detection, 04-device-routing, 05-traffic-routing, 06-multi-tunnel, 07-idle-teardown
 ├── .github/workflows/ci.yml
+├── Makefile                          # Unified build: init, build, check, run-pi, system-test
 ├── implementation-docs/
 ├── AGENTS.md
 └── README.md
 ```
 
-> **Note:** Modules for routing/, device/ (detection), dns/, dhcp/, garp/, watchdog/, and install/ will be added in later milestones. Tunnel management, event bus, and key storage are implemented in Milestone 1b.
+> **Note:** Modules for dns/, garp/, watchdog/, and install/ will be added in later milestones. Routing, device detection, DHCP, tunnel management, event bus, and key storage are implemented.
 
 ### Crate Dependencies
 
 - `wardnet-types`: serde, uuid, chrono, thiserror (no runtime deps -- pure data types)
 - `wardnetd` depends on `wardnet-types` + tokio, axum, sqlx, wireguard-control, ipnetwork, tokio-util, pnet (device detection + GARP), dhcproto (DHCP server), reqwest (for VPN provider APIs), rust-embed, toml, tracing, argon2, async-trait
 - `wctl` depends on `wardnet-types` + clap, reqwest, tabled, tokio
+- `wardnet-test-agent`: axum, tokio, serde -- lightweight HTTP server exposing kernel state for system tests
 
 ### Web UI Stack
 
@@ -94,7 +142,7 @@ React 19 + TypeScript 5.9, Vite 7, Tailwind CSS 4, shadcn/ui (Radix), TanStack Q
 
 ### SDK Package
 
-`@wardnet/js` — TypeScript SDK with WardnetClient, service classes, and API types. Zero runtime deps (native `fetch`). Linked via Yarn `portal:` protocol.
+`@wardnet/js` — TypeScript SDK with WardnetClient, service classes (AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService), and API types. Zero runtime deps (native `fetch`). Linked via Yarn `portal:` protocol.
 
 ---
 
@@ -110,13 +158,13 @@ React 19 + TypeScript 5.9, Vite 7, Tailwind CSS 4, shadcn/ui (Radix), TanStack Q
 6. Create service instances with trait-based DI (AuthService, DeviceService, SystemService, TunnelService)
 7. Start TunnelManager -- restore tunnels from DB (but do NOT bring interfaces up yet -- tunnels start on-demand)
 8. Start DeviceDetector -- ARP/packet sniffing on LAN interface
-9. _(Future)_ Start RoutingEngine -- reconcile DB state with kernel (ip rule, nftables)
-10. _(Future)_ Start DhcpServer -- begin serving DHCP leases on LAN interface
+9. Start RoutingListener -- subscribes to events, dispatches to RoutingService which reconciles DB state with kernel (ip rule, nftables)
+10. Start DhcpServer -- begin serving DHCP leases on LAN interface (if enabled in config)
 11. _(Future)_ Start DnsManager -- generate Unbound config, reload Unbound
 12. _(Future)_ Broadcast GARP reclaiming gateway role (announce gateway IP at Pi's MAC)
 13. _(Future)_ Start hardware watchdog petting loop
 14. Start API server (axum) with shared AppState — serves REST API + embedded web UI
-15. _(Future)_ Write graceful shutdown flag file
+15. _(Future)_ Write graceful shutdown flag file on exit
 16. _(Future)_ Signal readiness to systemd (`sd_notify`)
 
 > **Note:** No admin account is bootstrapped on startup. The first admin is created via the web UI setup wizard (`POST /api/setup`). The daemon starts in "setup mode" until this is completed.
@@ -135,9 +183,9 @@ GarpManager    --> GarpFailoverSent, GarpReclaimSent
 
 Subscribers:
 - **WebSocket handler**: pushes events to connected UI clients
-- **RoutingEngine**: reacts to tunnel/device events
+- **RoutingListener**: dispatches to RoutingService on tunnel/device/routing events (DeviceDiscovered, DeviceIpChanged, DeviceGone, TunnelUp, TunnelDown, RoutingRuleChanged)
 - **TunnelManager**: reacts to device events (lazy bring-up/teardown)
-- **DnsManager**: reacts to routing changes
+- **DnsManager**: _(future)_ reacts to routing changes
 - **DeviceDetector**: correlates DHCP lease events with device registry (MAC → IP → device identity)
 - **Dashboard/UI**: surfaces DHCP conflict alerts and unclean shutdown warnings
 
@@ -199,7 +247,7 @@ Two-tier model: unauthenticated self-service for regular users, admin login for 
 
 ### Key Design Decisions
 
-1. **Trait-based system abstractions** -- WireGuardOps, KeyStore, EventPublisher, FirewallOps (future) traits allow mocking for tests without root
+1. **Trait-based system abstractions** -- TunnelInterface, KeyStore, EventPublisher, FirewallManager, PolicyRouter, PacketCapture, DhcpSocket, CommandExecutor traits allow mocking for tests without root
 2. **Event bus over direct coupling** -- `EventPublisher` trait with `BroadcastEventBus` impl; components are independently testable
 3. **nftables DNAT for DNS leak prevention** -- more reliable than Unbound per-client config
 4. **Single binary with embedded web UI** -- rust-embed, no separate web server
@@ -288,7 +336,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 **Goal:** Create, destroy, and monitor WireGuard tunnels via API. Tunnels start down and are brought up on-demand.
 
 - [x] WireGuard `.conf` file parser (`wardnet-types/src/wireguard_config.rs`)
-- [x] WireGuardOps trait + RealWireGuard (Linux kernel + macOS userspace) + NoopWireGuard (`--mock-network`)
+- [x] TunnelInterface trait + WireGuardTunnelInterface (Linux kernel + macOS userspace) + noop for `--mock-network`
 - [x] Lazy lifecycle: tunnels configured but down by default, brought up via explicit `bring_up(tunnel_id)` call
 - [x] Tunnel persistence in SQLite (address, dns, peer_config JSON columns); restore configs on daemon start
 - [x] Health monitoring: background TunnelMonitor polling `last_handshake` every 10s for active tunnels
@@ -299,7 +347,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - [x] API (admin only): `GET /api/tunnels`, `POST /api/tunnels`, `DELETE /api/tunnels/:id`
 - [x] Interface naming: `wg_ward0`, `wg_ward1`, ... (sequential from DB)
 - [x] Repository refactored: traits in `repository/<name>.rs`, SQLite impls in `repository/sqlite/<name>.rs`
-- [x] 97 tests total: .conf parser (10), event bus (3), key store (5), tunnel repository integration (11), tunnel service unit (7), plus all existing tests (61)
+- [x] 97 tests at completion of 1b: .conf parser (10), event bus (3), key store (5), tunnel repository integration (11), tunnel service unit (7), plus all existing tests (61)
 
 **Deliverable:** Add tunnel via API, bring it up on demand, monitor health, tear it down.
 
@@ -329,40 +377,62 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** Devices routing through Pi appear automatically, departures detected, hostname resolved.
 
-### Milestone 1d: Policy Routing Engine
+### Milestone 1d: Policy Routing Engine ✅
 
 **Goal:** Route individual devices through specific tunnels or direct internet. Tunnels brought up on-demand.
 
-- [ ] Routing table management: one Linux routing table per tunnel
-- [ ] RoutingEngine.apply_rule(device_ip, target): `ip rule` via rtnetlink + nftables masquerade + DNS DNAT
-- [ ] RoutingEngine.remove_rule(device_ip): clean up kernel state
-- [ ] Rule persistence in DB; reconciliation on startup
-- [ ] Subscribe to `DeviceDiscovered`: if device has a rule targeting a tunnel, tell TunnelManager to bring it up, then apply routing
-- [ ] Subscribe to `DeviceIpChanged`: update rules when device IP changes
-- [ ] Subscribe to `TunnelDown`: fall back to direct for affected devices (soft fallback)
-- [ ] Subscribe to `TunnelUp`: apply pending routing rules for devices waiting on this tunnel
-- [ ] Subscribe to `DeviceGone`: remove routing rules, notify TunnelManager
-- [ ] Global default policy enforcement
-- [ ] API: `PUT /api/devices/:id/rule` -- set routing rule (tunnel/direct/default), admin-only for shared devices
+- [x] PolicyRouter trait + IproutePolicyRouter impl: `ip rule add/del`, `ip route add/del`, `sysctl` IP forwarding via CommandExecutor abstraction
+- [x] FirewallManager trait + NftablesFirewallManager impl: nftables masquerade chains, DNS DNAT rules, per-device NAT via CommandExecutor
+- [x] RoutingService trait + impl: orchestrates PolicyRouter + FirewallManager + TunnelService for per-device routing (apply_rule, remove_device_routes, handle_ip_change, handle_tunnel_down, handle_tunnel_up, reconcile, devices_using_tunnel)
+- [x] Routing table management: one Linux routing table per tunnel (table numbers 100+)
+- [x] RoutingService.apply_rule(device_id, device_ip, target): brings up tunnel on-demand, adds `ip rule`, configures masquerade + DNS DNAT
+- [x] RoutingService.remove_device_routes(device_id, device_ip): cleans up all kernel state
+- [x] Rule persistence in DB; reconciliation on startup (enables IP forwarding, inits nftables, applies all stored rules, cleans orphans)
+- [x] RoutingListener background task subscribes to event bus:
+  - `RoutingRuleChanged`: apply new rule for device
+  - `DeviceDiscovered`: if device has stored rule targeting a tunnel, apply routing
+  - `DeviceIpChanged`: update rules when device IP changes
+  - `TunnelDown`: remove routes for affected devices (soft fallback to direct)
+  - `TunnelUp`: re-apply routing rules for devices targeting this tunnel
+  - `DeviceGone`: remove kernel routing state for departed device
+- [x] Global default policy enforcement via RoutingTarget::Default resolution
+- [x] API: `PUT /api/devices/:id/rule` -- set routing rule (tunnel/direct/default), admin-only
+- [x] Mutex-serialized kernel state modifications to prevent race conditions
+- [x] In-memory tracking of applied rules (AppliedRule per device) for efficient updates
+- [x] 77 new tests: PolicyRouter (17), FirewallManager (19), RoutingService (24), RoutingListener (17)
 
 **Deliverable:** Assign device to tunnel, tunnel comes up automatically, traffic exits through VPN. Device leaves, tunnel tears down after timeout.
 
-### Milestone 1e: DHCP Server
+### Milestone 1e: DHCP Server ✅
 
 **Goal:** Run a DHCP server on the LAN interface so all devices automatically use the Pi as their default gateway and DNS server — no per-device manual configuration.
 
-> **Note — Hostname resolution:** When implementing DHCP, revisit the HostnameResolver to use DHCP lease tables as the primary source for hostname resolution (client-provided hostname from DHCP DISCOVER/REQUEST option 12). Fall back to reverse DNS (`getent hosts`) only when the DHCP table has no hostname for a device. This eliminates the dependency on mDNS/Avahi and provides more reliable names since most devices send their hostname during DHCP negotiation.
-
-- [ ] Embedded DHCP server on the LAN interface (using `dhcproto` or similar crate), advertising Pi as default gateway (option 3) and DNS server (option 6)
-- [ ] Include router IP as secondary entry in option 3 for automatic failover on supported clients
-- [ ] Default lease time: 10 minutes (configurable)
-- [ ] Static DHCP reservations: bind MAC → fixed IP, persist in SQLite (`dhcp_reservations` table)
-- [ ] DHCP conflict detection: detect other DHCP servers on the network, emit `DhcpConflictDetected` event and surface admin alert
-- [ ] Log all lease assignments and renewals, correlating MAC → IP → device identity in the device registry
-- [ ] Per-device static configuration fallback mode: when router DHCP cannot be disabled, generate tailored static config instructions per device type
-- [ ] API (admin-only): `GET /api/dhcp/leases`, `PUT /api/dhcp/reservations`, `DELETE /api/dhcp/reservations/:mac`
-- [ ] DhcpServer trait + impl for testability; NoopDhcpServer for `--mock-network` mode
-- [ ] DB migration: `dhcp_reservations` table (mac, ip, label, created_at)
+- [x] Embedded DHCP server using `dhcproto` crate with DhcpSocket trait abstraction (UdpDhcpSocket for production, mock for tests)
+- [x] DHCP packet processing: handles DISCOVER → OFFER → REQUEST → ACK flow
+- [x] Advertises Pi as default gateway (option 3) and DNS server (option 6)
+- [x] Configurable lease time (default 10 minutes), pool range, and gateway/DNS settings
+- [x] Static DHCP reservations: bind MAC → fixed IP, persist in SQLite (`dhcp_reservations` table)
+- [x] DHCP conflict detection: detect other DHCP servers on the network, emit `DhcpConflictDetected` event
+- [x] Lease lifecycle: assignment, renewal, revocation, expiry tracking
+- [x] Lease audit log: all assignments and renewals logged to `dhcp_lease_log` table
+- [x] DhcpService trait + impl: config management, lease CRUD, reservation CRUD, status reporting
+- [x] DhcpRunner: manages DHCP server lifecycle (start/stop, config reload)
+- [x] DhcpRepository: lease persistence, reservation persistence, lease log, pool queries
+- [x] DHCP types in `wardnet-types`: DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpReservation
+- [x] DB migration: `dhcp_leases`, `dhcp_reservations`, `dhcp_lease_log` tables
+- [x] API (admin-only):
+  - `GET /api/dhcp/config` -- get current DHCP config
+  - `PUT /api/dhcp/config` -- update pool/lease settings
+  - `POST /api/dhcp/config/toggle` -- enable/disable DHCP server
+  - `GET /api/dhcp/leases` -- list active leases
+  - `DELETE /api/dhcp/leases/:id` -- revoke a lease
+  - `GET /api/dhcp/reservations` -- list static reservations
+  - `POST /api/dhcp/reservations` -- create reservation
+  - `DELETE /api/dhcp/reservations/:id` -- delete reservation
+  - `GET /api/dhcp/status` -- server running status and pool usage
+- [x] 45 tests: DHCP server packet handling, runner lifecycle, service logic
+- [ ] _(Remaining)_ Hostname resolution from DHCP lease tables (option 12 client hostname as primary source, reverse DNS as fallback)
+- [ ] _(Remaining)_ Per-device static configuration fallback mode instructions
 
 **Deliverable:** Devices joining the network automatically receive the Pi as their gateway. Admin can manage static reservations via API. Conflict detection alerts if another DHCP server is present.
 
@@ -386,25 +456,33 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** Safe reboot/shutdown via API triggers GARP failover. Devices fall back to router within 1 second. On startup, GARP reclaims gateway role. Hardware watchdog reboots Pi if daemon hangs.
 
-### Milestone 1g: DNS Leak Prevention
+### Milestone 1g: DNS Server & Ad Blocking
 
-**Goal:** VPN-routed devices use tunnel DNS; direct devices use Unbound with DoH/DoT.
+**Goal:** Built-in DNS resolver with network-wide ad blocking (replaces Pi-hole) and VPN DNS leak prevention. The primary motivation for running a local DNS server is ad blocking — without it, Wardnet would simply forward to Google or Cloudflare DNS.
 
-- [ ] DnsManager: generate Unbound config fragment at `/etc/unbound/unbound.conf.d/wardnet.conf`
-- [ ] nftables DNAT rules: redirect port 53 (UDP+TCP) from VPN-routed devices to local Unbound
-- [ ] Unbound forwards to tunnel DNS for VPN-routed traffic, upstream DoH/DoT for direct
-- [ ] Subscribe to RoutingRuleChanged and TunnelUp/TunnelDown to update DNS rules
-- [ ] Reload Unbound via `unbound-control reload` on config changes
+- [ ] Embedded DNS resolver (Unbound) managed by the daemon
+- [ ] DNS-based ad blocking: filter list support (EasyList, Steven Black, etc.), configurable blocklists
+- [ ] Per-device ad blocking toggle: admin can enable/disable ad blocking for individual devices
+- [ ] Query log: track DNS queries per device for visibility and debugging
+- [ ] Whitelist/blacklist: admin can override filter decisions per domain
+- [ ] nftables DNAT rules: redirect port 53 (UDP+TCP) from all devices to local resolver
+- [ ] VPN-routed devices: forward upstream DNS to tunnel DNS server (leak prevention)
+- [ ] Direct devices: resolve via upstream DoH/DoT (Cloudflare, Google, or custom) with ad blocking applied
+- [ ] Subscribe to RoutingRuleChanged and TunnelUp/TunnelDown to update DNS forwarding rules
+- [ ] Reload DNS config on changes
+- [ ] API (admin-only): DNS config, blocklist management, query log, per-device ad blocking toggle, whitelist/blacklist CRUD
+- [ ] DnsManager trait + impl for testability; NoopDnsManager for `--mock-network`
+- [ ] Web UI: DNS settings page, ad blocking configuration page, per-device toggle in device detail
 
-**Deliverable:** DNS queries from VPN-routed devices resolve through tunnel DNS.
+**Deliverable:** All devices use Wardnet for DNS with ad blocking applied network-wide. Per-device ad blocking control. VPN-routed devices resolve through tunnel DNS (no leaks). Admin manages blocklists, overrides, and per-device settings via web UI.
 
 ### Milestone 1h: Web UI -- Core Layout & Pages (In Progress)
 
 **Goal:** Functional web UI with branded design, responsive layout, and real API data.
 
 #### Completed:
-- [x] **SDK package (`@wardnet/js`)**: TypeScript SDK with WardnetClient, AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService. Zero runtime deps, browser + Node 18+ support via native `fetch`. Linked via Yarn `portal:` protocol.
-- [x] **shadcn/ui integration**: Button, Card, Sheet, Input, Label, Badge components in `src/components/core/ui/`
+- [x] **SDK package (`@wardnet/js`)**: TypeScript SDK with WardnetClient, AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService. Zero runtime deps, browser + Node 18+ support via native `fetch`. Linked via Yarn `portal:` protocol.
+- [x] **shadcn/ui integration**: Button, Card, Sheet, Dialog, Select, RadioGroup, Switch, Tabs, Textarea, Command (combobox), Input, InputGroup, Label, Badge, Popover components in `src/components/core/ui/`
 - [x] **Brand design**: Deep indigo + green accent palette (oklch), custom CSS variables for light/dark mode, Geist font
 - [x] **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`
 - [x] **Responsive layout**: Desktop persistent sidebar + mobile hamburger menu (shadcn Sheet). Deep indigo sidebar in both modes, frosted glass mobile header.
@@ -412,7 +490,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - [x] **Auth flow**: Zustand store, session cookie, admin vs self-service route guards, "Sign in as admin" / "Sign out" in sidebar
 - [x] **Setup wizard**: First-run detection via `GET /api/setup/status`, redirect to setup page, create admin account, auto-login after setup
 - [x] **Connection status widget**: Traffic-light indicator + version in sidebar footer, uses unauthenticated `/api/info` endpoint
-- [x] **TanStack Query hooks**: useDevices (10s poll), useTunnels (15s poll), useSystemStatus (30s poll), useDaemonStatus (30s poll), useSetup
+- [x] **TanStack Query hooks**: useDevices (10s poll), useDevice (single), useMyDevice, useTunnels (15s poll), useProviders, useSystemStatus (30s poll), useDaemonStatus (30s poll), useSetup, plus mutation hooks (useSetMyRule, useUpdateDevice, useCreateTunnel, useDeleteTunnel)
 - [x] **Dashboard (admin)**: 6-card grid — Devices, Tunnels, Uptime, CPU, Memory, Database. Usage bars for CPU/memory with color thresholds.
 - [x] **Devices page (admin)**: Responsive table with device type icon, name/MAC, IP, type badge, manufacturer, last seen. Full IEEE OUI manufacturer data.
 - [x] **Tunnels page (admin)**: Card grid with status badges, traffic stats. CreateTunnelSheet for adding tunnels.
@@ -420,30 +498,59 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 - [x] **My Device (self-service)**: Stacked layout with device icon, IP/MAC/manufacturer, routing status. Helpful hint when device not detected (SSH tunnel case).
 - [x] **Login page**: Full-screen indigo gradient hero with logo, username/password form, error handling (401 vs network error)
 - [x] **Device type icons**: Lucide icons mapped to device types (TV, Phone, Laptop, Tablet, Console, Set-top Box, IoT, Unknown)
+- [x] **Compound components**: CountryCombobox (VPN provider country selector), RoutingSelector (routing target picker), ApiErrorAlert (error display), ConfirmDialog (destructive action confirmation), ConnectionBanner (daemon unreachable warning)
 - [x] **Utility functions**: formatBytes, formatUptime, timeAgo
 - [x] **Polling**: Devices 10s, tunnels 15s, system status 30s, daemon info 30s
+- [x] **Component architecture refactor**: strict layering (core/ui → compound → features → pages). DataTable (shadcn Table + TanStack Table) shared across all list views. Pages are pure wiring — no raw HTML.
+- [x] **DHCP panel (admin)**: Status card with toggle, config card with edit sheet, leases table with revoke + make-static, reservations table with add/delete. Three paths to create reservations: from device edit, from active lease, or manual.
+- [x] **Dashboard widgets**: DHCP summary card, Recent Errors card (in-memory ring buffer of last 15 WARN/ERROR), live log viewer (WebSocket stream with level filter, pause/resume, clear, download)
+- [x] **Live log streaming**: WebSocket endpoint `/api/system/logs/stream` with per-client filter commands. `BroadcastLayer` tracing subscriber sends structured entries (message, fields, span context) to all connected clients. `RecentErrorsLayer` captures WARN/ERROR into ring buffer for `/api/system/errors` endpoint.
+- [x] **Toast notifications**: Sonner toasts on all mutations (success green, error red) — tunnels, devices, DHCP, providers
+- [x] **Favicon**: 16px + 32px PNGs from logo
+- [x] **Connection banner**: Light red banner on all pages when daemon is unreachable
+- [x] **Confirm dialogs**: Tunnel delete, lease revoke, reservation delete
+- [x] **Device list sorted by name**: Alphabetical sort by name/hostname/MAC
+- [x] **404 page**: Clean full-page 404 outside the app layout
+- [x] **DNS & Ad Blocking placeholder pages**: Sidebar links + "coming soon" content
+- [x] **DhcpService in SDK**: Full TypeScript SDK service + types for all DHCP endpoints
+- [x] **Log file always JSON**: File output uses JSON format regardless of console setting, enabling reliable API/UI parsing
+
+#### Priority tasks for next session:
+- [ ] **Logging level audit**: establish clear rules for when to use each level (error/warn/info/debug/trace) and review all existing log statements. Currently abusing INFO for routine operations that should be DEBUG (e.g. every packet observation, every IP change, ARP scans). Rule of thumb: INFO = operator-relevant state changes (server started, device first discovered, tunnel up/down), DEBUG = operational details (individual packets, routine refreshes, periodic scans). Document the rules in AGENTS.md and enforce in code review.
 
 #### Remaining:
-- [ ] WebSocket client hook: connect to `/api/ws`, dispatch events to Zustand stores for real-time updates
-- [ ] Device detail view: click to see full info, routing rule selector dropdown
-- [ ] Tunnel management: upload .conf or paste, delete with confirmation (warn if devices assigned)
 - [ ] Settings: user management (create API keys), global default policy
 - [ ] Extended first-run wizard: static IP config, DHCP onboarding, router MAC discovery, add first tunnel, set default policy
-- [ ] Shutdown/reboot controls: Safe Reboot button, Safe Shutdown button with confirmation
-- [ ] DHCP panel: active leases, static reservations, lease history (depends on Milestone 1e)
-- [ ] Unclean shutdown warning banner
+- [ ] Shutdown/reboot controls: Safe Reboot button, Safe Shutdown button with confirmation (depends on Milestone 1f)
+- [ ] Unclean shutdown warning banner (depends on Milestone 1f)
+
+#### Remaining (backend needed):
+- [ ] Device DHCP status: show whether each device is using a wardnet DHCP lease, reservation, or has an external/static IP. Requires joining devices with DHCP leases/reservations in the list API. Surfaces in the device table to track which devices are fully managed by wardnet.
+- [ ] DHCP pool range change handling: when the admin changes the pool range via the web UI, what happens to existing leases outside the new range? Need to define behaviour — options: revoke out-of-range leases immediately (devices re-request), let them expire naturally, or warn the admin. Also need to hot-reload the DHCP server config without restart.
+
+#### Nice-to-have (deferred):
+- [ ] Per-entity error surfacing: tunnel card shows last error reason (e.g. DNS resolution failure, handshake timeout) — requires persisting last error on the tunnel model
+- [ ] Per-entity error surfacing: devices page shows when a device has fallen back to direct routing due to tunnel failure (distinguish intentional "direct" from "fallback to direct")
+
+#### Phase 2:
+- [ ] Customizable dashboard: draggable/resizable widget grid (react-grid-layout), user layout saved to localStorage, default layout with reset option. Allows users to arrange widgets, hide/show sections, and resize to preference.
+- [ ] Kernel keyring for WireGuard keys: store private keys in the Linux kernel keyring instead of files on disk. Keys live in kernel memory and are never written to the filesystem. Requires either patching/forking the `wireguard-control` crate or using a custom netlink interface for key management.
+- [ ] WebSocket client hook for domain events: connect to `/api/ws`, dispatch events to Zustand stores for real-time updates (polling works well enough for MVP)
 
 **Deliverable:** Full web UI for managing tunnels, devices, routing rules, DHCP, and system lifecycle with auth.
 
-### Milestone 1i: CLI Tool (wctl)
+### Milestone 1i: CLI Tool (wctl) (In Progress)
 
 **Goal:** Working CLI for power users and scripting.
 
-- [ ] clap command structure: `status`, `devices`, `set`, `tunnels`, `tunnel add/remove`, `reboot`, `shutdown`
-- [ ] reqwest API client using `wardnet-types`, API key auth via `Authorization: Bearer <key>` header
-- [ ] `wctl reboot` and `wctl shutdown` commands: invoke graceful GARP-first sequence via API
+#### Completed:
+- [x] clap command structure: `status`, `devices list|show|set-rule`, `tunnels list|show|add|remove`
+- [x] reqwest API client using `wardnet-types`, API key auth via `Authorization: Bearer <key>` header
+- [x] Config at `~/.config/wardnet/wctl.toml` (daemon URL + API key)
+
+#### Remaining:
+- [ ] `wctl reboot` and `wctl shutdown` commands: invoke graceful GARP-first sequence via API (depends on Milestone 1f)
 - [ ] Output: `tabled` for human mode, `serde_json` for `--json`
-- [ ] Config at `~/.config/wardnet/wctl.toml` (daemon URL + API key)
 
 **Deliverable:** All MVP CLI commands working against running daemon, including safe reboot/shutdown.
 
@@ -487,12 +594,30 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 
 **Deliverable:** Admin can add a NordVPN tunnel from the API by providing credentials and picking a country — no manual .conf file needed. Architecture ready for community to add Mullvad, ProtonVPN, etc.
 
-### Milestone 1l: Integration Testing & Hardening
+### Milestone 1l: Integration Testing & Hardening (In Progress)
 
 **Goal:** Confidence that the system works end-to-end.
 
-- [ ] Network namespace test harness: automated setup/teardown of ns-client, ns-wardnet, ns-vpn-server
-- [ ] E2E tests: create tunnel -> detect device -> tunnel comes up -> apply rule -> verify routing -> device leaves -> tunnel tears down after timeout
+#### Completed:
+- [x] **wardnet-test-agent** crate: lightweight HTTP server (port 3001) deployed on Pi, exposes kernel networking state for test assertions:
+  - `GET /ip-rules` -- parse and return `ip rule list`
+  - `GET /nft-rules` -- parse and return `nft list ruleset`
+  - `GET /wg/:interface` -- parse `wg show` (peers, handshakes, transfer stats)
+  - `GET /link/:interface` -- parse `ip link show` (up/down, MTU)
+  - `POST /container/exec` -- execute commands in test containers
+  - `GET /fixtures/:name` -- serve generated WireGuard test configs/keys
+  - Input validation against command injection
+- [x] **System tests** (`source/system-tests/`): TypeScript E2E suite targeting real Pi deployment, uses @wardnet/js SDK + test-agent client:
+  - `01-health.ts` -- daemon health check
+  - `02-tunnel-import.ts` -- tunnel import and activation
+  - `03-device-detection.ts` -- device discovery
+  - `04-device-routing.ts` -- per-device routing rules (ip rule, nftables, WireGuard verification)
+  - `05-traffic-routing.ts` -- traffic flow verification
+  - `06-multi-tunnel.ts` -- multiple simultaneous tunnels
+  - `07-idle-teardown.ts` -- idle tunnel cleanup
+- [x] **Makefile integration**: `make system-test` (full build → deploy → test → teardown), `make system-test-setup`, `make system-test-teardown`
+
+#### Remaining:
 - [ ] Failure tests: tunnel down + fallback, daemon restart + state recovery, kill -9 + reconciliation, unclean shutdown detection
 - [ ] DHCP tests: lease assignment, static reservation, conflict detection with second DHCP server, lease correlation with device registry
 - [ ] GARP tests: graceful shutdown sends GARP with router MAC, startup sends GARP reclaim, sequence completes within 1 second, internet interruption under 2 seconds for graceful restarts
@@ -515,7 +640,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 | WebSocket format | JSON with typed envelope `{type, timestamp, payload}` | Simple, debuggable in browser DevTools, serde already in stack. Event volume is low (few/sec max), so payload size is negligible. |
 | Firewall | nftables native | Target Debian 12+; install script ensures nftables on Debian 11 |
 | HTTP / TLS | HTTP only for MVP (port 80) | LAN-only appliance, like Pi-hole/Home Assistant. Optional HTTPS with user-provided cert in Phase 2. |
-| DNS resolver | Unbound (external, managed via config files) | Battle-tested, no need to embed a resolver |
+| DNS resolver | Unbound (managed by daemon) | Battle-tested resolver. Primary purpose is network-wide ad blocking (replaces Pi-hole) with per-device toggle. Also prevents DNS leaks for VPN-routed devices. |
 | Auth | Unauthenticated self-service + admin login | Users configure own device without login (auto-detected by source IP). Admin login for privileged ops. API key for CLI. |
 | Privileges | Dedicated `wardnet` user + Linux capabilities | No root. CAP_NET_ADMIN + CAP_NET_RAW + CAP_NET_BIND_SERVICE via systemd. |
 | SQLite concurrency | WAL mode + sqlx pool | Concurrent reads, single writer, sufficient for expected load |
@@ -532,6 +657,9 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 | SDK architecture | Separate `@wardnet/js` package | Pure TypeScript, zero deps, native `fetch`. Linked via Yarn `portal:`. Web UI components are pure presentation. |
 | Component library | shadcn/ui (Radix + Tailwind) | Owned thin wrappers in `core/ui/`, not modified directly. Layered component architecture: core → compound → features → layouts → pages. |
 | Data polling | TanStack Query `refetchInterval` | Devices 10s, tunnels 15s, system status 30s, daemon info 30s. No WebSocket needed for MVP. |
+| Policy routing | `ip rule` + `ip route` via CommandExecutor | Source-based routing per device. One routing table per tunnel (100+). Mutex-serialized kernel modifications. |
+| Firewall impl | nftables via CommandExecutor | wardnet_nat table with masquerade + DNS DNAT chains. Per-device rules keyed by source IP. |
+| System tests | TypeScript + wardnet-test-agent | E2E tests run against real Pi deployment. Test agent exposes kernel state (ip rule, nft, wg show) via HTTP for assertions. |
 
 ---
 
@@ -541,7 +669,7 @@ When device IP changes (DHCP renewal), remove old rules and apply new ones.
 |------|------------|
 | Cross-compilation for ARM64 with C deps | Use `rustls` (not OpenSSL), bundled SQLite, minimize C deps. Native `cargo` + cross-linker (no Docker-based `cross` tool). |
 | nftables vs iptables across Debian versions | Target nftables; install script sets up iptables-nft on older systems. Abstract behind `Firewall` trait. |
-| Testing routing without root | Trait-based abstractions (NetlinkOps, WireGuardOps, FirewallOps) enable mocked unit tests. Real integration tests use network namespaces. |
+| Testing routing without root | Trait-based abstractions (PolicyRouter, TunnelInterface, FirewallManager, CommandExecutor) enable mocked unit tests (77 routing tests, 8 WireGuard tests, 19 firewall tests). Real integration tests use Pi deployment with test-agent. |
 | WireGuard kernel module missing | Install script checks and falls back to wireguard-dkms or wireguard-go. |
 | Non-root capabilities insufficient | Validate all required syscalls work with CAP_NET_ADMIN + CAP_NET_RAW early in Milestone 1b. If any operation requires root, find alternative (e.g. helper binary with setuid for that specific operation). |
 | SQLite write contention | WAL mode + short transactions. Write frequency is low (config changes, not high throughput). |

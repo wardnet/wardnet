@@ -16,6 +16,18 @@ pub enum DeviceType {
     Unknown,
 }
 
+/// Whether a device's IP is managed by the wardnet DHCP server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DhcpStatus {
+    /// Device has an active DHCP lease from wardnet.
+    Lease,
+    /// Device has a static DHCP reservation from wardnet.
+    Reservation,
+    /// Device IP is not managed by wardnet DHCP (static/external config).
+    External,
+}
+
 /// A discovered network device.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {

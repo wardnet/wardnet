@@ -54,6 +54,7 @@ pub struct WireGuardTunnelInterface;
 impl TunnelInterface for WireGuardTunnelInterface {
     async fn create(&self, params: CreateTunnelParams) -> anyhow::Result<()> {
         let TunnelConfig::WireGuard {
+            address,
             private_key,
             listen_port,
             peer_public_key,
@@ -67,6 +68,23 @@ impl TunnelInterface for WireGuardTunnelInterface {
             .interface_name
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid interface name: {e}"))?;
+
+        // Remove any stale interface left over from a previous daemon run or crash.
+        // This prevents "Address already assigned" errors when re-creating.
+        let check = tokio::process::Command::new("ip")
+            .args(["link", "show", &params.interface_name])
+            .output()
+            .await;
+        if check.is_ok_and(|o| o.status.success()) {
+            tracing::info!(
+                interface = %params.interface_name,
+                "removing stale wireguard interface before re-creation"
+            );
+            let _ = tokio::process::Command::new("ip")
+                .args(["link", "delete", &params.interface_name])
+                .output()
+                .await;
+        }
 
         let private_key = Key(private_key);
         let peer_key = Key(peer_public_key);
@@ -99,14 +117,65 @@ impl TunnelInterface for WireGuardTunnelInterface {
 
         update.apply(&iface, Backend::default())?;
 
+        // Assign interface addresses (e.g. `10.99.1.2/24`).
+        for addr in &address {
+            let output = tokio::process::Command::new("ip")
+                .args([
+                    "addr",
+                    "add",
+                    &addr.to_string(),
+                    "dev",
+                    &params.interface_name,
+                ])
+                .output()
+                .await?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                // Ignore "already exists" / "already assigned" errors (EEXIST).
+                if !stderr.contains("RTNETLINK answers: File exists")
+                    && !stderr.contains("Address already assigned")
+                {
+                    anyhow::bail!(
+                        "`ip addr add {} dev {}` failed: {}",
+                        addr,
+                        params.interface_name,
+                        stderr.trim()
+                    );
+                }
+            }
+        }
+
+        // Explicitly bring the interface UP so routes can reference it.
+        let output = tokio::process::Command::new("ip")
+            .args(["link", "set", &params.interface_name, "up"])
+            .output()
+            .await?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "`ip link set {} up` failed: {}",
+                params.interface_name,
+                stderr.trim()
+            );
+        }
+
         tracing::info!(interface = %params.interface_name, "wireguard interface created");
         Ok(())
     }
 
     async fn bring_up(&self, interface_name: &str) -> anyhow::Result<()> {
-        // wireguard-control creates the interface in an "up" state already.
-        // On Linux a separate `ip link set <iface> up` may be needed via
-        // the nix crate or std::process::Command — left as a future enhancement.
+        let output = tokio::process::Command::new("ip")
+            .args(["link", "set", interface_name, "up"])
+            .output()
+            .await?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "`ip link set {} up` failed: {}",
+                interface_name,
+                stderr.trim()
+            );
+        }
         tracing::info!(interface = %interface_name, "wireguard interface up");
         Ok(())
     }

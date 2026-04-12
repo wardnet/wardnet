@@ -59,7 +59,7 @@ fn check_success(output: &CommandOutput, description: &str) -> anyhow::Result<()
 ///
 /// Lines look like:
 /// ```text
-///   oifname "wg_ward0" masquerade comment "wardnet:wg_ward0" # handle 4
+///   oifname "wg_ward0" masquerade comment "\"wardnet:wg_ward0\"" # handle 4
 /// ```
 ///
 /// Returns `None` when no matching rule is found.
@@ -101,7 +101,7 @@ add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; pol
     }
 
     async fn add_masquerade(&self, interface: &str) -> anyhow::Result<()> {
-        let comment = format!("wardnet:{interface}");
+        let comment = format!("\"wardnet:{interface}\"");
         self.run(&[
             "add",
             "rule",
@@ -120,7 +120,7 @@ add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; pol
     }
 
     async fn remove_masquerade(&self, interface: &str) -> anyhow::Result<()> {
-        let comment = format!("wardnet:{interface}");
+        let comment = format!("\"wardnet:{interface}\"");
         let output = self
             .run(&["-a", "list", "chain", "inet", "wardnet", "postrouting"])
             .await?;
@@ -152,7 +152,7 @@ add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; pol
     }
 
     async fn add_dns_redirect(&self, device_ip: &str, dns_ip: &str) -> anyhow::Result<()> {
-        let comment = format!("wardnet:dns:{device_ip}");
+        let comment = format!("\"wardnet:dns:{device_ip}\"");
         self.run(&[
             "add",
             "rule",
@@ -177,7 +177,7 @@ add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; pol
     }
 
     async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()> {
-        let comment = format!("wardnet:dns:{device_ip}");
+        let comment = format!("\"wardnet:dns:{device_ip}\"");
         let output = self
             .run(&["-a", "list", "chain", "inet", "wardnet", "prerouting"])
             .await?;

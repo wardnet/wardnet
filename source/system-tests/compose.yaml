@@ -1,0 +1,127 @@
+# Compose file for Wardnet system tests (works with podman-compose and docker compose).
+#
+# Creates a bridge network with test client containers and mock WireGuard
+# peers. wardnetd runs natively on the host (not in a container) and
+# manages real kernel interfaces, ip rules, and nftables.
+#
+# Usage:
+#   sudo podman compose up -d
+#   sudo podman compose down
+
+networks:
+  wardnet_test:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${WARDNET_SUBNET}
+          gateway: ${WARDNET_GATEWAY}
+
+x-wardnet-client: &wardnet-client
+  cap_add:
+    - NET_ADMIN
+  dns:
+    - ${WARDNET_GATEWAY}
+  networks:
+    wardnet_test: {}
+  # Override default gateway to route through the Pi.
+  entrypoint:
+    - /bin/sh
+    - -c
+    - |
+      ip route del default 2>/dev/null || true
+      ip route add default via ${WARDNET_GATEWAY}
+      exec sleep infinity
+  restart: "no"
+
+services:
+  # -- Test clients ----------------------------------------------------------
+
+  test_alpine:
+    <<: *wardnet-client
+    image: docker.io/library/alpine:3.21
+    container_name: wardnet_test_alpine
+    networks:
+      wardnet_test:
+        ipv4_address: ${TEST_ALPINE_IP}
+    # Install ping, curl, and dig for test verification.
+    command: ["sh", "-c", "apk add --no-cache curl bind-tools iputils > /dev/null 2>&1 && sleep infinity"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        ip route del default 2>/dev/null || true
+        ip route add default via ${WARDNET_GATEWAY}
+        apk add --no-cache curl bind-tools iputils > /dev/null 2>&1
+        sleep infinity
+
+  test_ubuntu:
+    <<: *wardnet-client
+    image: docker.io/library/ubuntu:24.04
+    container_name: wardnet_test_ubuntu
+    networks:
+      wardnet_test:
+        ipv4_address: ${TEST_UBUNTU_IP}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        ip route del default 2>/dev/null || true
+        ip route add default via ${WARDNET_GATEWAY}
+        apt-get update -qq && apt-get install -y -qq curl dnsutils iputils-ping > /dev/null 2>&1
+        sleep infinity
+
+  # -- Mock WireGuard peers --------------------------------------------------
+  #
+  # Each peer runs wireguard-go in userspace. The test runner generates
+  # WireGuard configs (with real keypairs) into a shared volume before
+  # starting these containers.
+
+  mock_wg_peer_1:
+    image: docker.io/library/alpine:3.21
+    container_name: wardnet_mock_wg_peer_1
+    cap_add:
+      - NET_ADMIN
+    networks:
+      wardnet_test:
+        ipv4_address: ${MOCK_PEER_1_IP}
+    volumes:
+      - ./fixtures/generated:/etc/wireguard:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache wireguard-tools iptables > /dev/null 2>&1
+        # Enable IP forwarding inside the container.
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+        # Bring up the WireGuard interface.
+        ip link add wg0 type wireguard
+        wg setconf wg0 /etc/wireguard/peer1-wg0.conf
+        ip addr add ${MOCK_PEER_1_INTERNAL} dev wg0
+        ip link set wg0 up
+        echo "mock_wg_peer_1: WireGuard up on ${MOCK_PEER_1_INTERNAL}"
+        sleep infinity
+    restart: "no"
+
+  mock_wg_peer_2:
+    image: docker.io/library/alpine:3.21
+    container_name: wardnet_mock_wg_peer_2
+    cap_add:
+      - NET_ADMIN
+    networks:
+      wardnet_test:
+        ipv4_address: ${MOCK_PEER_2_IP}
+    volumes:
+      - ./fixtures/generated:/etc/wireguard:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache wireguard-tools iptables > /dev/null 2>&1
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+        ip link add wg0 type wireguard
+        wg setconf wg0 /etc/wireguard/peer2-wg0.conf
+        ip addr add ${MOCK_PEER_2_INTERNAL} dev wg0
+        ip link set wg0 up
+        echo "mock_wg_peer_2: WireGuard up on ${MOCK_PEER_2_INTERNAL}"
+        sleep infinity
+    restart: "no"

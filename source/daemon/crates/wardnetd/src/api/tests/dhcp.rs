@@ -73,6 +73,7 @@ impl DhcpService for MockDhcpService {
         Ok(DhcpConfigResponse {
             config: DhcpConfig {
                 enabled: false,
+                gateway_ip: "192.168.1.1".parse().unwrap(),
                 pool_start: "192.168.1.100".parse().unwrap(),
                 pool_end: "192.168.1.200".parse().unwrap(),
                 subnet_mask: "255.255.255.0".parse().unwrap(),
@@ -162,6 +163,7 @@ impl DhcpService for MockDhcpService {
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         Ok(DhcpConfig {
             enabled: false,
+            gateway_ip: "192.168.1.1".parse().unwrap(),
             pool_start: "192.168.1.100".parse().unwrap(),
             pool_end: "192.168.1.200".parse().unwrap(),
             subnet_mask: "255.255.255.0".parse().unwrap(),
@@ -191,6 +193,8 @@ fn build_state(dhcp_svc: impl DhcpService + 'static) -> AppState {
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )

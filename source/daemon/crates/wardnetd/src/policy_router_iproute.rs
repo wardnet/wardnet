@@ -76,24 +76,45 @@ pub fn parse_wardnet_rules(json: &str) -> anyhow::Result<Vec<(String, u32)>> {
 #[async_trait]
 impl PolicyRouter for IproutePolicyRouter {
     async fn enable_ip_forwarding(&self) -> anyhow::Result<()> {
-        self.run("sysctl", &["-w", "net.ipv4.ip_forward=1"]).await?;
-        Ok(())
+        // Write directly to /proc/sys instead of using sysctl, which requires
+        // CAP_SYS_ADMIN. Writing to procfs works with CAP_NET_ADMIN.
+        match tokio::fs::write("/proc/sys/net/ipv4/ip_forward", "1").await {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                // Fall back to sysctl for environments where procfs isn't writable
+                // (e.g. containers, or testing on macOS).
+                self.run("sysctl", &["-w", "net.ipv4.ip_forward=1"]).await?;
+                Ok(())
+            }
+        }
     }
 
     async fn add_route_table(&self, interface: &str, table: u32) -> anyhow::Result<()> {
-        self.run(
-            "ip",
-            &[
-                "route",
-                "add",
-                "default",
-                "dev",
+        let table_str = table.to_string();
+        let output = self
+            .executor
+            .run(
+                "ip",
+                &[
+                    "route", "add", "default", "dev", interface, "table", &table_str,
+                ],
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to execute `ip`: {e}"))?;
+
+        if !output.success {
+            // Ignore "File exists" — the route is already present (idempotent).
+            if output.stderr.contains("File exists") {
+                tracing::debug!(interface, table, "route already exists, skipping");
+                return Ok(());
+            }
+            anyhow::bail!(
+                "`ip route add default dev {} table {}` failed: {}",
                 interface,
-                "table",
-                &table.to_string(),
-            ],
-        )
-        .await?;
+                table,
+                output.stderr
+            );
+        }
         Ok(())
     }
 

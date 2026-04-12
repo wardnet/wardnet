@@ -134,6 +134,7 @@ impl DhcpService for MockRunnerDhcpService {
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         Ok(DhcpConfig {
             enabled: self.enabled,
+            gateway_ip: Ipv4Addr::new(192, 168, 1, 1),
             pool_start: Ipv4Addr::new(192, 168, 1, 100),
             pool_end: Ipv4Addr::new(192, 168, 1, 200),
             subnet_mask: Ipv4Addr::new(255, 255, 255, 0),

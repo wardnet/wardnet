@@ -260,7 +260,7 @@ fn admin_ctx() -> AuthContext {
 fn build_service() -> DhcpServiceImpl {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
-    DhcpServiceImpl::new(dhcp, system_config)
+    DhcpServiceImpl::new(dhcp, system_config, "10.0.0.1".parse().unwrap())
 }
 
 // -- Tests -----------------------------------------------------------------
@@ -513,7 +513,7 @@ fn build_service_with_deps() -> (
 ) {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
-    let svc = DhcpServiceImpl::new(dhcp.clone(), system_config.clone());
+    let svc = DhcpServiceImpl::new(dhcp.clone(), system_config.clone(), "192.168.1.1".parse().unwrap());
     (svc, dhcp, system_config)
 }
 
@@ -1021,7 +1021,7 @@ async fn load_config_missing_keys_uses_defaults() {
     let system_config = Arc::new(MockSystemConfigRepository {
         data: Mutex::new(HashMap::new()),
     });
-    let svc = DhcpServiceImpl::new(dhcp, system_config);
+    let svc = DhcpServiceImpl::new(dhcp, system_config, "10.0.0.1".parse().unwrap());
 
     let config = auth_context::with_context(admin_ctx(), svc.get_dhcp_config())
         .await

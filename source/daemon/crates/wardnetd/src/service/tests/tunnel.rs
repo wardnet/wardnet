@@ -10,12 +10,15 @@ use wardnet_types::wireguard_config::WgPeerConfig;
 
 use wardnet_types::auth::AuthContext;
 
+use wardnet_types::device::Device;
+use wardnet_types::routing::RoutingRule;
+
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::keys::KeyStore;
-use crate::repository::TunnelRepository;
 use crate::repository::tunnel::TunnelRow;
+use crate::repository::{DeviceRepository, TunnelRepository};
 use crate::service::{TunnelService, TunnelServiceImpl};
 use crate::tunnel_interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 
@@ -286,6 +289,68 @@ impl EventPublisher for MockEventPublisher {
     }
 }
 
+// -- Minimal DeviceRepository mock for TunnelService tests ----------------
+
+struct MockDeviceRepoForTunnel;
+
+#[async_trait]
+impl DeviceRepository for MockDeviceRepoForTunnel {
+    async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
+    async fn insert(&self, _d: &crate::repository::device::DeviceRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_and_ip(&self, _id: &str, _ip: &str, _ts: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_hostname(&self, _id: &str, _h: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _t: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
+    async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        Ok(None)
+    }
+    async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 struct TestHarness {
@@ -297,11 +362,18 @@ struct TestHarness {
 
 fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
 
-    let svc = TunnelServiceImpl::new(repo, tunnel_iface.clone(), keys.clone(), events.clone());
+    let svc = TunnelServiceImpl::new(
+        repo,
+        device_repo,
+        tunnel_iface.clone(),
+        keys.clone(),
+        events.clone(),
+    );
 
     TestHarness {
         svc,

@@ -46,7 +46,16 @@ pub async fn toggle(
     _auth: AdminAuth,
     Json(body): Json<ToggleDhcpRequest>,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
+    let enabled = body.enabled;
     let response = state.dhcp_service().toggle(body).await?;
+
+    // Start or stop the DHCP server based on the new config.
+    if enabled {
+        state.dhcp_server().start().await?;
+    } else {
+        state.dhcp_server().stop().await?;
+    }
+
     Ok(Json(response))
 }
 

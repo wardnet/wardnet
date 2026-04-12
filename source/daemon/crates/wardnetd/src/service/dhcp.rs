@@ -91,6 +91,8 @@ pub trait DhcpService: Send + Sync {
 pub struct DhcpServiceImpl {
     dhcp: Arc<dyn DhcpRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
+    /// Wardnet's own LAN IP, auto-detected at startup.
+    gateway_ip: Ipv4Addr,
 }
 
 impl DhcpServiceImpl {
@@ -98,15 +100,22 @@ impl DhcpServiceImpl {
     pub fn new(
         dhcp: Arc<dyn DhcpRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
+        gateway_ip: Ipv4Addr,
     ) -> Self {
         Self {
             dhcp,
             system_config,
+            gateway_ip,
         }
     }
 
     /// Load the current DHCP configuration from `system_config`.
     async fn load_config(&self) -> Result<DhcpConfig, AppError> {
+        // Derive subnet-aware defaults from the detected gateway IP.
+        let gw = self.gateway_ip.octets();
+        let default_pool_start = format!("{}.{}.{}.100", gw[0], gw[1], gw[2]);
+        let default_pool_end = format!("{}.{}.{}.250", gw[0], gw[1], gw[2]);
+
         let enabled = self
             .system_config
             .get("dhcp_enabled")
@@ -120,7 +129,7 @@ impl DhcpServiceImpl {
             .get("dhcp_pool_start")
             .await
             .map_err(AppError::Internal)?
-            .unwrap_or_else(|| "192.168.1.100".to_owned())
+            .unwrap_or(default_pool_start)
             .parse()
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid pool_start: {e}")))?;
 
@@ -129,7 +138,7 @@ impl DhcpServiceImpl {
             .get("dhcp_pool_end")
             .await
             .map_err(AppError::Internal)?
-            .unwrap_or_else(|| "192.168.1.200".to_owned())
+            .unwrap_or(default_pool_end)
             .parse()
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid pool_end: {e}")))?;
 
@@ -182,6 +191,7 @@ impl DhcpServiceImpl {
 
         Ok(DhcpConfig {
             enabled,
+            gateway_ip: self.gateway_ip,
             pool_start,
             pool_end,
             subnet_mask,

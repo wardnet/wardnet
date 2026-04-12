@@ -16,11 +16,19 @@ export interface ApiError {
   request_id?: string;
 }
 
+/** Minimal tunnel info for self-service routing selection. */
+export interface TunnelSummary {
+  id: string;
+  label: string;
+  country_code: string;
+}
+
 /** Response for GET /api/devices/me. */
 export interface DeviceMeResponse {
   device: Device | null;
   current_rule: RoutingTarget | null;
   admin_locked: boolean;
+  available_tunnels: TunnelSummary[];
 }
 
 /** Request body for PUT /api/devices/me/rule. */

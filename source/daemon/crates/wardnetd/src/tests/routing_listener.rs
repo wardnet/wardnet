@@ -231,6 +231,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(i64::from(self.device.lock().unwrap().is_some()))
     }
@@ -375,6 +383,14 @@ impl DeviceRepository for FailingDeviceRepo {
         _now: &str,
     ) -> anyhow::Result<()> {
         anyhow::bail!("upsert rule failed")
+    }
+
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
     }
 
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {

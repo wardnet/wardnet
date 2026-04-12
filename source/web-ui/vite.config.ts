@@ -13,7 +13,10 @@ export default defineConfig({
   server: {
     port: 7412,
     proxy: {
-      "/api": "http://127.0.0.1:7411",
+      "/api": {
+        target: "http://127.0.0.1:7411",
+        ws: true,
+      },
     },
   },
 });

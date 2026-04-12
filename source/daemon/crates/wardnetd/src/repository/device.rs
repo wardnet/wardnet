@@ -72,6 +72,16 @@ pub trait DeviceRepository: Send + Sync {
         now: &str,
     ) -> anyhow::Result<()>;
 
+    /// Switch all routing rules targeting the given tunnel to `Direct`.
+    ///
+    /// Returns the device IDs that were updated. Used when a tunnel is deleted
+    /// so that affected devices don't lose connectivity.
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        tunnel_id: &str,
+        now: &str,
+    ) -> anyhow::Result<Vec<String>>;
+
     /// Update the `admin_locked` flag for a device.
     async fn update_admin_locked(&self, id: &str, locked: bool) -> anyhow::Result<()>;
 

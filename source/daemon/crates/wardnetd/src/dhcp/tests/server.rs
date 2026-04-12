@@ -211,6 +211,7 @@ impl DhcpService for MockDhcpService {
 fn test_config() -> DhcpConfig {
     DhcpConfig {
         enabled: true,
+        gateway_ip: Ipv4Addr::new(192, 168, 1, 1),
         pool_start: Ipv4Addr::new(192, 168, 1, 100),
         pool_end: Ipv4Addr::new(192, 168, 1, 200),
         subnet_mask: Ipv4Addr::new(255, 255, 255, 0),

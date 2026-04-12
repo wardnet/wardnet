@@ -104,6 +104,8 @@ pub struct RoutingServiceImpl {
     nftables: Arc<dyn FirewallManager>,
     /// Global default routing policy from config (e.g. "direct").
     default_policy: String,
+    /// LAN interface name (e.g. "eth1") for the base masquerade rule.
+    lan_interface: String,
     /// Mutable in-memory state protected by a mutex.
     state: Mutex<RoutingState>,
 }
@@ -117,6 +119,7 @@ impl RoutingServiceImpl {
         netlink: Arc<dyn PolicyRouter>,
         nftables: Arc<dyn FirewallManager>,
         default_policy: String,
+        lan_interface: String,
     ) -> Self {
         Self {
             devices,
@@ -125,6 +128,7 @@ impl RoutingServiceImpl {
             netlink,
             nftables,
             default_policy,
+            lan_interface,
             state: Mutex::new(RoutingState {
                 applied: HashMap::new(),
                 tunnel_tables: HashSet::new(),
@@ -204,10 +208,20 @@ impl RoutingServiceImpl {
         }
     }
 
+    /// Maximum number of retries when `add_route_table` fails because the
+    /// kernel interface is not yet UP.
+    const ROUTE_ADD_MAX_RETRIES: u32 = 5;
+
+    /// Delay between retries when waiting for the interface to come UP.
+    const ROUTE_ADD_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
     /// Ensure the routing table for a tunnel interface is configured.
     ///
     /// Adds a default route through the interface and a masquerade rule if the
-    /// table hasn't been set up yet.
+    /// table hasn't been set up yet. The kernel interface may not be fully UP
+    /// when the daemon's internal state transitions, so `add_route_table` is
+    /// retried up to [`Self::ROUTE_ADD_MAX_RETRIES`] times with a short delay
+    /// if the error indicates the device is not yet ready.
     async fn ensure_tunnel_table(
         &self,
         state: &mut RoutingState,
@@ -226,7 +240,36 @@ impl RoutingServiceImpl {
                 table,
                 "setting up new tunnel routing table"
             );
-            self.netlink.add_route_table(interface_name, table).await?;
+            let mut last_err = None;
+            for attempt in 0..=Self::ROUTE_ADD_MAX_RETRIES {
+                match self.netlink.add_route_table(interface_name, table).await {
+                    Ok(()) => {
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        let is_not_up = msg.contains("not up") || msg.contains("not ready");
+                        if is_not_up && attempt < Self::ROUTE_ADD_MAX_RETRIES {
+                            tracing::debug!(
+                                interface = interface_name,
+                                table,
+                                attempt = attempt + 1,
+                                max_retries = Self::ROUTE_ADD_MAX_RETRIES,
+                                error = %e,
+                                "interface not yet UP, retrying after delay"
+                            );
+                            tokio::time::sleep(Self::ROUTE_ADD_RETRY_DELAY).await;
+                            last_err = Some(e);
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            if let Some(e) = last_err {
+                return Err(e);
+            }
             tracing::debug!(
                 interface = interface_name,
                 table,
@@ -795,6 +838,14 @@ impl RoutingService for RoutingServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         tracing::debug!("nftables table flushed");
+
+        // Add base LAN masquerade rule so forwarded traffic from devices using
+        // the Pi as their gateway gets NAT'd for the upstream router.
+        tracing::debug!(interface = %self.lan_interface, "adding LAN masquerade rule");
+        self.nftables
+            .add_masquerade(&self.lan_interface)
+            .await
+            .map_err(AppError::Internal)?;
 
         // Clear in-memory state since we flushed kernel state.
         {

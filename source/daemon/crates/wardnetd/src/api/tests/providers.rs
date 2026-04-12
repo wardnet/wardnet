@@ -172,6 +172,8 @@ fn build_state(provider_svc: impl ProviderService + 'static) -> AppState {
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )

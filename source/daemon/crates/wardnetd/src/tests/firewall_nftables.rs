@@ -254,7 +254,7 @@ async fn add_masquerade_sends_correct_command() {
             "wg_ward0",
             "masquerade",
             "comment",
-            "wardnet:wg_ward0",
+            "\"wardnet:wg_ward0\"",
         ]
     );
 }
@@ -355,7 +355,7 @@ async fn add_dns_redirect_sends_correct_command() {
             "to",
             "10.5.0.1",
             "comment",
-            "wardnet:dns:192.168.1.100",
+            "\"wardnet:dns:192.168.1.100\"",
         ]
     );
 }

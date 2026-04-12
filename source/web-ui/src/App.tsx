@@ -9,9 +9,13 @@ import Dashboard from "@/pages/Dashboard";
 import Devices from "@/pages/Devices";
 import Tunnels from "@/pages/Tunnels";
 import Settings from "@/pages/Settings";
+import Dhcp from "@/pages/Dhcp";
+import Dns from "@/pages/Dns";
+import AdBlocking from "@/pages/AdBlocking";
 import MyDevice from "@/pages/MyDevice";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
+import NotFound from "@/pages/NotFound";
 
 /** Route guard that redirects to /login if not admin. */
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -86,6 +90,30 @@ export default function App() {
           }
         />
         <Route
+          path="dhcp"
+          element={
+            <AdminRoute>
+              <Dhcp />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="dns"
+          element={
+            <AdminRoute>
+              <Dns />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="ad-blocking"
+          element={
+            <AdminRoute>
+              <AdBlocking />
+            </AdminRoute>
+          }
+        />
+        <Route
           path="settings"
           element={
             <AdminRoute>
@@ -94,6 +122,7 @@ export default function App() {
           }
         />
       </Route>
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

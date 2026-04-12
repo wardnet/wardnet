@@ -370,6 +370,7 @@ impl EventPublisher for StubEventPublisher {
 /// Useful as a starting point for tests that only need one or two real
 /// services. Tests requiring custom services should construct `AppState::new()`
 /// directly, replacing the stub(s) they care about.
+#[allow(dead_code)]
 pub fn test_app_state() -> AppState {
     AppState::new(
         Arc::new(StubAuthService),
@@ -380,7 +381,10 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )

@@ -110,6 +110,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
     }
@@ -241,6 +249,9 @@ impl TunnelService for MockTunnelService {
 struct MockNetlink {
     calls: Arc<Mutex<Vec<String>>>,
     wardnet_rules: Vec<(String, u32)>,
+    /// Number of times `add_route_table` should fail with "not up" before
+    /// succeeding. Used to test the retry logic in `ensure_tunnel_table`.
+    route_add_failures_remaining: Arc<Mutex<u32>>,
 }
 
 #[async_trait]
@@ -258,6 +269,11 @@ impl PolicyRouter for MockNetlink {
             .lock()
             .await
             .push(format!("add_route_table:{interface}:{table}"));
+        let mut remaining = self.route_add_failures_remaining.lock().await;
+        if *remaining > 0 {
+            *remaining -= 1;
+            anyhow::bail!("Error: Device for nexthop is not up.");
+        }
         Ok(())
     }
 
@@ -500,6 +516,7 @@ fn setup_with_devices_and_tunnel(
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: vec![],
+        route_add_failures_remaining: Arc::new(Mutex::new(0)),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -512,6 +529,7 @@ fn setup_with_devices_and_tunnel(
         netlink,
         nftables,
         default_policy,
+        "eth0".to_owned(),
     );
 
     TestSetup {
@@ -548,6 +566,54 @@ fn setup_with_orphaned_rules(
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: kernel_rules,
+        route_add_failures_remaining: Arc::new(Mutex::new(0)),
+    });
+    let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
+        calls: nftables_calls.clone(),
+    });
+
+    let routing = RoutingServiceImpl::new(
+        device_repo,
+        tunnel_repo,
+        tunnel_svc,
+        netlink,
+        nftables,
+        "direct".to_owned(),
+    );
+
+    TestSetup {
+        routing,
+        netlink_calls,
+        nftables_calls,
+        bring_ups,
+        tear_downs,
+    }
+}
+
+/// Build a `TestSetup` where `add_route_table` fails the first N calls with a
+/// "not up" error before succeeding. Used to test the retry logic.
+fn setup_with_route_add_failures(failures: u32) -> TestSetup {
+    let netlink_calls = Arc::new(Mutex::new(Vec::new()));
+    let nftables_calls = Arc::new(Mutex::new(Vec::new()));
+    let bring_ups = Arc::new(Mutex::new(Vec::new()));
+    let tear_downs = Arc::new(Mutex::new(Vec::new()));
+
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo {
+        devices: vec![],
+        rules: HashMap::new(),
+    });
+    let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(MockTunnelRepo {
+        config: Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+    });
+    let tunnel_svc: Arc<dyn TunnelService> = Arc::new(MockTunnelService {
+        tunnel: Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        bring_ups: bring_ups.clone(),
+        tear_downs: tear_downs.clone(),
+    });
+    let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
+        calls: netlink_calls.clone(),
+        wardnet_rules: vec![],
+        route_add_failures_remaining: Arc::new(Mutex::new(failures)),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1202,4 +1268,78 @@ async fn devices_using_tunnel_returns_correct_list() {
         .await
         .unwrap();
     assert!(empty.is_empty(), "no devices should use unknown tunnel");
+}
+
+// -- Tests: ensure_tunnel_table retry logic -----------------------------------
+
+#[tokio::test]
+async fn ensure_tunnel_table_retries_on_interface_not_up() {
+    // Fail twice with "not up", then succeed on the third attempt.
+    let ts = setup_with_route_add_failures(2);
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &target),
+    )
+    .await
+    .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+
+    // add_route_table should have been called 3 times (2 failures + 1 success).
+    let route_add_count = nl
+        .iter()
+        .filter(|c| c.starts_with("add_route_table:"))
+        .count();
+    assert_eq!(
+        route_add_count, 3,
+        "expected 3 add_route_table calls (2 retries + 1 success): {nl:?}"
+    );
+
+    // The ip rule should still be added after the retry succeeds.
+    assert!(
+        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        "expected add_ip_rule after successful retry: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn ensure_tunnel_table_falls_back_to_direct_after_max_retries() {
+    // Fail more times than the retry limit (max retries is 5, so 6+ failures
+    // means it exhausts all attempts). We use 10 to be safely above the limit.
+    let ts = setup_with_route_add_failures(10);
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+
+    // Should not return an error — the apply_rule method catches
+    // ensure_tunnel_table failures and falls back to direct.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &target),
+    )
+    .await
+    .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+
+    // add_route_table should have been called max_retries + 1 times (6 total).
+    let route_add_count = nl
+        .iter()
+        .filter(|c| c.starts_with("add_route_table:"))
+        .count();
+    assert_eq!(
+        route_add_count, 6,
+        "expected 6 add_route_table calls (initial + 5 retries): {nl:?}"
+    );
+
+    // No ip rule should be added since we fell back to direct.
+    let has_add_ip = nl.iter().any(|c| c.starts_with("add_ip_rule"));
+    assert!(
+        !has_add_ip,
+        "no ip rule expected after exhausted retries: {nl:?}"
+    );
 }

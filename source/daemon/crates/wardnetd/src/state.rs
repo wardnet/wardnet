@@ -2,7 +2,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::config::Config;
+use crate::dhcp::server::DhcpServer;
 use crate::event::EventPublisher;
+use crate::log_broadcast::LogBroadcaster;
+use crate::recent_errors::RecentErrors;
 use crate::service::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, ProviderService,
     RoutingService, SystemService, TunnelService,
@@ -26,7 +29,10 @@ struct Inner {
     routing_service: Arc<dyn RoutingService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
+    dhcp_server: Arc<dyn DhcpServer>,
     event_publisher: Arc<dyn EventPublisher>,
+    log_broadcaster: LogBroadcaster,
+    recent_errors: RecentErrors,
     config: Config,
     started_at: Instant,
 }
@@ -43,7 +49,10 @@ impl AppState {
         routing_service: Arc<dyn RoutingService>,
         system_service: Arc<dyn SystemService>,
         tunnel_service: Arc<dyn TunnelService>,
+        dhcp_server: Arc<dyn DhcpServer>,
         event_publisher: Arc<dyn EventPublisher>,
+        log_broadcaster: LogBroadcaster,
+        recent_errors: RecentErrors,
         config: Config,
         started_at: Instant,
     ) -> Self {
@@ -57,7 +66,10 @@ impl AppState {
                 routing_service,
                 system_service,
                 tunnel_service,
+                dhcp_server,
                 event_publisher,
+                log_broadcaster,
+                recent_errors,
                 config,
                 started_at,
             }),
@@ -110,6 +122,24 @@ impl AppState {
     #[must_use]
     pub fn event_publisher(&self) -> &dyn EventPublisher {
         self.inner.event_publisher.as_ref()
+    }
+
+    /// Access the DHCP server for start/stop control.
+    #[must_use]
+    pub fn dhcp_server(&self) -> &dyn DhcpServer {
+        self.inner.dhcp_server.as_ref()
+    }
+
+    /// Access the log broadcaster for WebSocket log streaming.
+    #[must_use]
+    pub fn log_broadcaster(&self) -> &LogBroadcaster {
+        &self.inner.log_broadcaster
+    }
+
+    /// Access the recent errors buffer.
+    #[must_use]
+    pub fn recent_errors(&self) -> &RecentErrors {
+        &self.inner.recent_errors
     }
 
     #[must_use]

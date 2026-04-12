@@ -185,6 +185,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(i64::try_from(self.devices.lock().unwrap().len()).unwrap_or(0))
     }
@@ -283,7 +291,7 @@ fn build_harness_with_devices(devices: Vec<Device>) -> TestHarness {
     let repo = Arc::new(MockDeviceRepo::with_devices(devices));
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::new());
-    let svc = DeviceDiscoveryServiceImpl::new(repo.clone(), events.clone(), resolver);
+    let svc = DeviceDiscoveryServiceImpl::new(repo.clone(), events.clone(), resolver, "10.0.0.0/24".parse().unwrap());
 
     TestHarness { svc, repo, events }
 }
@@ -295,7 +303,7 @@ fn build_harness_with_resolver(
     let repo = Arc::new(MockDeviceRepo::with_devices(devices));
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::with_mappings(resolver_mappings));
-    let svc = DeviceDiscoveryServiceImpl::new(repo.clone(), events.clone(), resolver);
+    let svc = DeviceDiscoveryServiceImpl::new(repo.clone(), events.clone(), resolver, "10.0.0.0/24".parse().unwrap());
 
     TestHarness { svc, repo, events }
 }

@@ -19,8 +19,10 @@ use wardnet_types::routing::RoutingTarget;
 
 use crate::config::Config;
 use crate::error::AppError;
+use crate::log_broadcast::LogBroadcaster;
+use crate::recent_errors::RecentErrors;
 use crate::service::auth::LoginResult;
-use crate::service::{AuthService, DeviceDiscoveryService, DeviceService};
+use crate::service::{AuthService, DeviceDiscoveryService, DeviceService, DhcpService};
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDhcpService, StubEventPublisher, StubProviderService, StubRoutingService,
@@ -103,6 +105,7 @@ impl DeviceService for MockDeviceService {
             device: self.device.clone(),
             current_rule: self.rule.clone(),
             admin_locked: self.admin_locked,
+            available_tunnels: vec![],
         })
     }
 
@@ -129,6 +132,95 @@ impl DeviceService for MockDeviceService {
 
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         Ok(())
+    }
+}
+
+/// Mock `DhcpService` that returns configurable leases and reservations.
+///
+/// All mutating methods delegate to `StubDhcpService` (i.e. panic).
+/// Only the read methods used by the device list enrichment are implemented.
+struct MockDhcpService {
+    leases: Vec<wardnet_types::dhcp::DhcpLease>,
+    reservations: Vec<wardnet_types::dhcp::DhcpReservation>,
+}
+
+impl MockDhcpService {
+    fn empty() -> Self {
+        Self {
+            leases: vec![],
+            reservations: vec![],
+        }
+    }
+}
+
+#[async_trait]
+impl DhcpService for MockDhcpService {
+    async fn get_config(&self) -> Result<wardnet_types::api::DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _r: wardnet_types::api::UpdateDhcpConfigRequest,
+    ) -> Result<wardnet_types::api::DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn toggle(
+        &self,
+        _r: wardnet_types::api::ToggleDhcpRequest,
+    ) -> Result<wardnet_types::api::DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_leases(&self) -> Result<wardnet_types::api::ListDhcpLeasesResponse, AppError> {
+        Ok(wardnet_types::api::ListDhcpLeasesResponse {
+            leases: self.leases.clone(),
+        })
+    }
+    async fn revoke_lease(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_types::api::RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_reservations(
+        &self,
+    ) -> Result<wardnet_types::api::ListDhcpReservationsResponse, AppError> {
+        Ok(wardnet_types::api::ListDhcpReservationsResponse {
+            reservations: self.reservations.clone(),
+        })
+    }
+    async fn create_reservation(
+        &self,
+        _r: wardnet_types::api::CreateDhcpReservationRequest,
+    ) -> Result<wardnet_types::api::CreateDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_types::api::DeleteDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnet_types::api::DhcpStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn assign_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<wardnet_types::dhcp::DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn renew_lease(&self, _mac: &str) -> Result<wardnet_types::dhcp::DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+    async fn get_dhcp_config(&self) -> Result<wardnet_types::dhcp::DhcpConfig, AppError> {
+        unimplemented!()
     }
 }
 
@@ -211,16 +303,26 @@ fn build_state(
     device_svc: impl DeviceService + 'static,
     discovery_svc: impl DeviceDiscoveryService + 'static,
 ) -> AppState {
+    build_state_with_dhcp(device_svc, discovery_svc, StubDhcpService)
+}
+
+fn build_state_with_dhcp(
+    device_svc: impl DeviceService + 'static,
+    discovery_svc: impl DeviceDiscoveryService + 'static,
+    dhcp_svc: impl DhcpService + 'static,
+) -> AppState {
     AppState::new(
         Arc::new(MockAuthService),
         Arc::new(device_svc),
-        Arc::new(StubDhcpService),
+        Arc::new(dhcp_svc),
         Arc::new(discovery_svc),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubEventPublisher),
+        LogBroadcaster::new(16),
+        RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )
@@ -430,11 +532,12 @@ async fn set_my_rule_bad_json_returns_error() {
 #[tokio::test]
 async fn list_devices_returns_all() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -442,13 +545,16 @@ async fn list_devices_returns_all() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["devices"].as_array().unwrap().len(), 1);
     assert_eq!(json["devices"][0]["mac"], "AA:BB:CC:DD:EE:01");
+    // No lease or reservation for this device, so dhcp_status should be "external".
+    assert_eq!(json["devices"][0]["dhcp_status"], "external");
 }
 
 #[tokio::test]
 async fn list_devices_returns_empty() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -459,9 +565,10 @@ async fn list_devices_returns_empty() {
 
 #[tokio::test]
 async fn list_devices_unauthorized_without_session() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -486,25 +593,28 @@ async fn list_devices_unauthorized_without_session() {
 #[tokio::test]
 async fn get_device_by_id_success() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
     let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["device"]["mac"], "AA:BB:CC:DD:EE:01");
+    assert_eq!(json["mac"], "AA:BB:CC:DD:EE:01");
     assert_eq!(json["current_rule"]["type"], "direct");
+    assert_eq!(json["dhcp_status"], "external");
 }
 
 #[tokio::test]
 async fn get_device_by_id_not_found() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -515,9 +625,10 @@ async fn get_device_by_id_not_found() {
 
 #[tokio::test]
 async fn get_device_by_id_invalid_uuid() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -533,11 +644,12 @@ async fn get_device_by_id_invalid_uuid() {
 #[tokio::test]
 async fn update_device_success() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -548,17 +660,19 @@ async fn update_device_success() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["device"]["name"], "Renamed Device");
+    // DeviceDetailResponse uses flatten, so fields are at the top level.
+    assert_eq!(json["name"], "Renamed Device");
 }
 
 #[tokio::test]
 async fn update_device_with_type() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -569,14 +683,16 @@ async fn update_device_with_type() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json["device"].is_object());
+    // With flatten, device fields are at the top level.
+    assert!(json["mac"].is_string());
 }
 
 #[tokio::test]
 async fn update_device_invalid_uuid() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -587,9 +703,10 @@ async fn update_device_invalid_uuid() {
 
 #[tokio::test]
 async fn update_device_not_found() {
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
         MockDiscoveryService { devices: vec![] },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -610,11 +727,12 @@ async fn update_device_not_found() {
 #[tokio::test]
 async fn update_device_with_routing_target() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
@@ -630,11 +748,12 @@ async fn update_device_with_routing_target() {
 #[tokio::test]
 async fn update_device_with_admin_locked() {
     let device = sample_device();
-    let state = build_state(
+    let state = build_state_with_dhcp(
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
         },
+        MockDhcpService::empty(),
     );
     let app = device_router(state);
 
