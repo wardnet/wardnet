@@ -55,7 +55,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # https://crates.io/crates/rust-embed
 rust-embed = { version = "8", features = ["axum"] }
 # https://crates.io/crates/toml
-toml = "1.0"
+toml = "1.1"
 
 # https://crates.io/crates/tracing-subscriber
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
