@@ -620,6 +620,27 @@ impl RoutingService for RoutingServiceImpl {
             );
         }
 
+        // Flush conntrack for this device's source IP so existing flows are
+        // not pinned to the previous route by NAT/conntrack state. Must run
+        // *after* the new ip rule is in place so re-opened connections pick
+        // up the new table. Also flush the kernel route cache to discard any
+        // ICMP-redirect hints or cached next-hop decisions from the old path.
+        // Both are non-fatal on failure.
+        drop(state);
+        if let Err(e) = self.netlink.flush_conntrack(device_ip).await {
+            tracing::warn!(
+                error = %e,
+                device_ip,
+                "failed to flush conntrack (existing flows may stay on previous route)"
+            );
+        }
+        if let Err(e) = self.netlink.flush_route_cache().await {
+            tracing::warn!(
+                error = %e,
+                "failed to flush route cache (new packets may follow cached path briefly)"
+            );
+        }
+
         Ok(())
     }
 
@@ -712,13 +733,18 @@ impl RoutingService for RoutingServiceImpl {
             );
         }
 
-        // Remove kernel state for each affected device.
+        // Remove kernel state for each affected device, capturing IPs so we
+        // can flush their conntrack entries after releasing the lock.
+        let mut affected_ips: Vec<String> = Vec::with_capacity(affected.len());
         for device_id in &affected {
             tracing::warn!(
                 device_id = %device_id,
                 tunnel_id = %tunnel_id,
                 "tunnel down — removing routing for device"
             );
+            if let Some(rule) = state.applied.get(device_id) {
+                affected_ips.push(rule.device_ip.clone());
+            }
             self.remove_device_kernel_state(&mut state, *device_id)
                 .await;
         }
@@ -736,6 +762,25 @@ impl RoutingService for RoutingServiceImpl {
             // We can't easily remove a specific masquerade rule by table alone,
             // but the nftables flush on reconcile will handle cleanup.
             state.tunnel_tables.remove(&table);
+        }
+
+        // Release the lock before flushing conntrack for affected devices —
+        // without this, existing flows stay pinned to the now-dead tunnel
+        // route instead of falling back to the default route.
+        drop(state);
+        for ip in &affected_ips {
+            if let Err(e) = self.netlink.flush_conntrack(ip).await {
+                tracing::warn!(
+                    error = %e,
+                    device_ip = %ip,
+                    "failed to flush conntrack after tunnel down"
+                );
+            }
+        }
+        if !affected_ips.is_empty()
+            && let Err(e) = self.netlink.flush_route_cache().await
+        {
+            tracing::warn!(error = %e, "failed to flush route cache after tunnel down");
         }
 
         tracing::debug!(

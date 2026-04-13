@@ -157,6 +157,58 @@ impl PolicyRouter for IproutePolicyRouter {
         parse_wardnet_rules(&output)
     }
 
+    async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
+        // `conntrack -D -s <ip>` deletes tracked flows whose original source
+        // matches. conntrack prints each deleted entry to stdout and a summary
+        // "N flow entries have been deleted." to stderr. When N > 0 it exits 0;
+        // when N = 0 ("0 flow entries have been deleted.") it exits non-zero.
+        // Both are benign here.
+        let output = match self.executor.run("conntrack", &["-D", "-s", src_ip]).await {
+            Ok(o) => o,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::warn!(
+                    "`conntrack` command not found; install conntrack to enable \
+                     conntrack flushing on routing changes (without it, existing \
+                     flows stay pinned to their previous route)"
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(anyhow::anyhow!("failed to execute `conntrack`: {e}")),
+        };
+
+        // Count deleted flows from the stderr summary. The line looks like:
+        //   `conntrack v1.4.7 (conntrack-tools): 7 flow entries have been deleted.`
+        // Find the integer immediately preceding "flow entries".
+        let deleted = output
+            .stderr
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .find_map(|w| (w[1] == "flow").then(|| w[0].parse::<u32>().ok()).flatten())
+            .unwrap_or(0);
+
+        if output.success || output.stderr.contains("flow entries have been deleted") {
+            tracing::info!(
+                src_ip,
+                deleted,
+                "flushed conntrack entries for source IP"
+            );
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "`conntrack -D -s {}` failed: {}",
+            src_ip,
+            output.stderr.trim()
+        )
+    }
+
+    async fn flush_route_cache(&self) -> anyhow::Result<()> {
+        self.run("ip", &["route", "flush", "cache"]).await?;
+        tracing::info!("flushed kernel route cache");
+        Ok(())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         self.run("ip", &["-V"])
             .await

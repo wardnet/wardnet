@@ -313,6 +313,22 @@ impl PolicyRouter for MockNetlink {
         Ok(self.wardnet_rules.clone())
     }
 
+    async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("flush_conntrack:{src_ip}"));
+        Ok(())
+    }
+
+    async fn flush_route_cache(&self) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push("flush_route_cache".to_owned());
+        Ok(())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         self.calls
             .lock()

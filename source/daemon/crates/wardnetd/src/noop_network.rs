@@ -99,6 +99,16 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(vec![])
     }
 
+    async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
+        tracing::info!(src_ip, "noop: flush conntrack");
+        Ok(())
+    }
+
+    async fn flush_route_cache(&self) -> anyhow::Result<()> {
+        tracing::info!("noop: flush route cache");
+        Ok(())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         tracing::info!("noop: check tools available");
         Ok(())

@@ -138,7 +138,7 @@ deploy-prod: build-pi
 	@test -n "$(PI_HOST)" || { echo "Error: PI_HOST is required"; exit 1; }
 	@echo "=== Deploying wardnet to production on $(PI_HOST) ==="
 	@echo "Installing prerequisites..."
-	ssh $(PI_REMOTE) 'sudo apt-get install -y -qq procps iproute2 nftables wireguard-tools 2>/dev/null'
+	ssh $(PI_REMOTE) 'sudo apt-get install -y -qq procps iproute2 nftables wireguard-tools conntrack 2>/dev/null'
 	@echo "Running install script..."
 	scp deploy/install.sh deploy/wardnetd.service $(PI_REMOTE):/tmp/
 	ssh $(PI_REMOTE) 'sudo bash /tmp/install.sh --lan-interface $(PI_LAN_IF) && rm /tmp/install.sh /tmp/wardnetd.service'
