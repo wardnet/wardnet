@@ -33,11 +33,17 @@ export default function Dashboard() {
       <div className="flex flex-col gap-6">
         {/* Stat cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <DashboardStatCard title="Devices" value={deviceCount} subtitle="on the network" />
+          <DashboardStatCard
+            title="Devices"
+            value={deviceCount}
+            subtitle="on the network"
+            to="/devices"
+          />
           <DashboardStatCard
             title="Tunnels"
             value={tunnelCount}
             subtitle={`${activeTunnels} active`}
+            to="/tunnels"
           />
           {status && (
             <>
@@ -57,7 +63,7 @@ export default function Dashboard() {
                 subtitle={`of ${formatBytes(status.memory_total_bytes)}`}
                 usagePercent={memoryPercent}
               />
-              <DhcpSummaryCard status={dhcpStatus} />
+              <DhcpSummaryCard status={dhcpStatus} to="/dhcp" />
             </>
           )}
         </div>

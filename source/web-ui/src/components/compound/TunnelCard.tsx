@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
@@ -80,8 +81,15 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           </div>
           <div>
             <span className="text-muted-foreground">Traffic</span>
-            <p className="text-xs">
-              {formatBytes(tunnel.bytes_tx)} up / {formatBytes(tunnel.bytes_rx)} down
+            <p className="flex items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-0.5">
+                <ArrowUp className="size-3" aria-label="up" />
+                {formatBytes(tunnel.bytes_tx)}
+              </span>
+              <span className="inline-flex items-center gap-0.5">
+                <ArrowDown className="size-3" aria-label="down" />
+                {formatBytes(tunnel.bytes_rx)}
+              </span>
             </p>
           </div>
           <div>

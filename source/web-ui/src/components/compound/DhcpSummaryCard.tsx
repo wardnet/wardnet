@@ -1,20 +1,23 @@
+import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Badge } from "@/components/core/ui/badge";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpSummaryCardProps {
   status: DhcpStatusResponse | undefined;
+  /** If provided, wraps the card in a router Link to this path. */
+  to?: string;
 }
 
 /** Compact DHCP summary card for the dashboard. */
-export function DhcpSummaryCard({ status }: DhcpSummaryCardProps) {
+export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
   if (!status) return null;
 
   const poolPercent =
     status.pool_total > 0 ? Math.round((status.pool_used / status.pool_total) * 100) : 0;
 
-  return (
-    <Card>
+  const card = (
+    <Card className={to ? "transition-colors hover:bg-accent/50" : undefined}>
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-sm font-semibold">
           DHCP
@@ -39,4 +42,13 @@ export function DhcpSummaryCard({ status }: DhcpSummaryCardProps) {
       </CardContent>
     </Card>
   );
+
+  if (to) {
+    return (
+      <Link to={to} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg">
+        {card}
+      </Link>
+    );
+  }
+  return card;
 }
