@@ -72,7 +72,7 @@ rand = "0.10"
 base64 = "0.22"
 
 # https://crates.io/crates/sha2
-sha2 = "0.10"
+sha2 = "0.11"
 # https://crates.io/crates/hex
 hex = "0.4"
 # https://crates.io/crates/mime_guess
