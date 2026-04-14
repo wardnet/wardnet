@@ -766,3 +766,157 @@ async fn update_device_with_admin_locked() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+// ---------------------------------------------------------------------------
+// DHCP status enrichment
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn list_devices_with_dhcp_lease_shows_lease_status() {
+    let device = sample_device();
+    let lease = wardnet_types::dhcp::DhcpLease {
+        id: Uuid::new_v4(),
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip_address: "192.168.1.10".parse().unwrap(),
+        hostname: None,
+        lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),
+        lease_end: "2026-04-13T01:00:00Z".parse().unwrap(),
+        status: wardnet_types::dhcp::DhcpLeaseStatus::Active,
+        device_id: Some(device.id),
+        created_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+        updated_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+    };
+
+    let dhcp = MockDhcpService {
+        leases: vec![lease],
+        reservations: vec![],
+    };
+
+    let state = build_state_with_dhcp(
+        MockDeviceService::not_found(),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        dhcp,
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["devices"][0]["dhcp_status"], "lease");
+}
+
+#[tokio::test]
+async fn list_devices_with_dhcp_reservation_shows_reservation_status() {
+    let device = sample_device();
+    let reservation = wardnet_types::dhcp::DhcpReservation {
+        id: Uuid::new_v4(),
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip_address: "192.168.1.10".parse().unwrap(),
+        hostname: None,
+        description: None,
+        created_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+        updated_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+    };
+
+    let dhcp = MockDhcpService {
+        leases: vec![],
+        reservations: vec![reservation],
+    };
+
+    let state = build_state_with_dhcp(
+        MockDeviceService::not_found(),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        dhcp,
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["devices"][0]["dhcp_status"], "reservation");
+}
+
+#[tokio::test]
+async fn list_devices_reservation_overrides_lease() {
+    let device = sample_device();
+    let lease = wardnet_types::dhcp::DhcpLease {
+        id: Uuid::new_v4(),
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip_address: "192.168.1.10".parse().unwrap(),
+        hostname: None,
+        lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),
+        lease_end: "2026-04-13T01:00:00Z".parse().unwrap(),
+        status: wardnet_types::dhcp::DhcpLeaseStatus::Active,
+        device_id: Some(device.id),
+        created_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+        updated_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+    };
+    let reservation = wardnet_types::dhcp::DhcpReservation {
+        id: Uuid::new_v4(),
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        ip_address: "192.168.1.10".parse().unwrap(),
+        hostname: None,
+        description: None,
+        created_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+        updated_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+    };
+
+    // Both lease and reservation for the same MAC -- reservation should win.
+    let dhcp = MockDhcpService {
+        leases: vec![lease],
+        reservations: vec![reservation],
+    };
+
+    let state = build_state_with_dhcp(
+        MockDeviceService::not_found(),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        dhcp,
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        json["devices"][0]["dhcp_status"], "reservation",
+        "reservation should override lease"
+    );
+}
+
+#[tokio::test]
+async fn get_device_by_id_includes_dhcp_status() {
+    let device = sample_device();
+    let lease = wardnet_types::dhcp::DhcpLease {
+        id: Uuid::new_v4(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(), // lowercase MAC
+        ip_address: "192.168.1.10".parse().unwrap(),
+        hostname: None,
+        lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),
+        lease_end: "2026-04-13T01:00:00Z".parse().unwrap(),
+        status: wardnet_types::dhcp::DhcpLeaseStatus::Active,
+        device_id: Some(device.id),
+        created_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+        updated_at: "2026-04-13T00:00:00Z".parse().unwrap(),
+    };
+
+    let dhcp = MockDhcpService {
+        leases: vec![lease],
+        reservations: vec![],
+    };
+
+    let state = build_state_with_dhcp(
+        MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        dhcp,
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["device"]["dhcp_status"], "lease");
+}

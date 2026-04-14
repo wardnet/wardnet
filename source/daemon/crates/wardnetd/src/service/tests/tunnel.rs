@@ -293,6 +293,19 @@ impl EventPublisher for MockEventPublisher {
 
 struct MockDeviceRepoForTunnel;
 
+/// Device repo mock that returns device IDs when a tunnel's rules are switched.
+struct MockDeviceRepoWithSwitchedDevices {
+    switched_device_ids: Vec<String>,
+}
+
+impl MockDeviceRepoWithSwitchedDevices {
+    fn new(device_ids: Vec<String>) -> Self {
+        Self {
+            switched_device_ids: device_ids,
+        }
+    }
+}
+
 #[async_trait]
 impl DeviceRepository for MockDeviceRepoForTunnel {
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
@@ -351,6 +364,64 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     }
 }
 
+#[async_trait]
+impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
+    async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
+    async fn insert(&self, _d: &crate::repository::device::DeviceRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_and_ip(&self, _id: &str, _ip: &str, _ts: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_hostname(&self, _id: &str, _h: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _t: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
+    async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        Ok(None)
+    }
+    async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(self.switched_device_ids.clone())
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 struct TestHarness {
@@ -363,6 +434,28 @@ struct TestHarness {
 fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
+    let tunnel_iface = Arc::new(MockTunnelInterface::new());
+    let keys = Arc::new(MockKeyStore::new());
+    let events = Arc::new(MockEventPublisher::new());
+
+    let svc = TunnelServiceImpl::new(
+        repo,
+        device_repo,
+        tunnel_iface.clone(),
+        keys.clone(),
+        events.clone(),
+    );
+
+    TestHarness {
+        svc,
+        tunnel_iface,
+        events,
+        keys,
+    }
+}
+
+fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> TestHarness {
+    let repo = Arc::new(MockTunnelRepo::new());
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
@@ -765,6 +858,128 @@ async fn restore_tunnels_succeeds() {
     h.svc.restore_tunnels().await.unwrap();
 
     // No WireGuard calls should have been made by restore.
+    assert!(h.tunnel_iface.created.lock().unwrap().is_empty());
+    assert!(h.tunnel_iface.brought_up.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn delete_tunnel_switches_device_rules_and_emits_events() {
+    let device_id = Uuid::new_v4();
+    let device_repo = Arc::new(MockDeviceRepoWithSwitchedDevices::new(vec![
+        device_id.to_string(),
+    ]));
+    let h = build_harness_with_device_repo(device_repo);
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let tunnel_id = resp.tunnel.id;
+
+    let del = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(tunnel_id))
+        .await
+        .unwrap();
+    assert!(del.message.contains("Sweden VPN"));
+
+    // Verify RoutingRuleChanged events were emitted for each switched device.
+    let events = h.events.published_events();
+    let routing_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, WardnetEvent::RoutingRuleChanged { .. }))
+        .collect();
+    assert_eq!(
+        routing_events.len(),
+        1,
+        "should emit one RoutingRuleChanged event"
+    );
+    match &routing_events[0] {
+        WardnetEvent::RoutingRuleChanged {
+            device_id: did,
+            target,
+            previous_target,
+            ..
+        } => {
+            assert_eq!(*did, device_id);
+            assert!(matches!(
+                target,
+                wardnet_types::routing::RoutingTarget::Direct
+            ));
+            assert!(matches!(
+                previous_target,
+                Some(wardnet_types::routing::RoutingTarget::Tunnel { tunnel_id: tid }) if *tid == tunnel_id
+            ));
+        }
+        _ => panic!("expected RoutingRuleChanged event"),
+    }
+}
+
+#[tokio::test]
+async fn delete_tunnel_with_multiple_switched_devices() {
+    let d1 = Uuid::new_v4();
+    let d2 = Uuid::new_v4();
+    let device_repo = Arc::new(MockDeviceRepoWithSwitchedDevices::new(vec![
+        d1.to_string(),
+        d2.to_string(),
+    ]));
+    let h = build_harness_with_device_repo(device_repo);
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let tunnel_id = resp.tunnel.id;
+
+    auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(tunnel_id))
+        .await
+        .unwrap();
+
+    let events = h.events.published_events();
+    let routing_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, WardnetEvent::RoutingRuleChanged { .. }))
+        .collect();
+    assert_eq!(
+        routing_events.len(),
+        2,
+        "should emit RoutingRuleChanged for each switched device"
+    );
+}
+
+#[tokio::test]
+async fn delete_tunnel_with_invalid_device_id_skips_event() {
+    // If switch_tunnel_rules_to_direct returns a non-UUID string, the code
+    // should skip it (the `if let Ok(device_id) = ...parse()` guard).
+    let device_repo = Arc::new(MockDeviceRepoWithSwitchedDevices::new(vec![
+        "not-a-uuid".to_owned(),
+        Uuid::new_v4().to_string(),
+    ]));
+    let h = build_harness_with_device_repo(device_repo);
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let tunnel_id = resp.tunnel.id;
+
+    auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(tunnel_id))
+        .await
+        .unwrap();
+
+    let events = h.events.published_events();
+    let routing_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, WardnetEvent::RoutingRuleChanged { .. }))
+        .collect();
+    // Only the valid UUID should produce an event.
+    assert_eq!(
+        routing_events.len(),
+        1,
+        "invalid device ID should be skipped"
+    );
+}
+
+#[tokio::test]
+async fn restore_tunnels_empty_db_succeeds() {
+    let h = build_harness();
+    h.svc.restore_tunnels().await.unwrap();
+
     assert!(h.tunnel_iface.created.lock().unwrap().is_empty());
     assert!(h.tunnel_iface.brought_up.lock().unwrap().is_empty());
 }
