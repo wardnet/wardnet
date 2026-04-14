@@ -208,7 +208,10 @@ impl TunnelService for StubTunnelService {
         unimplemented!()
     }
     async fn list_tunnels(&self) -> Result<ListTunnelsResponse, AppError> {
-        unimplemented!()
+        // Return empty — several API handlers enrich their responses with the
+        // tunnel list, and tests that don't care about tunnels would otherwise
+        // panic. Tests that need specific tunnels plug in their own mock.
+        Ok(ListTunnelsResponse { tunnels: vec![] })
     }
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
         unimplemented!()
@@ -370,6 +373,7 @@ impl EventPublisher for StubEventPublisher {
 /// Useful as a starting point for tests that only need one or two real
 /// services. Tests requiring custom services should construct `AppState::new()`
 /// directly, replacing the stub(s) they care about.
+#[allow(dead_code)]
 pub fn test_app_state() -> AppState {
     AppState::new(
         Arc::new(StubAuthService),
@@ -380,7 +384,10 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )

@@ -1,0 +1,20 @@
+[Unit]
+Description=Wardnet Daemon (dev)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# User/Group and ExecStart are set by `make run-pi` via sed before installing
+User=WARDNET_USER
+Group=WARDNET_USER
+ExecStart=WARDNET_HOME/wardnetd --config WARDNET_HOME/wardnet-dev/wardnet.toml --verbose
+Restart=no
+
+# Capabilities — inherited by all child processes (ip, nft, sysctl)
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+
+# Logging to journal (use journalctl -u wardnetd-dev to view)
+StandardOutput=journal
+StandardError=journal

@@ -17,6 +17,8 @@ pub struct CreateTunnelParams {
 pub enum TunnelConfig {
     /// `WireGuard` tunnel configuration.
     WireGuard {
+        /// Interface addresses from the `[Interface] Address` field (e.g. `10.99.1.2/24`).
+        address: Vec<IpNetwork>,
         /// Raw 32-byte private key.
         private_key: [u8; 32],
         /// Optional listen port for incoming connections.

@@ -26,6 +26,54 @@ pub(crate) fn find_interface(name: &str) -> anyhow::Result<NetworkInterface> {
         .ok_or_else(|| anyhow::anyhow!("network interface '{name}' not found"))
 }
 
+/// Get the IPv4 address of a network interface.
+///
+/// Tries `pnet::datalink::interfaces()` first (reads `/sys/class/net/`),
+/// falls back to reading `/sys/class/net/<name>/address` + ARP table if
+/// pnet returns no IPs (e.g. due to permissions).
+pub fn get_interface_ipv4(name: &str) -> anyhow::Result<std::net::Ipv4Addr> {
+    // Primary: pnet interface list (no special permissions needed on Linux).
+    let iface = find_interface(name)?;
+    if let Some(ip) = iface.ips.iter().find_map(|ip| match ip {
+        pnet::ipnetwork::IpNetwork::V4(net) => Some(net.ip()),
+        pnet::ipnetwork::IpNetwork::V6(_) => None,
+    }) {
+        return Ok(ip);
+    }
+
+    // Fallback: read from /proc/net/fib_trie via interface index.
+    // Parse `ip -j -4 addr show <name>` if available.
+    let output = std::process::Command::new("/usr/sbin/ip")
+        .args(["-j", "-4", "addr", "show", name])
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("ip")
+                .args(["-j", "-4", "addr", "show", name])
+                .output()
+        });
+
+    if let Ok(out) = output
+        && out.status.success()
+    {
+        // JSON output: [{"addr_info":[{"local":"10.232.1.10",...}]}]
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout)
+            && let Some(ip_str) = v
+                .as_array()
+                .and_then(|arr| arr.first())
+                .and_then(|obj| obj.get("addr_info"))
+                .and_then(|ai| ai.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|info| info.get("local"))
+                .and_then(|l| l.as_str())
+            && let Ok(ip) = ip_str.parse()
+        {
+            return Ok(ip);
+        }
+    }
+
+    anyhow::bail!("no IPv4 address found on interface '{name}'")
+}
+
 /// Format a `pnet` `MacAddr` as uppercase colon-separated "AA:BB:CC:DD:EE:FF".
 pub(crate) fn format_mac(mac: MacAddr) -> String {
     format!(

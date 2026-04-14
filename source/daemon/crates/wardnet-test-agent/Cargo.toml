@@ -1,0 +1,27 @@
+[package]
+name = "wardnet-test-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# https://crates.io/crates/tokio
+tokio.workspace = true
+# https://crates.io/crates/axum
+axum.workspace = true
+# https://crates.io/crates/serde
+serde.workspace = true
+# https://crates.io/crates/serde_json
+serde_json.workspace = true
+# https://crates.io/crates/tracing
+tracing.workspace = true
+# https://crates.io/crates/tracing-subscriber
+tracing-subscriber.workspace = true
+# https://crates.io/crates/clap
+clap.workspace = true
+# https://crates.io/crates/regex
+regex.workspace = true

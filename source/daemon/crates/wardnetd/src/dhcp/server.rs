@@ -298,7 +298,10 @@ pub(crate) async fn server_loop(
         match msg_type {
             MessageType::Discover => match handle_discover(&service, &msg, &mac, &cfg).await {
                 Ok(response) => {
-                    send_response(socket.as_ref(), &response, src_addr).await;
+                    // DHCP OFFERs must be broadcast — the client has no IP yet
+                    // and can only receive broadcast packets.
+                    let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+                    send_response(socket.as_ref(), &response, broadcast).await;
                 }
                 Err(e) => {
                     tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER");
@@ -306,7 +309,15 @@ pub(crate) async fn server_loop(
             },
             MessageType::Request => match handle_request(&service, &msg, &mac, &cfg).await {
                 Ok(response) => {
-                    send_response(socket.as_ref(), &response, src_addr).await;
+                    // If the client is requesting from 0.0.0.0 (new lease), send
+                    // via broadcast. Renewals come from the client's existing IP
+                    // and can be unicast.
+                    let dest = if src_addr.ip().is_unspecified() {
+                        SocketAddr::from(([255, 255, 255, 255], 68))
+                    } else {
+                        src_addr
+                    };
+                    send_response(socket.as_ref(), &response, dest).await;
                 }
                 Err(e) => {
                     tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST");
@@ -385,11 +396,8 @@ pub(crate) fn build_response(
     lease: &DhcpLease,
     config: &DhcpConfig,
 ) -> Message {
-    // Use the server's own IP. For DHCP on LAN, this is typically the
-    // Wardnet gateway IP. We use the pool start's network as a heuristic,
-    // or the router_ip if configured. A proper implementation would detect
-    // the interface IP, but for MVP we use a sensible default.
-    let server_ip = config.router_ip.unwrap_or(config.pool_start);
+    // Wardnet's own LAN IP, auto-detected at startup from the LAN interface.
+    let server_ip = config.gateway_ip;
 
     let mut response = Message::default();
     response
@@ -415,8 +423,14 @@ pub(crate) fn build_response(
     }
     opts.insert(DhcpOption::Router(routers));
 
-    // Wardnet IS the DNS server -- advertise itself.
-    opts.insert(DhcpOption::DomainNameServer(vec![server_ip]));
+    // DNS servers: use upstream_dns from config. Once Wardnet has a built-in
+    // DNS server (Milestone 1g), this will switch to advertising the Pi itself.
+    let dns_servers = if config.upstream_dns.is_empty() {
+        vec![server_ip]
+    } else {
+        config.upstream_dns.clone()
+    };
+    opts.insert(DhcpOption::DomainNameServer(dns_servers));
 
     response
 }

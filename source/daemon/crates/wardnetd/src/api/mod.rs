@@ -2,6 +2,7 @@ pub mod auth;
 pub mod devices;
 pub mod dhcp;
 pub mod info;
+pub mod logs_ws;
 pub mod middleware;
 pub mod providers;
 pub mod setup;
@@ -42,6 +43,9 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/status", get(setup::setup_status))
         .route("/setup", post(setup::setup))
         .route("/system/status", get(system::status))
+        .route("/system/errors", get(system::recent_errors))
+        .route("/system/logs/stream", get(logs_ws::logs_ws))
+        .route("/system/logs/download", get(system::download_logs))
         .route(
             "/tunnels",
             get(tunnels::list_tunnels).post(tunnels::create_tunnel),

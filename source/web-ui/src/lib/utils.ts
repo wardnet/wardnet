@@ -46,7 +46,12 @@ export function apiRequestId(error: unknown): string | undefined {
 
 /** Format an ISO timestamp to a relative "time ago" string. */
 export function timeAgo(iso: string): string {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  const ts = new Date(iso).getTime();
+  // Treat epoch (or near-epoch — before 2000) as "never" rather than "55y ago".
+  // WireGuard / the backend may report the zero timestamp for peers that have
+  // not yet completed a handshake.
+  if (!Number.isFinite(ts) || ts < 946684800000) return "never";
+  const diff = (Date.now() - ts) / 1000;
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;

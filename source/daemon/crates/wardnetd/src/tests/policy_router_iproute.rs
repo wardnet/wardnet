@@ -347,6 +347,54 @@ async fn check_tools_fails_when_sysctl_is_missing() {
 }
 
 #[tokio::test]
+async fn flush_conntrack_sends_correct_command() {
+    let mock = Arc::new(MockCommandExecutor::new(vec![success_output("")]));
+    let router = IproutePolicyRouter::new(mock.clone());
+
+    router.flush_conntrack("192.168.1.50").await.unwrap();
+
+    let calls = mock.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].program, "conntrack");
+    assert_eq!(calls[0].args, vec!["-D", "-s", "192.168.1.50"]);
+}
+
+#[tokio::test]
+async fn flush_conntrack_tolerates_zero_entries() {
+    // conntrack exits non-zero when there's nothing to delete — that's fine.
+    let mock = Arc::new(MockCommandExecutor::new(vec![failure_output(
+        "conntrack v1.4.6 (conntrack-tools): 0 flow entries have been deleted.",
+    )]));
+    let router = IproutePolicyRouter::new(mock.clone());
+
+    router.flush_conntrack("192.168.1.50").await.unwrap();
+}
+
+#[tokio::test]
+async fn flush_conntrack_propagates_other_errors() {
+    let mock = Arc::new(MockCommandExecutor::new(vec![failure_output(
+        "conntrack: netlink error: Operation not permitted",
+    )]));
+    let router = IproutePolicyRouter::new(mock.clone());
+
+    let err = router.flush_conntrack("192.168.1.50").await.unwrap_err();
+    assert!(err.to_string().contains("Operation not permitted"));
+}
+
+#[tokio::test]
+async fn flush_route_cache_sends_correct_command() {
+    let mock = Arc::new(MockCommandExecutor::new(vec![success_output("")]));
+    let router = IproutePolicyRouter::new(mock.clone());
+
+    router.flush_route_cache().await.unwrap();
+
+    let calls = mock.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].program, "ip");
+    assert_eq!(calls[0].args, vec!["route", "flush", "cache"]);
+}
+
+#[tokio::test]
 async fn command_failure_returns_error() {
     let mock = Arc::new(MockCommandExecutor::new(vec![failure_output(
         "RTNETLINK answers: Operation not permitted",

@@ -21,7 +21,11 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make check-sdk`** — SDK typecheck + format check
 - **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
 - **`make check-daemon`** — Rust format + clippy + tests
+- **`make run-local`** — build, then run the daemon with `--mock-network` + the Vite dev server together. Daemon on `:7411`, web UI on `:7412` (proxies `/api`). Ctrl+C stops both. Data lives under `./.wardnet-local/` (gitignored). `RESUME=true` keeps the existing local DB across runs. Use this for UI changes and daemon logic that doesn't need real kernel interfaces.
 - **`make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>`** — cross-compile, deploy via SSH, run with verbose logging. Cleans database by default; `RESUME=true` keeps existing data. `OTEL=true` enables OpenTelemetry export.
+- **`make system-test`** — full E2E: build, deploy daemon + test-agent to Pi, run system tests, teardown
+- **`make system-test-setup`** — deploy and start test infrastructure on Pi (leave running)
+- **`make system-test-teardown`** — stop test environment on Pi
 - **`make clean`** — clean all build artifacts
 
 ### Direct commands (when needed)
@@ -62,7 +66,7 @@ All commands run from `source/web-ui/`. Uses **Yarn 4** (via Corepack).
 source/
 ├── daemon/                          # Rust workspace (Cargo.toml at this level)
 │   └── crates/
-│       ├── wardnet-types/           # Shared types: Device, Tunnel, RoutingTarget, VPN Provider types, Events, API DTOs
+│       ├── wardnet-types/           # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs
 │       ├── wardnetd/                # Daemon binary
 │       │   ├── build.rs             # Build script (version, OUI database generation)
 │       │   ├── data/oui.csv         # IEEE MA-L OUI database (~39K entries)
@@ -76,44 +80,64 @@ source/
 │       │       ├── state.rs         # AppState (holds service trait objects + event publisher)
 │       │       ├── event.rs         # EventPublisher trait + BroadcastEventBus
 │       │       ├── keys.rs          # KeyStore trait + FileKeyStore (private key files)
-│       │       ├── wireguard.rs     # WireGuardOps trait + types
-│       │       ├── wireguard_real.rs  # Real WireGuard impl (Linux + macOS)
-│       │       ├── wireguard_noop.rs  # No-op impl (--mock-network)
+│       │       ├── tunnel_interface.rs         # TunnelInterface trait + types (CreateTunnelParams, TunnelConfig, TunnelStats)
+│       │       ├── tunnel_interface_wireguard.rs  # WireGuard impl (Linux kernel + macOS userspace)
 │       │       ├── tunnel_monitor.rs  # Background health check + stats collection
 │       │       ├── tunnel_idle.rs     # Idle tunnel teardown on DeviceGone
+│       │       ├── firewall.rs        # FirewallManager trait (masquerade, DNS DNAT)
+│       │       ├── firewall_nftables.rs  # nftables impl via CommandExecutor
+│       │       ├── policy_router.rs      # PolicyRouter trait (ip rule, ip route, sysctl)
+│       │       ├── policy_router_iproute.rs  # iproute2 impl via CommandExecutor
+│       │       ├── routing_listener.rs   # Background event→routing dispatcher (subscribes to event bus)
+│       │       ├── command.rs         # CommandExecutor trait (shell command abstraction for testability)
 │       │       ├── device_detector.rs   # DeviceDetector: spawns capture + observation loop
-│       │       ├── packet_capture.rs    # PacketCapture trait
+│       │       ├── packet_capture.rs    # PacketCapture trait + types
 │       │       ├── packet_capture_pnet.rs  # Real pnet impl
-│       │       ├── packet_capture_noop.rs  # No-op impl (--mock-network)
 │       │       ├── hostname_resolver.rs    # HostnameResolver trait + SystemHostnameResolver
-│       │       ├── hostname_resolver_noop.rs  # No-op impl (--mock-network)
 │       │       ├── oui.rs             # MAC OUI prefix lookup (full IEEE MA-L database, ~39K entries)
-│       │       ├── bootstrap.rs      # (Legacy) Admin bootstrap — no longer called from main.rs
+│       │       ├── bootstrap.rs      # Daemon initialisation logic
 │       │       ├── web.rs           # rust-embed static file serving
+│       │       ├── dhcp/            # DHCP server module
+│       │       │   ├── mod.rs       # Module root
+│       │       │   ├── server.rs    # DhcpSocket trait + DHCP packet processing (DISCOVER/OFFER/REQUEST/ACK)
+│       │       │   ├── runner.rs    # DhcpRunner lifecycle management (start/stop/reload)
+│       │       │   └── tests/       # DHCP-specific tests
 │       │       ├── vpn_provider.rs  # VpnProvider async trait (validate, list servers, generate config)
 │       │       ├── vpn_provider_registry.rs  # VpnProviderRegistry (config-driven, self-registering)
 │       │       ├── vpn_provider_nordvpn.rs   # NordVPN impl + NordVpnApi trait (async reqwest)
 │       │       ├── repository/      # Data access layer (traits in root, SQLite impls in sqlite/)
-│       │       ├── service/         # Business logic layer (traits + impls, includes ProviderService)
+│       │       ├── service/         # Business logic (traits + impls: Auth, Device, Discovery, Tunnel, Routing, DHCP, Provider, System)
 │       │       └── api/             # HTTP handlers (thin, delegate to services)
-│       └── wctl/                    # CLI tool (clap)
+│       ├── wctl/                    # CLI tool (clap: status, devices, tunnels subcommands)
+│       └── wardnet-test-agent/      # Pi-side kernel state inspector for system tests
+│           └── src/
+│               ├── main.rs          # HTTP server (port 3001) exposing ip rule, nft, wg show, ip link
+│               ├── models.rs        # IpRule, NftRulesResponse, WgShowResponse, LinkShowResponse
+│               ├── fixtures.rs      # Test fixture generation (WireGuard configs, keys)
+│               ├── container.rs     # Container exec abstraction
+│               └── kernel/          # Kernel state query/parse modules
 ├── sdk/
 │   └── wardnet-js/                  # @wardnet/js — TypeScript SDK (browser + Node)
 │       └── src/
 │           ├── client.ts            # WardnetClient base HTTP client
-│           ├── services/            # AuthService, DeviceService, TunnelService, SystemService, SetupService, InfoService
+│           ├── services/            # AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService
 │           └── types/               # TypeScript type definitions (mirrors daemon API)
-└── web-ui/                          # React + TypeScript frontend
+├── web-ui/                          # React + TypeScript frontend
+│   └── src/
+│       ├── components/
+│       │   ├── core/ui/             # shadcn/ui components (Button, Card, Sheet, Dialog, Select, Tabs, Switch, etc.)
+│       │   ├── compound/            # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo, CountryCombobox, RoutingSelector, ApiErrorAlert)
+│       │   ├── features/            # Use-case components (DeviceList, TunnelList, LoginForm)
+│       │   └── layouts/             # Page shells (AppLayout, AuthLayout)
+│       ├── hooks/                   # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useDevice, useMyDevice, useTunnels, useProviders, useSystemStatus, useDaemonStatus, useSetup, mutation hooks)
+│       ├── stores/                  # Zustand stores (authStore)
+│       ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
+│       └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
+└── system-tests/                    # TypeScript E2E tests targeting real Pi deployment
     └── src/
-        ├── components/
-        │   ├── core/ui/             # shadcn/ui components (Button, Card, Sheet, etc.)
-        │   ├── compound/            # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo)
-        │   ├── features/            # Use-case components (DeviceList, TunnelList, LoginForm)
-        │   └── layouts/             # Page shells (AppLayout, AuthLayout)
-        ├── hooks/                   # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useTunnels, useSystemStatus, useDaemonStatus, useSetup)
-        ├── stores/                  # Zustand stores (authStore)
-        ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
-        └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
+        ├── helpers/                 # client.ts (SDK wrapper), agent.ts (test-agent client), setup.ts
+        ├── runner.ts                # Test orchestrator
+        └── tests/                   # 01-health, 02-tunnel-import, 03-device-detection, 04-device-routing, 05-traffic-routing, 06-multi-tunnel, 07-idle-teardown
 ```
 
 ## Technical Stack
@@ -152,14 +176,14 @@ main.rs  →  builds concrete implementations, injects into AppState
               │
 API layer     │  Thin HTTP handlers, extract request, call service, return response
               ↓
-Service layer │  Business logic via traits (AuthService, DeviceService, TunnelService, SystemService, ProviderService)
+Service layer │  Business logic via traits (AuthService, DeviceService, DeviceDiscoveryService, TunnelService, RoutingService, DhcpService, ProviderService, SystemService)
               ↓
-Repository    │  Data access via traits (AdminRepository, DeviceRepository, TunnelRepository, etc.)
+Repository    │  Data access via traits (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, SystemConfigRepository, etc.)
               ↓
 SQLite        │  Parameterized queries only (`.bind()`), never string interpolation
 ```
 
-- **Traits define ALL boundaries** — every layer depends on trait interfaces, not concrete types. This includes infrastructure: `WireGuardOps`, `KeyStore`, `EventPublisher`, `NordVpnApi` (provider-specific HTTP abstraction)
+- **Traits define ALL boundaries** — every layer depends on trait interfaces, not concrete types. This includes infrastructure: `TunnelInterface`, `KeyStore`, `EventPublisher`, `FirewallManager`, `PolicyRouter`, `CommandExecutor`, `PacketCapture`, `DhcpSocket`, `NordVpnApi` (provider-specific HTTP abstraction)
 - **`main.rs`** uses `wardnetd::` paths (separate binary crate); all other files use `crate::` paths
 - **`AppState`** holds `Arc<dyn Service>` trait objects, no pool exposed to handlers
 - **API handlers never touch the database** — they call services, services call repositories
@@ -212,6 +236,8 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
   ├── tunnel_monitor{}                         # background task
   ├── idle_watcher{}                           # background task
   ├── device_detector{}                        # background task
+  ├── routing_listener{}                       # background task (event→routing dispatcher)
+  ├── dhcp_server{}                            # background task (if DHCP enabled)
   └── api_server{}                             # axum serve
         └── http_request{method=GET, path=/api/devices}  # per-request (tower-http TraceLayer)
 ```
@@ -276,7 +302,7 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 - Service tests use mock structs implementing repository/infrastructure traits (manually defined, no mocking libraries)
 - Repository tests use in-memory SQLite with migrations applied
 - Infrastructure tests (event bus, key store) use dedicated test files under `src/tests/`
-- All traits (WireGuardOps, KeyStore, EventPublisher, repositories) have test doubles for unit testing
+- All traits (TunnelInterface, KeyStore, EventPublisher, FirewallManager, PolicyRouter, CommandExecutor, PacketCapture, DhcpSocket, repositories) have test doubles for unit testing
 
 ### SDK (`@wardnet/js`)
 - Pure TypeScript — no React, no DOM dependencies
@@ -312,6 +338,12 @@ cd source/sdk/wardnet-js && yarn type-check && yarn format:check
 
 # Web UI checks
 cd source/web-ui && yarn type-check && yarn lint && yarn format:check
+
+# System tests (requires Pi with SSH access)
+make system-test
+
+# Or run everything at once (unit tests + lint + format):
+make check
 ```
 
 ### Test patterns
@@ -355,18 +387,41 @@ async fn create_and_find_by_username() {
 
 ## Pre-push checklist (MANDATORY)
 
-**You MUST run checks locally and fix ALL issues BEFORE every `git push`.** CI will reject the push otherwise. This is a hard gate — never push without passing checks.
+**You MUST run checks locally and fix ALL issues BEFORE every `git push`.** CI mirrors these exact Make targets — if any of them fail locally, CI will fail and the push will be rejected. This is a hard gate; never push without passing checks.
+
+The fastest, most complete signal is the root Makefile:
 
 ```bash
-# For Rust changes:
-cd source/daemon && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test --workspace
-
-# For web UI changes:
-cd source/web-ui && yarn format && yarn lint && yarn type-check
-
-# Or run everything at once:
+# One-shot: runs SDK + web UI + site + daemon checks (format, lint, type-check,
+# clippy, tests). This is exactly what CI runs.
 make check
 ```
+
+If you only changed one area, the narrower targets are faster:
+
+```bash
+# Rust daemon — cargo fmt --check, cargo clippy --all-targets -- -D warnings,
+# cargo test --workspace (must all pass)
+make check-daemon
+
+# Web UI — typecheck + eslint + prettier format:check
+make check-web
+
+# Public marketing site
+make check-site
+```
+
+Direct tool invocation is also fine if you want tighter iteration:
+
+```bash
+cd source/daemon && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test --workspace
+cd source/web-ui  && yarn format && yarn lint && yarn type-check
+```
+
+**Common mistakes to avoid**
+- Running only `cargo build` and assuming tests pass — the test compile target has its own stubs that can fall out of sync with service signatures; always run `cargo test --workspace` (or `make check-daemon`) before pushing.
+- Running `yarn build` but skipping `yarn lint` — Vite is permissive about lint warnings that ESLint elevates to errors in CI.
+- Pushing a rebase without re-running checks locally — dependency bumps pulled in from `main` can change lint/type rules; treat every rebase as a fresh change.
 
 **Code coverage (MANDATORY for Rust changes):**
 We use `cargo-llvm-cov` for code coverage. Before starting work, compute the current coverage baseline on `main` (or during planning). After implementation, run it again on your branch and verify coverage **does not decrease**. New code must have tests — coverage should stay the same or increase. It must never go down.
@@ -374,7 +429,7 @@ We use `cargo-llvm-cov` for code coverage. Before starting work, compute the cur
 ```sh
 cd source/daemon
 cargo llvm-cov --package wardnetd --summary-only \
-  --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs)'
+  --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|wardnet-test-agent/.*)'
 ```
 
 The `--ignore-filename-regex` excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, and auth context thread-locals). CI uses the same exclusions — see `.github/workflows/ci.yml`.

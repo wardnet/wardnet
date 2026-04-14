@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type {
   ValidateCredentialsRequest,
   ListServersRequest,
@@ -40,6 +41,10 @@ export function useProviderSetup() {
   return useMutation({
     mutationFn: ({ providerId, body }: { providerId: string; body: SetupProviderRequest }) =>
       providerService.setupTunnel(providerId, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tunnels"] }),
+    onSuccess: (data) => {
+      toast.success(data.message || "Tunnel created via provider");
+      qc.invalidateQueries({ queryKey: ["tunnels"] });
+    },
+    onError: () => toast.error("Failed to set up tunnel"),
   });
 }

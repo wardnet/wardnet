@@ -43,6 +43,8 @@ pub enum ObservationResult {
     Seen(Uuid),
     /// A previously departed device has returned.
     Reappeared(Uuid),
+    /// The observation was filtered out (e.g. IP outside LAN subnet).
+    Ignored,
 }
 
 /// Device discovery and lifecycle management.
@@ -99,6 +101,10 @@ pub struct DeviceDiscoveryServiceImpl {
     devices: Arc<dyn DeviceRepository>,
     events: Arc<dyn EventPublisher>,
     resolver: Arc<dyn HostnameResolver>,
+    /// LAN subnet — only observations from IPs within this range are processed.
+    /// Filters out return traffic from the internet (remote IPs arriving with
+    /// the router's MAC on the Ethernet frame).
+    lan_subnet: ipnetwork::Ipv4Network,
     state: Arc<RwLock<HashMap<String, DeviceMemoryState>>>,
 }
 
@@ -108,11 +114,13 @@ impl DeviceDiscoveryServiceImpl {
         devices: Arc<dyn DeviceRepository>,
         events: Arc<dyn EventPublisher>,
         resolver: Arc<dyn HostnameResolver>,
+        lan_subnet: ipnetwork::Ipv4Network,
     ) -> Self {
         Self {
             devices,
             events,
             resolver,
+            lan_subnet,
             state: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -282,6 +290,15 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         &self,
         obs: &ObservedDevice,
     ) -> Result<ObservationResult, AppError> {
+        // Filter out observations from IPs outside the LAN subnet.
+        // When the Pi is the gateway, return traffic from the internet arrives
+        // with the router's MAC but remote server IPs — ignore those.
+        if let Ok(ip) = obs.ip.parse::<std::net::Ipv4Addr>()
+            && !self.lan_subnet.contains(ip)
+        {
+            return Ok(ObservationResult::Ignored);
+        }
+
         // Phase 1: determine action while holding the lock, then drop it.
         let action = {
             let mut state = self.state.write().await;

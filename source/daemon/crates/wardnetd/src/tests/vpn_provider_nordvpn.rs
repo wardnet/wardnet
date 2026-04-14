@@ -43,6 +43,11 @@ impl MockNordVpnApi {
                     name: "Germany".to_string(),
                     code: "DE".to_string(),
                 },
+                NordCountryInfo {
+                    id: 175,
+                    name: "Portugal".to_string(),
+                    code: "PT".to_string(),
+                },
             ]),
             servers: Mutex::new(Vec::new()),
             server_by_hostname: Mutex::new(None),
@@ -80,7 +85,19 @@ impl NordVpnApi for MockNordVpnApi {
 
     async fn list_servers(&self, _filter: &NordServerFilter) -> anyhow::Result<Vec<NordServer>> {
         let servers = self.servers.lock().await;
-        Ok(servers.clone())
+        if !servers.is_empty() {
+            return Ok(servers.clone());
+        }
+        // Fallback: when the test only configured a specific server via
+        // `server_by_hostname`, return that same server here so the recent
+        // NordVPN provider impl — which now fetches a "reference server" via
+        // `list_servers(country_id)` instead of the unreliable hostname filter —
+        // still sees the fixture data without forcing every test to duplicate it.
+        drop(servers);
+        if let Some(server) = self.server_by_hostname.lock().await.clone() {
+            return Ok(vec![server]);
+        }
+        Ok(Vec::new())
     }
 
     async fn get_wireguard_private_key(
@@ -332,7 +349,7 @@ async fn generate_config_produces_valid_wireguard() {
         parsed.interface.private_key,
         "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="
     );
-    assert_eq!(parsed.interface.address, vec!["10.5.0.2/16"]);
+    assert_eq!(parsed.interface.address, vec!["10.5.0.2/32"]);
     assert_eq!(parsed.interface.dns, vec!["103.86.96.100", "103.86.99.100"]);
     assert_eq!(parsed.peers.len(), 1);
     assert_eq!(parsed.peers[0].public_key, "dGVzdC1wdWJsaWMta2V5");
@@ -420,8 +437,9 @@ async fn generate_config_api_key_error() {
 
 #[tokio::test]
 async fn generate_config_server_not_found() {
+    // No servers configured for the requested country — provider falls back
+    // to listing servers by country and finds none, so generate_config must fail.
     let mock = MockNordVpnApi::new();
-    // server_by_hostname is None by default, so get_server_by_hostname will error.
     let provider = NordVpnProvider::new(Arc::new(mock));
 
     let server_info = ServerInfo {
@@ -438,7 +456,7 @@ async fn generate_config_server_not_found() {
         .await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("not found"), "got: {err}");
+    assert!(err.contains("no WireGuard servers found"), "got: {err}");
 }
 
 #[tokio::test]
@@ -638,60 +656,61 @@ async fn get_server_by_hostname_returns_server() {
 async fn resolve_server_normalizes_short_hostname() {
     let mock = MockNordVpnApi::new();
     *mock.server_by_hostname.lock().await = Some(sample_server("pt131.nordvpn.com", 15, "PT"));
-    let mock = Arc::new(mock);
-    let provider = NordVpnProvider::new(Arc::clone(&mock) as Arc<dyn NordVpnApi>);
+    let provider = NordVpnProvider::new(Arc::new(mock));
 
-    let _result = provider
+    let result = provider
         .resolve_server(&token_credentials(), "pt131")
         .await
-        .unwrap();
+        .unwrap()
+        .expect("should return Some");
 
-    // Verify the API was queried with the full hostname.
-    let queried = mock.last_hostname_query.lock().await;
-    assert_eq!(queried.as_deref(), Some("pt131.nordvpn.com"));
+    // Short hostname gets normalized to a full `.nordvpn.com` form.
+    assert_eq!(result.hostname, "pt131.nordvpn.com");
+    assert_eq!(result.country_code, "PT");
 }
 
 #[tokio::test]
 async fn resolve_server_full_hostname() {
     let mock = MockNordVpnApi::new();
     *mock.server_by_hostname.lock().await = Some(sample_server("pt131.nordvpn.com", 15, "PT"));
-    let mock = Arc::new(mock);
-    let provider = NordVpnProvider::new(Arc::clone(&mock) as Arc<dyn NordVpnApi>);
+    let provider = NordVpnProvider::new(Arc::new(mock));
 
     let result = provider
         .resolve_server(&token_credentials(), "pt131.nordvpn.com")
         .await
-        .unwrap();
+        .unwrap()
+        .expect("should return Some");
 
-    assert!(result.is_some());
-
-    // Verify the API was queried with the exact hostname (no modification).
-    let queried = mock.last_hostname_query.lock().await;
-    assert_eq!(queried.as_deref(), Some("pt131.nordvpn.com"));
+    // Full hostname passes through unchanged.
+    assert_eq!(result.hostname, "pt131.nordvpn.com");
+    assert_eq!(result.country_code, "PT");
 }
 
 #[tokio::test]
 async fn resolve_server_not_found() {
+    // No reference servers for the extracted country code — provider cannot
+    // build a ServerInfo and must surface an error.
     let mock = MockNordVpnApi::new();
-    // server_by_hostname is None, so get_server_by_hostname returns an error.
     let provider = NordVpnProvider::new(Arc::new(mock));
 
     let result = provider
-        .resolve_server(&token_credentials(), "nonexistent.nordvpn.com")
+        .resolve_server(&token_credentials(), "pt131.nordvpn.com")
         .await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("not found"), "got: {err}");
+    assert!(err.contains("no WireGuard servers found"), "got: {err}");
 }
 
 #[tokio::test]
-async fn generate_config_uses_direct_hostname_lookup() {
+async fn generate_config_uses_country_reference_server() {
+    // Provider now fetches a reference server via `list_servers(country_id)`
+    // to extract the WireGuard public key, instead of the unreliable
+    // `filters[hostname]` endpoint. Verify we end up with a valid config.
     let mock = MockNordVpnApi::new();
     *mock.server_by_hostname.lock().await = Some(sample_server("se142.nordvpn.com", 25, "SE"));
     *mock.private_key_result.lock().await = Ok("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=".to_string());
-    let mock = Arc::new(mock);
-    let provider = NordVpnProvider::new(Arc::clone(&mock) as Arc<dyn NordVpnApi>);
+    let provider = NordVpnProvider::new(Arc::new(mock));
 
     let server_info = ServerInfo {
         id: "1234".to_string(),
@@ -707,11 +726,11 @@ async fn generate_config_uses_direct_hostname_lookup() {
         .await
         .unwrap();
 
-    // Verify the hostname query was made (direct lookup, not list_servers).
-    let queried = mock.last_hostname_query.lock().await;
-    assert_eq!(queried.as_deref(), Some("se142.nordvpn.com"));
-
-    // Verify config is valid.
     let parsed = wardnet_types::wireguard_config::parse(&config_str).unwrap();
     assert_eq!(parsed.peers[0].public_key, "dGVzdC1wdWJsaWMta2V5");
+    assert_eq!(
+        parsed.peers[0].endpoint.as_deref(),
+        Some("se142.nordvpn.com:51820"),
+        "endpoint must come from the requested server_info.hostname, not the reference server"
+    );
 }

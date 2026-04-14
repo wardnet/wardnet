@@ -211,6 +211,7 @@ impl DhcpService for MockDhcpService {
 fn test_config() -> DhcpConfig {
     DhcpConfig {
         enabled: true,
+        gateway_ip: Ipv4Addr::new(192, 168, 1, 1),
         pool_start: Ipv4Addr::new(192, 168, 1, 100),
         pool_end: Ipv4Addr::new(192, 168, 1, 200),
         subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
@@ -439,7 +440,7 @@ fn build_response_includes_router_and_dns() {
 }
 
 #[test]
-fn build_response_without_router_ip_uses_pool_start() {
+fn build_response_siaddr_is_wardnet_gateway_ip() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
     let mut config = test_config();
@@ -448,8 +449,9 @@ fn build_response_without_router_ip_uses_pool_start() {
     let response =
         crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
 
-    // server_ip falls back to pool_start when router_ip is None.
-    assert_eq!(response.siaddr(), Ipv4Addr::new(192, 168, 1, 100));
+    // siaddr is always wardnet's own LAN IP (auto-detected into `gateway_ip`),
+    // independent of the optional upstream router fallback.
+    assert_eq!(response.siaddr(), config.gateway_ip);
 }
 
 #[test]
@@ -763,7 +765,14 @@ async fn server_loop_responds_to_discover_with_offer() {
     assert_eq!(messages.len(), 1, "expected exactly one response");
     assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Offer));
     assert_eq!(messages[0].0.yiaddr(), lease.ip_address);
-    assert_eq!(messages[0].1, client_addr());
+    // Per RFC 2131 §4.1, DHCPOFFER is broadcast to 255.255.255.255:68 when the
+    // client's `ciaddr` is 0.0.0.0 (which it is in a fresh DHCPDISCOVER); the
+    // client cannot accept unicast IP-layer traffic until it has bound its
+    // offered address.
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap()
+    );
 }
 
 #[tokio::test]

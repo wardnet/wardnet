@@ -75,7 +75,10 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )
@@ -319,6 +322,7 @@ impl DeviceService for MockDeviceService {
             device: self.device.clone(),
             current_rule: None,
             admin_locked: false,
+            available_tunnels: vec![],
         })
     }
     async fn set_rule_for_ip(
@@ -349,7 +353,10 @@ fn make_state_with_device(
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )

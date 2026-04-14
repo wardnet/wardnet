@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use axum::Json;
 use axum::extract::{Path, State};
 use uuid::Uuid;
 use wardnet_types::api::{
-    DeviceDetailResponse, DeviceMeResponse, ListDevicesResponse, SetMyRuleRequest,
-    SetMyRuleResponse, UpdateDeviceRequest,
+    DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus, ListDevicesResponse,
+    SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest,
 };
+use wardnet_types::device::DhcpStatus;
 
 use crate::api::middleware::{AdminAuth, ClientIp};
 use crate::error::AppError;
@@ -18,10 +21,33 @@ pub async fn get_me(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
 ) -> Result<Json<DeviceMeResponse>, AppError> {
-    let response = state
+    let mut response = state
         .device_service()
         .get_device_for_ip(&ip.to_string())
         .await?;
+
+    // Enrich with available tunnels for self-service routing selection.
+    // Uses an internal admin context since tunnel listing is admin-only.
+    let tunnels = crate::auth_context::with_context(
+        wardnet_types::auth::AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        state.tunnel_service().list_tunnels(),
+    )
+    .await
+    .map(|r| {
+        r.tunnels
+            .into_iter()
+            .map(|t| wardnet_types::api::TunnelSummary {
+                id: t.id.to_string(),
+                label: t.label,
+                country_code: t.country_code,
+            })
+            .collect()
+    })
+    .unwrap_or_default();
+    response.available_tunnels = tunnels;
+
     Ok(Json(response))
 }
 
@@ -42,12 +68,56 @@ pub async fn set_my_rule(
     Ok(Json(response))
 }
 
+/// Build a lookup table from MAC address to [`DhcpStatus`].
+///
+/// Reservations take precedence: if a MAC has both a reservation and an
+/// active lease the status is [`DhcpStatus::Reservation`].
+async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpStatus>, AppError> {
+    let leases = state.dhcp_service().list_leases().await?;
+    let reservations = state.dhcp_service().list_reservations().await?;
+
+    let mut map = HashMap::new();
+
+    for lease in &leases.leases {
+        map.insert(lease.mac_address.to_lowercase(), DhcpStatus::Lease);
+    }
+
+    // Reservations override leases.
+    for res in &reservations.reservations {
+        map.insert(res.mac_address.to_lowercase(), DhcpStatus::Reservation);
+    }
+
+    Ok(map)
+}
+
+/// Enrich a [`Device`](wardnet_types::device::Device) with its DHCP status.
+fn enrich_device(
+    device: wardnet_types::device::Device,
+    dhcp_map: &HashMap<String, DhcpStatus>,
+) -> DeviceWithStatus {
+    let status = dhcp_map
+        .get(&device.mac.to_lowercase())
+        .copied()
+        .unwrap_or(DhcpStatus::External);
+    DeviceWithStatus {
+        device,
+        dhcp_status: status,
+    }
+}
+
 /// GET /api/devices — List all devices (admin only).
 pub async fn list_devices(
     State(state): State<AppState>,
     _auth: AdminAuth,
 ) -> Result<Json<ListDevicesResponse>, AppError> {
     let devices = state.discovery_service().get_all_devices().await?;
+    let dhcp_map = build_dhcp_status_map(&state).await?;
+
+    let devices = devices
+        .into_iter()
+        .map(|d| enrich_device(d, &dhcp_map))
+        .collect();
+
     Ok(Json(ListDevicesResponse { devices }))
 }
 
@@ -67,6 +137,8 @@ pub async fn get_device(
         .await
         .ok()
         .and_then(|r| r.current_rule);
+    let dhcp_map = build_dhcp_status_map(&state).await?;
+    let device = enrich_device(device, &dhcp_map);
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,
@@ -119,6 +191,8 @@ pub async fn update_device(
         .ok()
         .and_then(|r| r.current_rule);
 
+    let dhcp_map = build_dhcp_status_map(&state).await?;
+    let device = enrich_device(device, &dhcp_map);
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,

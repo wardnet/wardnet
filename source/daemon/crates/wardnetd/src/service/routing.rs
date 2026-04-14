@@ -104,6 +104,8 @@ pub struct RoutingServiceImpl {
     nftables: Arc<dyn FirewallManager>,
     /// Global default routing policy from config (e.g. "direct").
     default_policy: String,
+    /// LAN interface name (e.g. "eth1") for the base masquerade rule.
+    lan_interface: String,
     /// Mutable in-memory state protected by a mutex.
     state: Mutex<RoutingState>,
 }
@@ -117,6 +119,7 @@ impl RoutingServiceImpl {
         netlink: Arc<dyn PolicyRouter>,
         nftables: Arc<dyn FirewallManager>,
         default_policy: String,
+        lan_interface: String,
     ) -> Self {
         Self {
             devices,
@@ -125,6 +128,7 @@ impl RoutingServiceImpl {
             netlink,
             nftables,
             default_policy,
+            lan_interface,
             state: Mutex::new(RoutingState {
                 applied: HashMap::new(),
                 tunnel_tables: HashSet::new(),
@@ -204,10 +208,20 @@ impl RoutingServiceImpl {
         }
     }
 
+    /// Maximum number of retries when `add_route_table` fails because the
+    /// kernel interface is not yet UP.
+    const ROUTE_ADD_MAX_RETRIES: u32 = 5;
+
+    /// Delay between retries when waiting for the interface to come UP.
+    const ROUTE_ADD_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
     /// Ensure the routing table for a tunnel interface is configured.
     ///
     /// Adds a default route through the interface and a masquerade rule if the
-    /// table hasn't been set up yet.
+    /// table hasn't been set up yet. The kernel interface may not be fully UP
+    /// when the daemon's internal state transitions, so `add_route_table` is
+    /// retried up to [`Self::ROUTE_ADD_MAX_RETRIES`] times with a short delay
+    /// if the error indicates the device is not yet ready.
     async fn ensure_tunnel_table(
         &self,
         state: &mut RoutingState,
@@ -226,7 +240,36 @@ impl RoutingServiceImpl {
                 table,
                 "setting up new tunnel routing table"
             );
-            self.netlink.add_route_table(interface_name, table).await?;
+            let mut last_err = None;
+            for attempt in 0..=Self::ROUTE_ADD_MAX_RETRIES {
+                match self.netlink.add_route_table(interface_name, table).await {
+                    Ok(()) => {
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        let is_not_up = msg.contains("not up") || msg.contains("not ready");
+                        if is_not_up && attempt < Self::ROUTE_ADD_MAX_RETRIES {
+                            tracing::debug!(
+                                interface = interface_name,
+                                table,
+                                attempt = attempt + 1,
+                                max_retries = Self::ROUTE_ADD_MAX_RETRIES,
+                                error = %e,
+                                "interface not yet UP, retrying after delay"
+                            );
+                            tokio::time::sleep(Self::ROUTE_ADD_RETRY_DELAY).await;
+                            last_err = Some(e);
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            if let Some(e) = last_err {
+                return Err(e);
+            }
             tracing::debug!(
                 interface = interface_name,
                 table,
@@ -577,6 +620,27 @@ impl RoutingService for RoutingServiceImpl {
             );
         }
 
+        // Flush conntrack for this device's source IP so existing flows are
+        // not pinned to the previous route by NAT/conntrack state. Must run
+        // *after* the new ip rule is in place so re-opened connections pick
+        // up the new table. Also flush the kernel route cache to discard any
+        // ICMP-redirect hints or cached next-hop decisions from the old path.
+        // Both are non-fatal on failure.
+        drop(state);
+        if let Err(e) = self.netlink.flush_conntrack(device_ip).await {
+            tracing::warn!(
+                error = %e,
+                device_ip,
+                "failed to flush conntrack (existing flows may stay on previous route)"
+            );
+        }
+        if let Err(e) = self.netlink.flush_route_cache().await {
+            tracing::warn!(
+                error = %e,
+                "failed to flush route cache (new packets may follow cached path briefly)"
+            );
+        }
+
         Ok(())
     }
 
@@ -669,13 +733,18 @@ impl RoutingService for RoutingServiceImpl {
             );
         }
 
-        // Remove kernel state for each affected device.
+        // Remove kernel state for each affected device, capturing IPs so we
+        // can flush their conntrack entries after releasing the lock.
+        let mut affected_ips: Vec<String> = Vec::with_capacity(affected.len());
         for device_id in &affected {
             tracing::warn!(
                 device_id = %device_id,
                 tunnel_id = %tunnel_id,
                 "tunnel down — removing routing for device"
             );
+            if let Some(rule) = state.applied.get(device_id) {
+                affected_ips.push(rule.device_ip.clone());
+            }
             self.remove_device_kernel_state(&mut state, *device_id)
                 .await;
         }
@@ -693,6 +762,25 @@ impl RoutingService for RoutingServiceImpl {
             // We can't easily remove a specific masquerade rule by table alone,
             // but the nftables flush on reconcile will handle cleanup.
             state.tunnel_tables.remove(&table);
+        }
+
+        // Release the lock before flushing conntrack for affected devices —
+        // without this, existing flows stay pinned to the now-dead tunnel
+        // route instead of falling back to the default route.
+        drop(state);
+        for ip in &affected_ips {
+            if let Err(e) = self.netlink.flush_conntrack(ip).await {
+                tracing::warn!(
+                    error = %e,
+                    device_ip = %ip,
+                    "failed to flush conntrack after tunnel down"
+                );
+            }
+        }
+        if !affected_ips.is_empty()
+            && let Err(e) = self.netlink.flush_route_cache().await
+        {
+            tracing::warn!(error = %e, "failed to flush route cache after tunnel down");
         }
 
         tracing::debug!(
@@ -795,6 +883,14 @@ impl RoutingService for RoutingServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         tracing::debug!("nftables table flushed");
+
+        // Add base LAN masquerade rule so forwarded traffic from devices using
+        // the Pi as their gateway gets NAT'd for the upstream router.
+        tracing::debug!(interface = %self.lan_interface, "adding LAN masquerade rule");
+        self.nftables
+            .add_masquerade(&self.lan_interface)
+            .await
+            .map_err(AppError::Internal)?;
 
         // Clear in-memory state since we flushed kernel state.
         {

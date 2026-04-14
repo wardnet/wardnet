@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/wardnet-test-agent",
     "crates/wardnet-types",
     "crates/wardnetd",
     "crates/wctl",
@@ -40,7 +41,7 @@ tracing = "0.1"
 # https://crates.io/crates/tokio
 tokio = { version = "1", features = ["full"] }
 # https://crates.io/crates/axum
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
 # https://crates.io/crates/axum-extra
 axum-extra = { version = "0.12", features = ["typed-header", "cookie"] }
 
@@ -98,6 +99,9 @@ pnet = "0.35"
 sysinfo = "0.38"
 # https://crates.io/crates/dhcproto
 dhcproto = "0.14"
+
+# https://crates.io/crates/regex
+regex = "1"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"

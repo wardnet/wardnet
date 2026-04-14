@@ -30,6 +30,31 @@ pub trait CommandExecutor: Send + Sync + std::fmt::Debug {
     ) -> std::io::Result<CommandOutput>;
 }
 
+/// Search PATH including sbin directories that may be absent from non-login shells.
+///
+/// System tools like `ip`, `sysctl`, and `nft` live in `/usr/sbin` or `/sbin`,
+/// which are not always on PATH when the daemon is started via SSH or systemd
+/// with a restricted environment.
+const SBIN_SEARCH_DIRS: &[&str] = &["/usr/sbin", "/sbin"];
+
+/// Resolve a program name to its full path if it lives in an sbin directory.
+///
+/// Returns the original program name unchanged if no sbin match is found
+/// (letting the OS search the regular PATH).
+fn resolve_program(program: &str) -> std::borrow::Cow<'_, str> {
+    // Already an absolute path — use as-is.
+    if program.starts_with('/') {
+        return std::borrow::Cow::Borrowed(program);
+    }
+    for dir in SBIN_SEARCH_DIRS {
+        let candidate = format!("{dir}/{program}");
+        if std::path::Path::new(&candidate).exists() {
+            return std::borrow::Cow::Owned(candidate);
+        }
+    }
+    std::borrow::Cow::Borrowed(program)
+}
+
 /// Production command executor using `tokio::process::Command`.
 #[derive(Debug)]
 pub struct ShellCommandExecutor;
@@ -37,7 +62,8 @@ pub struct ShellCommandExecutor;
 #[async_trait]
 impl CommandExecutor for ShellCommandExecutor {
     async fn run(&self, program: &str, args: &[&str]) -> std::io::Result<CommandOutput> {
-        let output = tokio::process::Command::new(program)
+        let resolved = resolve_program(program);
+        let output = tokio::process::Command::new(resolved.as_ref())
             .args(args)
             .output()
             .await?;
@@ -57,7 +83,8 @@ impl CommandExecutor for ShellCommandExecutor {
     ) -> std::io::Result<CommandOutput> {
         use tokio::io::AsyncWriteExt;
 
-        let mut child = tokio::process::Command::new(program)
+        let resolved = resolve_program(program);
+        let mut child = tokio::process::Command::new(resolved.as_ref())
             .args(args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

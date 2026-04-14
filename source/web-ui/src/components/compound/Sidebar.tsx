@@ -19,6 +19,9 @@ const adminLinks: NavItem[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/devices", label: "Devices" },
   { to: "/tunnels", label: "Tunnels" },
+  { to: "/dhcp", label: "DHCP" },
+  { to: "/dns", label: "DNS" },
+  { to: "/ad-blocking", label: "Ad Blocking" },
   { to: "/settings", label: "Settings" },
 ];
 

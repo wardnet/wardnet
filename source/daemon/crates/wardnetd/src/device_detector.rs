@@ -163,7 +163,7 @@ async fn processor_task(
                     Ok(ObservationResult::Reappeared(_)) => {
                         tracing::info!(mac = %obs.mac, ip = %obs.ip, "device returned: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip);
                     }
-                    Ok(ObservationResult::Seen(_)) => {
+                    Ok(ObservationResult::Seen(_) | ObservationResult::Ignored) => {
                         // Too noisy to log.
                     }
                     Err(e) => {

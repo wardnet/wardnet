@@ -13,11 +13,15 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DhcpConfig {
     pub enabled: bool,
+    /// Wardnet's own LAN IP — auto-detected from the LAN interface.
+    /// Advertised as gateway (option 3) and DNS server (option 6).
+    pub gateway_ip: Ipv4Addr,
     pub pool_start: Ipv4Addr,
     pub pool_end: Ipv4Addr,
     pub subnet_mask: Ipv4Addr,
     pub upstream_dns: Vec<Ipv4Addr>,
     pub lease_duration_secs: u32,
+    /// Fallback router — the real router's IP, included as secondary in option 3.
     pub router_ip: Option<Ipv4Addr>,
 }
 
