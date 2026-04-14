@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::device::{Device, DeviceType};
+use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
@@ -21,12 +21,22 @@ pub struct LoginResponse {
     pub message: String,
 }
 
+/// Minimal tunnel info exposed to self-service users for routing selection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunnelSummary {
+    pub id: String,
+    pub label: String,
+    pub country_code: String,
+}
+
 /// Response for GET /api/devices/me.
 #[derive(Debug, Serialize)]
 pub struct DeviceMeResponse {
     pub device: Option<Device>,
     pub current_rule: Option<RoutingTarget>,
     pub admin_locked: bool,
+    /// Available tunnels for self-service routing selection.
+    pub available_tunnels: Vec<TunnelSummary>,
 }
 
 /// Request body for PUT /api/devices/me/rule.
@@ -105,16 +115,28 @@ pub struct DeleteTunnelResponse {
     pub message: String,
 }
 
+/// A device enriched with its DHCP status for API responses.
+///
+/// Uses `#[serde(flatten)]` so the JSON output includes all `Device` fields
+/// at the top level alongside `dhcp_status`, keeping the response
+/// backwards-compatible for consumers that ignore unknown fields.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceWithStatus {
+    #[serde(flatten)]
+    pub device: Device,
+    pub dhcp_status: DhcpStatus,
+}
+
 /// Response for GET /api/devices (admin).
 #[derive(Debug, Serialize)]
 pub struct ListDevicesResponse {
-    pub devices: Vec<Device>,
+    pub devices: Vec<DeviceWithStatus>,
 }
 
 /// Response for GET /api/devices/:id (admin).
 #[derive(Debug, Serialize)]
 pub struct DeviceDetailResponse {
-    pub device: Device,
+    pub device: DeviceWithStatus,
     pub current_rule: Option<RoutingTarget>,
 }
 

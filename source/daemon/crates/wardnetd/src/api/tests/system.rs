@@ -112,7 +112,10 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubRoutingService),
         Arc::new(system),
         Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
         Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
         Config::default(),
         Instant::now(),
     )
@@ -122,6 +125,31 @@ fn system_app(state: AppState) -> Router {
     Router::new()
         .route("/api/system/status", get(crate::api::system::status))
         .with_state(state)
+}
+
+fn system_app_full(state: AppState) -> Router {
+    Router::new()
+        .route("/api/system/status", get(crate::api::system::status))
+        .route("/api/system/errors", get(crate::api::system::recent_errors))
+        .route(
+            "/api/system/logs/download",
+            get(crate::api::system::download_logs),
+        )
+        .with_state(state)
+}
+
+fn default_status() -> SystemStatusResponse {
+    SystemStatusResponse {
+        version: "0.0.1".to_owned(),
+        uptime_seconds: 0,
+        device_count: 0,
+        tunnel_count: 0,
+        tunnel_active_count: 0,
+        db_size_bytes: 0,
+        cpu_usage_percent: 0.0,
+        memory_used_bytes: 0,
+        memory_total_bytes: 0,
+    }
 }
 
 fn connect_info_ext() -> ConnectInfo<SocketAddr> {
@@ -226,6 +254,353 @@ async fn status_service_error_returns_500() {
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/system/errors
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn recent_errors_returns_empty_list() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/errors")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["errors"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn recent_errors_returns_populated_errors() {
+    let admin_id = Uuid::new_v4();
+
+    // Create a RecentErrors buffer and populate it via the layer.
+    let recent = crate::recent_errors::RecentErrors::new();
+    let layer = crate::recent_errors::RecentErrorsLayer::new(recent.clone());
+    let subscriber =
+        tracing_subscriber::layer::SubscriberExt::with(tracing_subscriber::registry(), layer);
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::error!(target: "test", "boom");
+    tracing::warn!(target: "test", "careful");
+
+    let state = AppState::new(
+        Arc::new(AlwaysAuthService { admin_id }),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(MockSystemService {
+            response: Ok(default_status()),
+        }),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        recent,
+        Config::default(),
+        Instant::now(),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/errors")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let errors = json["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 2);
+    assert_eq!(errors[0]["level"], "ERROR");
+    assert_eq!(errors[1]["level"], "WARN");
+}
+
+#[tokio::test]
+async fn recent_errors_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/errors")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/system/logs/download
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn download_logs_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/logs/download")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn download_logs_returns_text_when_log_exists() {
+    let admin_id = Uuid::new_v4();
+
+    // Create a temporary log file.
+    let tmp_dir = std::env::temp_dir().join(format!("wardnetd_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let log_path = tmp_dir.join("wardnetd.log");
+    let log_content = r#"{"timestamp":"2026-04-13T00:00:00Z","level":"INFO","target":"test","fields":{"message":"hello world"}}"#;
+    std::fs::write(&log_path, log_content).unwrap();
+
+    let mut config = Config::default();
+    config.logging.path = log_path.clone();
+
+    let state = AppState::new(
+        Arc::new(AlwaysAuthService { admin_id }),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(MockSystemService {
+            response: Ok(default_status()),
+        }),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
+        config,
+        Instant::now(),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/logs/download")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    assert!(
+        resp.headers()
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("wardnetd.log")
+    );
+
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    // format_log_line should have converted the JSON to human-readable.
+    assert!(text.contains("hello world"), "body was: {text}");
+    assert!(text.contains("INFO"), "body was: {text}");
+
+    // Cleanup.
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[tokio::test]
+async fn download_logs_formats_non_json_lines_as_is() {
+    let admin_id = Uuid::new_v4();
+
+    let tmp_dir = std::env::temp_dir().join(format!("wardnetd_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let log_path = tmp_dir.join("wardnetd.log");
+    std::fs::write(&log_path, "plain text log line\n").unwrap();
+
+    let mut config = Config::default();
+    config.logging.path = log_path;
+
+    let state = AppState::new(
+        Arc::new(AlwaysAuthService { admin_id }),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(MockSystemService {
+            response: Ok(default_status()),
+        }),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
+        config,
+        Instant::now(),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/logs/download")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        text.contains("plain text log line"),
+        "non-JSON lines should pass through unchanged"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[tokio::test]
+async fn download_logs_finds_dated_file() {
+    let admin_id = Uuid::new_v4();
+
+    let tmp_dir = std::env::temp_dir().join(format!("wardnetd_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    // Configure the path to a file that does NOT exist.
+    let log_path = tmp_dir.join("wardnetd.log");
+    // But create a dated variant in the same directory.
+    let dated_path = tmp_dir.join("wardnetd.log.2026-04-12");
+    std::fs::write(&dated_path, "dated log content\n").unwrap();
+
+    let mut config = Config::default();
+    config.logging.path = log_path;
+
+    let state = AppState::new(
+        Arc::new(AlwaysAuthService { admin_id }),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(MockSystemService {
+            response: Ok(default_status()),
+        }),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
+        config,
+        Instant::now(),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/logs/download")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        text.contains("dated log content"),
+        "should find the dated log file; body was: {text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[tokio::test]
+async fn download_logs_no_file_returns_500() {
+    let admin_id = Uuid::new_v4();
+
+    let tmp_dir = std::env::temp_dir().join(format!("wardnetd_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let log_path = tmp_dir.join("nonexistent.log");
+
+    let mut config = Config::default();
+    config.logging.path = log_path;
+
+    let state = AppState::new(
+        Arc::new(AlwaysAuthService { admin_id }),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(MockSystemService {
+            response: Ok(default_status()),
+        }),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
+        config,
+        Instant::now(),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/logs/download")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
 #[tokio::test]

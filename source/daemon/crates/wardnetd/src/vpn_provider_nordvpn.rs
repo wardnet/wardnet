@@ -171,7 +171,7 @@ impl NordVpnApi for HttpNordVpnApi {
             ProviderCredentials::Token { token } => {
                 self.client
                     .get(format!("{}/v1/users/services", self.base_url))
-                    .header("Authorization", format!("Bearer token:{token}"))
+                    .basic_auth("token", Some(token))
                     .send()
                     .await?
             }
@@ -232,10 +232,12 @@ impl NordVpnApi for HttpNordVpnApi {
     ) -> anyhow::Result<String> {
         match credentials {
             ProviderCredentials::Token { token } => {
+                // NordVPN uses HTTP Basic auth with "token" as username and the
+                // access token as password (equivalent to `curl -u token:TOKEN`).
                 let resp: NordCredentialsResponse = self
                     .client
                     .get(format!("{}/v1/users/services/credentials", self.base_url))
-                    .header("Authorization", format!("Bearer token:{token}"))
+                    .basic_auth("token", Some(token))
                     .send()
                     .await?
                     .json()
@@ -387,8 +389,60 @@ impl VpnProvider for NordVpnProvider {
             format!("{hostname}.nordvpn.com")
         };
 
-        let nord_server = self.api.get_server_by_hostname(&full_hostname).await?;
-        Ok(Some(Self::to_server_info(&nord_server)))
+        // Extract country code from hostname (e.g. "pt131.nordvpn.com" → "PT").
+        let country_code = full_hostname
+            .split('.')
+            .next()
+            .and_then(|h| {
+                let letters: String = h.chars().take_while(char::is_ascii_alphabetic).collect();
+                if letters.len() == 2 {
+                    Some(letters.to_uppercase())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        // Use the recommendations endpoint to get a server with the WireGuard
+        // public key. The hostname filter API (`filters[hostname]`) is unreliable
+        // and returns wrong servers for dedicated IPs and some regions.
+        let country_id = if country_code.is_empty() {
+            None
+        } else {
+            let countries = self.api.list_countries().await?;
+            countries
+                .iter()
+                .find(|c| c.code.eq_ignore_ascii_case(&country_code))
+                .map(|c| c.id)
+        };
+
+        let filter = NordServerFilter {
+            country_id,
+            limit: 1,
+        };
+        let servers = self.api.list_servers(&filter).await?;
+        let reference_server = servers.first().ok_or_else(|| {
+            anyhow::anyhow!("no WireGuard servers found for country '{country_code}'")
+        })?;
+
+        // Build ServerInfo with the user's requested hostname, but take the
+        // country/city metadata from the reference server.
+        Ok(Some(ServerInfo {
+            id: String::new(),
+            name: full_hostname.clone(),
+            country_code: reference_server
+                .locations
+                .first()
+                .map(|l| l.country.code.to_uppercase())
+                .unwrap_or(country_code),
+            city: reference_server
+                .locations
+                .first()
+                .and_then(|l| l.country.city.as_ref())
+                .map(|c| c.name.clone()),
+            hostname: full_hostname,
+            load: reference_server.load,
+        }))
     }
 
     async fn generate_config(
@@ -398,14 +452,36 @@ impl VpnProvider for NordVpnProvider {
     ) -> anyhow::Result<String> {
         let private_key = self.api.get_wireguard_private_key(credentials).await?;
 
-        // Fetch full server details directly by hostname.
-        let nord_server = self.api.get_server_by_hostname(&server.hostname).await?;
-        let public_key = Self::extract_wg_public_key(&nord_server)?;
+        // Get the WireGuard public key from a recommended server in the same
+        // country. All servers in a region share the same WireGuard key group.
+        // We avoid the hostname filter API which is unreliable for dedicated IPs.
+        let country_id = if server.country_code.is_empty() {
+            None
+        } else {
+            let countries = self.api.list_countries().await?;
+            countries
+                .iter()
+                .find(|c| c.code.eq_ignore_ascii_case(&server.country_code))
+                .map(|c| c.id)
+        };
+
+        let filter = NordServerFilter {
+            country_id,
+            limit: 1,
+        };
+        let servers = self.api.list_servers(&filter).await?;
+        let reference_server = servers.first().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no WireGuard servers found for country '{}'",
+                server.country_code
+            )
+        })?;
+        let public_key = Self::extract_wg_public_key(reference_server)?;
 
         Ok(format!(
             "[Interface]\n\
              PrivateKey = {private_key}\n\
-             Address = 10.5.0.2/16\n\
+             Address = 10.5.0.2/32\n\
              DNS = 103.86.96.100, 103.86.99.100\n\
              \n\
              [Peer]\n\

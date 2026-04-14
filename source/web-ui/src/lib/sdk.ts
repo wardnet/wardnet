@@ -7,6 +7,8 @@ import {
   SystemService,
   SetupService,
   InfoService,
+  DhcpService,
+  LogService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -19,3 +21,5 @@ export const providerService = new ProviderService(client);
 export const systemService = new SystemService(client);
 export const setupService = new SetupService(client);
 export const infoService = new InfoService(client);
+export const dhcpService = new DhcpService(client);
+export const logService = new LogService(client, window.location.origin);

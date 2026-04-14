@@ -224,6 +224,36 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(())
     }
 
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        tunnel_id: &str,
+        now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        // The tunnel_id is embedded in the JSON: {"type":"tunnel","tunnel_id":"<uuid>"}
+        let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
+        let direct_json = r#"{"type":"direct"}"#;
+
+        // Find affected device IDs first.
+        let device_ids: Vec<String> =
+            sqlx::query_scalar("SELECT device_id FROM routing_rules WHERE target_json LIKE ?")
+                .bind(&pattern)
+                .fetch_all(&self.pool)
+                .await?;
+
+        if !device_ids.is_empty() {
+            sqlx::query(
+                "UPDATE routing_rules SET target_json = ?, updated_at = ? WHERE target_json LIKE ?",
+            )
+            .bind(direct_json)
+            .bind(now)
+            .bind(&pattern)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(device_ids)
+    }
+
     async fn update_admin_locked(&self, id: &str, locked: bool) -> anyhow::Result<()> {
         sqlx::query("UPDATE devices SET admin_locked = ? WHERE id = ?")
             .bind(locked)

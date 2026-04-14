@@ -68,6 +68,7 @@ pub trait TunnelService: Send + Sync {
 /// Default implementation of [`TunnelService`].
 pub struct TunnelServiceImpl {
     tunnels: Arc<dyn TunnelRepository>,
+    devices: Arc<dyn crate::repository::DeviceRepository>,
     tunnel_interface: Arc<dyn TunnelInterface>,
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
@@ -77,12 +78,14 @@ impl TunnelServiceImpl {
     /// Create a new tunnel service with the given dependencies.
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
+        devices: Arc<dyn crate::repository::DeviceRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self {
             tunnels,
+            devices,
             tunnel_interface,
             keys,
             events,
@@ -140,14 +143,33 @@ impl TunnelServiceImpl {
             .map(Self::decode_key)
             .transpose()?;
 
-        // Parse peer endpoint.
-        let peer_endpoint = tunnel_config
-            .peer
-            .endpoint
-            .as_deref()
-            .map(str::parse)
-            .transpose()
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid peer endpoint: {e}")))?;
+        // Parse peer endpoint — resolve hostname if needed (e.g. NordVPN gives
+        // `pt149.nordvpn.com:51820` which must be resolved to an IP for WireGuard).
+        let peer_endpoint = match tunnel_config.peer.endpoint.as_deref() {
+            None => None,
+            Some(ep) => {
+                // Try direct parse first (already an IP:port).
+                if let Ok(addr) = ep.parse::<std::net::SocketAddr>() {
+                    Some(addr)
+                } else {
+                    // Resolve hostname via DNS.
+                    let addr = tokio::net::lookup_host(ep)
+                        .await
+                        .map_err(|e| {
+                            AppError::Internal(anyhow::anyhow!(
+                                "failed to resolve peer endpoint '{ep}': {e}"
+                            ))
+                        })?
+                        .next()
+                        .ok_or_else(|| {
+                            AppError::Internal(anyhow::anyhow!(
+                                "DNS resolution returned no addresses for '{ep}'"
+                            ))
+                        })?;
+                    Some(addr)
+                }
+            }
+        };
 
         // Parse allowed IPs.
         let peer_allowed_ips = tunnel_config
@@ -158,9 +180,18 @@ impl TunnelServiceImpl {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid allowed IP: {e}")))?;
 
+        // Parse interface addresses (e.g. `10.66.0.2/32`).
+        let interface_addresses = tunnel_config
+            .address
+            .iter()
+            .map(|a| a.parse())
+            .collect::<Result<Vec<ipnetwork::IpNetwork>, _>>()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid interface address: {e}")))?;
+
         let params = CreateTunnelParams {
             interface_name: tunnel.interface_name.clone(),
             config: TiTunnelConfig::WireGuard {
+                address: interface_addresses,
                 private_key,
                 listen_port: tunnel_config.listen_port,
                 peer_public_key,
@@ -355,6 +386,38 @@ impl TunnelService for TunnelServiceImpl {
         auth_context::require_admin()?;
 
         let tunnel = self.require_tunnel(id).await?;
+
+        // Switch all routing rules targeting this tunnel to Direct so devices
+        // don't lose connectivity.
+        let now = chrono::Utc::now().to_rfc3339();
+        let switched = self
+            .devices
+            .switch_tunnel_rules_to_direct(&id.to_string(), &now)
+            .await
+            .map_err(AppError::Internal)?;
+
+        if !switched.is_empty() {
+            tracing::info!(
+                tunnel_id = %id,
+                device_count = switched.len(),
+                "switched devices from deleted tunnel to direct routing"
+            );
+            // Emit routing rule change events so the routing listener updates
+            // kernel state for each affected device.
+            for device_id_str in &switched {
+                if let Ok(device_id) = device_id_str.parse::<Uuid>() {
+                    self.events.publish(WardnetEvent::RoutingRuleChanged {
+                        device_id,
+                        target: wardnet_types::routing::RoutingTarget::Direct,
+                        previous_target: Some(wardnet_types::routing::RoutingTarget::Tunnel {
+                            tunnel_id: id,
+                        }),
+                        changed_by: wardnet_types::routing::RuleCreator::Admin,
+                        timestamp: chrono::Utc::now(),
+                    });
+                }
+            }
+        }
 
         // If the tunnel is up, tear it down first.
         if tunnel.status == TunnelStatus::Up {

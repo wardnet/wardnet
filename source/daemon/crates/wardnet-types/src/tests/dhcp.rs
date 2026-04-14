@@ -110,6 +110,7 @@ fn dhcp_reservation_round_trip() {
 fn dhcp_config_round_trip() {
     let config = DhcpConfig {
         enabled: true,
+        gateway_ip: Ipv4Addr::new(192, 168, 1, 10),
         pool_start: Ipv4Addr::new(192, 168, 1, 100),
         pool_end: Ipv4Addr::new(192, 168, 1, 200),
         subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
@@ -120,6 +121,7 @@ fn dhcp_config_round_trip() {
     let json = serde_json::to_string(&config).unwrap();
     let back: DhcpConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(config.enabled, back.enabled);
+    assert_eq!(config.gateway_ip, back.gateway_ip);
     assert_eq!(config.pool_start, back.pool_start);
     assert_eq!(config.pool_end, back.pool_end);
     assert_eq!(config.subnet_mask, back.subnet_mask);

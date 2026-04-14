@@ -12,6 +12,35 @@ Wardnet is a self-hosted network privacy gateway that runs on a Raspberry Pi. It
 
 Devices that cannot run VPN software themselves (smart TVs, consoles, IoT) are fully protected at the gateway level.
 
+## Project Status
+
+**Phase 1 (MVP) — in progress.** Wardnet is being daily-driven on a single Raspberry Pi at home but is **not yet a finished product**. If you want to try it now, expect to read the source occasionally and to be on hand to debug a Pi. Detailed milestone progress lives in [`implementation-docs/plans/phase-1-mvp-implementation-plan.md`](implementation-docs/plans/phase-1-mvp-implementation-plan.md); known bugs and feature ideas in [`implementation-docs/follow-ups.md`](implementation-docs/follow-ups.md).
+
+**What works today**
+
+- WireGuard tunnel CRUD with NordVPN provider integration (single-server selection)
+- Per-device routing policy (direct / specific tunnel / network default), applied via `ip rule` + nftables
+- Built-in DHCP server with leases, static reservations, and conflict detection
+- Device detection (ARP, OUI lookup, departure tracking)
+- DNS leak prevention on tunnel-routed devices (port 53 DNAT to the tunnel's DNS)
+- Web UI for dashboard, devices, tunnels, DHCP
+- REST + WebSocket API with API-key auth, CLI tool (`wctl`)
+- OpenTelemetry metrics export and Pyroscope continuous profiling (opt-in)
+
+**What's not done yet**
+
+- DNS server / network-wide ad blocking (Pi-hole replacement) — UI placeholder only
+- Gateway resilience (GARP failover, hardware watchdog, graceful shutdown)
+- Web UI: setup wizard, full DHCP panel polish
+- Installation packaging (`install.sh`, release workflow)
+- Mobile app, kill switch per device, scheduled routing
+
+**Known caveats when in use**
+
+- After switching a device *off* a tunnel (VPN → direct, or between tunnels), the device's existing TCP sockets may stay stuck for ~30–60s while their stack times out. Routing on the Pi is correct immediately; toggling Wi-Fi on the device fixes it instantly. See pedromvgomes/wardnet#77.
+- A NordVPN server selected at tunnel-creation time may be unhealthy when you actually try to use it; the daemon currently still marks such tunnels as "up" even when no WireGuard handshake has ever completed. See pedromvgomes/wardnet#79 and pedromvgomes/wardnet#80.
+- `ip rule` entries can accumulate duplicates after repeated re-applies; harmless functionally but state-drift bug. See pedromvgomes/wardnet#78.
+
 ## Features
 
 - **Per-device routing** — route each device through a specific VPN tunnel, direct internet, or the network default
@@ -116,11 +145,14 @@ make deploy PI_HOST=192.168.1.50
 ### Development
 
 ```bash
-# Web UI dev server (port 7412, proxies API to daemon on 7411)
-cd source/web-ui && yarn dev
+# Run everything locally: daemon (mock network) + web UI dev server
+# Daemon on :7411, web UI on :7412 (proxies /api → daemon). Ctrl+C stops both.
+make run-local                  # fresh DB each run
+make run-local RESUME=true      # keep the existing local DB
 
-# Run daemon locally with mock network backends
+# Or run them separately if you prefer:
 cd source/daemon && cargo run -p wardnetd -- --mock-network --verbose
+cd source/web-ui && yarn dev
 
 # Run all checks (format, lint, tests for web + daemon)
 make check
@@ -146,7 +178,9 @@ Run `make help` for the full list:
 | `make check`     | Run all checks (web + daemon)                          |
 | `make check-web` | Typecheck + lint + format check for web UI             |
 | `make check-daemon` | Format + clippy + tests for daemon                  |
-| `make deploy`    | Build for Pi and deploy via SSH                        |
+| `make run-local` | Run daemon (mock network) + web UI dev server locally  |
+| `make run-pi`    | Cross-compile, deploy, and run on a Raspberry Pi       |
+| `make deploy-prod` | Production deploy to a Raspberry Pi                  |
 | `make clean`     | Clean all build artifacts                              |
 
 ## CI

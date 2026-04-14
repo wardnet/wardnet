@@ -122,7 +122,7 @@ jobs:
         run: |
           mkdir -p coverage
           cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/daemon-lcov.info \
-            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs)'
+            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|wardnet-test-agent/.*)'
 
       - name: Enable Corepack
         run: corepack enable
@@ -156,16 +156,17 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-            make-target: build-daemon
           - target: aarch64-apple-darwin
             runner: macos-latest
-            make-target: build-daemon
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            make-target: build-pi
+            cross: true
     steps:
       - uses: actions/checkout@v6
 
+      # The web UI was built in the `build-web` job; `rust-embed` picks it up
+      # from this directory at daemon compile time. All three matrix entries
+      # reuse the single artifact instead of each re-running `yarn build`.
       - name: Download web-ui dist
         uses: actions/download-artifact@v8
         with:
@@ -183,8 +184,14 @@ jobs:
           workspaces: source/daemon
 
       - name: Install cross-compilation toolchain
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.cross
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      # Native targets build the whole workspace; cross-compile jobs build
+      # only the daemon crate for the requested target (other crates like
+      # wctl and wardnet-test-agent don't need aarch64-linux binaries in CI).
       - name: Build
-        run: make ${{ matrix.make-target }}
+        env:
+          TARGET: ${{ matrix.cross && matrix.target || '' }}
+          CRATE: ${{ matrix.cross && 'wardnetd' || '' }}
+        run: make build-daemon

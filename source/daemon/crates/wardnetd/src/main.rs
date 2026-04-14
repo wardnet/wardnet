@@ -90,6 +90,9 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = Config::load(&cli.config)?;
 
+    let log_broadcaster = wardnetd::log_broadcast::LogBroadcaster::new(1024);
+    let recent_errors = wardnetd::recent_errors::RecentErrors::new();
+
     let TracingGuards {
         _log_guard,
         otel_tracer_provider,
@@ -100,13 +103,15 @@ async fn main() -> anyhow::Result<()> {
         cli.log_level.as_deref(),
         cli.log_path.as_deref(),
         cli.verbose,
+        &log_broadcaster,
+        &recent_errors,
     );
 
     // Use `.instrument()` instead of `span.enter()` so the span is correctly
     // propagated across `.await` points in the tokio multi-threaded runtime.
     // The `Full` (console) formatter prints span fields on every line, and the
     // JSON formatter includes them via `with_current_span` / `with_span_list`.
-    let result = run(config, cli.mock_network)
+    let result = run(config, cli.mock_network, log_broadcaster, recent_errors)
         .instrument(tracing::info_span!(
             "wardnetd",
             version = env!("WARDNET_VERSION")
@@ -136,7 +141,12 @@ async fn main() -> anyhow::Result<()> {
 
 /// Inner entry-point that runs inside the root `wardnetd{version=...}` span.
 #[allow(clippy::too_many_lines)]
-async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
+async fn run(
+    config: Config,
+    mock_network: bool,
+    log_broadcaster: wardnetd::log_broadcast::LogBroadcaster,
+    recent_errors: wardnetd::recent_errors::RecentErrors,
+) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
     let pool = db::init_pool(&config.database.path).await?;
@@ -156,6 +166,18 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
 
     let backends = network_backends(mock_network);
 
+    // Detect wardnet's own LAN IP for DHCP gateway advertisement.
+    let lan_ip = wardnetd::packet_capture_pnet::get_interface_ipv4(&config.network.lan_interface)
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "failed to detect LAN IP, using 0.0.0.0");
+            std::net::Ipv4Addr::UNSPECIFIED
+        });
+    tracing::info!(
+        lan_ip = %lan_ip,
+        interface = %config.network.lan_interface,
+        "detected LAN IP for DHCP gateway"
+    );
+
     // Create key store.
     let key_store = Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone()));
 
@@ -173,8 +195,11 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         device_repo.clone(),
         event_publisher.clone(),
     ));
-    let dhcp_service: Arc<dyn wardnetd::service::DhcpService> =
-        Arc::new(DhcpServiceImpl::new(dhcp_repo, system_config_repo.clone()));
+    let dhcp_service: Arc<dyn wardnetd::service::DhcpService> = Arc::new(DhcpServiceImpl::new(
+        dhcp_repo,
+        system_config_repo.clone(),
+        lan_ip,
+    ));
     let system_service = Arc::new(SystemServiceImpl::new(
         system_config_repo,
         tunnel_repo.clone(),
@@ -183,6 +208,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let tunnel_service: Arc<dyn wardnetd::service::TunnelService> =
         Arc::new(TunnelServiceImpl::new(
             tunnel_repo.clone(),
+            device_repo.clone(),
             backends.tunnel_interface.clone(),
             key_store,
             event_publisher.clone(),
@@ -193,12 +219,20 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let provider_service: Arc<dyn wardnetd::service::ProviderService> =
         Arc::new(ProviderServiceImpl::new(registry, tunnel_service.clone()));
 
+    // Compute LAN subnet for device detection filtering.
+    let lan_subnet = ipnetwork::Ipv4Network::new(lan_ip, 24).unwrap_or_else(|_| {
+        tracing::warn!("failed to create LAN subnet, using /24 default");
+        ipnetwork::Ipv4Network::new(lan_ip, 24).expect("valid /24")
+    });
+    tracing::info!(subnet = %lan_subnet, "LAN subnet for device detection");
+
     // Create device discovery service.
     let discovery_service: Arc<dyn wardnetd::service::DeviceDiscoveryService> =
         Arc::new(DeviceDiscoveryServiceImpl::new(
             device_repo.clone(),
             event_publisher.clone(),
             backends.hostname_resolver.clone(),
+            lan_subnet,
         ));
 
     // Create routing service (policy routing engine).
@@ -210,6 +244,7 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
             backends.policy_router.clone(),
             backends.firewall.clone(),
             config.network.default_policy.clone(),
+            config.network.lan_interface.clone(),
         ));
 
     // Restore state from the database.
@@ -296,7 +331,8 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
     let dhcp_server: Arc<dyn wardnetd::dhcp::server::DhcpServer> = if mock_network {
         Arc::new(NoopDhcpServer)
     } else {
-        // Startup: load initial DHCP config under admin context.
+        // Load initial DHCP config under admin context.
+        // gateway_ip is injected by DhcpServiceImpl from the detected LAN IP.
         let admin_ctx = wardnet_types::auth::AuthContext::Admin {
             admin_id: uuid::Uuid::nil(),
         };
@@ -307,21 +343,29 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "failed to load initial DHCP config, using defaults");
-            wardnet_types::dhcp::DhcpConfig {
-                enabled: false,
-                pool_start: "192.168.1.100".parse().expect("valid IP"),
-                pool_end: "192.168.1.200".parse().expect("valid IP"),
-                subnet_mask: "255.255.255.0".parse().expect("valid IP"),
-                upstream_dns: vec!["1.1.1.1".parse().expect("valid IP")],
-                lease_duration_secs: 86400,
-                router_ip: None,
+            {
+                // Derive default pool range from the detected LAN IP subnet.
+                let octets = lan_ip.octets();
+                wardnet_types::dhcp::DhcpConfig {
+                    enabled: false,
+                    gateway_ip: lan_ip,
+                    pool_start: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 100),
+                    pool_end: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 250),
+                    subnet_mask: "255.255.255.0".parse().expect("valid IP"),
+                    upstream_dns: vec![
+                        "1.1.1.1".parse().expect("valid IP"),
+                        "8.8.8.8".parse().expect("valid IP"),
+                    ],
+                    lease_duration_secs: 600,
+                    router_ip: None,
+                }
             }
         });
         Arc::new(UdpDhcpServer::new(dhcp_service.clone(), initial_config))
     };
     let dhcp_runner = DhcpRunner::start(
         dhcp_service.clone(),
-        dhcp_server,
+        dhcp_server.clone(),
         event_publisher.as_ref(),
         &root_span,
     );
@@ -335,7 +379,10 @@ async fn run(config: Config, mock_network: bool) -> anyhow::Result<()> {
         routing_service.clone(),
         system_service.clone(),
         tunnel_service.clone(),
+        dhcp_server,
         event_publisher.clone(),
+        log_broadcaster,
+        recent_errors,
         config.clone(),
         started_at,
     );
@@ -527,6 +574,8 @@ fn init_tracing(
     cli_log_level: Option<&str>,
     cli_log_path: Option<&Path>,
     verbose: bool,
+    log_broadcaster: &wardnetd::log_broadcast::LogBroadcaster,
+    recent_errors: &wardnetd::recent_errors::RecentErrors,
 ) -> TracingGuards {
     // Determine effective filter. Priority:
     // 1. RUST_LOG env var (full control, overrides everything)
@@ -593,39 +642,43 @@ fn init_tracing(
     // the console layer (if enabled) always uses human-readable output.
     // Optional OTel layers are added regardless of format — `Option<L>`
     // implements `Layer` as a no-op when `None`.
+    // Broadcast layer sends log events to WebSocket clients in real time.
+    let broadcast_layer = wardnetd::log_broadcast::BroadcastLayer::new(log_broadcaster.clone());
+    // Recent errors layer keeps the last 15 WARN/ERROR entries in memory.
+    let recent_errors_layer =
+        wardnetd::recent_errors::RecentErrorsLayer::new(recent_errors.clone());
+
     let registry = tracing_subscriber::registry()
         .with(filter)
+        .with(broadcast_layer)
+        .with(recent_errors_layer)
         .with(otel_trace_layer)
         .with(otel_log_layer);
 
-    match config.logging.format {
-        LogFormat::Json => {
-            let file_layer = tracing_subscriber::fmt::layer()
-                .json()
-                .with_current_span(true)
-                .with_span_list(true)
-                .with_writer(non_blocking)
-                .with_ansi(false);
+    // File output is always JSON for machine-readable log parsing (API, web UI).
+    // Console output follows the config format setting for human readability.
+    let file_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true)
+        .with_span_list(true)
+        .with_writer(non_blocking)
+        .with_ansi(false);
 
-            if verbose {
+    if verbose {
+        match config.logging.format {
+            LogFormat::Json => {
+                let console_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(std::io::stderr);
+                registry.with(file_layer).with(console_layer).init();
+            }
+            LogFormat::Console => {
                 let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
                 registry.with(file_layer).with(console_layer).init();
-            } else {
-                registry.with(file_layer).init();
             }
         }
-        LogFormat::Console => {
-            let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false);
-
-            if verbose {
-                let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
-                registry.with(file_layer).with(console_layer).init();
-            } else {
-                registry.with(file_layer).init();
-            }
-        }
+    } else {
+        registry.with(file_layer).init();
     }
 
     let otel_meter_provider = init_otel_meter(&config.otel);

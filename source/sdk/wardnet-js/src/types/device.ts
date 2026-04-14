@@ -1,3 +1,6 @@
+/** DHCP status for a device. */
+export type DhcpStatus = "lease" | "reservation" | "external";
+
 /** The type/category of a network device. */
 export type DeviceType =
   | "tv"
@@ -21,6 +24,7 @@ export interface Device {
   last_seen: string;
   last_ip: string;
   admin_locked: boolean;
+  dhcp_status: DhcpStatus;
 }
 
 /** Where a device's traffic is routed. */

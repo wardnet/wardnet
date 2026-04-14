@@ -72,6 +72,13 @@ impl DeviceRepository for MockDeviceRepo {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }

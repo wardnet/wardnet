@@ -14,3 +14,4 @@ source/site/coverage/
 .vscode/
 .idea/
 .claude/settings.local.json
+.wardnet-local/

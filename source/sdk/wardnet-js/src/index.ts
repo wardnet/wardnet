@@ -10,11 +10,15 @@ export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
+export { DhcpService } from "./services/dhcp.js";
+export { LogService } from "./services/logs.js";
+export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
 
 // Types — devices
 export type {
   Device,
   DeviceType,
+  DhcpStatus,
   RoutingTarget,
   RuleCreator,
   RoutingRule,
@@ -45,6 +49,24 @@ export type { SetupStatusResponse, SetupRequest, SetupResponse } from "./types/s
 // Types — info
 export type { InfoResponse } from "./types/info.js";
 
+// Types — DHCP
+export type {
+  DhcpConfig,
+  DhcpLease,
+  DhcpLeaseStatus,
+  DhcpReservation,
+  DhcpConfigResponse,
+  UpdateDhcpConfigRequest,
+  ToggleDhcpRequest,
+  ListDhcpLeasesResponse,
+  ListDhcpReservationsResponse,
+  CreateDhcpReservationRequest,
+  CreateDhcpReservationResponse,
+  DeleteDhcpReservationResponse,
+  DhcpStatusResponse,
+  RevokeDhcpLeaseResponse,
+} from "./types/dhcp.js";
+
 // Types — API DTOs
 export type {
   ApiError,
@@ -66,4 +88,5 @@ export type {
   ListCountriesResponse,
   SetupProviderRequest,
   SetupProviderResponse,
+  TunnelSummary,
 } from "./types/api.js";
