@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod device;
 mod dhcp;
+mod dns;
 mod event;
 mod routing;
 mod tunnel;

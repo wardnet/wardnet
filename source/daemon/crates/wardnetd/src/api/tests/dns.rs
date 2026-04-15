@@ -382,3 +382,101 @@ async fn flush_cache_unauthenticated() {
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
+
+// ---------------------------------------------------------------------------
+// Toggle error-branch coverage
+// ---------------------------------------------------------------------------
+
+/// `DnsServer` that always returns error on start/stop — exercises the
+/// error branches in the toggle handler.
+struct FailingDnsServer;
+
+#[async_trait]
+impl crate::dns::server::DnsServer for FailingDnsServer {
+    async fn start(&self) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("start failed"))
+    }
+    async fn stop(&self) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("stop failed"))
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+    async fn flush_cache(&self) -> u64 {
+        0
+    }
+    async fn cache_size(&self) -> u64 {
+        0
+    }
+    async fn cache_hit_rate(&self) -> f64 {
+        0.0
+    }
+    async fn update_config(&self, _config: DnsConfig) {}
+}
+
+fn build_state_with_failing_server(dns_svc: impl DnsService + 'static) -> AppState {
+    AppState::new(
+        Arc::new(MockAuthService),
+        Arc::new(StubDeviceService),
+        Arc::new(StubDhcpService),
+        Arc::new(dns_svc),
+        Arc::new(StubDiscoveryService),
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(StubSystemService),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(FailingDnsServer),
+        Arc::new(StubEventPublisher),
+        crate::log_broadcast::LogBroadcaster::new(16),
+        crate::recent_errors::RecentErrors::new(),
+        Config::default(),
+        Instant::now(),
+    )
+}
+
+#[tokio::test]
+async fn toggle_enable_logs_error_when_server_start_fails() {
+    // The handler should return 200 OK even if the underlying server
+    // fails to start — the error is logged but not surfaced to the caller.
+    let state = build_state_with_failing_server(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/dns/config/toggle")
+                .header("Cookie", "wardnet_session=valid-token")
+                .header("Content-Type", "application/json")
+                .extension(connect_info())
+                .body(Body::from(r#"{"enabled": true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn toggle_disable_logs_error_when_server_stop_fails() {
+    let state = build_state_with_failing_server(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/dns/config/toggle")
+                .header("Cookie", "wardnet_session=valid-token")
+                .header("Content-Type", "application/json")
+                .extension(connect_info())
+                .body(Body::from(r#"{"enabled": false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
