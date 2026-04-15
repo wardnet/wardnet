@@ -25,7 +25,7 @@ use crate::service::auth::LoginResult;
 use crate::service::{AuthService, DeviceDiscoveryService, DeviceService, DhcpService};
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDhcpService, StubEventPublisher, StubProviderService, StubRoutingService,
+    StubDhcpService, StubDnsService, StubEventPublisher, StubProviderService, StubRoutingService,
     StubSystemService, StubTunnelService,
 };
 
@@ -315,12 +315,14 @@ fn build_state_with_dhcp(
         Arc::new(MockAuthService),
         Arc::new(device_svc),
         Arc::new(dhcp_svc),
+        Arc::new(StubDnsService),
         Arc::new(discovery_svc),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         LogBroadcaster::new(16),
         RecentErrors::new(),

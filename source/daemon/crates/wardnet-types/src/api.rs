@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
+use crate::dns::{DnsConfig, DnsProtocol, UpstreamDns};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 use crate::vpn_provider::{
@@ -325,4 +326,84 @@ pub struct DhcpStatusResponse {
 #[derive(Debug, Serialize)]
 pub struct RevokeDhcpLeaseResponse {
     pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DNS API types
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/config.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DnsConfigResponse {
+    pub config: DnsConfig,
+}
+
+/// Request body for PUT /api/dns/config.
+#[derive(Debug, Deserialize)]
+pub struct UpdateDnsConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_servers: Option<Vec<UpstreamDnsRequest>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl_min_secs: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl_max_secs: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dnssec_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rebinding_protection: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_per_second: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ad_blocking_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_log_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_log_retention_days: Option<u32>,
+}
+
+/// Upstream DNS server in API requests.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpstreamDnsRequest {
+    pub address: String,
+    pub name: String,
+    pub protocol: DnsProtocol,
+    pub port: Option<u16>,
+}
+
+impl From<UpstreamDnsRequest> for UpstreamDns {
+    fn from(req: UpstreamDnsRequest) -> Self {
+        Self {
+            address: req.address,
+            name: req.name,
+            protocol: req.protocol,
+            port: req.port,
+        }
+    }
+}
+
+/// Request body for POST /api/dns/config/toggle.
+#[derive(Debug, Deserialize)]
+pub struct ToggleDnsRequest {
+    pub enabled: bool,
+}
+
+/// Response for GET /api/dns/status.
+#[derive(Debug, Serialize)]
+pub struct DnsStatusResponse {
+    pub enabled: bool,
+    pub running: bool,
+    pub cache_size: u64,
+    pub cache_capacity: u32,
+    pub cache_hit_rate: f64,
+}
+
+/// Response for POST /api/dns/cache/flush.
+#[derive(Debug, Serialize)]
+pub struct DnsCacheFlushResponse {
+    pub message: String,
+    pub entries_cleared: u64,
 }

@@ -25,7 +25,7 @@ use wardnet_types::routing::RoutingTarget;
 
 use crate::auth_context;
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpService, StubDiscoveryService, StubEventPublisher,
+    StubDeviceService, StubDhcpService, StubDiscoveryService, StubDnsService, StubEventPublisher,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 
@@ -70,12 +70,14 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(auth),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         crate::log_broadcast::LogBroadcaster::new(16),
         crate::recent_errors::RecentErrors::new(),
@@ -348,12 +350,14 @@ fn make_state_with_device(
         Arc::new(auth),
         Arc::new(device_svc),
         Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         crate::log_broadcast::LogBroadcaster::new(16),
         crate::recent_errors::RecentErrors::new(),

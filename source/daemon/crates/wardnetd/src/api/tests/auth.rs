@@ -19,7 +19,7 @@ use crate::service::AuthService;
 use crate::service::auth::LoginResult;
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpService, StubDiscoveryService, StubEventPublisher,
+    StubDeviceService, StubDhcpService, StubDiscoveryService, StubDnsService, StubEventPublisher,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 
@@ -70,12 +70,14 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(auth),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         crate::log_broadcast::LogBroadcaster::new(16),
         crate::recent_errors::RecentErrors::new(),

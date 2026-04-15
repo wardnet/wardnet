@@ -82,4 +82,18 @@ pub enum WardnetEvent {
         details: String,
         timestamp: DateTime<Utc>,
     },
+    DnsServerStarted {
+        timestamp: DateTime<Utc>,
+    },
+    DnsServerStopped {
+        timestamp: DateTime<Utc>,
+    },
+    DnsConfigChanged {
+        timestamp: DateTime<Utc>,
+    },
+    DnsBlocklistUpdated {
+        blocklist_id: Uuid,
+        entry_count: u64,
+        timestamp: DateTime<Utc>,
+    },
 }

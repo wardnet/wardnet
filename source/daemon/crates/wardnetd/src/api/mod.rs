@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod devices;
 pub mod dhcp;
+pub mod dns;
 pub mod info;
 pub mod logs_ws;
 pub mod middleware;
@@ -71,7 +72,11 @@ pub fn router(state: AppState) -> Router {
             get(dhcp::list_reservations).post(dhcp::create_reservation),
         )
         .route("/dhcp/reservations/{id}", delete(dhcp::delete_reservation))
-        .route("/dhcp/status", get(dhcp::status));
+        .route("/dhcp/status", get(dhcp::status))
+        .route("/dns/config", get(dns::get_config).put(dns::update_config))
+        .route("/dns/config/toggle", post(dns::toggle))
+        .route("/dns/status", get(dns::status))
+        .route("/dns/cache/flush", post(dns::flush_cache));
 
     Router::new()
         .nest("/api", api)

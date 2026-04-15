@@ -163,7 +163,11 @@ async fn handle_event(
         | WardnetEvent::DhcpLeaseAssigned { .. }
         | WardnetEvent::DhcpLeaseRenewed { .. }
         | WardnetEvent::DhcpLeaseExpired { .. }
-        | WardnetEvent::DhcpConflictDetected { .. } => {}
+        | WardnetEvent::DhcpConflictDetected { .. }
+        | WardnetEvent::DnsServerStarted { .. }
+        | WardnetEvent::DnsServerStopped { .. }
+        | WardnetEvent::DnsConfigChanged { .. }
+        | WardnetEvent::DnsBlocklistUpdated { .. } => {}
     }
 }
 

@@ -349,6 +349,41 @@ impl DhcpService for StubDhcpService {
 }
 
 // ---------------------------------------------------------------------------
+// StubDnsService
+// ---------------------------------------------------------------------------
+
+/// Stub DNS service — all methods panic with `unimplemented!()`.
+pub struct StubDnsService;
+
+#[async_trait]
+impl crate::service::DnsService for StubDnsService {
+    async fn get_config(&self) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _req: wardnet_types::api::UpdateDnsConfigRequest,
+    ) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn toggle(
+        &self,
+        _req: wardnet_types::api::ToggleDnsRequest,
+    ) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnet_types::api::DnsStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn flush_cache(&self) -> Result<wardnet_types::api::DnsCacheFlushResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_dns_config(&self) -> Result<wardnet_types::dns::DnsConfig, AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubEventPublisher
 // ---------------------------------------------------------------------------
 
@@ -379,12 +414,14 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubAuthService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         crate::log_broadcast::LogBroadcaster::new(16),
         crate::recent_errors::RecentErrors::new(),

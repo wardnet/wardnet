@@ -88,6 +88,10 @@ tracing-opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 # https://crates.io/crates/pyroscope
 pyroscope.workspace = true
+# https://crates.io/crates/hickory-proto
+hickory-proto.workspace = true
+# https://crates.io/crates/hickory-resolver
+hickory-resolver.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

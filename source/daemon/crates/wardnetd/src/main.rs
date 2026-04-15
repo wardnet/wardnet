@@ -24,6 +24,8 @@ use wardnetd::config::{Config, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::dhcp::runner::DhcpRunner;
 use wardnetd::dhcp::server::{NoopDhcpServer, UdpDhcpServer};
+use wardnetd::dns::runner::DnsRunner;
+use wardnetd::dns::server::{NoopDnsServer, UdpDnsServer};
 use wardnetd::event::{BroadcastEventBus, EventPublisher};
 use wardnetd::firewall::FirewallManager;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
@@ -45,7 +47,7 @@ use wardnetd::repository::{
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::service::{
     AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, DhcpServiceImpl,
-    ProviderServiceImpl, RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
+    DnsServiceImpl, ProviderServiceImpl, RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
 };
 use wardnetd::state::AppState;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
@@ -200,6 +202,8 @@ async fn run(
         system_config_repo.clone(),
         lan_ip,
     ));
+    let dns_service: Arc<dyn wardnetd::service::DnsService> =
+        Arc::new(DnsServiceImpl::new(system_config_repo.clone()));
     let system_service = Arc::new(SystemServiceImpl::new(
         system_config_repo,
         tunnel_repo.clone(),
@@ -370,16 +374,31 @@ async fn run(
         &root_span,
     );
 
+    // Start DNS server and runner.
+    let dns_server: Arc<dyn wardnetd::dns::server::DnsServer> = if mock_network {
+        Arc::new(NoopDnsServer)
+    } else {
+        Arc::new(UdpDnsServer::new(wardnet_types::dns::DnsConfig::default()))
+    };
+    let dns_runner = DnsRunner::start(
+        dns_service.clone(),
+        dns_server.clone(),
+        event_publisher.as_ref(),
+        &root_span,
+    );
+
     let state = AppState::new(
         auth_service.clone(),
         device_service.clone(),
         dhcp_service,
+        dns_service,
         discovery_service.clone(),
         provider_service.clone(),
         routing_service.clone(),
         system_service.clone(),
         tunnel_service.clone(),
         dhcp_server,
+        dns_server,
         event_publisher.clone(),
         log_broadcaster,
         recent_errors,
@@ -415,6 +434,7 @@ async fn run(
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
     dhcp_runner.shutdown().await;
+    dns_runner.shutdown().await;
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }

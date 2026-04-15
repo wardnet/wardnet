@@ -8,6 +8,7 @@ import {
   SetupService,
   InfoService,
   DhcpService,
+  DnsService,
   LogService,
 } from "@wardnet/js";
 
@@ -22,4 +23,5 @@ export const systemService = new SystemService(client);
 export const setupService = new SetupService(client);
 export const infoService = new InfoService(client);
 export const dhcpService = new DhcpService(client);
+export const dnsService = new DnsService(client);
 export const logService = new LogService(client, window.location.origin);

@@ -6,6 +6,7 @@ pub mod config;
 pub mod db;
 pub mod device_detector;
 pub mod dhcp;
+pub mod dns;
 pub mod error;
 pub mod event;
 pub mod firewall;

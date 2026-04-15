@@ -90,3 +90,19 @@ export type {
   SetupProviderResponse,
   TunnelSummary,
 } from "./types/api.js";
+
+// Services — DNS
+export { DnsService } from "./services/dns.js";
+
+// Types — DNS
+export type {
+  DnsProtocol,
+  DnsResolutionMode,
+  UpstreamDns,
+  DnsConfig,
+  DnsConfigResponse,
+  UpdateDnsConfigRequest,
+  ToggleDnsRequest,
+  DnsStatusResponse,
+  DnsCacheFlushResponse,
+} from "./types/dns.js";

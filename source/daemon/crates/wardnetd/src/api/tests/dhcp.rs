@@ -29,8 +29,8 @@ use crate::service::auth::LoginResult;
 use crate::service::{AuthService, DhcpService};
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDeviceService, StubDiscoveryService, StubEventPublisher, StubProviderService,
-    StubRoutingService, StubSystemService, StubTunnelService,
+    StubDeviceService, StubDiscoveryService, StubDnsService, StubEventPublisher,
+    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,12 +187,14 @@ fn build_state(dhcp_svc: impl DhcpService + 'static) -> AppState {
         Arc::new(MockAuthService),
         Arc::new(StubDeviceService),
         Arc::new(dhcp_svc),
+        Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::dhcp::server::NoopDhcpServer),
+        Arc::new(crate::dns::server::NoopDnsServer),
         Arc::new(StubEventPublisher),
         crate::log_broadcast::LogBroadcaster::new(16),
         crate::recent_errors::RecentErrors::new(),

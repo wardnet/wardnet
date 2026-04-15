@@ -22,7 +22,7 @@ Wardnet is a self-hosted network privacy gateway for Raspberry Pi that sits alon
 | 1d: Policy Routing Engine | ✅ Done | ip rule, nftables, event-driven routing, reconciliation |
 | 1e: DHCP Server | ✅ Done | dhcproto server, leases, reservations, API |
 | 1f: Gateway Resilience & Failover | Not started | GARP, watchdog, graceful shutdown |
-| 1g: DNS Server & Ad Blocking | Not started | Built-in DNS, ad blocking (replaces Pi-hole), leak prevention |
+| 1g: DNS Server & Ad Blocking | In progress | Built-in DNS, ad blocking (replaces Pi-hole), leak prevention — [detailed plan](milestone-1g-dns-server.md) |
 | 1h: Web UI | In progress | Core layout done; detail views, DHCP panel, wizard remaining |
 | 1i: CLI Tool (wctl) | In progress | Commands scaffolded; output formatting, reboot/shutdown remaining |
 | 1j: Installation & Packaging | Not started | install.sh, systemd unit, release workflow |

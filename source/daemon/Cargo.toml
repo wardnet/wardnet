@@ -103,6 +103,11 @@ dhcproto = "0.14"
 # https://crates.io/crates/regex
 regex = "1"
 
+# https://crates.io/crates/hickory-proto
+hickory-proto = "0.25"
+# https://crates.io/crates/hickory-resolver
+hickory-resolver = "0.25"
+
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"
 # https://crates.io/crates/opentelemetry_sdk

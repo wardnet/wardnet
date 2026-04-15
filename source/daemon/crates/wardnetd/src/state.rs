@@ -3,11 +3,12 @@ use std::time::Instant;
 
 use crate::config::Config;
 use crate::dhcp::server::DhcpServer;
+use crate::dns::server::DnsServer;
 use crate::event::EventPublisher;
 use crate::log_broadcast::LogBroadcaster;
 use crate::recent_errors::RecentErrors;
 use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, ProviderService,
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService, ProviderService,
     RoutingService, SystemService, TunnelService,
 };
 
@@ -24,12 +25,14 @@ struct Inner {
     auth_service: Arc<dyn AuthService>,
     device_service: Arc<dyn DeviceService>,
     dhcp_service: Arc<dyn DhcpService>,
+    dns_service: Arc<dyn DnsService>,
     discovery_service: Arc<dyn DeviceDiscoveryService>,
     provider_service: Arc<dyn ProviderService>,
     routing_service: Arc<dyn RoutingService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
     dhcp_server: Arc<dyn DhcpServer>,
+    dns_server: Arc<dyn DnsServer>,
     event_publisher: Arc<dyn EventPublisher>,
     log_broadcaster: LogBroadcaster,
     recent_errors: RecentErrors,
@@ -44,12 +47,14 @@ impl AppState {
         auth_service: Arc<dyn AuthService>,
         device_service: Arc<dyn DeviceService>,
         dhcp_service: Arc<dyn DhcpService>,
+        dns_service: Arc<dyn DnsService>,
         discovery_service: Arc<dyn DeviceDiscoveryService>,
         provider_service: Arc<dyn ProviderService>,
         routing_service: Arc<dyn RoutingService>,
         system_service: Arc<dyn SystemService>,
         tunnel_service: Arc<dyn TunnelService>,
         dhcp_server: Arc<dyn DhcpServer>,
+        dns_server: Arc<dyn DnsServer>,
         event_publisher: Arc<dyn EventPublisher>,
         log_broadcaster: LogBroadcaster,
         recent_errors: RecentErrors,
@@ -61,12 +66,14 @@ impl AppState {
                 auth_service,
                 device_service,
                 dhcp_service,
+                dns_service,
                 discovery_service,
                 provider_service,
                 routing_service,
                 system_service,
                 tunnel_service,
                 dhcp_server,
+                dns_server,
                 event_publisher,
                 log_broadcaster,
                 recent_errors,
@@ -90,6 +97,12 @@ impl AppState {
     #[must_use]
     pub fn dhcp_service(&self) -> &dyn DhcpService {
         self.inner.dhcp_service.as_ref()
+    }
+
+    /// Access the DNS service.
+    #[must_use]
+    pub fn dns_service(&self) -> &dyn DnsService {
+        self.inner.dns_service.as_ref()
     }
 
     #[must_use]
@@ -128,6 +141,12 @@ impl AppState {
     #[must_use]
     pub fn dhcp_server(&self) -> &dyn DhcpServer {
         self.inner.dhcp_server.as_ref()
+    }
+
+    /// Access the DNS server for start/stop/cache control.
+    #[must_use]
+    pub fn dns_server(&self) -> &dyn DnsServer {
+        self.inner.dns_server.as_ref()
     }
 
     /// Access the log broadcaster for WebSocket log streaming.
