@@ -2,6 +2,7 @@ mod auth;
 mod device;
 mod dhcp;
 mod discovery;
+mod dns;
 mod provider;
 mod routing;
 mod setup;

@@ -1,6 +1,7 @@
 mod auth;
 mod devices;
 mod dhcp;
+mod dns;
 mod info;
 mod middleware;
 mod providers;
