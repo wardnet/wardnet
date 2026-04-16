@@ -17,8 +17,13 @@ use axum::routing::{get, post};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_types::api::{
-    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ToggleDnsRequest,
-    UpdateDnsConfigRequest,
+    CreateAllowlistRequest, CreateAllowlistResponse, CreateBlocklistRequest,
+    CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
+    DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
+    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistNowResponse,
+    UpdateBlocklistRequest, UpdateBlocklistResponse, UpdateDnsConfigRequest,
+    UpdateFilterRuleRequest, UpdateFilterRuleResponse,
 };
 use wardnet_types::dns::{DnsConfig, DnsResolutionMode};
 
@@ -128,6 +133,66 @@ impl DnsService for MockDnsService {
 
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
         Ok(Self::default_config())
+    }
+
+    async fn list_blocklists(&self) -> Result<ListBlocklistsResponse, AppError> {
+        Ok(ListBlocklistsResponse { blocklists: vec![] })
+    }
+    async fn create_blocklist(
+        &self,
+        _req: CreateBlocklistRequest,
+    ) -> Result<CreateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _id: Uuid,
+        _req: UpdateBlocklistRequest,
+    ) -> Result<UpdateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_blocklist(&self, _id: Uuid) -> Result<DeleteBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist_now(
+        &self,
+        _id: Uuid,
+    ) -> Result<UpdateBlocklistNowResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_allowlist(&self) -> Result<ListAllowlistResponse, AppError> {
+        Ok(ListAllowlistResponse { entries: vec![] })
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _req: CreateAllowlistRequest,
+    ) -> Result<CreateAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(&self, _id: Uuid) -> Result<DeleteAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_filter_rules(&self) -> Result<ListFilterRulesResponse, AppError> {
+        Ok(ListFilterRulesResponse { rules: vec![] })
+    }
+    async fn create_filter_rule(
+        &self,
+        _req: CreateFilterRuleRequest,
+    ) -> Result<CreateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_filter_rule(
+        &self,
+        _id: Uuid,
+        _req: UpdateFilterRuleRequest,
+    ) -> Result<UpdateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
+        Ok(crate::dns::filter::FilterInputs::default())
     }
 }
 

@@ -104,6 +104,8 @@ dhcproto = "0.14"
 regex = "1"
 # https://crates.io/crates/futures
 futures = "0.3"
+# https://crates.io/crates/cron
+cron = "0.16"
 
 # https://crates.io/crates/hickory-proto
 hickory-proto = "0.25"

@@ -1,8 +1,14 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use wardnet_types::dns::DnsConfig;
 
+use crate::dns::filter::DnsFilter;
 use crate::dns::server::{DnsServer, NoopDnsServer, UdpDnsServer};
+
+fn empty_filter() -> Arc<tokio::sync::RwLock<DnsFilter>> {
+    Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()))
+}
 
 // ---------------------------------------------------------------------------
 // NoopDnsServer tests
@@ -64,7 +70,7 @@ fn loopback_ephemeral() -> SocketAddr {
 #[tokio::test]
 async fn udp_server_start_sets_running_flag() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -75,7 +81,7 @@ async fn udp_server_start_sets_running_flag() {
 #[tokio::test]
 async fn udp_server_stop_clears_running_flag() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -93,7 +99,7 @@ async fn udp_server_stop_clears_running_flag() {
 #[tokio::test]
 async fn udp_server_start_when_already_running() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     // Second start should be a no-op (returns Ok).
@@ -106,7 +112,7 @@ async fn udp_server_start_when_already_running() {
 #[tokio::test]
 async fn udp_server_stop_when_not_running() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     // Stop without start should be a no-op.
     server.stop().await.unwrap();
@@ -116,7 +122,7 @@ async fn udp_server_stop_when_not_running() {
 #[tokio::test]
 async fn udp_server_flush_cache() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
 
@@ -130,7 +136,7 @@ async fn udp_server_flush_cache() {
 #[tokio::test]
 async fn udp_server_update_config() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     // Update the config before starting -- should not panic or error.
     server
@@ -163,7 +169,7 @@ async fn build_resolver_with_empty_upstreams_uses_cloudflare() {
         ..DnsConfig::default()
     };
 
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(
@@ -179,7 +185,6 @@ async fn build_resolver_with_empty_upstreams_uses_cloudflare() {
 // ---------------------------------------------------------------------------
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -304,8 +309,11 @@ async fn wait_for_packets(socket: &MockDnsSocket, expected: usize) {
 #[tokio::test]
 async fn server_responds_to_query() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -343,8 +351,11 @@ async fn server_responds_to_query() {
 #[tokio::test]
 async fn server_handles_malformed_packet() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -387,8 +398,11 @@ async fn server_handles_malformed_packet() {
 #[tokio::test]
 async fn server_processes_multiple_queries() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -435,8 +449,11 @@ async fn server_processes_multiple_queries() {
 #[tokio::test]
 async fn server_cache_hit() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -564,7 +581,11 @@ async fn server_forwards_successfully_to_upstream() {
     };
 
     let socket = Arc::new(MockDnsSocket::new());
-    let server = UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        config,
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -617,8 +638,11 @@ async fn server_forwards_successfully_to_upstream() {
 #[tokio::test]
 async fn server_query_without_questions_is_ignored() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -656,7 +680,7 @@ async fn build_resolver_with_tls_protocol_falls_back() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
     server.stop().await.unwrap();
@@ -674,7 +698,7 @@ async fn build_resolver_with_https_protocol_falls_back() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
     server.stop().await.unwrap();
@@ -692,7 +716,7 @@ async fn build_resolver_with_invalid_ip_skips_upstream() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
     server.stop().await.unwrap();

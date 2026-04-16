@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -136,6 +138,12 @@ pub struct Blocklist {
     pub last_updated: Option<DateTime<Utc>>,
     /// Cron expression for update schedule (e.g. "0 3 * * *").
     pub cron_schedule: String,
+    /// Error message from the most recent failed download/parse, if any.
+    /// Cleared on a successful refresh. Surfaced in the Ad Blocking UI so
+    /// users can diagnose blocklist issues without inspecting daemon logs.
+    pub last_error: Option<String>,
+    /// Timestamp of the most recent failed download/parse.
+    pub last_error_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -200,6 +208,20 @@ pub struct DnsQueryLogEntry {
     pub upstream: Option<String>,
     pub latency_ms: f64,
     pub device_id: Option<Uuid>,
+}
+
+/// Action returned by the DNS filter for a given query.
+///
+/// Returned by `DnsFilter::check` to tell the server how to respond.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "action")]
+pub enum FilterAction {
+    /// Allow the query to proceed (cache lookup + upstream resolution).
+    Pass,
+    /// Block the query — server returns NXDOMAIN.
+    Block,
+    /// Synthesize a response with the given IP address (`$dnsrewrite`).
+    Rewrite { ip: IpAddr },
 }
 
 /// Aggregated DNS statistics over a time window.

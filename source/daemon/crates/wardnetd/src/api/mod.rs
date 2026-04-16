@@ -30,6 +30,7 @@ use crate::web::static_handler;
 ///
 /// Assembles all API routes under `/api/`, applies middleware (CORS, tracing),
 /// and falls back to the embedded static file handler for the web UI.
+#[allow(clippy::too_many_lines)]
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/auth/login", post(auth::login))
@@ -76,7 +77,32 @@ pub fn router(state: AppState) -> Router {
         .route("/dns/config", get(dns::get_config).put(dns::update_config))
         .route("/dns/config/toggle", post(dns::toggle))
         .route("/dns/status", get(dns::status))
-        .route("/dns/cache/flush", post(dns::flush_cache));
+        .route("/dns/cache/flush", post(dns::flush_cache))
+        .route(
+            "/dns/blocklists",
+            get(dns::list_blocklists).post(dns::create_blocklist),
+        )
+        .route(
+            "/dns/blocklists/{id}",
+            put(dns::update_blocklist).delete(dns::delete_blocklist),
+        )
+        .route(
+            "/dns/blocklists/{id}/update",
+            post(dns::update_blocklist_now),
+        )
+        .route(
+            "/dns/allowlist",
+            get(dns::list_allowlist).post(dns::create_allowlist_entry),
+        )
+        .route("/dns/allowlist/{id}", delete(dns::delete_allowlist_entry))
+        .route(
+            "/dns/rules",
+            get(dns::list_filter_rules).post(dns::create_filter_rule),
+        )
+        .route(
+            "/dns/rules/{id}",
+            put(dns::update_filter_rule).delete(dns::delete_filter_rule),
+        );
 
     Router::new()
         .nest("/api", api)

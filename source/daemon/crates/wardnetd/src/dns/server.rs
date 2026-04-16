@@ -14,9 +14,10 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use wardnet_types::dns::{DnsConfig, DnsProtocol, UpstreamDns};
+use wardnet_types::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
 
 use super::cache::DnsCache;
+use super::filter::DnsFilter;
 
 // ---------------------------------------------------------------------------
 // DnsSocket trait
@@ -93,6 +94,7 @@ pub trait DnsServer: Send + Sync {
 pub struct UdpDnsServer {
     config: Arc<RwLock<DnsConfig>>,
     cache: Arc<RwLock<DnsCache>>,
+    filter: Arc<RwLock<DnsFilter>>,
     bind_addr: SocketAddr,
     injected_socket: Option<Arc<dyn DnsSocket>>,
     running: Arc<AtomicBool>,
@@ -104,17 +106,22 @@ pub struct UdpDnsServer {
 impl UdpDnsServer {
     /// Create a new DNS server that binds to `0.0.0.0:53`.
     #[must_use]
-    pub fn new(config: DnsConfig) -> Self {
-        Self::with_bind_addr(config, SocketAddr::from(([0, 0, 0, 0], 53)))
+    pub fn new(config: DnsConfig, filter: Arc<RwLock<DnsFilter>>) -> Self {
+        Self::with_bind_addr(config, SocketAddr::from(([0, 0, 0, 0], 53)), filter)
     }
 
     /// Create a new DNS server with a custom bind address.
     #[must_use]
-    pub fn with_bind_addr(config: DnsConfig, bind_addr: SocketAddr) -> Self {
+    pub fn with_bind_addr(
+        config: DnsConfig,
+        bind_addr: SocketAddr,
+        filter: Arc<RwLock<DnsFilter>>,
+    ) -> Self {
         let cache_capacity = config.cache_size as usize;
         Self {
             config: Arc::new(RwLock::new(config)),
             cache: Arc::new(RwLock::new(DnsCache::new(cache_capacity))),
+            filter,
             bind_addr,
             injected_socket: None,
             running: Arc::new(AtomicBool::new(false)),
@@ -127,11 +134,16 @@ impl UdpDnsServer {
     /// Create a DNS server with a pre-bound socket (for testing).
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn with_socket(config: DnsConfig, socket: Arc<dyn DnsSocket>) -> Self {
+    pub(crate) fn with_socket(
+        config: DnsConfig,
+        socket: Arc<dyn DnsSocket>,
+        filter: Arc<RwLock<DnsFilter>>,
+    ) -> Self {
         let cache_capacity = config.cache_size as usize;
         Self {
             config: Arc::new(RwLock::new(config)),
             cache: Arc::new(RwLock::new(DnsCache::new(cache_capacity))),
+            filter,
             bind_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             injected_socket: Some(socket),
             running: Arc::new(AtomicBool::new(false)),
@@ -174,6 +186,7 @@ impl DnsServer for UdpDnsServer {
 
         let config = Arc::clone(&self.config);
         let cache = Arc::clone(&self.cache);
+        let filter = Arc::clone(&self.filter);
         let running = Arc::clone(&self.running);
 
         let new_cancel = CancellationToken::new();
@@ -183,7 +196,7 @@ impl DnsServer for UdpDnsServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, config, cache, cancel).await;
+            server_loop(socket, config, cache, filter, cancel).await;
             running.store(false, Ordering::SeqCst);
         });
 
@@ -263,6 +276,7 @@ async fn server_loop(
     socket: Arc<dyn DnsSocket>,
     config: Arc<RwLock<DnsConfig>>,
     cache: Arc<RwLock<DnsCache>>,
+    filter: Arc<RwLock<DnsFilter>>,
     cancel: CancellationToken,
 ) {
     let mut buf = vec![0u8; 4096];
@@ -287,11 +301,12 @@ async fn server_loop(
                         let socket = Arc::clone(&socket);
                         let config = Arc::clone(&config);
                         let cache = Arc::clone(&cache);
+                        let filter = Arc::clone(&filter);
                         let resolver = Arc::clone(&resolver);
 
                         tokio::spawn(async move {
                             if let Err(e) = handle_query(
-                                &packet, src, &socket, &config, &cache, &resolver,
+                                &packet, src, &socket, &config, &cache, &filter, &resolver,
                             ).await {
                                 tracing::debug!(error = %e, %src, "failed to handle DNS query");
                             }
@@ -306,13 +321,15 @@ async fn server_loop(
     }
 }
 
-/// Handle a single DNS query: parse, check cache, forward, cache response.
+/// Handle a single DNS query: parse, check cache, filter, forward, cache response.
+#[allow(clippy::too_many_lines)]
 async fn handle_query(
     packet: &[u8],
     src: SocketAddr,
     socket: &Arc<dyn DnsSocket>,
     config: &Arc<RwLock<DnsConfig>>,
     cache: &Arc<RwLock<DnsCache>>,
+    filter: &Arc<RwLock<DnsFilter>>,
     resolver: &Arc<RwLock<TokioResolver>>,
 ) -> anyhow::Result<()> {
     let request = Message::from_bytes(packet)?;
@@ -340,7 +357,67 @@ async fn handle_query(
         }
     }
 
-    // 2. Forward to upstream resolver.
+    // 2. Ad-blocking filter check.
+    {
+        let cfg = config.read().await;
+        if cfg.ad_blocking_enabled {
+            let filter_guard = filter.read().await;
+            let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
+            let action = filter_guard.check(&domain_lower, rtype, src.ip());
+            drop(filter_guard);
+            match action {
+                FilterAction::Block => {
+                    let mut response = Message::new();
+                    response.set_id(id);
+                    response.set_message_type(MessageType::Response);
+                    response.set_op_code(OpCode::Query);
+                    response.set_recursion_desired(true);
+                    response.set_recursion_available(true);
+                    response.set_response_code(ResponseCode::NXDomain);
+                    response.add_queries(request.queries().to_vec());
+                    let bytes = response.to_bytes()?;
+                    socket.send_to(&bytes, src).await?;
+                    tracing::trace!(%domain, ?rtype, "blocked by filter");
+                    return Ok(());
+                }
+                FilterAction::Rewrite { ip } => {
+                    use hickory_proto::rr::{
+                        Name, RData, Record,
+                        rdata::{A, AAAA},
+                    };
+                    use std::net::IpAddr;
+
+                    let mut response = Message::new();
+                    response.set_id(id);
+                    response.set_message_type(MessageType::Response);
+                    response.set_op_code(OpCode::Query);
+                    response.set_recursion_desired(true);
+                    response.set_recursion_available(true);
+                    response.set_response_code(ResponseCode::NoError);
+                    response.add_queries(request.queries().to_vec());
+
+                    let name = Name::from_str_relaxed(&domain)?;
+                    match ip {
+                        IpAddr::V4(v4) => {
+                            let record = Record::from_rdata(name, 60, RData::A(A(v4)));
+                            response.add_answer(record);
+                        }
+                        IpAddr::V6(v6) => {
+                            let record = Record::from_rdata(name, 60, RData::AAAA(AAAA(v6)));
+                            response.add_answer(record);
+                        }
+                    }
+                    let bytes = response.to_bytes()?;
+                    socket.send_to(&bytes, src).await?;
+                    tracing::trace!(%domain, ?rtype, %ip, "rewritten by filter");
+                    return Ok(());
+                }
+                FilterAction::Pass => {}
+            }
+        }
+    }
+
+    // 3. Forward to upstream resolver.
     let resolver_guard: tokio::sync::RwLockReadGuard<'_, TokioResolver> = resolver.read().await;
     let lookup: Result<Lookup, _> = resolver_guard.lookup(&domain, rtype).await;
 

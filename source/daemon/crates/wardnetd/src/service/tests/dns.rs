@@ -2,14 +2,25 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use tokio::sync::broadcast;
 use uuid::Uuid;
-use wardnet_types::api::{ToggleDnsRequest, UpdateDnsConfigRequest, UpstreamDnsRequest};
+use wardnet_types::api::{
+    CreateAllowlistRequest, CreateBlocklistRequest, CreateFilterRuleRequest, ToggleDnsRequest,
+    UpdateDnsConfigRequest, UpstreamDnsRequest,
+};
 use wardnet_types::auth::AuthContext;
-use wardnet_types::dns::{DnsProtocol, DnsResolutionMode};
+use wardnet_types::dns::{
+    AllowlistEntry, Blocklist, CustomFilterRule, DnsProtocol, DnsResolutionMode,
+};
+use wardnet_types::event::WardnetEvent;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::repository::SystemConfigRepository;
+use crate::event::EventPublisher;
+use crate::repository::{
+    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
+    QueryLogFilter, QueryLogRow, SystemConfigRepository,
+};
 use crate::service::{DnsService, DnsServiceImpl};
 
 // -- Mock SystemConfigRepository ----------------------------------------------
@@ -59,6 +70,232 @@ impl SystemConfigRepository for MockSystemConfigRepository {
     }
 }
 
+// -- Mock DnsRepository -------------------------------------------------------
+
+struct MockDnsRepository {
+    blocklists: Mutex<Vec<Blocklist>>,
+    allowlist: Mutex<Vec<AllowlistEntry>>,
+    custom_rules: Mutex<Vec<CustomFilterRule>>,
+    blocked_domains: Mutex<Vec<String>>,
+}
+
+impl MockDnsRepository {
+    fn new() -> Self {
+        Self {
+            blocklists: Mutex::new(Vec::new()),
+            allowlist: Mutex::new(Vec::new()),
+            custom_rules: Mutex::new(Vec::new()),
+            blocked_domains: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl DnsRepository for MockDnsRepository {
+    // Query log stubs
+    async fn insert_query_log_batch(&self, _entries: &[QueryLogRow]) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn query_log_paginated(
+        &self,
+        _limit: u32,
+        _offset: u32,
+        _filter: &QueryLogFilter,
+    ) -> anyhow::Result<Vec<QueryLogRow>> {
+        Ok(Vec::new())
+    }
+
+    async fn query_log_count(&self, _filter: &QueryLogFilter) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    // Blocklists
+    async fn list_blocklists(&self) -> anyhow::Result<Vec<Blocklist>> {
+        Ok(self.blocklists.lock().unwrap().clone())
+    }
+
+    async fn get_blocklist(&self, id: Uuid) -> anyhow::Result<Option<Blocklist>> {
+        Ok(self
+            .blocklists
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|b| b.id == id)
+            .cloned())
+    }
+
+    async fn create_blocklist(&self, row: &BlocklistRow) -> anyhow::Result<()> {
+        let now = chrono::Utc::now();
+        self.blocklists.lock().unwrap().push(Blocklist {
+            id: row.id.parse().unwrap(),
+            name: row.name.clone(),
+            url: row.url.clone(),
+            enabled: row.enabled,
+            entry_count: 0,
+            last_updated: None,
+            cron_schedule: row.cron_schedule.clone(),
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
+            updated_at: now,
+        });
+        Ok(())
+    }
+
+    async fn update_blocklist(&self, id: Uuid, row: &BlocklistUpdate) -> anyhow::Result<()> {
+        let mut lists = self.blocklists.lock().unwrap();
+        if let Some(bl) = lists.iter_mut().find(|b| b.id == id) {
+            if let Some(ref name) = row.name {
+                bl.name.clone_from(name);
+            }
+            if let Some(ref url) = row.url {
+                bl.url.clone_from(url);
+            }
+            if let Some(enabled) = row.enabled {
+                bl.enabled = enabled;
+            }
+            if let Some(ref cron) = row.cron_schedule {
+                bl.cron_schedule.clone_from(cron);
+            }
+        }
+        Ok(())
+    }
+
+    async fn delete_blocklist(&self, id: Uuid) -> anyhow::Result<bool> {
+        let mut lists = self.blocklists.lock().unwrap();
+        let len_before = lists.len();
+        lists.retain(|b| b.id != id);
+        Ok(lists.len() < len_before)
+    }
+
+    async fn replace_blocklist_domains(
+        &self,
+        _id: Uuid,
+        _domains: &[String],
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn list_all_blocked_domains_for_enabled(&self) -> anyhow::Result<Vec<String>> {
+        Ok(self.blocked_domains.lock().unwrap().clone())
+    }
+
+    async fn set_blocklist_error(&self, _id: Uuid, _error: Option<&str>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    // Allowlist
+    async fn list_allowlist(&self) -> anyhow::Result<Vec<AllowlistEntry>> {
+        Ok(self.allowlist.lock().unwrap().clone())
+    }
+
+    async fn create_allowlist_entry(&self, row: &AllowlistRow) -> anyhow::Result<()> {
+        self.allowlist.lock().unwrap().push(AllowlistEntry {
+            id: row.id.parse().unwrap(),
+            domain: row.domain.clone(),
+            reason: row.reason.clone(),
+            created_at: chrono::Utc::now(),
+        });
+        Ok(())
+    }
+
+    async fn delete_allowlist_entry(&self, id: Uuid) -> anyhow::Result<bool> {
+        let mut entries = self.allowlist.lock().unwrap();
+        let len_before = entries.len();
+        entries.retain(|e| e.id != id);
+        Ok(entries.len() < len_before)
+    }
+
+    // Custom rules
+    async fn list_custom_rules(&self) -> anyhow::Result<Vec<CustomFilterRule>> {
+        Ok(self.custom_rules.lock().unwrap().clone())
+    }
+
+    async fn get_custom_rule(&self, id: Uuid) -> anyhow::Result<Option<CustomFilterRule>> {
+        Ok(self
+            .custom_rules
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.id == id)
+            .cloned())
+    }
+
+    async fn create_custom_rule(&self, row: &CustomRuleRow) -> anyhow::Result<()> {
+        let now = chrono::Utc::now();
+        self.custom_rules.lock().unwrap().push(CustomFilterRule {
+            id: row.id.parse().unwrap(),
+            rule_text: row.rule_text.clone(),
+            enabled: row.enabled,
+            comment: row.comment.clone(),
+            created_at: now,
+            updated_at: now,
+        });
+        Ok(())
+    }
+
+    async fn update_custom_rule(&self, id: Uuid, row: &CustomRuleUpdate) -> anyhow::Result<()> {
+        let mut rules = self.custom_rules.lock().unwrap();
+        if let Some(rule) = rules.iter_mut().find(|r| r.id == id) {
+            if let Some(ref text) = row.rule_text {
+                rule.rule_text.clone_from(text);
+            }
+            if let Some(enabled) = row.enabled {
+                rule.enabled = enabled;
+            }
+            if let Some(ref comment) = row.comment {
+                rule.comment = Some(comment.clone());
+            }
+            rule.updated_at = chrono::Utc::now();
+        }
+        Ok(())
+    }
+
+    async fn delete_custom_rule(&self, id: Uuid) -> anyhow::Result<bool> {
+        let mut rules = self.custom_rules.lock().unwrap();
+        let len_before = rules.len();
+        rules.retain(|r| r.id != id);
+        Ok(rules.len() < len_before)
+    }
+}
+
+// -- Mock EventPublisher ------------------------------------------------------
+
+struct MockEventPublisher {
+    events: Mutex<Vec<WardnetEvent>>,
+    tx: broadcast::Sender<WardnetEvent>,
+}
+
+impl MockEventPublisher {
+    fn new() -> Self {
+        let (tx, _) = broadcast::channel(16);
+        Self {
+            events: Mutex::new(Vec::new()),
+            tx,
+        }
+    }
+
+    fn published_events(&self) -> Vec<WardnetEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+impl EventPublisher for MockEventPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        self.events.lock().unwrap().push(event.clone());
+        let _ = self.tx.send(event);
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        self.tx.subscribe()
+    }
+}
+
 // -- Helpers ------------------------------------------------------------------
 
 fn admin_ctx() -> AuthContext {
@@ -69,21 +306,45 @@ fn admin_ctx() -> AuthContext {
 
 fn build_service() -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::new());
-    DnsServiceImpl::new(system_config)
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    DnsServiceImpl::new(system_config, dns_repo, events)
 }
 
 fn build_service_with_config(data: HashMap<String, String>) -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::with_data(data));
-    DnsServiceImpl::new(system_config)
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    DnsServiceImpl::new(system_config, dns_repo, events)
 }
 
 fn build_service_with_repo() -> (DnsServiceImpl, Arc<MockSystemConfigRepository>) {
     let repo = Arc::new(MockSystemConfigRepository::new());
-    let svc = DnsServiceImpl::new(repo.clone());
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let svc = DnsServiceImpl::new(repo.clone(), dns_repo, events);
     (svc, repo)
 }
 
-// -- Tests --------------------------------------------------------------------
+struct FullService {
+    svc: DnsServiceImpl,
+    dns_repo: Arc<MockDnsRepository>,
+    events: Arc<MockEventPublisher>,
+}
+
+fn build_full_service() -> FullService {
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let svc = DnsServiceImpl::new(system_config, dns_repo.clone(), events.clone());
+    FullService {
+        svc,
+        dns_repo,
+        events,
+    }
+}
+
+// -- Existing tests -----------------------------------------------------------
 
 #[tokio::test]
 async fn get_config_returns_defaults() {
@@ -351,4 +612,213 @@ async fn update_config_updates_multiple_fields() {
     assert!(c.ad_blocking_enabled);
     assert!(c.query_log_enabled);
     assert_eq!(c.query_log_retention_days, 7);
+}
+
+// -- Ad-blocking tests --------------------------------------------------------
+
+#[tokio::test]
+async fn list_blocklists_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.list_blocklists()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn create_blocklist_validates_url() {
+    let fs = build_full_service();
+    let req = CreateBlocklistRequest {
+        name: "Test".to_owned(),
+        url: "ftp://bad.example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+    if let Err(AppError::BadRequest(msg)) = result {
+        assert!(
+            msg.contains("http://"),
+            "error should mention http, got: {msg}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn create_blocklist_validates_cron() {
+    let fs = build_full_service();
+    let req = CreateBlocklistRequest {
+        name: "Test".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "not a cron".to_owned(),
+        enabled: true,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+    if let Err(AppError::BadRequest(msg)) = result {
+        assert!(
+            msg.contains("cron"),
+            "error should mention cron, got: {msg}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn create_blocklist_success() {
+    let fs = build_full_service();
+    let req = CreateBlocklistRequest {
+        name: "Steven Black".to_owned(),
+        url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(req))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.blocklist.name, "Steven Black");
+    assert!(resp.blocklist.enabled);
+    assert_eq!(resp.message, "blocklist created");
+
+    // Verify event published.
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0], WardnetEvent::DnsFiltersChanged { .. }));
+
+    // Verify stored in repo.
+    let stored = fs.dns_repo.list_blocklists().await.unwrap();
+    assert_eq!(stored.len(), 1);
+}
+
+#[tokio::test]
+async fn delete_blocklist_not_found() {
+    let fs = build_full_service();
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.delete_blocklist(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn create_allowlist_validates_domain() {
+    let fs = build_full_service();
+
+    // Empty domain.
+    let req = CreateAllowlistRequest {
+        domain: String::new(),
+        reason: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+
+    // No dot in domain.
+    let req = CreateAllowlistRequest {
+        domain: "nodot".to_owned(),
+        reason: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+
+    // Invalid characters.
+    let req = CreateAllowlistRequest {
+        domain: "bad domain!.com".to_owned(),
+        reason: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn create_filter_rule_validates_rule_text() {
+    let fs = build_full_service();
+
+    // Empty / comment line.
+    let req = CreateFilterRuleRequest {
+        rule_text: "# this is a comment".to_owned(),
+        comment: None,
+        enabled: true,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn create_filter_rule_success() {
+    let fs = build_full_service();
+    let req = CreateFilterRuleRequest {
+        rule_text: "||ads.example.com^".to_owned(),
+        comment: Some("block ads".to_owned()),
+        enabled: true,
+    };
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.rule.rule_text, "||ads.example.com^");
+    assert!(resp.rule.enabled);
+    assert_eq!(resp.rule.comment, Some("block ads".to_owned()));
+    assert_eq!(resp.message, "filter rule created");
+
+    // Verify event published.
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0], WardnetEvent::DnsFiltersChanged { .. }));
+}
+
+#[tokio::test]
+async fn load_filter_inputs_assembles_correctly() {
+    let fs = build_full_service();
+
+    // Seed some data.
+    fs.dns_repo
+        .blocked_domains
+        .lock()
+        .unwrap()
+        .extend(vec!["ads.example.com".to_owned(), "tracker.net".to_owned()]);
+
+    fs.dns_repo.allowlist.lock().unwrap().push(AllowlistEntry {
+        id: Uuid::new_v4(),
+        domain: "safe.example.com".to_owned(),
+        reason: None,
+        created_at: chrono::Utc::now(),
+    });
+
+    fs.dns_repo
+        .custom_rules
+        .lock()
+        .unwrap()
+        .push(CustomFilterRule {
+            id: Uuid::new_v4(),
+            rule_text: "||custom.block^".to_owned(),
+            enabled: true,
+            comment: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        });
+
+    // Add a disabled rule that should be filtered out.
+    fs.dns_repo
+        .custom_rules
+        .lock()
+        .unwrap()
+        .push(CustomFilterRule {
+            id: Uuid::new_v4(),
+            rule_text: "||disabled.rule^".to_owned(),
+            enabled: false,
+            comment: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        });
+
+    let inputs = fs.svc.load_filter_inputs().await.unwrap();
+
+    assert_eq!(inputs.blocked_domains.len(), 2);
+    assert!(
+        inputs
+            .blocked_domains
+            .contains(&"ads.example.com".to_owned())
+    );
+    assert!(inputs.blocked_domains.contains(&"tracker.net".to_owned()));
+    assert_eq!(inputs.allowlist.len(), 1);
+    assert_eq!(inputs.allowlist[0], "safe.example.com");
+    // Only enabled rules.
+    assert_eq!(inputs.custom_rules.len(), 1);
+    assert_eq!(inputs.custom_rules[0], "||custom.block^");
 }

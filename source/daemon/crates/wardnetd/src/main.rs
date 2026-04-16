@@ -24,6 +24,8 @@ use wardnetd::config::{Config, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::dhcp::runner::DhcpRunner;
 use wardnetd::dhcp::server::{NoopDhcpServer, UdpDhcpServer};
+use wardnetd::dns::blocklist_downloader::HttpBlocklistFetcher;
+use wardnetd::dns::filter::DnsFilter;
 use wardnetd::dns::runner::DnsRunner;
 use wardnetd::dns::server::{NoopDnsServer, UdpDnsServer};
 use wardnetd::event::{BroadcastEventBus, EventPublisher};
@@ -161,6 +163,7 @@ async fn run(
     let device_repo = Arc::new(SqliteDeviceRepository::new(pool.clone()));
     let system_config_repo = Arc::new(SqliteSystemConfigRepository::new(pool.clone()));
     let dhcp_repo = Arc::new(SqliteDhcpRepository::new(pool.clone()));
+    let dns_repo = Arc::new(wardnetd::repository::SqliteDnsRepository::new(pool.clone()));
     let tunnel_repo = Arc::new(SqliteTunnelRepository::new(pool));
 
     // Create event publisher.
@@ -202,8 +205,11 @@ async fn run(
         system_config_repo.clone(),
         lan_ip,
     ));
-    let dns_service: Arc<dyn wardnetd::service::DnsService> =
-        Arc::new(DnsServiceImpl::new(system_config_repo.clone()));
+    let dns_service: Arc<dyn wardnetd::service::DnsService> = Arc::new(DnsServiceImpl::new(
+        system_config_repo.clone(),
+        dns_repo.clone(),
+        event_publisher.clone(),
+    ));
     let system_service = Arc::new(SystemServiceImpl::new(
         system_config_repo,
         tunnel_repo.clone(),
@@ -383,14 +389,23 @@ async fn run(
     );
 
     // Start DNS server and runner.
+    let dns_filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()));
+    let blocklist_fetcher: Arc<dyn wardnetd::dns::blocklist_downloader::BlocklistFetcher> =
+        Arc::new(HttpBlocklistFetcher::new());
     let dns_server: Arc<dyn wardnetd::dns::server::DnsServer> = if mock_network {
         Arc::new(NoopDnsServer)
     } else {
-        Arc::new(UdpDnsServer::new(wardnet_types::dns::DnsConfig::default()))
+        Arc::new(UdpDnsServer::new(
+            wardnet_types::dns::DnsConfig::default(),
+            Arc::clone(&dns_filter),
+        ))
     };
     let dns_runner = DnsRunner::start(
         dns_service.clone(),
         dns_server.clone(),
+        dns_repo.clone(),
+        dns_filter,
+        blocklist_fetcher,
         event_publisher.as_ref(),
         &root_span,
     );

@@ -1,8 +1,15 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use uuid::Uuid;
 use wardnet_types::api::{
-    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ToggleDnsRequest,
-    UpdateDnsConfigRequest,
+    CreateAllowlistRequest, CreateAllowlistResponse, CreateBlocklistRequest,
+    CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
+    DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
+    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistNowResponse,
+    UpdateBlocklistRequest, UpdateBlocklistResponse, UpdateDnsConfigRequest,
+    UpdateFilterRuleRequest, UpdateFilterRuleResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -74,4 +81,135 @@ pub async fn flush_cache(
         message: "Cache flushed".to_owned(),
         entries_cleared: cleared,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Blocklists
+// ---------------------------------------------------------------------------
+
+/// GET /api/dns/blocklists
+pub async fn list_blocklists(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<ListBlocklistsResponse>, AppError> {
+    let response = state.dns_service().list_blocklists().await?;
+    Ok(Json(response))
+}
+
+/// POST /api/dns/blocklists
+pub async fn create_blocklist(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<CreateBlocklistRequest>,
+) -> Result<(StatusCode, Json<CreateBlocklistResponse>), AppError> {
+    let response = state.dns_service().create_blocklist(body).await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// PUT /api/dns/blocklists/{id}
+pub async fn update_blocklist(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateBlocklistRequest>,
+) -> Result<Json<UpdateBlocklistResponse>, AppError> {
+    let response = state.dns_service().update_blocklist(id, body).await?;
+    Ok(Json(response))
+}
+
+/// DELETE /api/dns/blocklists/{id}
+pub async fn delete_blocklist(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteBlocklistResponse>, AppError> {
+    let response = state.dns_service().delete_blocklist(id).await?;
+    Ok(Json(response))
+}
+
+/// POST /api/dns/blocklists/{id}/update
+pub async fn update_blocklist_now(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<UpdateBlocklistNowResponse>, AppError> {
+    let response = state.dns_service().update_blocklist_now(id).await?;
+    Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
+// Allowlist
+// ---------------------------------------------------------------------------
+
+/// GET /api/dns/allowlist
+pub async fn list_allowlist(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<ListAllowlistResponse>, AppError> {
+    let response = state.dns_service().list_allowlist().await?;
+    Ok(Json(response))
+}
+
+/// POST /api/dns/allowlist
+pub async fn create_allowlist_entry(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<CreateAllowlistRequest>,
+) -> Result<(StatusCode, Json<CreateAllowlistResponse>), AppError> {
+    let response = state.dns_service().create_allowlist_entry(body).await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// DELETE /api/dns/allowlist/{id}
+pub async fn delete_allowlist_entry(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteAllowlistResponse>, AppError> {
+    let response = state.dns_service().delete_allowlist_entry(id).await?;
+    Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
+// Custom filter rules
+// ---------------------------------------------------------------------------
+
+/// GET /api/dns/rules
+pub async fn list_filter_rules(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<ListFilterRulesResponse>, AppError> {
+    let response = state.dns_service().list_filter_rules().await?;
+    Ok(Json(response))
+}
+
+/// POST /api/dns/rules
+pub async fn create_filter_rule(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<CreateFilterRuleRequest>,
+) -> Result<(StatusCode, Json<CreateFilterRuleResponse>), AppError> {
+    let response = state.dns_service().create_filter_rule(body).await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// PUT /api/dns/rules/{id}
+pub async fn update_filter_rule(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateFilterRuleRequest>,
+) -> Result<Json<UpdateFilterRuleResponse>, AppError> {
+    let response = state.dns_service().update_filter_rule(id, body).await?;
+    Ok(Json(response))
+}
+
+/// DELETE /api/dns/rules/{id}
+pub async fn delete_filter_rule(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteFilterRuleResponse>, AppError> {
+    let response = state.dns_service().delete_filter_rule(id).await?;
+    Ok(Json(response))
 }
