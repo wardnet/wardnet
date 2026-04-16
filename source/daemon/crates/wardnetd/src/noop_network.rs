@@ -157,6 +157,16 @@ impl FirewallManager for NoopFirewallManager {
         Ok(())
     }
 
+    async fn add_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()> {
+        tracing::info!(device_ip, "noop: add tcp reset reject");
+        Ok(())
+    }
+
+    async fn remove_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()> {
+        tracing::info!(device_ip, "noop: remove tcp reset reject");
+        Ok(())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         tracing::info!("noop: check tools available");
         Ok(())

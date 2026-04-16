@@ -23,7 +23,7 @@ OTEL_HOST    ?=
 
 .PHONY: all init build build-daemon build-sdk build-web build-site build-pi \
         check check-sdk check-web check-site check-daemon fmt clippy test \
-        deploy run-pi run-local system-test system-test-setup system-test-teardown \
+        deploy run-pi system-test system-test-setup system-test-teardown \
         clean help
 
 all: build
@@ -36,14 +36,8 @@ init:
 	@command -v node >/dev/null || { echo "Error: node not found. Install Node.js 25+"; exit 1; }
 	@command -v yarn >/dev/null || { echo "Error: yarn not found. Run: corepack enable"; exit 1; }
 	rustup target add $(PI_TARGET)
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		echo "Installing macOS cross-compilation toolchain..."; \
-		brew tap messense/macos-cross-toolchains; \
-		brew install aarch64-unknown-linux-gnu; \
-	elif [ "$$(uname)" = "Linux" ]; then \
-		echo "Installing Linux cross-compilation toolchain..."; \
-		sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu; \
-	fi
+	@echo "Installing cross-compilation toolchain..."
+	sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 	cd $(SDK_DIR) && yarn install
 	cd $(WEBUI_DIR) && yarn install
 	cd $(SITE_DIR) && yarn install
@@ -117,32 +111,6 @@ check: check-web check-site check-daemon
 # ---------- Deploy & Run ----------
 
 RESUME ?= false
-LOCAL_DIR := $(CURDIR)/.wardnet-local
-
-# Run the daemon locally with mock network backends + vite dev server.
-#
-# Daemon runs in the background (logs to stdout), vite runs in the foreground.
-# Ctrl+C stops the dev server and tears down the daemon via the EXIT trap.
-# Database and keys live under .wardnet-local/ at the repo root (gitignored).
-# Use RESUME=true to keep the existing local database across runs.
-run-local: build
-	@mkdir -p $(LOCAL_DIR)/keys $(LOCAL_DIR)/logs
-	@if [ "$(RESUME)" != "true" ]; then \
-		echo "Cleaning local database (use RESUME=true to keep it)..."; \
-		rm -f $(LOCAL_DIR)/wardnet.db $(LOCAL_DIR)/wardnet.db-wal $(LOCAL_DIR)/wardnet.db-shm; \
-	fi
-	@printf '[database]\npath = "%s/wardnet.db"\n\n[logging]\npath = "%s/logs/wardnetd.log"\nlevel = "debug"\n\n[network]\nlan_interface = "lo0"\n\n[tunnel]\nkeys_dir = "%s/keys"\n' \
-		"$(LOCAL_DIR)" "$(LOCAL_DIR)" "$(LOCAL_DIR)" > $(LOCAL_DIR)/wardnet.toml
-	@echo "=== Starting wardnetd (mock-network) + web UI dev server ==="
-	@echo "Daemon API : http://127.0.0.1:7411"
-	@echo "Web UI     : http://127.0.0.1:7412  (proxies /api to daemon)"
-	@echo "Config     : $(LOCAL_DIR)/wardnet.toml"
-	@echo ""
-	@set -e; \
-		$(DAEMON_DIR)/target/release/wardnetd --config $(LOCAL_DIR)/wardnet.toml --verbose --mock-network & \
-		DAEMON_PID=$$!; \
-		trap "kill $$DAEMON_PID 2>/dev/null; wait $$DAEMON_PID 2>/dev/null; true" EXIT INT TERM; \
-		cd $(WEBUI_DIR) && yarn dev
 
 run-pi: build-pi
 	@test -n "$(PI_HOST)" || { echo "Error: PI_HOST is required"; exit 1; }
@@ -278,12 +246,6 @@ help:
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
 	@echo "  check-site     Typecheck + format check + tests for public site"
 	@echo "  check-daemon   Format + clippy + tests for daemon"
-	@echo ""
-	@echo "  run-local      Build, then run daemon (mock-network) + web UI dev server locally"
-	@echo "                 Daemon on :7411, web UI on :7412 (proxies /api to daemon)"
-	@echo "                 Ctrl+C stops both. Data lives in ./.wardnet-local/"
-	@echo "                 make run-local                  (fresh DB)"
-	@echo "                 make run-local RESUME=true      (keep existing DB)"
 	@echo ""
 	@echo "  run-pi         Build, deploy, and run on Pi via SSH (interactive)"
 	@echo "                 Deletes the database by default for a clean start."

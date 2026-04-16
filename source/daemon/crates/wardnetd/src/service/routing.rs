@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -66,6 +67,14 @@ pub trait RoutingService: Send + Sync {
     /// Enables IP forwarding, initialises nftables, and applies all stored rules.
     /// Cleans up any orphaned kernel rules that don't match the database.
     async fn reconcile(&self) -> Result<(), AppError>;
+
+    /// Handle a lost routing table — re-apply routes for all devices using it.
+    ///
+    /// Triggered by the route monitor when the kernel deletes a route from a
+    /// Wardnet-managed routing table (tables >= 100). Marks the table as
+    /// unconfigured in memory so the next [`apply_rule`](Self::apply_rule)
+    /// re-creates it.
+    async fn handle_route_table_lost(&self, table: u32) -> Result<(), AppError>;
 
     /// Return the list of device IDs currently routing through the given tunnel.
     async fn devices_using_tunnel(&self, tunnel_id: Uuid) -> Result<Vec<Uuid>, AppError>;
@@ -229,12 +238,36 @@ impl RoutingServiceImpl {
         table: u32,
     ) -> Result<(), anyhow::Error> {
         if state.tunnel_tables.contains(&table) {
-            tracing::debug!(
-                interface = interface_name,
-                table,
-                "tunnel routing table already configured"
-            );
-        } else {
+            // Verify the kernel route still exists — it can vanish if the
+            // interface was recreated or removed externally.
+            match self.netlink.has_route_table(table).await {
+                Ok(true) => {
+                    tracing::debug!(
+                        interface = interface_name,
+                        table,
+                        "tunnel routing table verified in kernel"
+                    );
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        interface = interface_name,
+                        table,
+                        "tunnel routing table missing from kernel, will re-add"
+                    );
+                    state.tunnel_tables.remove(&table);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        interface = interface_name,
+                        table,
+                        error = %e,
+                        "failed to verify tunnel routing table, will re-add"
+                    );
+                    state.tunnel_tables.remove(&table);
+                }
+            }
+        }
+        if !state.tunnel_tables.contains(&table) {
             tracing::debug!(
                 interface = interface_name,
                 table,
@@ -280,6 +313,81 @@ impl RoutingServiceImpl {
             state.tunnel_tables.insert(table);
         }
         Ok(())
+    }
+
+    /// Delay between adding the TCP RST reject rule and removing it.
+    ///
+    /// Must be long enough for the device to retransmit at least once and
+    /// receive the RST, but short enough to avoid blocking new connections.
+    const TCP_RST_HOLD_DURATION: Duration = Duration::from_millis(500);
+
+    /// Flush stale connections for a device after a routing change.
+    ///
+    /// Injects a temporary nftables `reject with tcp reset` rule so the
+    /// device's stale TCP sockets receive RSTs instead of silently timing
+    /// out over 30-60s. The sequence is:
+    ///
+    /// 1. Add TCP RST reject rule in the forward chain
+    /// 2. Flush conntrack entries for the device
+    /// 3. Hold briefly for the device's retransmits to hit the reject rule
+    /// 4. Remove the reject rule
+    /// 5. Flush route cache
+    async fn flush_stale_connections(&self, device_ip: &str) {
+        // 1. Add TCP RST reject rule (non-fatal — the device will still
+        //    recover via TCP timeout if this fails).
+        let rst_added = match self.nftables.add_tcp_reset_reject(device_ip).await {
+            Ok(()) => {
+                tracing::debug!(device_ip, "added TCP RST reject rule");
+                true
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    device_ip,
+                    "failed to add TCP RST reject rule (device may experience ~30s delay)"
+                );
+                false
+            }
+        };
+
+        // 2. Flush conntrack so existing flows are not pinned to the previous
+        //    route. When the device retransmits, packets hit the reject rule.
+        if let Err(e) = self.netlink.flush_conntrack(device_ip).await {
+            tracing::warn!(
+                error = %e,
+                device_ip,
+                "failed to flush conntrack (existing flows may stay on previous route)"
+            );
+        }
+
+        // 3. Hold for device retransmits.
+        if rst_added {
+            tracing::debug!(
+                device_ip,
+                hold_ms = Self::TCP_RST_HOLD_DURATION.as_millis(),
+                "holding TCP RST reject rule"
+            );
+            tokio::time::sleep(Self::TCP_RST_HOLD_DURATION).await;
+
+            // 4. Remove the reject rule so new connections work normally.
+            if let Err(e) = self.nftables.remove_tcp_reset_reject(device_ip).await {
+                tracing::warn!(
+                    error = %e,
+                    device_ip,
+                    "failed to remove TCP RST reject rule"
+                );
+            } else {
+                tracing::debug!(device_ip, "removed TCP RST reject rule");
+            }
+        }
+
+        // 5. Flush route cache.
+        if let Err(e) = self.netlink.flush_route_cache().await {
+            tracing::warn!(
+                error = %e,
+                "failed to flush route cache (new packets may follow cached path briefly)"
+            );
+        }
     }
 
     /// Load all devices that have a routing rule targeting a specific tunnel.
@@ -620,26 +728,12 @@ impl RoutingService for RoutingServiceImpl {
             );
         }
 
-        // Flush conntrack for this device's source IP so existing flows are
-        // not pinned to the previous route by NAT/conntrack state. Must run
-        // *after* the new ip rule is in place so re-opened connections pick
-        // up the new table. Also flush the kernel route cache to discard any
-        // ICMP-redirect hints or cached next-hop decisions from the old path.
-        // Both are non-fatal on failure.
+        // Flush stale connections: inject temporary TCP RST reject rule,
+        // flush conntrack, wait for device retransmits, then clean up.
+        // Must run *after* the new ip rule is in place so re-opened
+        // connections pick up the new table.
         drop(state);
-        if let Err(e) = self.netlink.flush_conntrack(device_ip).await {
-            tracing::warn!(
-                error = %e,
-                device_ip,
-                "failed to flush conntrack (existing flows may stay on previous route)"
-            );
-        }
-        if let Err(e) = self.netlink.flush_route_cache().await {
-            tracing::warn!(
-                error = %e,
-                "failed to flush route cache (new packets may follow cached path briefly)"
-            );
-        }
+        self.flush_stale_connections(device_ip).await;
 
         Ok(())
     }
@@ -764,23 +858,12 @@ impl RoutingService for RoutingServiceImpl {
             state.tunnel_tables.remove(&table);
         }
 
-        // Release the lock before flushing conntrack for affected devices —
-        // without this, existing flows stay pinned to the now-dead tunnel
-        // route instead of falling back to the default route.
+        // Release the lock before flushing stale connections for affected
+        // devices — without this, existing flows stay pinned to the now-dead
+        // tunnel route instead of falling back to the default route.
         drop(state);
         for ip in &affected_ips {
-            if let Err(e) = self.netlink.flush_conntrack(ip).await {
-                tracing::warn!(
-                    error = %e,
-                    device_ip = %ip,
-                    "failed to flush conntrack after tunnel down"
-                );
-            }
-        }
-        if !affected_ips.is_empty()
-            && let Err(e) = self.netlink.flush_route_cache().await
-        {
-            tracing::warn!(error = %e, "failed to flush route cache after tunnel down");
+            self.flush_stale_connections(ip).await;
         }
 
         tracing::debug!(
@@ -981,6 +1064,65 @@ impl RoutingService for RoutingServiceImpl {
             total_devices = all_devices.len(),
             "routing reconciliation complete"
         );
+
+        Ok(())
+    }
+
+    async fn handle_route_table_lost(&self, table: u32) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::warn!(table, "handling lost route table");
+
+        let mut state = self.state.lock().await;
+
+        // Mark the table as unconfigured so ensure_tunnel_table re-adds it.
+        state.tunnel_tables.remove(&table);
+
+        // Find all devices whose traffic was routed through this table.
+        let affected: Vec<(Uuid, String)> = state
+            .applied
+            .iter()
+            .filter(|(_, rule)| rule.table == Some(table))
+            .map(|(id, rule)| (*id, rule.device_ip.clone()))
+            .collect();
+
+        if affected.is_empty() {
+            tracing::debug!(table, "no devices using lost route table");
+            return Ok(());
+        }
+
+        // Collect targets then remove from applied so apply_rule doesn't
+        // skip them via its idempotency check (same target+IP = no-op).
+        let re_apply: Vec<(Uuid, String, RoutingTarget)> = affected
+            .iter()
+            .filter_map(|(id, _)| {
+                state
+                    .applied
+                    .get(id)
+                    .map(|r| (*id, r.device_ip.clone(), r.target.clone()))
+            })
+            .collect();
+        for (id, _) in &affected {
+            state.applied.remove(id);
+        }
+
+        drop(state);
+
+        tracing::info!(
+            table,
+            device_count = re_apply.len(),
+            "re-applying routing rules for devices on lost table"
+        );
+
+        for (device_id, device_ip, target) in &re_apply {
+            if let Err(e) = self.apply_rule(*device_id, device_ip, target).await {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device_id,
+                    table,
+                    "failed to re-apply routing rule after route table lost"
+                );
+            }
+        }
 
         Ok(())
     }

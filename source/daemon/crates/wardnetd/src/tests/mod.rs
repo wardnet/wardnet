@@ -10,7 +10,6 @@ mod log_broadcast;
 mod metrics_collector;
 mod oui;
 mod packet_capture;
-mod policy_router_iproute;
 mod profiling;
 mod recent_errors;
 mod request_context;

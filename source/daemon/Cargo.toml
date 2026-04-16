@@ -102,11 +102,20 @@ dhcproto = "0.14"
 
 # https://crates.io/crates/regex
 regex = "1"
+# https://crates.io/crates/futures
+futures = "0.3"
 
 # https://crates.io/crates/hickory-proto
 hickory-proto = "0.25"
 # https://crates.io/crates/hickory-resolver
 hickory-resolver = "0.25"
+
+# https://crates.io/crates/rtnetlink
+rtnetlink = "0.20"
+# https://crates.io/crates/netlink-packet-route
+netlink-packet-route = "0.30"
+# https://crates.io/crates/netlink-sys
+netlink-sys = "0.8"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.31"

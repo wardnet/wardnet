@@ -27,6 +27,19 @@ pub trait FirewallManager: Send + Sync {
     /// Remove the DNS redirect rule for the given device IP.
     async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()>;
 
+    /// Add a temporary rule that rejects TCP packets from a device with TCP RST.
+    ///
+    /// Used when switching a device's routing target: the device's existing TCP
+    /// sockets are stale (the remote server no longer recognises the flow after
+    /// the source IP changed). Without an explicit RST, the device's TCP stack
+    /// retransmits for 30-60s before timing out. This rule causes the Pi
+    /// (acting as gateway) to send RST back to the device for any forwarded
+    /// TCP traffic, prompting immediate socket teardown.
+    async fn add_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()>;
+
+    /// Remove the temporary TCP RST reject rule for a device.
+    async fn remove_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()>;
+
     /// Verify that the required firewall tools are available on the system.
     async fn check_tools_available(&self) -> anyhow::Result<()>;
 

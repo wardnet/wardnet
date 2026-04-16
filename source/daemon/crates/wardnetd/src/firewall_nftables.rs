@@ -88,6 +88,7 @@ impl FirewallManager for NftablesFirewallManager {
 add table inet wardnet
 add chain inet wardnet postrouting { type nat hook postrouting priority 100 ; policy accept ; }
 add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; policy accept ; }
+add chain inet wardnet forward { type filter hook forward priority 0 ; policy accept ; }
 ";
         self.run_stdin(script).await?;
         tracing::info!("nftables: wardnet table initialised");
@@ -201,6 +202,71 @@ add chain inet wardnet prerouting { type nat hook prerouting priority -100 ; pol
                 tracing::warn!(
                     device_ip,
                     "nftables: DNS redirect rule not found, nothing to remove"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn add_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()> {
+        let comment = format!("\"wardnet:rst:{device_ip}\"");
+        self.run(&[
+            "add",
+            "rule",
+            "inet",
+            "wardnet",
+            "forward",
+            "ip",
+            "saddr",
+            device_ip,
+            "tcp",
+            "flags",
+            "&",
+            "(fin|syn|rst)",
+            "==",
+            "0x0",
+            "reject",
+            "with",
+            "tcp",
+            "reset",
+            "comment",
+            &comment,
+        ])
+        .await?;
+        tracing::debug!(device_ip, "nftables: TCP RST reject rule added");
+        Ok(())
+    }
+
+    async fn remove_tcp_reset_reject(&self, device_ip: &str) -> anyhow::Result<()> {
+        let comment = format!("\"wardnet:rst:{device_ip}\"");
+        let output = self
+            .run(&["-a", "list", "chain", "inet", "wardnet", "forward"])
+            .await?;
+
+        match parse_rule_handle(&output, &comment) {
+            Some(h) => {
+                let handle_str = h.to_string();
+                self.run(&[
+                    "delete",
+                    "rule",
+                    "inet",
+                    "wardnet",
+                    "forward",
+                    "handle",
+                    &handle_str,
+                ])
+                .await?;
+                tracing::debug!(
+                    device_ip,
+                    handle = h,
+                    "nftables: TCP RST reject rule removed"
+                );
+            }
+            None => {
+                tracing::debug!(
+                    device_ip,
+                    "nftables: TCP RST reject rule not found, nothing to remove"
                 );
             }
         }
