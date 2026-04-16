@@ -19,10 +19,27 @@ PI_REMOTE     = $(PI_USER)@$(PI_HOST)
 OTEL         ?= false
 OTEL_HOST    ?=
 
+# Container runtime: prefer podman, fall back to docker.
+CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+CONTAINER_RT_NAME := $(notdir $(CONTAINER_RT))
+RUST_IMAGE   := docker.io/library/rust:1.94
+# Linux build artefacts live here (gitignored, persists on host for
+# incremental compilation). Separate from the macOS target/ directory.
+LINUX_TARGET := $(CURDIR)/.target-linux
+
+# Coverage: files excluded from cargo-llvm-cov.  Single source of truth —
+# CI calls `make coverage-daemon` with COV_FMT overridden for LCOV output.
+COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*)
+# Default: human-readable summary.  CI overrides:
+#   make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
+COV_FMT    ?= --summary-only
+
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-sdk build-web build-site build-pi \
-        check check-sdk check-web check-site check-daemon fmt clippy test \
+        check check-sdk check-web check-site check-daemon check-daemon-native check-daemon-container \
+        coverage-daemon coverage-daemon-native coverage-daemon-container \
+        fmt clippy test \
         deploy run-pi system-test system-test-setup system-test-teardown \
         clean help
 
@@ -97,10 +114,57 @@ build-daemon:
 build-pi: build-web
 	$(MAKE) build-daemon TARGET=$(PI_TARGET) CRATE=wardnetd
 
-check-daemon:
+# check-daemon: auto-selects native (Linux) or container (macOS/other).
+# The daemon uses Linux-only dependencies (netlink, rtnetlink) so it cannot
+# compile natively on macOS.  On non-Linux hosts we run the checks inside a
+# container using podman or docker (auto-detected).
+ifeq ($(shell uname -s),Linux)
+check-daemon: check-daemon-native
+else
+check-daemon: check-daemon-container
+endif
+
+check-daemon-native:
 	cd $(DAEMON_DIR) && cargo fmt --check
 	cd $(DAEMON_DIR) && cargo clippy --all-targets -- -D warnings
 	cd $(DAEMON_DIR) && cargo test --workspace
+
+check-daemon-container:
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required for non-Linux daemon checks"; exit 1; }
+	@echo "Using $(CONTAINER_RT_NAME) to run daemon checks in Linux container..."
+	@mkdir -p $(LINUX_TARGET)
+	$(CONTAINER_RT) run --rm \
+		-v $(CURDIR):/workspace:z \
+		-v wardnet-cargo-cache:/usr/local/cargo/registry \
+		-w /workspace/$(DAEMON_DIR) \
+		-e CARGO_TARGET_DIR=/workspace/.target-linux \
+		$(RUST_IMAGE) \
+		sh -c 'rustup component add clippy rustfmt 2>/dev/null; cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
+
+# coverage-daemon: generate a line-coverage summary for the daemon workspace.
+# Requires cargo-llvm-cov (installed automatically in the container path).
+# Uses the same ignore regex as CI so local numbers match.
+ifeq ($(shell uname -s),Linux)
+coverage-daemon: coverage-daemon-native
+else
+coverage-daemon: coverage-daemon-container
+endif
+
+coverage-daemon-native:
+	cd $(DAEMON_DIR) && cargo llvm-cov --workspace $(COV_FMT) \
+		--ignore-filename-regex '$(COV_IGNORE)'
+
+coverage-daemon-container:
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required for non-Linux coverage"; exit 1; }
+	@echo "Using $(CONTAINER_RT_NAME) to run daemon coverage in Linux container..."
+	@mkdir -p $(LINUX_TARGET)
+	$(CONTAINER_RT) run --rm \
+		-v $(CURDIR):/workspace:z \
+		-v wardnet-cargo-cache:/usr/local/cargo/registry \
+		-w /workspace/$(DAEMON_DIR) \
+		-e CARGO_TARGET_DIR=/workspace/.target-linux \
+		$(RUST_IMAGE) \
+		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
 
 # ---------- Compound targets ----------
 
@@ -245,7 +309,8 @@ help:
 	@echo "  check-sdk      Typecheck + format check for SDK"
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
 	@echo "  check-site     Typecheck + format check + tests for public site"
-	@echo "  check-daemon   Format + clippy + tests for daemon"
+	@echo "  check-daemon   Format + clippy + tests for daemon (auto: native on Linux, container on macOS)"
+	@echo "  coverage-daemon Line-coverage summary for daemon (auto: native on Linux, container on macOS)"
 	@echo ""
 	@echo "  run-pi         Build, deploy, and run on Pi via SSH (interactive)"
 	@echo "                 Deletes the database by default for a clean start."

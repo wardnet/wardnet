@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use tokio::sync::{RwLock, broadcast};
@@ -31,6 +32,12 @@ pub struct DnsRunner {
 
 impl DnsRunner {
     /// Start the DNS runner as a background task.
+    ///
+    /// `cron_check_interval` controls how frequently the runner checks blocklist
+    /// cron schedules for pending downloads.  Production code should pass
+    /// `Duration::from_secs(60)`; tests can use a much shorter interval to
+    /// exercise the cron path without waiting.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         service: Arc<dyn DnsService>,
         server: Arc<dyn DnsServer>,
@@ -39,6 +46,7 @@ impl DnsRunner {
         fetcher: Arc<dyn BlocklistFetcher>,
         events: &dyn EventPublisher,
         parent: &tracing::Span,
+        cron_check_interval: Duration,
     ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "dns_runner");
@@ -53,6 +61,7 @@ impl DnsRunner {
                 fetcher,
                 event_rx,
                 cancel.clone(),
+                cron_check_interval,
             )
             .instrument(span),
         );
@@ -94,6 +103,7 @@ async fn rebuild_filter(
 
 /// Main runner loop: start server if enabled, check blocklist cron schedules,
 /// and listen for events.
+#[allow(clippy::too_many_arguments)]
 async fn runner_loop(
     service: Arc<dyn DnsService>,
     server: Arc<dyn DnsServer>,
@@ -102,6 +112,7 @@ async fn runner_loop(
     fetcher: Arc<dyn BlocklistFetcher>,
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
+    cron_check_interval: Duration,
 ) {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
@@ -128,7 +139,7 @@ async fn runner_loop(
     rebuild_filter(service.as_ref(), &filter, &admin_ctx).await;
 
     // Tick interval for checking blocklist cron schedules.
-    let mut cron_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut cron_interval = tokio::time::interval(cron_check_interval);
     // Don't fire immediately — the first tick is the startup tick.
     cron_interval.tick().await;
 

@@ -822,3 +822,541 @@ async fn load_filter_inputs_assembles_correctly() {
     assert_eq!(inputs.custom_rules.len(), 1);
     assert_eq!(inputs.custom_rules[0], "||custom.block^");
 }
+
+// -- Additional service coverage tests ----------------------------------------
+
+#[tokio::test]
+async fn list_blocklists_success() {
+    let fs = build_full_service();
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.list_blocklists())
+        .await
+        .unwrap();
+    assert!(resp.blocklists.is_empty());
+}
+
+#[tokio::test]
+async fn list_allowlist_success() {
+    let fs = build_full_service();
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.list_allowlist())
+        .await
+        .unwrap();
+    assert!(resp.entries.is_empty());
+}
+
+#[tokio::test]
+async fn list_filter_rules_success() {
+    let fs = build_full_service();
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.list_filter_rules())
+        .await
+        .unwrap();
+    assert!(resp.rules.is_empty());
+}
+
+#[tokio::test]
+async fn update_blocklist_success() {
+    let fs = build_full_service();
+
+    // Create a blocklist first.
+    let create_req = CreateBlocklistRequest {
+        name: "Test".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(create_req))
+        .await
+        .unwrap();
+    let id = created.blocklist.id;
+
+    // Update it.
+    let update_req = wardnet_types::api::UpdateBlocklistRequest {
+        name: Some("Renamed".to_owned()),
+        url: None,
+        enabled: None,
+        cron_schedule: None,
+    };
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.update_blocklist(id, update_req))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.blocklist.name, "Renamed");
+    assert_eq!(resp.message, "blocklist updated");
+
+    // Verify event published (create + update).
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 2);
+    assert!(matches!(events[1], WardnetEvent::DnsFiltersChanged { .. }));
+}
+
+#[tokio::test]
+async fn update_blocklist_not_found() {
+    let fs = build_full_service();
+    let update_req = wardnet_types::api::UpdateBlocklistRequest {
+        name: Some("Renamed".to_owned()),
+        url: None,
+        enabled: None,
+        cron_schedule: None,
+    };
+    let result = auth_context::with_context(
+        admin_ctx(),
+        fs.svc.update_blocklist(Uuid::new_v4(), update_req),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn delete_blocklist_success() {
+    let fs = build_full_service();
+
+    // Create first.
+    let req = CreateBlocklistRequest {
+        name: "ToDelete".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(req))
+        .await
+        .unwrap();
+    let id = created.blocklist.id;
+
+    // Delete it.
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.delete_blocklist(id))
+        .await
+        .unwrap();
+
+    assert!(resp.message.contains("deleted"));
+
+    // Verify events: create + delete.
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 2);
+}
+
+#[tokio::test]
+async fn delete_allowlist_success() {
+    let fs = build_full_service();
+
+    // Create first.
+    let req = CreateAllowlistRequest {
+        domain: "safe.example.com".to_owned(),
+        reason: None,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req))
+        .await
+        .unwrap();
+    let id = created.entry.id;
+
+    // Delete it.
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.delete_allowlist_entry(id))
+        .await
+        .unwrap();
+
+    assert!(resp.message.contains("deleted"));
+
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 2);
+}
+
+#[tokio::test]
+async fn update_filter_rule_success() {
+    let fs = build_full_service();
+
+    // Create first.
+    let req = CreateFilterRuleRequest {
+        rule_text: "||ads.example.com^".to_owned(),
+        comment: None,
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req))
+        .await
+        .unwrap();
+    let id = created.rule.id;
+
+    // Update it.
+    let update_req = wardnet_types::api::UpdateFilterRuleRequest {
+        rule_text: Some("||updated.example.com^".to_owned()),
+        enabled: None,
+        comment: Some("updated comment".to_owned()),
+    };
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.update_filter_rule(id, update_req))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.rule.rule_text, "||updated.example.com^");
+    assert_eq!(resp.message, "filter rule updated");
+
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 2);
+}
+
+#[tokio::test]
+async fn update_filter_rule_not_found() {
+    let fs = build_full_service();
+    let req = wardnet_types::api::UpdateFilterRuleRequest {
+        rule_text: Some("||x.com^".to_owned()),
+        enabled: None,
+        comment: None,
+    };
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.update_filter_rule(Uuid::new_v4(), req))
+            .await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn delete_filter_rule_success() {
+    let fs = build_full_service();
+
+    // Create first.
+    let req = CreateFilterRuleRequest {
+        rule_text: "||todelete.com^".to_owned(),
+        comment: None,
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req))
+        .await
+        .unwrap();
+    let id = created.rule.id;
+
+    // Delete it.
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.delete_filter_rule(id))
+        .await
+        .unwrap();
+
+    assert!(resp.message.contains("deleted"));
+
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 2);
+}
+
+#[tokio::test]
+async fn delete_filter_rule_not_found() {
+    let fs = build_full_service();
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.delete_filter_rule(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn update_blocklist_now_success() {
+    let fs = build_full_service();
+
+    // Create first.
+    let req = CreateBlocklistRequest {
+        name: "Refresh me".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(req))
+        .await
+        .unwrap();
+    let id = created.blocklist.id;
+
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.update_blocklist_now(id))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.message, "blocklist refresh triggered");
+    assert_eq!(resp.blocklist.id, id);
+}
+
+#[tokio::test]
+async fn update_blocklist_now_not_found() {
+    let fs = build_full_service();
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.update_blocklist_now(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn delete_allowlist_not_found() {
+    let fs = build_full_service();
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.delete_allowlist_entry(Uuid::new_v4()))
+            .await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+// -- update_config: cover all remaining branches ---------------------------------
+
+#[tokio::test]
+async fn update_config_sets_resolution_mode() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        resolution_mode: Some("recursive".to_owned()),
+        upstream_servers: None,
+        cache_size: None,
+        cache_ttl_min_secs: None,
+        cache_ttl_max_secs: None,
+        dnssec_enabled: None,
+        rebinding_protection: None,
+        rate_limit_per_second: None,
+        ad_blocking_enabled: None,
+        query_log_enabled: None,
+        query_log_retention_days: None,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+    assert_eq!(resp.config.resolution_mode, DnsResolutionMode::Recursive);
+}
+
+#[tokio::test]
+async fn update_config_sets_cache_ttl_min_and_max() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        resolution_mode: None,
+        upstream_servers: None,
+        cache_size: None,
+        cache_ttl_min_secs: Some(30),
+        cache_ttl_max_secs: Some(7200),
+        dnssec_enabled: None,
+        rebinding_protection: None,
+        rate_limit_per_second: None,
+        ad_blocking_enabled: None,
+        query_log_enabled: None,
+        query_log_retention_days: None,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+    assert_eq!(resp.config.cache_ttl_min_secs, 30);
+    assert_eq!(resp.config.cache_ttl_max_secs, 7200);
+}
+
+#[tokio::test]
+async fn update_config_sets_ad_blocking_enabled() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        resolution_mode: None,
+        upstream_servers: None,
+        cache_size: None,
+        cache_ttl_min_secs: None,
+        cache_ttl_max_secs: None,
+        dnssec_enabled: None,
+        rebinding_protection: None,
+        rate_limit_per_second: None,
+        ad_blocking_enabled: Some(false),
+        query_log_enabled: None,
+        query_log_retention_days: None,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+    assert!(!resp.config.ad_blocking_enabled);
+}
+
+#[tokio::test]
+async fn update_config_sets_query_log_fields() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        resolution_mode: None,
+        upstream_servers: None,
+        cache_size: None,
+        cache_ttl_min_secs: None,
+        cache_ttl_max_secs: None,
+        dnssec_enabled: None,
+        rebinding_protection: None,
+        rate_limit_per_second: None,
+        ad_blocking_enabled: None,
+        query_log_enabled: Some(false),
+        query_log_retention_days: Some(14),
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+    assert!(!resp.config.query_log_enabled);
+    assert_eq!(resp.config.query_log_retention_days, 14);
+}
+
+// -- create_allowlist_entry success path ----------------------------------------
+
+#[tokio::test]
+async fn create_allowlist_entry_success() {
+    let fs = build_full_service();
+    let req = CreateAllowlistRequest {
+        domain: "safe.example.com".to_owned(),
+        reason: Some("false positive".to_owned()),
+    };
+    let resp = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.entry.domain, "safe.example.com");
+    assert_eq!(resp.entry.reason, Some("false positive".to_owned()));
+    assert_eq!(resp.message, "allowlist entry created");
+
+    // Verify event published.
+    let events = fs.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0], WardnetEvent::DnsFiltersChanged { .. }));
+}
+
+// -- update_blocklist with URL/cron validation ---------------------------------
+
+#[tokio::test]
+async fn update_blocklist_validates_url() {
+    let fs = build_full_service();
+
+    // Create first.
+    let create_req = CreateBlocklistRequest {
+        name: "Test".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(create_req))
+        .await
+        .unwrap();
+    let id = created.blocklist.id;
+
+    // Update with invalid URL.
+    let update_req = wardnet_types::api::UpdateBlocklistRequest {
+        name: None,
+        url: Some("ftp://bad.example.com/list.txt".to_owned()),
+        enabled: None,
+        cron_schedule: None,
+    };
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.update_blocklist(id, update_req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_blocklist_validates_cron() {
+    let fs = build_full_service();
+
+    // Create first.
+    let create_req = CreateBlocklistRequest {
+        name: "Test".to_owned(),
+        url: "https://example.com/list.txt".to_owned(),
+        cron_schedule: "0 0 3 * * *".to_owned(),
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_blocklist(create_req))
+        .await
+        .unwrap();
+    let id = created.blocklist.id;
+
+    // Update with invalid cron.
+    let update_req = wardnet_types::api::UpdateBlocklistRequest {
+        name: None,
+        url: None,
+        enabled: None,
+        cron_schedule: Some("not a cron".to_owned()),
+    };
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.update_blocklist(id, update_req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// -- update_filter_rule with rule_text validation ------------------------------
+
+#[tokio::test]
+async fn update_filter_rule_validates_rule_text() {
+    let fs = build_full_service();
+
+    // Create first.
+    let create_req = CreateFilterRuleRequest {
+        rule_text: "||ads.example.com^".to_owned(),
+        comment: None,
+        enabled: true,
+    };
+    let created = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(create_req))
+        .await
+        .unwrap();
+    let id = created.rule.id;
+
+    // Update with invalid rule text (comment line).
+    let update_req = wardnet_types::api::UpdateFilterRuleRequest {
+        rule_text: Some("# this is a comment".to_owned()),
+        enabled: None,
+        comment: None,
+    };
+    let result =
+        auth_context::with_context(admin_ctx(), fs.svc.update_filter_rule(id, update_req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// -- auth guard coverage for remaining service methods -------------------------
+
+#[tokio::test]
+async fn list_allowlist_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.list_allowlist()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn list_filter_rules_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.list_filter_rules()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn create_allowlist_requires_admin() {
+    let svc = build_service();
+    let req = CreateAllowlistRequest {
+        domain: "safe.example.com".to_owned(),
+        reason: None,
+    };
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.create_allowlist_entry(req)).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn toggle_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        svc.toggle(ToggleDnsRequest { enabled: true }),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn status_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.status()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn flush_cache_requires_admin() {
+    let svc = build_service();
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.flush_cache()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- validate_domain edge case: domain > 253 chars ----------------------------
+
+#[tokio::test]
+async fn create_allowlist_domain_too_long() {
+    let fs = build_full_service();
+    let long_domain = format!("{}.example.com", "a".repeat(250));
+    let req = CreateAllowlistRequest {
+        domain: long_domain,
+        reason: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_allowlist_entry(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// -- create_filter_rule with invalid (parser-error) rule text -----------------
+
+#[tokio::test]
+async fn create_filter_rule_invalid_parse_error() {
+    let fs = build_full_service();
+    let req = CreateFilterRuleRequest {
+        rule_text: "/invalid[regex/".to_owned(),
+        comment: None,
+        enabled: true,
+    };
+    let result = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}

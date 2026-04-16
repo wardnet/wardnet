@@ -140,56 +140,139 @@ impl DnsService for MockDnsService {
     }
     async fn create_blocklist(
         &self,
-        _req: CreateBlocklistRequest,
+        req: CreateBlocklistRequest,
     ) -> Result<CreateBlocklistResponse, AppError> {
-        unimplemented!()
+        let now = chrono::Utc::now();
+        Ok(CreateBlocklistResponse {
+            blocklist: wardnet_types::dns::Blocklist {
+                id: Uuid::new_v4(),
+                name: req.name,
+                url: req.url,
+                enabled: req.enabled,
+                entry_count: 0,
+                last_updated: None,
+                cron_schedule: req.cron_schedule,
+                last_error: None,
+                last_error_at: None,
+                created_at: now,
+                updated_at: now,
+            },
+            message: "blocklist created".to_owned(),
+        })
     }
     async fn update_blocklist(
         &self,
-        _id: Uuid,
+        id: Uuid,
         _req: UpdateBlocklistRequest,
     ) -> Result<UpdateBlocklistResponse, AppError> {
-        unimplemented!()
+        let now = chrono::Utc::now();
+        Ok(UpdateBlocklistResponse {
+            blocklist: wardnet_types::dns::Blocklist {
+                id,
+                name: "Updated".to_owned(),
+                url: "https://example.com/list.txt".to_owned(),
+                enabled: true,
+                entry_count: 0,
+                last_updated: None,
+                cron_schedule: "0 0 3 * * *".to_owned(),
+                last_error: None,
+                last_error_at: None,
+                created_at: now,
+                updated_at: now,
+            },
+            message: "blocklist updated".to_owned(),
+        })
     }
-    async fn delete_blocklist(&self, _id: Uuid) -> Result<DeleteBlocklistResponse, AppError> {
-        unimplemented!()
+    async fn delete_blocklist(&self, id: Uuid) -> Result<DeleteBlocklistResponse, AppError> {
+        Ok(DeleteBlocklistResponse {
+            message: format!("blocklist {id} deleted"),
+        })
     }
-    async fn update_blocklist_now(
-        &self,
-        _id: Uuid,
-    ) -> Result<UpdateBlocklistNowResponse, AppError> {
-        unimplemented!()
+    async fn update_blocklist_now(&self, id: Uuid) -> Result<UpdateBlocklistNowResponse, AppError> {
+        let now = chrono::Utc::now();
+        let blocklist = wardnet_types::dns::Blocklist {
+            id,
+            name: "Test".to_owned(),
+            url: "https://example.com/list.txt".to_owned(),
+            enabled: true,
+            entry_count: 42,
+            last_updated: None,
+            cron_schedule: "0 0 3 * * *".to_owned(),
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        Ok(UpdateBlocklistNowResponse {
+            entry_count: blocklist.entry_count,
+            blocklist,
+            message: "blocklist refresh triggered".to_owned(),
+        })
     }
     async fn list_allowlist(&self) -> Result<ListAllowlistResponse, AppError> {
         Ok(ListAllowlistResponse { entries: vec![] })
     }
     async fn create_allowlist_entry(
         &self,
-        _req: CreateAllowlistRequest,
+        req: CreateAllowlistRequest,
     ) -> Result<CreateAllowlistResponse, AppError> {
-        unimplemented!()
+        Ok(CreateAllowlistResponse {
+            entry: wardnet_types::dns::AllowlistEntry {
+                id: Uuid::new_v4(),
+                domain: req.domain,
+                reason: req.reason,
+                created_at: chrono::Utc::now(),
+            },
+            message: "allowlist entry created".to_owned(),
+        })
     }
-    async fn delete_allowlist_entry(&self, _id: Uuid) -> Result<DeleteAllowlistResponse, AppError> {
-        unimplemented!()
+    async fn delete_allowlist_entry(&self, id: Uuid) -> Result<DeleteAllowlistResponse, AppError> {
+        Ok(DeleteAllowlistResponse {
+            message: format!("allowlist entry {id} deleted"),
+        })
     }
     async fn list_filter_rules(&self) -> Result<ListFilterRulesResponse, AppError> {
         Ok(ListFilterRulesResponse { rules: vec![] })
     }
     async fn create_filter_rule(
         &self,
-        _req: CreateFilterRuleRequest,
+        req: CreateFilterRuleRequest,
     ) -> Result<CreateFilterRuleResponse, AppError> {
-        unimplemented!()
+        let now = chrono::Utc::now();
+        Ok(CreateFilterRuleResponse {
+            rule: wardnet_types::dns::CustomFilterRule {
+                id: Uuid::new_v4(),
+                rule_text: req.rule_text,
+                enabled: req.enabled,
+                comment: req.comment,
+                created_at: now,
+                updated_at: now,
+            },
+            message: "filter rule created".to_owned(),
+        })
     }
     async fn update_filter_rule(
         &self,
-        _id: Uuid,
+        id: Uuid,
         _req: UpdateFilterRuleRequest,
     ) -> Result<UpdateFilterRuleResponse, AppError> {
-        unimplemented!()
+        let now = chrono::Utc::now();
+        Ok(UpdateFilterRuleResponse {
+            rule: wardnet_types::dns::CustomFilterRule {
+                id,
+                rule_text: "||updated.com^".to_owned(),
+                enabled: true,
+                comment: None,
+                created_at: now,
+                updated_at: now,
+            },
+            message: "filter rule updated".to_owned(),
+        })
     }
-    async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
-        unimplemented!()
+    async fn delete_filter_rule(&self, id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
+        Ok(DeleteFilterRuleResponse {
+            message: format!("filter rule {id} deleted"),
+        })
     }
     async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
         Ok(crate::dns::filter::FilterInputs::default())
@@ -226,6 +309,8 @@ fn build_state(dns_svc: impl DnsService + 'static) -> AppState {
 }
 
 fn dns_router(state: AppState) -> Router {
+    use axum::routing::{delete, put};
+
     Router::new()
         .route(
             "/api/dns/config",
@@ -234,6 +319,34 @@ fn dns_router(state: AppState) -> Router {
         .route("/api/dns/config/toggle", post(crate::api::dns::toggle))
         .route("/api/dns/status", get(crate::api::dns::status))
         .route("/api/dns/cache/flush", post(crate::api::dns::flush_cache))
+        .route(
+            "/api/dns/blocklists",
+            get(crate::api::dns::list_blocklists).post(crate::api::dns::create_blocklist),
+        )
+        .route(
+            "/api/dns/blocklists/{id}",
+            put(crate::api::dns::update_blocklist).delete(crate::api::dns::delete_blocklist),
+        )
+        .route(
+            "/api/dns/blocklists/{id}/update",
+            post(crate::api::dns::update_blocklist_now),
+        )
+        .route(
+            "/api/dns/allowlist",
+            get(crate::api::dns::list_allowlist).post(crate::api::dns::create_allowlist_entry),
+        )
+        .route(
+            "/api/dns/allowlist/{id}",
+            delete(crate::api::dns::delete_allowlist_entry),
+        )
+        .route(
+            "/api/dns/rules",
+            get(crate::api::dns::list_filter_rules).post(crate::api::dns::create_filter_rule),
+        )
+        .route(
+            "/api/dns/rules/{id}",
+            put(crate::api::dns::update_filter_rule).delete(crate::api::dns::delete_filter_rule),
+        )
         .with_state(state)
 }
 
@@ -446,6 +559,186 @@ async fn flush_cache_unauthenticated() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// Send an authenticated DELETE request.
+async fn delete_json(app: Router, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(uri)
+                .header("Cookie", "wardnet_session=valid-token")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Blocklists CRUD
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn list_blocklists_returns_empty() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/blocklists").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["blocklists"].is_array());
+    assert_eq!(json["blocklists"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn list_allowlist_returns_empty() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/allowlist").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["entries"].is_array());
+    assert_eq!(json["entries"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn list_filter_rules_returns_empty() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/rules").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["rules"].is_array());
+    assert_eq!(json["rules"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn create_blocklist_returns_created() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let body = serde_json::json!({
+        "name": "Test blocklist",
+        "url": "https://example.com/list.txt",
+        "cron_schedule": "0 0 3 * * *",
+        "enabled": true
+    });
+
+    let (status, json) = post_json(app, "/api/dns/blocklists", &body.to_string()).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["message"], "blocklist created");
+    assert!(json["blocklist"]["id"].is_string());
+}
+
+#[tokio::test]
+async fn create_allowlist_entry_returns_created() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let body = serde_json::json!({
+        "domain": "safe.example.com",
+        "reason": "testing"
+    });
+
+    let (status, json) = post_json(app, "/api/dns/allowlist", &body.to_string()).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["message"], "allowlist entry created");
+    assert_eq!(json["entry"]["domain"], "safe.example.com");
+}
+
+#[tokio::test]
+async fn create_filter_rule_returns_created() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let body = serde_json::json!({
+        "rule_text": "||ads.example.com^",
+        "comment": "block ads",
+        "enabled": true
+    });
+
+    let (status, json) = post_json(app, "/api/dns/rules", &body.to_string()).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["message"], "filter rule created");
+    assert_eq!(json["rule"]["rule_text"], "||ads.example.com^");
+}
+
+#[tokio::test]
+async fn update_blocklist_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let body = serde_json::json!({"name": "Renamed"});
+
+    let (status, json) =
+        put_json(app, &format!("/api/dns/blocklists/{id}"), &body.to_string()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["message"], "blocklist updated");
+}
+
+#[tokio::test]
+async fn delete_blocklist_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let (status, json) = delete_json(app, &format!("/api/dns/blocklists/{id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["message"].as_str().unwrap().contains("deleted"));
+}
+
+#[tokio::test]
+async fn update_blocklist_now_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let (status, json) = post_json(app, &format!("/api/dns/blocklists/{id}/update"), "{}").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["message"], "blocklist refresh triggered");
+}
+
+#[tokio::test]
+async fn delete_allowlist_entry_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let (status, json) = delete_json(app, &format!("/api/dns/allowlist/{id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["message"].as_str().unwrap().contains("deleted"));
+}
+
+#[tokio::test]
+async fn update_filter_rule_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let body = serde_json::json!({"rule_text": "||updated.com^"});
+
+    let (status, json) = put_json(app, &format!("/api/dns/rules/{id}"), &body.to_string()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["message"], "filter rule updated");
+}
+
+#[tokio::test]
+async fn delete_filter_rule_returns_ok() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+    let id = Uuid::new_v4();
+
+    let (status, json) = delete_json(app, &format!("/api/dns/rules/{id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["message"].as_str().unwrap().contains("deleted"));
 }
 
 // ---------------------------------------------------------------------------

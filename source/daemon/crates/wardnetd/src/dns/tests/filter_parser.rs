@@ -407,3 +407,98 @@ fn is_allow_returns_exception_flag() {
     assert!(!block.is_allow());
     assert!(allow.is_allow());
 }
+
+// ----- Additional edge cases for coverage -----
+
+#[test]
+fn wildcard_with_unusual_characters() {
+    // The `compile_wildcard` function should escape unusual characters.
+    let rule = parse_ok("||analytics+tracking.*^");
+    if let ParsedRule::Pattern { regex, .. } = rule {
+        assert!(regex.is_match("analytics+tracking.com"));
+    } else {
+        panic!("wrong variant");
+    }
+}
+
+#[test]
+fn regex_with_trailing_garbage_after_close_errors() {
+    // `/pattern/garbage` (not `$` after the closing `/`) should error.
+    let err = parse_err("/foo/garbage");
+    assert!(matches!(err, ParseError::Unrecognized(_)));
+}
+
+#[test]
+fn slash_without_closing_slash_errors() {
+    // `/unclosed` — no closing `/`.
+    let err = parse_err("/unclosed");
+    assert!(matches!(err, ParseError::Unrecognized(_)));
+}
+
+#[test]
+fn hosts_file_ipv6_one_block() {
+    let rule = parse_ok("::1 ads.example.com");
+    if let ParsedRule::DomainBlock { domain, .. } = rule {
+        assert_eq!(domain, "ads.example.com");
+    } else {
+        panic!("wrong variant");
+    }
+}
+
+#[test]
+fn dnstype_empty_pipe_segment_errors() {
+    let err = parse_err("||x.com^$dnstype=A|");
+    assert!(matches!(err, ParseError::InvalidModifierValue { .. }));
+}
+
+#[test]
+fn client_empty_pipe_segment_errors() {
+    let err = parse_err("||x.com^$client=192.168.1.0/24|");
+    assert!(matches!(err, ParseError::InvalidClient(_)));
+}
+
+#[test]
+fn dnsrewrite_missing_value_errors() {
+    let err = parse_err("||x.com^$dnsrewrite");
+    assert!(matches!(err, ParseError::MissingModifierValue(_)));
+}
+
+#[test]
+fn client_missing_value_errors() {
+    let err = parse_err("||x.com^$client");
+    assert!(matches!(err, ParseError::MissingModifierValue(_)));
+}
+
+#[test]
+fn domain_too_long_is_rejected() {
+    // 254+ characters should be rejected by `is_valid_domain`.
+    let long = format!("{}a.com", "a".repeat(251));
+    let err = parse_err(&long);
+    assert!(matches!(
+        err,
+        ParseError::InvalidDomain(_) | ParseError::Unrecognized(_)
+    ));
+}
+
+#[test]
+fn empty_modifier_segment_is_ignored() {
+    // Trailing comma: "||x.com^$important,"
+    let rule = parse_ok("||x.com^$important,");
+    assert!(rule.modifiers().important);
+}
+
+#[test]
+fn adblock_exception_wildcard_pattern() {
+    let rule = parse_ok("@@||analytics.*^");
+    if let ParsedRule::Pattern { allow, .. } = rule {
+        assert!(allow);
+    } else {
+        panic!("wrong variant");
+    }
+}
+
+#[test]
+fn client_invalid_cidr_errors() {
+    let err = parse_err("||x.com^$client=999.999.999.999/33");
+    assert!(matches!(err, ParseError::InvalidClient(_)));
+}

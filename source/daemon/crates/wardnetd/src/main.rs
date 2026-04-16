@@ -408,6 +408,7 @@ async fn run(
         blocklist_fetcher,
         event_publisher.as_ref(),
         &root_span,
+        std::time::Duration::from_secs(60),
     );
 
     let state = AppState::new(

@@ -336,6 +336,79 @@ fn stats_are_accurate() {
     assert_eq!(s.complex_count, 1);
 }
 
+// ---------- Minor gap coverage ----------
+
+#[test]
+fn non_empty_filter_is_not_empty() {
+    let f = build(FilterInputs {
+        blocked_domains: vec!["ads.com".into()],
+        ..Default::default()
+    });
+    assert!(!f.is_empty());
+}
+
+#[test]
+fn normalize_handles_trailing_dot_in_input() {
+    let f = build(FilterInputs {
+        blocked_domains: vec!["ads.example.com.".into()],
+        ..Default::default()
+    });
+    assert_eq!(
+        f.check("ads.example.com", RecordType::A, localhost_v4()),
+        FilterAction::Block
+    );
+}
+
+#[test]
+fn invalid_custom_rule_is_skipped() {
+    // A rule that fails to parse should be silently skipped.
+    let f = build(FilterInputs {
+        custom_rules: vec!["notadomain".into(), "||valid.com^".into()],
+        ..Default::default()
+    });
+    // The invalid rule should be silently skipped; the valid one should work.
+    assert_eq!(
+        f.check("valid.com", RecordType::A, localhost_v4()),
+        FilterAction::Block
+    );
+}
+
+#[test]
+fn dnsrewrite_ipv6_returns_rewrite() {
+    let f = build(FilterInputs {
+        custom_rules: vec!["||ipv6.corp^$dnsrewrite=fe80::1".into()],
+        ..Default::default()
+    });
+    let action = f.check("ipv6.corp", RecordType::AAAA, localhost_v4());
+    assert_eq!(
+        action,
+        FilterAction::Rewrite {
+            ip: IpAddr::V6("fe80::1".parse().unwrap())
+        }
+    );
+}
+
+#[test]
+fn regex_exception_passes() {
+    let f = build(FilterInputs {
+        custom_rules: vec![
+            r"/tracker\d+\.example\.com/".into(),
+            r"@@/tracker1\.example\.com/".into(),
+        ],
+        ..Default::default()
+    });
+    // tracker1 is excepted.
+    assert_eq!(
+        f.check("tracker1.example.com", RecordType::A, localhost_v4()),
+        FilterAction::Pass
+    );
+    // tracker2 is still blocked.
+    assert_eq!(
+        f.check("tracker2.example.com", RecordType::A, localhost_v4()),
+        FilterAction::Block
+    );
+}
+
 // ---------- IPv6 ----------
 
 #[test]

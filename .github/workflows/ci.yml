@@ -121,8 +121,7 @@ jobs:
       - name: Generate daemon coverage
         run: |
           mkdir -p coverage
-          cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/daemon-lcov.info \
-            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*)'
+          make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
 
       - name: Enable Corepack
         run: corepack enable
