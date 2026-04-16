@@ -475,3 +475,82 @@ async fn command_failure_returns_error() {
         "error should contain the stderr message, got: {err_msg}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// TCP RST reject
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn add_tcp_reset_reject_runs_nft_with_correct_args() {
+    let (mock, calls) = MockCommandExecutor::new();
+    let mgr = NftablesFirewallManager::new(Arc::new(mock));
+
+    mgr.add_tcp_reset_reject("192.168.1.10")
+        .await
+        .expect("add_tcp_reset_reject should succeed");
+
+    let recorded = calls.lock().await;
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].program, "nft");
+    let args_str = recorded[0].args.join(" ");
+    assert!(
+        args_str.contains("forward")
+            && args_str.contains("reject")
+            && args_str.contains("192.168.1.10"),
+        "expected forward chain reject rule for device IP, got: {args_str}"
+    );
+}
+
+#[tokio::test]
+async fn remove_tcp_reset_reject_finds_and_deletes_rule() {
+    let chain_output = r#"table inet wardnet {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        ip saddr 192.168.1.10 tcp flags & (fin|syn|rst) == 0x0 reject with tcp reset comment "wardnet:rst:192.168.1.10" # handle 7
+    }
+}"#;
+
+    let (mock, calls) = MockCommandExecutor::with_responses(vec![
+        // First call: list chain (returns the rule with handle)
+        success_output(chain_output),
+        // Second call: delete rule by handle
+        success_output(""),
+    ]);
+    let mgr = NftablesFirewallManager::new(Arc::new(mock));
+
+    mgr.remove_tcp_reset_reject("192.168.1.10")
+        .await
+        .expect("remove_tcp_reset_reject should succeed");
+
+    let recorded = calls.lock().await;
+    assert_eq!(recorded.len(), 2);
+    // Second call should delete by handle 7.
+    let delete_args = recorded[1].args.join(" ");
+    assert!(
+        delete_args.contains("delete")
+            && delete_args.contains("handle")
+            && delete_args.contains("handle 7"),
+        "expected delete by handle 7, got: {delete_args}"
+    );
+}
+
+#[tokio::test]
+async fn remove_tcp_reset_reject_noop_when_rule_not_found() {
+    let chain_output = r"table inet wardnet {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+    }
+}";
+
+    let (mock, calls) = MockCommandExecutor::with_responses(vec![success_output(chain_output)]);
+    let mgr = NftablesFirewallManager::new(Arc::new(mock));
+
+    // Should succeed even when the rule doesn't exist.
+    mgr.remove_tcp_reset_reject("192.168.1.10")
+        .await
+        .expect("remove_tcp_reset_reject should succeed when rule not found");
+
+    let recorded = calls.lock().await;
+    // Only the list call, no delete call.
+    assert_eq!(recorded.len(), 1);
+}

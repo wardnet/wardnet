@@ -92,6 +92,14 @@ pyroscope.workspace = true
 hickory-proto.workspace = true
 # https://crates.io/crates/hickory-resolver
 hickory-resolver.workspace = true
+# https://crates.io/crates/futures
+futures.workspace = true
+# https://crates.io/crates/rtnetlink
+rtnetlink.workspace = true
+# https://crates.io/crates/netlink-packet-route
+netlink-packet-route.workspace = true
+# https://crates.io/crates/netlink-sys
+netlink-sys.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

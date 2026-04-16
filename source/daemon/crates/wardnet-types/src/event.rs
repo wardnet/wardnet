@@ -96,4 +96,8 @@ pub enum WardnetEvent {
         entry_count: u64,
         timestamp: DateTime<Utc>,
     },
+    RouteTableLost {
+        table: u32,
+        timestamp: DateTime<Utc>,
+    },
 }

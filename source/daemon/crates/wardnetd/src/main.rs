@@ -38,7 +38,7 @@ use wardnetd::noop_packet_capture::NoopPacketCapture;
 use wardnetd::packet_capture::PacketCapture;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router::PolicyRouter;
-use wardnetd::policy_router_iproute::IproutePolicyRouter;
+use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
 use wardnetd::repository::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
@@ -297,6 +297,14 @@ async fn run(
         device_repo.clone(),
         &root_span,
     );
+    let route_monitor = if mock_network {
+        None
+    } else {
+        Some(
+            wardnetd::route_monitor::RouteMonitor::start(event_publisher.clone(), &root_span)
+                .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?,
+        )
+    };
 
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
@@ -431,6 +439,9 @@ async fn run(
 
     tracing::info!("server stopped, shutting down background tasks");
     routing_listener.shutdown().await;
+    if let Some(rm) = route_monitor {
+        rm.shutdown().await;
+    }
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
     dhcp_runner.shutdown().await;
@@ -474,7 +485,10 @@ fn network_backends(mock: bool) -> NetworkBackends {
             tunnel_interface: Arc::new(WireGuardTunnelInterface),
             packet_capture: Arc::new(PnetCapture),
             hostname_resolver: Arc::new(wardnetd::hostname_resolver::SystemHostnameResolver),
-            policy_router: Arc::new(IproutePolicyRouter::new(executor.clone())),
+            policy_router: Arc::new(
+                NetlinkPolicyRouter::new(executor.clone())
+                    .expect("failed to initialise netlink policy router"),
+            ),
             firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
         }
     }

@@ -158,6 +158,19 @@ async fn handle_event(
             }
         }
 
+        WardnetEvent::RouteTableLost { table, .. } => {
+            if let Err(e) = crate::auth_context::with_context(
+                wardnet_types::auth::AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.handle_route_table_lost(table),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, table, "failed to handle route table lost");
+            }
+        }
+
         // Events that do not affect routing.
         WardnetEvent::TunnelStatsUpdated { .. }
         | WardnetEvent::DhcpLeaseAssigned { .. }

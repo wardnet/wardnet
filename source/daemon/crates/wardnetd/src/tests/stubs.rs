@@ -277,6 +277,9 @@ impl RoutingService for StubRoutingService {
     async fn reconcile(&self) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn handle_route_table_lost(&self, _table: u32) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn devices_using_tunnel(&self, _tunnel_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         unimplemented!()
     }
