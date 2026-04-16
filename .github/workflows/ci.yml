@@ -122,7 +122,7 @@ jobs:
         run: |
           mkdir -p coverage
           cd source/daemon && cargo llvm-cov --workspace --lcov --output-path ../../coverage/daemon-lcov.info \
-            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|wardnet-test-agent/.*)'
+            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*)'
 
       - name: Enable Corepack
         run: corepack enable
