@@ -180,7 +180,8 @@ async fn handle_event(
         | WardnetEvent::DnsServerStarted { .. }
         | WardnetEvent::DnsServerStopped { .. }
         | WardnetEvent::DnsConfigChanged { .. }
-        | WardnetEvent::DnsBlocklistUpdated { .. } => {}
+        | WardnetEvent::DnsBlocklistUpdated { .. }
+        | WardnetEvent::DnsFiltersChanged { .. } => {}
     }
 }
 

@@ -384,6 +384,78 @@ impl crate::service::DnsService for StubDnsService {
     async fn get_dns_config(&self) -> Result<wardnet_types::dns::DnsConfig, AppError> {
         unimplemented!()
     }
+    async fn list_blocklists(
+        &self,
+    ) -> Result<wardnet_types::api::ListBlocklistsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _req: wardnet_types::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_types::api::CreateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _id: uuid::Uuid,
+        _req: wardnet_types::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_types::api::UpdateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_blocklist(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_types::api::DeleteBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist_now(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_types::api::UpdateBlocklistNowResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_allowlist(&self) -> Result<wardnet_types::api::ListAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _req: wardnet_types::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_types::api::CreateAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_types::api::DeleteAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_filter_rules(
+        &self,
+    ) -> Result<wardnet_types::api::ListFilterRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_filter_rule(
+        &self,
+        _req: wardnet_types::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_types::api::CreateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_filter_rule(
+        &self,
+        _id: uuid::Uuid,
+        _req: wardnet_types::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_types::api::UpdateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_filter_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_types::api::DeleteFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

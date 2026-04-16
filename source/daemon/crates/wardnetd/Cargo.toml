@@ -100,6 +100,10 @@ rtnetlink.workspace = true
 netlink-packet-route.workspace = true
 # https://crates.io/crates/netlink-sys
 netlink-sys.workspace = true
+# https://crates.io/crates/regex
+regex.workspace = true
+# https://crates.io/crates/cron
+cron.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

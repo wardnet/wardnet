@@ -39,7 +39,6 @@ Devices that cannot run VPN software themselves (smart TVs, consoles, IoT) are f
 
 - After switching a device *off* a tunnel (VPN → direct, or between tunnels), the device's existing TCP sockets may stay stuck for ~30–60s while their stack times out. Routing on the Pi is correct immediately; toggling Wi-Fi on the device fixes it instantly. See pedromvgomes/wardnet#77.
 - A NordVPN server selected at tunnel-creation time may be unhealthy when you actually try to use it; the daemon currently still marks such tunnels as "up" even when no WireGuard handshake has ever completed. See pedromvgomes/wardnet#79 and pedromvgomes/wardnet#80.
-- `ip rule` entries can accumulate duplicates after repeated re-applies; harmless functionally but state-drift bug. See pedromvgomes/wardnet#78.
 
 ## Features
 
@@ -85,7 +84,7 @@ React 19 + Vite 7 + Tailwind CSS 4 + TanStack Query 5 + React Router 7. Built ar
 | Package manager | Yarn 4                                                |
 | Auth            | argon2 (passwords/API keys), SHA-256 (session tokens) |
 | Tunnels         | WireGuard                                             |
-| Target          | Raspberry Pi (aarch64), Linux x86_64, macOS aarch64   |
+| Target          | Raspberry Pi (aarch64-linux-gnu), Linux x86_64        |
 
 ## Getting Started
 
@@ -94,6 +93,7 @@ React 19 + Vite 7 + Tailwind CSS 4 + TanStack Query 5 + React Router 7. Built ar
 - Rust 1.94+ (pinned via `rust-toolchain.toml`)
 - Node.js 25+
 - Yarn 4 (enabled via Corepack)
+- **Daemon checks on macOS**: Podman or Docker (the daemon uses Linux-only kernel interfaces and cannot compile natively on macOS — `make check-daemon` runs checks inside a Linux container automatically)
 
 ### First-time setup
 
@@ -145,20 +145,18 @@ make deploy PI_HOST=192.168.1.50
 ### Development
 
 ```bash
-# Run everything locally: daemon (mock network) + web UI dev server
-# Daemon on :7411, web UI on :7412 (proxies /api → daemon). Ctrl+C stops both.
-make run-local                  # fresh DB each run
-make run-local RESUME=true      # keep the existing local DB
-
-# Or run them separately if you prefer:
-cd source/daemon && cargo run -p wardnetd -- --mock-network --verbose
-cd source/web-ui && yarn dev
-
 # Run all checks (format, lint, tests for web + daemon)
+# On macOS, daemon checks run inside a Linux container (podman/docker)
 make check
 
-# Run tests only
+# Run tests only (Linux — native)
 cd source/daemon && cargo test --workspace
+
+# Run tests only (macOS — via container, auto-detects podman or docker)
+make check-daemon
+
+# Line-coverage summary (macOS — via container; Linux — native)
+make coverage-daemon
 
 # CLI
 cd source/daemon && cargo run -p wctl -- status
@@ -177,8 +175,8 @@ Run `make help` for the full list:
 | `make build-pi`  | Cross-compile daemon for Pi (aarch64-linux-gnu)        |
 | `make check`     | Run all checks (web + daemon)                          |
 | `make check-web` | Typecheck + lint + format check for web UI             |
-| `make check-daemon` | Format + clippy + tests for daemon                  |
-| `make run-local` | Run daemon (mock network) + web UI dev server locally  |
+| `make check-daemon` | Format + clippy + tests (container on macOS)        |
+| `make coverage-daemon` | Line-coverage summary (container on macOS)       |
 | `make run-pi`    | Cross-compile, deploy, and run on a Raspberry Pi       |
 | `make deploy-prod` | Production deploy to a Raspberry Pi                  |
 | `make clean`     | Clean all build artifacts                              |
@@ -189,8 +187,8 @@ GitHub Actions pipeline using the same Makefile targets:
 
 1. **Check Web** — `make check-web`
 2. **Build Web** — `make build-web`
-3. **Check Daemon** — `make check-daemon`
-4. **Build Daemon** — `make build-daemon` (x86_64 Linux, aarch64 macOS) and `make build-pi` (aarch64 Linux)
+3. **Check Daemon** — `make check-daemon` (runs on Ubuntu)
+4. **Build Daemon** — `make build-daemon` (x86_64 Linux) and `make build-pi` (aarch64 Linux)
 
 ## License
 

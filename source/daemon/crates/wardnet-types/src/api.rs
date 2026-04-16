@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
-use crate::dns::{DnsConfig, DnsProtocol, UpstreamDns};
+use crate::dns::{
+    AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, UpstreamDns,
+};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 use crate::vpn_provider::{
@@ -406,4 +408,145 @@ pub struct DnsStatusResponse {
 pub struct DnsCacheFlushResponse {
     pub message: String,
     pub entries_cleared: u64,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Ad Blocking — Blocklists
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/blocklists.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListBlocklistsResponse {
+    pub blocklists: Vec<Blocklist>,
+}
+
+/// Request body for POST /api/dns/blocklists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBlocklistRequest {
+    pub name: String,
+    pub url: String,
+    pub cron_schedule: String,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/dns/blocklists.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateBlocklistResponse {
+    pub blocklist: Blocklist,
+    pub message: String,
+}
+
+/// Request body for PUT /api/dns/blocklists/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateBlocklistRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron_schedule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/dns/blocklists/{id}.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateBlocklistResponse {
+    pub blocklist: Blocklist,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/blocklists/{id}.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteBlocklistResponse {
+    pub message: String,
+}
+
+/// Response for POST /api/dns/blocklists/{id}/update.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateBlocklistNowResponse {
+    pub blocklist: Blocklist,
+    pub entry_count: u64,
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Ad Blocking — Allowlist
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/allowlist.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListAllowlistResponse {
+    pub entries: Vec<AllowlistEntry>,
+}
+
+/// Request body for POST /api/dns/allowlist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAllowlistRequest {
+    pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Response for POST /api/dns/allowlist.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateAllowlistResponse {
+    pub entry: AllowlistEntry,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/allowlist/{id}.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteAllowlistResponse {
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Ad Blocking — Custom filter rules
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/rules.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListFilterRulesResponse {
+    pub rules: Vec<CustomFilterRule>,
+}
+
+/// Request body for POST /api/dns/rules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateFilterRuleRequest {
+    pub rule_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/dns/rules.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateFilterRuleResponse {
+    pub rule: CustomFilterRule,
+    pub message: String,
+}
+
+/// Request body for PUT /api/dns/rules/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateFilterRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/dns/rules/{id}.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateFilterRuleResponse {
+    pub rule: CustomFilterRule,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/rules/{id}.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteFilterRuleResponse {
+    pub message: String,
 }

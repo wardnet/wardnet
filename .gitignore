@@ -15,3 +15,4 @@ source/site/coverage/
 .idea/
 .claude/settings.local.json
 .wardnet-local/
+.target-linux/

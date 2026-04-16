@@ -20,8 +20,8 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make check`** — run all checks (SDK + web + daemon: format, lint, tests)
 - **`make check-sdk`** — SDK typecheck + format check
 - **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
-- **`make check-daemon`** — Rust format + clippy + tests
-- **`make run-local`** — build, then run the daemon with `--mock-network` + the Vite dev server together. Daemon on `:7411`, web UI on `:7412` (proxies `/api`). Ctrl+C stops both. Data lives under `./.wardnet-local/` (gitignored). `RESUME=true` keeps the existing local DB across runs. Use this for UI changes and daemon logic that doesn't need real kernel interfaces.
+- **`make check-daemon`** — Rust format + clippy + tests. **Linux-only**: the daemon depends on Linux kernel interfaces (netlink, rtnetlink) and cannot compile on macOS. On non-Linux hosts this target auto-detects `podman` or `docker` and runs inside a `rust:1.94` container. Build artefacts are cached in `.target-linux/` (gitignored) and crate downloads in a named volume (`wardnet-cargo-cache`).
+- **`make coverage-daemon`** — line-coverage summary via `cargo-llvm-cov`. Same platform auto-detection as `check-daemon` (container on macOS). Uses the same ignore regex as CI.
 - **`make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>`** — cross-compile, deploy via SSH, run with verbose logging. Cleans database by default; `RESUME=true` keeps existing data. `OTEL=true` enables OpenTelemetry export.
 - **`make system-test`** — full E2E: build, deploy daemon + test-agent to Pi, run system tests, teardown
 - **`make system-test-setup`** — deploy and start test infrastructure on Pi (leave running)
@@ -32,13 +32,12 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 
 #### Daemon (Rust)
 
-All commands run from `source/daemon/`.
+All commands run from `source/daemon/`. **Linux only** — on macOS use `make check-daemon` which runs them inside a container.
 
 - **Build**: `cargo build`
 - **Test**: `cargo test --workspace`
 - **Lint**: `cargo clippy --all-targets -- -D warnings`
 - **Format**: `cargo fmt` (check: `cargo fmt --check`)
-- **Run**: `cargo run -p wardnetd -- --verbose --mock-network`
 - **Single crate test**: `cargo test -p wardnetd`, `cargo test -p wardnet-types`
 
 #### SDK (`@wardnet/js`)
@@ -330,7 +329,7 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 
 ### Running tests
 ```bash
-# All Rust tests
+# All Rust tests (Linux only — use make check-daemon on macOS)
 cd source/daemon && cargo test --workspace
 
 # SDK checks
@@ -343,6 +342,7 @@ cd source/web-ui && yarn type-check && yarn lint && yarn format:check
 make system-test
 
 # Or run everything at once (unit tests + lint + format):
+# On macOS, daemon checks automatically run inside a Linux container.
 make check
 ```
 
@@ -418,6 +418,8 @@ cd source/daemon && cargo fmt && cargo clippy --all-targets -- -D warnings && ca
 cd source/web-ui  && yarn format && yarn lint && yarn type-check
 ```
 
+> **Note:** Direct `cargo` commands only work on Linux. On macOS, always use `make check-daemon` which runs inside a container.
+
 **Common mistakes to avoid**
 - Running only `cargo build` and assuming tests pass — the test compile target has its own stubs that can fall out of sync with service signatures; always run `cargo test --workspace` (or `make check-daemon`) before pushing.
 - Running `yarn build` but skipping `yarn lint` — Vite is permissive about lint warnings that ESLint elevates to errors in CI.
@@ -426,13 +428,13 @@ cd source/web-ui  && yarn format && yarn lint && yarn type-check
 **Code coverage (MANDATORY for Rust changes):**
 We use `cargo-llvm-cov` for code coverage. Before starting work, compute the current coverage baseline on `main` (or during planning). After implementation, run it again on your branch and verify coverage **does not decrease**. New code must have tests — coverage should stay the same or increase. It must never go down.
 
-```sh
-cd source/daemon
-cargo llvm-cov --package wardnetd --summary-only \
-  --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|wardnet-test-agent/.*)'
+```bash
+# One-shot: runs tests with instrumentation and prints a per-file summary.
+# On macOS this runs inside a Linux container (same as check-daemon).
+make coverage-daemon
 ```
 
-The `--ignore-filename-regex` excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, and auth context thread-locals). CI uses the same exclusions — see `.github/workflows/ci.yml`.
+The `--ignore-filename-regex` (defined once in the Makefile's `COV_IGNORE` variable) excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, auth context thread-locals, and Linux-only kernel interface modules). CI calls the same Makefile target with `COV_FMT` overridden for LCOV output.
 
 ## Boundaries
 

@@ -100,4 +100,9 @@ pub enum WardnetEvent {
         table: u32,
         timestamp: DateTime<Utc>,
     },
+    /// Filter inputs (blocklists, allowlist, custom rules) changed via CRUD or
+    /// blocklist refresh — runner should rebuild the in-memory `DnsFilter`.
+    DnsFiltersChanged {
+        timestamp: DateTime<Utc>,
+    },
 }

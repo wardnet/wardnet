@@ -1,8 +1,14 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use wardnet_types::dns::DnsConfig;
 
+use crate::dns::filter::DnsFilter;
 use crate::dns::server::{DnsServer, NoopDnsServer, UdpDnsServer};
+
+fn empty_filter() -> Arc<tokio::sync::RwLock<DnsFilter>> {
+    Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()))
+}
 
 // ---------------------------------------------------------------------------
 // NoopDnsServer tests
@@ -64,7 +70,7 @@ fn loopback_ephemeral() -> SocketAddr {
 #[tokio::test]
 async fn udp_server_start_sets_running_flag() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -75,7 +81,7 @@ async fn udp_server_start_sets_running_flag() {
 #[tokio::test]
 async fn udp_server_stop_clears_running_flag() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -93,7 +99,7 @@ async fn udp_server_stop_clears_running_flag() {
 #[tokio::test]
 async fn udp_server_start_when_already_running() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     // Second start should be a no-op (returns Ok).
@@ -106,7 +112,7 @@ async fn udp_server_start_when_already_running() {
 #[tokio::test]
 async fn udp_server_stop_when_not_running() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     // Stop without start should be a no-op.
     server.stop().await.unwrap();
@@ -116,7 +122,7 @@ async fn udp_server_stop_when_not_running() {
 #[tokio::test]
 async fn udp_server_flush_cache() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
 
@@ -130,7 +136,7 @@ async fn udp_server_flush_cache() {
 #[tokio::test]
 async fn udp_server_update_config() {
     let config = DnsConfig::default();
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     // Update the config before starting -- should not panic or error.
     server
@@ -163,7 +169,7 @@ async fn build_resolver_with_empty_upstreams_uses_cloudflare() {
         ..DnsConfig::default()
     };
 
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
 
     server.start().await.unwrap();
     assert!(
@@ -179,7 +185,6 @@ async fn build_resolver_with_empty_upstreams_uses_cloudflare() {
 // ---------------------------------------------------------------------------
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -304,8 +309,11 @@ async fn wait_for_packets(socket: &MockDnsSocket, expected: usize) {
 #[tokio::test]
 async fn server_responds_to_query() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -343,8 +351,11 @@ async fn server_responds_to_query() {
 #[tokio::test]
 async fn server_handles_malformed_packet() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -387,8 +398,11 @@ async fn server_handles_malformed_packet() {
 #[tokio::test]
 async fn server_processes_multiple_queries() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -435,8 +449,11 @@ async fn server_processes_multiple_queries() {
 #[tokio::test]
 async fn server_cache_hit() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -564,7 +581,11 @@ async fn server_forwards_successfully_to_upstream() {
     };
 
     let socket = Arc::new(MockDnsSocket::new());
-    let server = UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        config,
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -617,8 +638,11 @@ async fn server_forwards_successfully_to_upstream() {
 #[tokio::test]
 async fn server_query_without_questions_is_ignored() {
     let socket = Arc::new(MockDnsSocket::new());
-    let server =
-        UdpDnsServer::with_socket(test_config(), Arc::clone(&socket) as Arc<dyn DnsSocket>);
+    let server = UdpDnsServer::with_socket(
+        test_config(),
+        Arc::clone(&socket) as Arc<dyn DnsSocket>,
+        empty_filter(),
+    );
 
     server.start().await.unwrap();
 
@@ -656,7 +680,7 @@ async fn build_resolver_with_tls_protocol_falls_back() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
     server.stop().await.unwrap();
@@ -674,7 +698,7 @@ async fn build_resolver_with_https_protocol_falls_back() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
     server.stop().await.unwrap();
@@ -692,8 +716,283 @@ async fn build_resolver_with_invalid_ip_skips_upstream() {
         }],
         ..DnsConfig::default()
     };
-    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral());
+    let server = UdpDnsServer::with_bind_addr(config, loopback_ephemeral(), empty_filter());
     server.start().await.unwrap();
     assert!(server.is_running());
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Ad-blocking filter integration tests
+// ---------------------------------------------------------------------------
+
+use crate::dns::filter::FilterInputs;
+
+fn filter_with_block(domain: &str) -> Arc<tokio::sync::RwLock<DnsFilter>> {
+    let inputs = FilterInputs {
+        blocked_domains: vec![domain.to_owned()],
+        ..Default::default()
+    };
+    Arc::new(tokio::sync::RwLock::new(DnsFilter::build(inputs)))
+}
+
+fn filter_with_rewrite(domain: &str, ip: &str) -> Arc<tokio::sync::RwLock<DnsFilter>> {
+    let inputs = FilterInputs {
+        custom_rules: vec![format!("||{domain}^$dnsrewrite={ip}")],
+        ..Default::default()
+    };
+    Arc::new(tokio::sync::RwLock::new(DnsFilter::build(inputs)))
+}
+
+#[tokio::test]
+async fn query_blocked_domain_returns_nxdomain() {
+    let filter = filter_with_block("ads.example.com");
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: true,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    let query_id: u16 = 0xBB01;
+    let packet = build_dns_query("ads.example.com.", query_id);
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), query_id);
+    assert_eq!(
+        resp.response_code(),
+        ResponseCode::NXDomain,
+        "blocked domain should return NXDOMAIN"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn query_rewrite_domain_returns_synthetic_a_record() {
+    let filter = filter_with_rewrite("internal.corp", "10.0.0.1");
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: true,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    let query_id: u16 = 0xBB02;
+    let packet = build_dns_query("internal.corp.", query_id);
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), query_id);
+    assert_eq!(
+        resp.response_code(),
+        ResponseCode::NoError,
+        "rewrite should return NoError"
+    );
+    assert!(
+        !resp.answers().is_empty(),
+        "rewrite should include answer records"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn ad_blocking_disabled_skips_filter() {
+    let filter = filter_with_block("ads.example.com");
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: false,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    let query_id: u16 = 0xBB03;
+    let packet = build_dns_query("ads.example.com.", query_id);
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), query_id);
+    // When ad_blocking_enabled is false, the filter is skipped. The query
+    // goes to upstream (unreachable TEST-NET) and comes back as SERVFAIL.
+    assert_ne!(
+        resp.response_code(),
+        ResponseCode::NXDomain,
+        "with ad blocking disabled, should NOT return NXDOMAIN"
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// IPv6 rewrite test — covers the AAAA branch in handle_query
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn query_rewrite_ipv6_returns_synthetic_aaaa_record() {
+    let filter = filter_with_rewrite("ipv6.corp", "fd00::1");
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: true,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    // Build a AAAA query.
+    let mut msg = Message::new();
+    msg.set_id(0xBB04);
+    msg.set_message_type(MessageType::Query);
+    msg.set_op_code(OpCode::Query);
+    msg.set_recursion_desired(true);
+
+    let name = Name::from_ascii("ipv6.corp.").expect("valid name");
+    let mut query = Query::new();
+    query.set_name(name);
+    query.set_query_type(RecordType::AAAA);
+    msg.add_query(query);
+
+    let packet = msg.to_bytes().unwrap();
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), 0xBB04);
+    assert_eq!(
+        resp.response_code(),
+        ResponseCode::NoError,
+        "IPv6 rewrite should return NoError"
+    );
+    assert!(
+        !resp.answers().is_empty(),
+        "IPv6 rewrite should include AAAA answer records"
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Subdomain of blocked domain returns NXDOMAIN
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn query_subdomain_of_blocked_domain_returns_nxdomain() {
+    let filter = filter_with_block("ads.example.com");
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: true,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    // Query a subdomain of the blocked domain.
+    let query_id: u16 = 0xBB05;
+    let packet = build_dns_query("banner.ads.example.com.", query_id);
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), query_id);
+    assert_eq!(
+        resp.response_code(),
+        ResponseCode::NXDomain,
+        "subdomain of blocked domain should return NXDOMAIN"
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Allowed domain passes through filter
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn query_allowed_domain_passes_filter() {
+    // Block example.com but allow safe.example.com — safe should pass.
+    let inputs = FilterInputs {
+        blocked_domains: vec!["example.com".to_owned()],
+        allowlist: vec!["safe.example.com".to_owned()],
+        ..Default::default()
+    };
+    let filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::build(inputs)));
+    let config = DnsConfig {
+        enabled: true,
+        ad_blocking_enabled: true,
+        ..test_config()
+    };
+
+    let socket = Arc::new(MockDnsSocket::new());
+    let server =
+        UdpDnsServer::with_socket(config, Arc::clone(&socket) as Arc<dyn DnsSocket>, filter);
+
+    server.start().await.unwrap();
+
+    let query_id: u16 = 0xBB06;
+    let packet = build_dns_query("safe.example.com.", query_id);
+    socket.push_packet(packet, client_addr()).await;
+
+    wait_for_packets(&socket, 1).await;
+
+    let sent = socket.sent_packets().await;
+    assert!(!sent.is_empty(), "server should send a response");
+
+    let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
+    assert_eq!(resp.id(), query_id);
+    // Allowed domain should NOT return NXDOMAIN — it goes upstream (SERVFAIL
+    // expected since upstream is unreachable).
+    assert_ne!(
+        resp.response_code(),
+        ResponseCode::NXDomain,
+        "allowed domain should not be blocked"
+    );
+
     server.stop().await.unwrap();
 }

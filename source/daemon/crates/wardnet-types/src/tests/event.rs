@@ -101,6 +101,17 @@ fn dhcp_lease_expired_tagged() {
 }
 
 #[test]
+fn dns_filters_changed_tagged() {
+    let event = WardnetEvent::DnsFiltersChanged {
+        timestamp: "2026-04-15T00:00:00Z".parse().unwrap(),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"dns_filters_changed\""));
+    let back: WardnetEvent = serde_json::from_str(&json).unwrap();
+    assert!(matches!(back, WardnetEvent::DnsFiltersChanged { .. }));
+}
+
+#[test]
 fn dhcp_conflict_detected_tagged() {
     let event = WardnetEvent::DhcpConflictDetected {
         mac: "AA:BB:CC:DD:EE:01".to_owned(),

@@ -12,7 +12,10 @@ pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
-pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
+pub use dns::{
+    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
+    QueryLogFilter, QueryLogRow,
+};
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
