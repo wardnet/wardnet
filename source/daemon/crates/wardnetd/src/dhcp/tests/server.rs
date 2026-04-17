@@ -8,16 +8,17 @@ use dhcproto::v4::{DhcpOption, Message, MessageType, Opcode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use wardnet_types::api::{
+use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
     RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
-use wardnet_types::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
 
-use crate::dhcp::server::{self, DhcpServer, DhcpSocket, NoopDhcpServer, UdpDhcpServer};
-use crate::error::AppError;
-use crate::service::DhcpService;
+use crate::dhcp::server::{self, UdpDhcpServer};
+use wardnetd_services::dhcp::DhcpService;
+use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
+use wardnetd_services::error::AppError;
 
 // ---------------------------------------------------------------------------
 // MockDhcpSocket
@@ -463,24 +464,6 @@ fn build_response_copies_chaddr() {
 
     let response = server::build_response(&request, MessageType::Offer, &lease, &config);
     assert_eq!(&response.chaddr()[..6], &mac_bytes);
-}
-
-// ---------------------------------------------------------------------------
-// NoopDhcpServer tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn noop_server_is_not_running() {
-    let server = NoopDhcpServer;
-    assert!(!server.is_running());
-}
-
-#[tokio::test]
-async fn noop_server_start_stop_succeeds() {
-    let server = NoopDhcpServer;
-    server.start().await.unwrap();
-    server.stop().await.unwrap();
-    assert!(!server.is_running());
 }
 
 // ---------------------------------------------------------------------------

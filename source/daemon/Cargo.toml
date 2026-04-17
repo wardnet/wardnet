@@ -1,8 +1,12 @@
 [workspace]
 members = [
     "crates/wardnet-test-agent",
-    "crates/wardnet-types",
+    "crates/wardnet-common",
     "crates/wardnetd",
+    "crates/wardnetd-api",
+    "crates/wardnetd-data",
+    "crates/wardnetd-mock",
+    "crates/wardnetd-services",
     "crates/wctl",
 ]
 resolver = "3"
@@ -21,7 +25,11 @@ missing_panics_doc = "allow"
 
 [workspace.dependencies]
 # Internal
-wardnet-types = { path = "crates/wardnet-types" }
+wardnet-common = { path = "crates/wardnet-common" }
+wardnetd-api = { path = "crates/wardnetd-api" }
+wardnetd-data = { path = "crates/wardnetd-data" }
+wardnetd-mock = { path = "crates/wardnetd-mock" }
+wardnetd-services = { path = "crates/wardnetd-services" }
 
 # https://crates.io/crates/serde
 serde = { version = "1.0", features = ["derive"] }
@@ -65,6 +73,8 @@ tracing-appender = "0.2"
 
 # https://crates.io/crates/argon2
 argon2 = "0.5"
+# https://crates.io/crates/password-hash — re-exported by argon2, pinned for feature activation
+password-hash = { version = "0.5", features = ["getrandom"] }
 # https://crates.io/crates/anyhow
 anyhow = "1"
 # https://crates.io/crates/rand

@@ -4,12 +4,8 @@ use std::time::Duration;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use wardnet_types::event::WardnetEvent;
-use wardnet_types::tunnel::TunnelStatus;
 
-use crate::event::EventPublisher;
-use crate::repository::TunnelRepository;
-use crate::tunnel_interface::TunnelInterface;
+use wardnetd_services::tunnel::TunnelService;
 
 /// Background tasks for monitoring active `WireGuard` tunnels.
 ///
@@ -23,18 +19,13 @@ pub struct TunnelMonitor {
 }
 
 impl TunnelMonitor {
-    /// Start the monitor with the given dependencies and intervals.
+    /// Start the monitor.
     ///
     /// The `parent` span is used as the parent for the `tunnel_monitor` child
     /// span, ensuring all log output from spawned tasks includes the root
     /// version field.
-    ///
-    /// Returns a `TunnelMonitor` whose background tasks run until
-    /// [`shutdown`](Self::shutdown) is called.
     pub fn start(
-        tunnels: Arc<dyn TunnelRepository>,
-        wireguard: Arc<dyn TunnelInterface>,
-        events: Arc<dyn EventPublisher>,
+        tunnel_service: Arc<dyn TunnelService>,
         stats_interval_secs: u64,
         health_check_interval_secs: u64,
         parent: &tracing::Span,
@@ -43,24 +34,13 @@ impl TunnelMonitor {
         let span = tracing::info_span!(parent: parent, "tunnel_monitor");
 
         let stats_handle = tokio::spawn(
-            stats_loop(
-                tunnels.clone(),
-                wireguard.clone(),
-                events,
-                stats_interval_secs,
-                cancel.clone(),
-            )
-            .instrument(span.clone()),
+            stats_loop(tunnel_service.clone(), stats_interval_secs, cancel.clone())
+                .instrument(span.clone()),
         );
 
         let health_handle = tokio::spawn(
-            health_loop(
-                tunnels,
-                wireguard,
-                health_check_interval_secs,
-                cancel.clone(),
-            )
-            .instrument(span),
+            health_loop(tunnel_service, health_check_interval_secs, cancel.clone())
+                .instrument(span),
         );
 
         Self {
@@ -79,11 +59,8 @@ impl TunnelMonitor {
     }
 }
 
-/// Periodically poll byte counters for all `Up` tunnels.
 async fn stats_loop(
-    tunnels: Arc<dyn TunnelRepository>,
-    wireguard: Arc<dyn TunnelInterface>,
-    events: Arc<dyn EventPublisher>,
+    tunnel_service: Arc<dyn TunnelService>,
     interval_secs: u64,
     cancel: CancellationToken,
 ) {
@@ -95,73 +72,18 @@ async fn stats_loop(
             _ = tick.tick() => {}
         }
 
-        let all_tunnels = match tunnels.find_all().await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::error!(error = %e, "stats loop: failed to query tunnels");
-                continue;
-            }
-        };
-
-        let up_tunnels: Vec<_> = all_tunnels
-            .into_iter()
-            .filter(|t| t.status == TunnelStatus::Up)
-            .collect();
-
-        for tunnel in up_tunnels {
-            let stats = match wireguard.get_stats(&tunnel.interface_name).await {
-                Ok(Some(s)) => s,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::error!(
-                        interface = %tunnel.interface_name,
-                        error = %e,
-                        "stats loop: failed to get stats"
-                    );
-                    continue;
-                }
-            };
-
-            let last_handshake_str = stats.last_handshake.map(|ts| ts.to_rfc3339());
-
-            if let Err(e) = tunnels
-                .update_stats(
-                    &tunnel.id.to_string(),
-                    stats.bytes_tx.cast_signed(),
-                    stats.bytes_rx.cast_signed(),
-                    last_handshake_str.as_deref(),
-                )
-                .await
-            {
-                tracing::error!(
-                    tunnel_id = %tunnel.id,
-                    error = %e,
-                    "stats loop: failed to update stats in database"
-                );
-                continue;
-            }
-
-            events.publish(WardnetEvent::TunnelStatsUpdated {
-                tunnel_id: tunnel.id,
-                status: TunnelStatus::Up,
-                bytes_tx: stats.bytes_tx,
-                bytes_rx: stats.bytes_rx,
-                last_handshake: stats.last_handshake,
-                timestamp: chrono::Utc::now(),
-            });
+        if let Err(e) = tunnel_service.collect_stats().await {
+            tracing::error!(error = %e, "stats loop: failed to collect stats: {e}");
         }
     }
 }
 
-/// Periodically check health of all `Up` tunnels via handshake age.
 async fn health_loop(
-    tunnels: Arc<dyn TunnelRepository>,
-    wireguard: Arc<dyn TunnelInterface>,
+    tunnel_service: Arc<dyn TunnelService>,
     interval_secs: u64,
     cancel: CancellationToken,
 ) {
     let mut tick = interval(Duration::from_secs(interval_secs));
-    let stale_threshold = chrono::Duration::minutes(3);
 
     loop {
         tokio::select! {
@@ -169,51 +91,8 @@ async fn health_loop(
             _ = tick.tick() => {}
         }
 
-        let all_tunnels = match tunnels.find_all().await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::error!(error = %e, "health loop: failed to query tunnels");
-                continue;
-            }
-        };
-
-        let up_tunnels: Vec<_> = all_tunnels
-            .into_iter()
-            .filter(|t| t.status == TunnelStatus::Up)
-            .collect();
-
-        for tunnel in up_tunnels {
-            match wireguard.get_stats(&tunnel.interface_name).await {
-                Ok(Some(stats)) => {
-                    if let Some(last_handshake) = stats.last_handshake {
-                        let age = chrono::Utc::now() - last_handshake;
-                        if age > stale_threshold {
-                            tracing::warn!(
-                                tunnel_id = %tunnel.id,
-                                interface = %tunnel.interface_name,
-                                last_handshake = %last_handshake,
-                                age_secs = age.num_seconds(),
-                                "health check: last handshake is stale (>3 minutes)"
-                            );
-                        }
-                    }
-                }
-                Ok(None) => {
-                    tracing::error!(
-                        tunnel_id = %tunnel.id,
-                        interface = %tunnel.interface_name,
-                        "health check: interface not found (may have been removed externally)"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        tunnel_id = %tunnel.id,
-                        interface = %tunnel.interface_name,
-                        error = %e,
-                        "health check: failed to get stats"
-                    );
-                }
-            }
+        if let Err(e) = tunnel_service.run_health_check().await {
+            tracing::error!(error = %e, "health loop: failed to run health check: {e}");
         }
     }
 }

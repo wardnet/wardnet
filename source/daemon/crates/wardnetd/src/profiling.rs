@@ -1,7 +1,7 @@
 use pyroscope::backend::{BackendConfig, PprofConfig, pprof_backend};
 use pyroscope::pyroscope::{PyroscopeAgentBuilder, PyroscopeAgentRunning};
 
-use crate::config::PyroscopeConfig;
+use wardnet_common::config::PyroscopeConfig;
 
 /// Wrapper around the Pyroscope profiling agent for lifecycle management.
 ///

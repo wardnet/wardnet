@@ -9,7 +9,7 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::util::MacAddr;
 use tokio_util::sync::CancellationToken;
 
-use crate::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
+use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
 
 /// Real packet capture implementation using `pnet`.
 ///

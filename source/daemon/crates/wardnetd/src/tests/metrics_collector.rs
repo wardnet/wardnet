@@ -2,18 +2,24 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use wardnet_types::api::SystemStatusResponse;
+use wardnet_common::api::SystemStatusResponse;
 
-use crate::config::OtelMetricsConfig;
-use crate::error::AppError;
 use crate::metrics_collector::MetricsCollector;
-use crate::service::SystemService;
+use wardnet_common::config::OtelMetricsConfig;
+use wardnetd_services::error::AppError;
+use wardnetd_services::system::SystemService;
 
 /// Mock system service that returns fixed values.
 struct MockSystemService;
 
 #[async_trait]
 impl SystemService for MockSystemService {
+    fn version(&self) -> &'static str {
+        "0.0.0-test"
+    }
+    fn uptime(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(42)
+    }
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         Ok(SystemStatusResponse {
             version: "0.0.0-test".to_owned(),
@@ -34,6 +40,12 @@ struct FailingSystemService;
 
 #[async_trait]
 impl SystemService for FailingSystemService {
+    fn version(&self) -> &'static str {
+        "0.0.0-test"
+    }
+    fn uptime(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(0)
+    }
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         Err(AppError::Internal(anyhow::anyhow!(
             "simulated service failure"

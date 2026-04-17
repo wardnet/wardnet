@@ -7,9 +7,9 @@ use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::route::RouteAttribute;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use wardnet_types::event::WardnetEvent;
+use wardnet_common::event::WardnetEvent;
 
-use crate::event::EventPublisher;
+use wardnetd_services::event::EventPublisher;
 
 /// Minimum routing table number managed by Wardnet.
 ///

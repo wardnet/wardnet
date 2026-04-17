@@ -3,17 +3,17 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
-use wardnet_types::api::{
+use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
 };
-use wardnet_types::event::WardnetEvent;
-use wardnet_types::routing::{RoutingTarget, RuleCreator};
-use wardnet_types::tunnel::Tunnel;
+use wardnet_common::event::WardnetEvent;
+use wardnet_common::routing::{RoutingTarget, RuleCreator};
+use wardnet_common::tunnel::Tunnel;
 
-use crate::error::AppError;
-use crate::event::{BroadcastEventBus, EventPublisher};
-use crate::service::{RoutingService, TunnelService};
 use crate::tunnel_idle::IdleTunnelWatcher;
+use wardnetd_services::error::AppError;
+use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
+use wardnetd_services::{RoutingService, TunnelService};
 
 // -- Mock TunnelService ---------------------------------------------------
 
@@ -82,6 +82,14 @@ impl TunnelService for MockTunnelService {
     }
 
     async fn restore_tunnels(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn collect_stats(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn run_health_check(&self) -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -160,6 +168,22 @@ impl RoutingService for MockRoutingService {
             .get(&tunnel_id)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn apply_rule_for_device(
+        &self,
+        _device_id: Uuid,
+        _target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn apply_rule_for_discovered_device(
+        &self,
+        _device_id: Uuid,
+        _ip: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
     }
 }
 

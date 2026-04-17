@@ -7,11 +7,11 @@ use sysinfo::{Components, Networks, System};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use wardnet_types::auth::AuthContext;
+use wardnet_common::auth::AuthContext;
 
-use crate::auth_context;
-use crate::config::OtelMetricsConfig;
-use crate::service::SystemService;
+use wardnet_common::config::OtelMetricsConfig;
+use wardnetd_services::auth_context;
+use wardnetd_services::system::SystemService;
 
 /// Background task that periodically collects system and application metrics
 /// and records them via OpenTelemetry instruments.

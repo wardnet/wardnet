@@ -4493,6 +4493,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wardnet-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "wardnet-test-agent"
 version = "0.1.0"
 dependencies = [
@@ -4507,36 +4521,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "wardnet-types"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
 name = "wardnetd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "argon2",
  "async-trait",
  "axum",
- "axum-extra",
- "base64 0.22.1",
  "chrono",
  "clap",
  "cron",
  "dhcproto",
  "futures",
- "hex",
  "hickory-proto",
  "hickory-resolver",
  "ipnetwork",
- "mime_guess",
  "netlink-packet-route 0.30.0",
  "netlink-sys",
  "opentelemetry",
@@ -4545,11 +4543,113 @@ dependencies = [
  "opentelemetry_sdk",
  "pnet",
  "pyroscope",
- "rand 0.10.1",
  "regex",
  "reqwest 0.12.28",
  "rtnetlink",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tower",
+ "tracing",
+ "tracing-appender",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "uuid",
+ "wardnet-common",
+ "wardnetd-api",
+ "wardnetd-services",
+ "wireguard-control",
+]
+
+[[package]]
+name = "wardnetd-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "axum-extra",
+ "chrono",
+ "mime_guess",
  "rust-embed",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "uuid",
+ "wardnet-common",
+ "wardnetd-data",
+ "wardnetd-services",
+]
+
+[[package]]
+name = "wardnetd-data"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "chrono",
+ "password-hash",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+ "wardnet-common",
+]
+
+[[package]]
+name = "wardnetd-mock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "clap",
+ "ipnetwork",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wardnet-common",
+ "wardnetd-api",
+ "wardnetd-data",
+ "wardnetd-services",
+]
+
+[[package]]
+name = "wardnetd-services"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "cron",
+ "hex",
+ "hickory-proto",
+ "ipnetwork",
+ "password-hash",
+ "rand 0.10.1",
+ "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4558,16 +4658,12 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "toml",
  "tower",
- "tower-http",
  "tracing",
- "tracing-appender",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
- "wardnet-types",
- "wireguard-control",
+ "wardnet-common",
+ "wardnetd-data",
 ]
 
 [[package]]

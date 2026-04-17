@@ -3,7 +3,7 @@ use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use opentelemetry::trace::TracerProvider as _;
@@ -19,45 +19,30 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use wardnet_types::auth::AuthContext;
-use wardnetd::config::{Config, LogFormat, LogRotation, OtelConfig};
+use wardnet_common::auth::AuthContext;
+use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
-use wardnetd::dhcp::runner::DhcpRunner;
-use wardnetd::dhcp::server::{NoopDhcpServer, UdpDhcpServer};
-use wardnetd::dns::blocklist_downloader::HttpBlocklistFetcher;
-use wardnetd::dns::filter::DnsFilter;
-use wardnetd::dns::runner::DnsRunner;
-use wardnetd::dns::server::{NoopDnsServer, UdpDnsServer};
-use wardnetd::event::{BroadcastEventBus, EventPublisher};
-use wardnetd::firewall::FirewallManager;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
-use wardnetd::hostname_resolver::HostnameResolver;
-use wardnetd::keys::FileKeyStore;
+use wardnetd::hostname_resolver::SystemHostnameResolver;
 use wardnetd::metrics_collector::MetricsCollector;
-use wardnetd::noop_hostname_resolver::NoopHostnameResolver;
-use wardnetd::noop_network::{NoopFirewallManager, NoopPolicyRouter, NoopTunnelInterface};
-use wardnetd::noop_packet_capture::NoopPacketCapture;
-use wardnetd::packet_capture::PacketCapture;
 use wardnetd::packet_capture_pnet::PnetCapture;
-use wardnetd::policy_router::PolicyRouter;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
-use wardnetd::repository::{
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteSessionRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-};
+use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
-use wardnetd::service::{
-    AuthServiceImpl, DeviceDiscoveryServiceImpl, DeviceServiceImpl, DhcpServiceImpl,
-    DnsServiceImpl, ProviderServiceImpl, RoutingServiceImpl, SystemServiceImpl, TunnelServiceImpl,
-};
-use wardnetd::state::AppState;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
-use wardnetd::tunnel_interface::TunnelInterface;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_monitor::TunnelMonitor;
-use wardnetd::vpn_provider_registry::VpnProviderRegistry;
-use wardnetd::{api, db};
+use wardnetd_api::state::AppState;
+use wardnetd_services::dhcp::runner::DhcpRunner;
+use wardnetd_services::dns::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
+use wardnetd_services::dns::filter::DnsFilter;
+use wardnetd_services::dns::runner::DnsRunner;
+use wardnetd_services::keys::FileKeyStore;
+use wardnetd_services::logging::{
+    ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
+};
+use wardnetd_services::{Backends, auth_context, init_services};
 
 /// Wardnet daemon — self-hosted network privacy gateway.
 #[derive(Parser)]
@@ -83,19 +68,22 @@ struct Cli {
     /// Run in foreground mode (default). Use with systemd or as a regular process.
     #[arg(long)]
     foreground: bool,
-
-    /// Use no-op network backends instead of real kernel interfaces.
-    #[arg(long)]
-    mock_network: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let config = Config::load(&cli.config)?;
+    let config = ApplicationConfiguration::load(&cli.config)?;
 
-    let log_broadcaster = wardnetd::log_broadcast::LogBroadcaster::new(1024);
-    let recent_errors = wardnetd::recent_errors::RecentErrors::new();
+    // Build the log service BEFORE init_tracing so its tracing layers can
+    // be attached to the subscriber.
+    let log_stream = Arc::new(LogStreamService::new(config.logging.broadcast_capacity));
+    let error_notifier = Arc::new(ErrorNotifierService::new(config.logging.max_recent_errors));
+    let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
+        log_stream,
+        error_notifier,
+        config.logging.path.clone(),
+    ));
 
     let TracingGuards {
         _log_guard,
@@ -107,15 +95,14 @@ async fn main() -> anyhow::Result<()> {
         cli.log_level.as_deref(),
         cli.log_path.as_deref(),
         cli.verbose,
-        &log_broadcaster,
-        &recent_errors,
+        log_service.as_ref(),
     );
 
     // Use `.instrument()` instead of `span.enter()` so the span is correctly
     // propagated across `.await` points in the tokio multi-threaded runtime.
     // The `Full` (console) formatter prints span fields on every line, and the
     // JSON formatter includes them via `with_current_span` / `with_span_list`.
-    let result = run(config, cli.mock_network, log_broadcaster, recent_errors)
+    let result = run(config, log_service)
         .instrument(tracing::info_span!(
             "wardnetd",
             version = env!("WARDNET_VERSION")
@@ -146,30 +133,10 @@ async fn main() -> anyhow::Result<()> {
 /// Inner entry-point that runs inside the root `wardnetd{version=...}` span.
 #[allow(clippy::too_many_lines)]
 async fn run(
-    config: Config,
-    mock_network: bool,
-    log_broadcaster: wardnetd::log_broadcast::LogBroadcaster,
-    recent_errors: wardnetd::recent_errors::RecentErrors,
+    config: ApplicationConfiguration,
+    log_service: Arc<dyn LogService>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
-
-    let pool = db::init_pool(&config.database.path).await?;
-
-    // Create repository instances (concrete SQLite implementations).
-    let admin_repo: Arc<dyn wardnetd::repository::AdminRepository> =
-        Arc::new(SqliteAdminRepository::new(pool.clone()));
-    let session_repo = Arc::new(SqliteSessionRepository::new(pool.clone()));
-    let api_key_repo = Arc::new(SqliteApiKeyRepository::new(pool.clone()));
-    let device_repo = Arc::new(SqliteDeviceRepository::new(pool.clone()));
-    let system_config_repo = Arc::new(SqliteSystemConfigRepository::new(pool.clone()));
-    let dhcp_repo = Arc::new(SqliteDhcpRepository::new(pool.clone()));
-    let dns_repo = Arc::new(wardnetd::repository::SqliteDnsRepository::new(pool.clone()));
-    let tunnel_repo = Arc::new(SqliteTunnelRepository::new(pool));
-
-    // Create event publisher.
-    let event_publisher: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(256));
-
-    let backends = network_backends(mock_network);
 
     // Detect wardnet's own LAN IP for DHCP gateway advertisement.
     let lan_ip = wardnetd::packet_capture_pnet::get_interface_ipv4(&config.network.lan_interface)
@@ -180,89 +147,38 @@ async fn run(
     tracing::info!(
         lan_ip = %lan_ip,
         interface = %config.network.lan_interface,
-        "detected LAN IP for DHCP gateway"
+        "detected LAN IP for DHCP gateway: lan_ip={lan_ip}, interface={iface}",
+        lan_ip = lan_ip,
+        iface = config.network.lan_interface,
     );
 
-    // Create key store.
-    let key_store = Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone()));
+    // Build real network backends (Linux kernel interfaces).
+    let executor = Arc::new(wardnetd::command::ShellCommandExecutor);
+    let packet_capture = Arc::new(PnetCapture);
+    let backends = Backends {
+        tunnel_interface: Arc::new(WireGuardTunnelInterface),
+        policy_router: Arc::new(
+            NetlinkPolicyRouter::new(executor.clone())
+                .expect("failed to initialise netlink policy router"),
+        ),
+        firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
+        packet_capture: packet_capture.clone(),
+        hostname_resolver: Arc::new(SystemHostnameResolver),
+        key_store: Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone())),
+    };
 
-    // Create service instances, injecting repository traits.
-    // `system_config_repo` is shared between AuthServiceImpl and SystemServiceImpl,
-    // hence the clone — same pattern as `device_repo` which is shared across services.
-    let auth_service = Arc::new(AuthServiceImpl::new(
-        admin_repo,
-        session_repo,
-        api_key_repo,
-        system_config_repo.clone(),
-        config.auth.session_expiry_hours,
-    ));
-    let device_service = Arc::new(DeviceServiceImpl::new(
-        device_repo.clone(),
-        event_publisher.clone(),
-    ));
-    let dhcp_service: Arc<dyn wardnetd::service::DhcpService> = Arc::new(DhcpServiceImpl::new(
-        dhcp_repo,
-        system_config_repo.clone(),
-        lan_ip,
-    ));
-    let dns_service: Arc<dyn wardnetd::service::DnsService> = Arc::new(DnsServiceImpl::new(
-        system_config_repo.clone(),
-        dns_repo.clone(),
-        event_publisher.clone(),
-    ));
-    let system_service = Arc::new(SystemServiceImpl::new(
-        system_config_repo,
-        tunnel_repo.clone(),
-        started_at,
-    ));
-    let tunnel_service: Arc<dyn wardnetd::service::TunnelService> =
-        Arc::new(TunnelServiceImpl::new(
-            tunnel_repo.clone(),
-            device_repo.clone(),
-            backends.tunnel_interface.clone(),
-            key_store,
-            event_publisher.clone(),
-        ));
-
-    // VPN provider registry and service.
-    let registry = Arc::new(VpnProviderRegistry::new(&config));
-    let provider_service: Arc<dyn wardnetd::service::ProviderService> =
-        Arc::new(ProviderServiceImpl::new(registry, tunnel_service.clone()));
-
-    // Compute LAN subnet for device detection filtering.
-    let lan_subnet = ipnetwork::Ipv4Network::new(lan_ip, 24).unwrap_or_else(|_| {
-        tracing::warn!("failed to create LAN subnet, using /24 default");
-        ipnetwork::Ipv4Network::new(lan_ip, 24).expect("valid /24")
-    });
-    tracing::info!(subnet = %lan_subnet, "LAN subnet for device detection");
-
-    // Create device discovery service.
-    let discovery_service: Arc<dyn wardnetd::service::DeviceDiscoveryService> =
-        Arc::new(DeviceDiscoveryServiceImpl::new(
-            device_repo.clone(),
-            event_publisher.clone(),
-            backends.hostname_resolver.clone(),
-            lan_subnet,
-        ));
-
-    // Create routing service (policy routing engine).
-    let routing_service: Arc<dyn wardnetd::service::RoutingService> =
-        Arc::new(RoutingServiceImpl::new(
-            device_repo.clone(),
-            tunnel_repo.clone(),
-            tunnel_service.clone(),
-            backends.policy_router.clone(),
-            backends.firewall.clone(),
-            config.network.default_policy.clone(),
-            config.network.lan_interface.clone(),
-        ));
+    // Wire services (initialises repo factory, bootstraps admin, creates all services).
+    let services =
+        init_services(&config, backends, lan_ip, started_at, log_service.clone()).await?;
 
     // Restore state from the database.
-    tunnel_service
+    services
+        .tunnel
         .restore_tunnels()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    discovery_service
+    services
+        .discovery
         .restore_devices()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -272,51 +188,42 @@ async fn run(
     let root_span = tracing::Span::current();
 
     // Reconcile routing state with kernel on startup.
-    wardnetd::auth_context::with_context(
+    auth_context::with_context(
         AuthContext::Admin {
             admin_id: uuid::Uuid::nil(),
         },
-        routing_service.reconcile(),
+        services.routing.reconcile(),
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Start background monitors.
     let monitor = TunnelMonitor::start(
-        tunnel_repo.clone(),
-        backends.tunnel_interface.clone(),
-        event_publisher.clone(),
+        services.tunnel.clone(),
         config.tunnel.stats_interval_secs,
         config.tunnel.health_check_interval_secs,
         &root_span,
     );
     let idle_watcher = IdleTunnelWatcher::start(
-        event_publisher.clone(),
-        tunnel_service.clone(),
-        routing_service.clone(),
+        services.event_publisher.clone(),
+        services.tunnel.clone(),
+        services.routing.clone(),
         config.tunnel.idle_timeout_secs,
         &root_span,
     );
     let routing_listener = RoutingListener::start(
-        &event_publisher,
-        routing_service.clone(),
-        device_repo.clone(),
+        &services.event_publisher,
+        services.routing.clone(),
         &root_span,
     );
-    let route_monitor = if mock_network {
-        None
-    } else {
-        Some(
-            wardnetd::route_monitor::RouteMonitor::start(event_publisher.clone(), &root_span)
-                .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?,
-        )
-    };
+    let route_monitor = RouteMonitor::start(services.event_publisher.clone(), &root_span)
+        .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?;
 
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
-            backends.packet_capture.clone(),
-            discovery_service.clone(),
+            packet_capture.clone(),
+            services.discovery.clone(),
             &config.detection,
             config.network.lan_interface.clone(),
             &root_span,
@@ -330,7 +237,7 @@ async fn run(
     let metrics_collector = if config.otel.enabled && config.otel.metrics.enabled {
         let meter = opentelemetry::global::meter("wardnetd");
         Some(MetricsCollector::start(
-            system_service.clone(),
+            services.system.clone(),
             &config.otel.metrics,
             meter,
             started_at,
@@ -345,92 +252,83 @@ async fn run(
     // Start Pyroscope profiling agent (conditionally).
     let profiling_agent = ProfilingAgent::start(&config.pyroscope);
 
-    // Start DHCP server and runner.
-    let dhcp_server: Arc<dyn wardnetd::dhcp::server::DhcpServer> = if mock_network {
-        Arc::new(NoopDhcpServer)
-    } else {
-        // Load initial DHCP config under admin context.
-        // gateway_ip is injected by DhcpServiceImpl from the detected LAN IP.
-        let admin_ctx = wardnet_types::auth::AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        };
-        let initial_config = wardnetd::auth_context::with_context(
-            admin_ctx,
-            dhcp_service.get_dhcp_config(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "failed to load initial DHCP config, using defaults");
-            {
-                // Derive default pool range from the detected LAN IP subnet.
-                let octets = lan_ip.octets();
-                wardnet_types::dhcp::DhcpConfig {
-                    enabled: false,
-                    gateway_ip: lan_ip,
-                    pool_start: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 100),
-                    pool_end: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 250),
-                    subnet_mask: "255.255.255.0".parse().expect("valid IP"),
-                    upstream_dns: vec![
-                        "1.1.1.1".parse().expect("valid IP"),
-                        "8.8.8.8".parse().expect("valid IP"),
-                    ],
-                    lease_duration_secs: 600,
-                    router_ip: None,
-                }
-            }
-        });
-        Arc::new(UdpDhcpServer::new(dhcp_service.clone(), initial_config))
+    // Build and start DHCP server and runner.
+    // Load initial DHCP config under admin context.
+    // gateway_ip is injected by DhcpServiceImpl from the detected LAN IP.
+    let admin_ctx = AuthContext::Admin {
+        admin_id: uuid::Uuid::nil(),
     };
+    let initial_dhcp_config = auth_context::with_context(
+        admin_ctx.clone(),
+        services.dhcp.get_dhcp_config(),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "failed to load initial DHCP config, using defaults: error={e}");
+        {
+            // Derive default pool range from the detected LAN IP subnet.
+            let octets = lan_ip.octets();
+            wardnet_common::dhcp::DhcpConfig {
+                enabled: false,
+                gateway_ip: lan_ip,
+                pool_start: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 100),
+                pool_end: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 250),
+                subnet_mask: "255.255.255.0".parse().expect("valid IP"),
+                upstream_dns: vec![
+                    "1.1.1.1".parse().expect("valid IP"),
+                    "8.8.8.8".parse().expect("valid IP"),
+                ],
+                lease_duration_secs: 600,
+                router_ip: None,
+            }
+        }
+    });
+    let dhcp_server: Arc<dyn wardnetd_services::dhcp::server::DhcpServer> = Arc::new(
+        wardnetd::dhcp::server::UdpDhcpServer::new(services.dhcp.clone(), initial_dhcp_config),
+    );
     let dhcp_runner = DhcpRunner::start(
-        dhcp_service.clone(),
+        services.dhcp.clone(),
         dhcp_server.clone(),
-        event_publisher.as_ref(),
+        services.event_publisher.as_ref(),
         &root_span,
     );
 
-    // Start DNS server and runner.
+    // Build and start DNS server and runner.
     let dns_filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()));
-    let blocklist_fetcher: Arc<dyn wardnetd::dns::blocklist_downloader::BlocklistFetcher> =
-        Arc::new(HttpBlocklistFetcher::new());
-    let dns_server: Arc<dyn wardnetd::dns::server::DnsServer> = if mock_network {
-        Arc::new(NoopDnsServer)
-    } else {
-        Arc::new(UdpDnsServer::new(
-            wardnet_types::dns::DnsConfig::default(),
+    let blocklist_fetcher: Arc<dyn BlocklistFetcher> = Arc::new(HttpBlocklistFetcher::new());
+    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> =
+        Arc::new(wardnetd::dns::server::UdpDnsServer::new(
+            wardnet_common::dns::DnsConfig::default(),
             Arc::clone(&dns_filter),
-        ))
-    };
+        ));
     let dns_runner = DnsRunner::start(
-        dns_service.clone(),
+        services.dns.clone(),
         dns_server.clone(),
-        dns_repo.clone(),
+        services.dns_repo.clone(),
         dns_filter,
         blocklist_fetcher,
-        event_publisher.as_ref(),
+        services.event_publisher.as_ref(),
         &root_span,
-        std::time::Duration::from_secs(60),
+        Duration::from_secs(60),
     );
 
     let state = AppState::new(
-        auth_service.clone(),
-        device_service.clone(),
-        dhcp_service,
-        dns_service,
-        discovery_service.clone(),
-        provider_service.clone(),
-        routing_service.clone(),
-        system_service.clone(),
-        tunnel_service.clone(),
+        services.auth.clone(),
+        services.device.clone(),
+        services.dhcp.clone(),
+        services.dns.clone(),
+        services.discovery.clone(),
+        log_service.clone(),
+        services.vpn_provider.clone(),
+        services.routing.clone(),
+        services.system.clone(),
+        services.tunnel.clone(),
         dhcp_server,
         dns_server,
-        event_publisher.clone(),
-        log_broadcaster,
-        recent_errors,
-        config.clone(),
-        started_at,
+        services.event_publisher.clone(),
     );
 
-    let app = api::router(state);
+    let app = wardnetd_api::api::router(state);
 
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
 
@@ -438,7 +336,7 @@ async fn run(
         "\n  Wardnet daemon v{}\n  Listening on http://{}\n  Database: {}\n",
         env!("WARDNET_VERSION"),
         addr,
-        config.database.path.display()
+        config.database.connection_string,
     );
 
     let listener = TcpListener::bind(addr).await?;
@@ -455,9 +353,7 @@ async fn run(
 
     tracing::info!("server stopped, shutting down background tasks");
     routing_listener.shutdown().await;
-    if let Some(rm) = route_monitor {
-        rm.shutdown().await;
-    }
+    route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
     dhcp_runner.shutdown().await;
@@ -473,41 +369,6 @@ async fn run(
     }
 
     Ok(())
-}
-
-/// Network backends selected at startup based on the `--mock-network` flag.
-struct NetworkBackends {
-    tunnel_interface: Arc<dyn TunnelInterface>,
-    packet_capture: Arc<dyn PacketCapture>,
-    hostname_resolver: Arc<dyn HostnameResolver>,
-    policy_router: Arc<dyn PolicyRouter>,
-    firewall: Arc<dyn FirewallManager>,
-}
-
-/// Select real or no-op network backends based on the `--mock-network` flag.
-fn network_backends(mock: bool) -> NetworkBackends {
-    if mock {
-        tracing::info!("using no-op network backends (--mock-network)");
-        NetworkBackends {
-            tunnel_interface: Arc::new(NoopTunnelInterface),
-            packet_capture: Arc::new(NoopPacketCapture),
-            hostname_resolver: Arc::new(NoopHostnameResolver),
-            policy_router: Arc::new(NoopPolicyRouter),
-            firewall: Arc::new(NoopFirewallManager),
-        }
-    } else {
-        let executor = Arc::new(wardnetd::command::ShellCommandExecutor);
-        NetworkBackends {
-            tunnel_interface: Arc::new(WireGuardTunnelInterface),
-            packet_capture: Arc::new(PnetCapture),
-            hostname_resolver: Arc::new(wardnetd::hostname_resolver::SystemHostnameResolver),
-            policy_router: Arc::new(
-                NetlinkPolicyRouter::new(executor.clone())
-                    .expect("failed to initialise netlink policy router"),
-            ),
-            firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
-        }
-    }
 }
 
 /// Handles returned from [`init_tracing`] that must be held for the lifetime
@@ -589,7 +450,7 @@ fn init_otel_meter(config: &OtelConfig) -> Option<SdkMeterProvider> {
         .expect("failed to create OTLP metric exporter");
 
     let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-        .with_interval(std::time::Duration::from_secs(config.interval_secs))
+        .with_interval(Duration::from_secs(config.interval_secs))
         .build();
 
     let provider = SdkMeterProvider::builder()
@@ -620,12 +481,11 @@ fn init_otel_meter(config: &OtelConfig) -> Option<SdkMeterProvider> {
 /// program. Dropping them flushes and shuts down the non-blocking writer
 /// and `OTel` providers.
 fn init_tracing(
-    config: &Config,
+    config: &ApplicationConfiguration,
     cli_log_level: Option<&str>,
     cli_log_path: Option<&Path>,
     verbose: bool,
-    log_broadcaster: &wardnetd::log_broadcast::LogBroadcaster,
-    recent_errors: &wardnetd::recent_errors::RecentErrors,
+    log_service: &dyn LogService,
 ) -> TracingGuards {
     // Determine effective filter. Priority:
     // 1. RUST_LOG env var (full control, overrides everything)
@@ -692,16 +552,12 @@ fn init_tracing(
     // the console layer (if enabled) always uses human-readable output.
     // Optional OTel layers are added regardless of format — `Option<L>`
     // implements `Layer` as a no-op when `None`.
-    // Broadcast layer sends log events to WebSocket clients in real time.
-    let broadcast_layer = wardnetd::log_broadcast::BroadcastLayer::new(log_broadcaster.clone());
-    // Recent errors layer keeps the last 15 WARN/ERROR entries in memory.
-    let recent_errors_layer =
-        wardnetd::recent_errors::RecentErrorsLayer::new(recent_errors.clone());
-
+    // Log service layers (BoxedLayer = Box<dyn Layer<Registry>>) must be applied
+    // directly on the Registry, so they come first before any other layers.
+    let log_layers = log_service.tracing_layers();
     let registry = tracing_subscriber::registry()
+        .with(log_layers)
         .with(filter)
-        .with(broadcast_layer)
-        .with(recent_errors_layer)
         .with(otel_trace_layer)
         .with(otel_log_layer);
 
@@ -730,6 +586,8 @@ fn init_tracing(
     } else {
         registry.with(file_layer).init();
     }
+
+    log_service.start_all();
 
     let otel_meter_provider = init_otel_meter(&config.otel);
 

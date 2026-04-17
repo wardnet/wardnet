@@ -6,9 +6,9 @@ use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::config::DetectionConfig;
-use crate::packet_capture::PacketCapture;
-use crate::service::{DeviceDiscoveryService, ObservationResult};
+use wardnet_common::config::DetectionConfig;
+use wardnetd_services::device::packet_capture::PacketCapture;
+use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 /// Background device detection orchestrator.
 ///
@@ -107,7 +107,7 @@ impl DeviceDetector {
 async fn capture_task(
     capture: Arc<dyn PacketCapture>,
     interface: String,
-    sender: mpsc::Sender<crate::packet_capture::ObservedDevice>,
+    sender: mpsc::Sender<wardnetd_services::device::packet_capture::ObservedDevice>,
     cancel: CancellationToken,
 ) {
     if let Err(e) = capture.capture_loop(&interface, sender, cancel).await {
@@ -117,7 +117,7 @@ async fn capture_task(
 
 /// Receives observations from the capture channel and processes them.
 async fn processor_task(
-    mut rx: mpsc::Receiver<crate::packet_capture::ObservedDevice>,
+    mut rx: mpsc::Receiver<wardnetd_services::device::packet_capture::ObservedDevice>,
     discovery: Arc<dyn DeviceDiscoveryService>,
     cancel: CancellationToken,
 ) {

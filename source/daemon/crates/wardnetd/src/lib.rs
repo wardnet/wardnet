@@ -1,45 +1,23 @@
-pub mod api;
-pub mod auth_context;
-pub mod bootstrap;
+// Real backend implementations (Linux-specific).
 pub mod command;
-pub mod config;
-pub mod db;
-pub mod device_detector;
-pub mod dhcp;
-pub mod dns;
-pub mod error;
-pub mod event;
-pub mod firewall;
 pub mod firewall_nftables;
 pub mod hostname_resolver;
-pub mod keys;
-pub mod log_broadcast;
-pub mod metrics_collector;
-pub mod noop_hostname_resolver;
-pub mod noop_network;
-pub mod noop_packet_capture;
-pub mod oui;
-pub mod packet_capture;
 pub mod packet_capture_pnet;
-pub mod policy_router;
 pub mod policy_router_netlink;
+pub mod tunnel_interface_wireguard;
+
+// DHCP/DNS server implementations.
+pub mod dhcp;
+pub mod dns;
+
+// Background tasks.
+pub mod device_detector;
+pub mod metrics_collector;
 pub mod profiling;
-pub mod recent_errors;
-pub mod repository;
-pub mod request_context;
 pub mod route_monitor;
 pub mod routing_listener;
-pub mod service;
-pub mod state;
 pub mod tunnel_idle;
-pub mod tunnel_interface;
-pub mod tunnel_interface_wireguard;
 pub mod tunnel_monitor;
-pub mod version;
-pub mod vpn_provider;
-pub mod vpn_provider_nordvpn;
-pub mod vpn_provider_registry;
-pub mod web;
 
 #[cfg(test)]
 mod tests;

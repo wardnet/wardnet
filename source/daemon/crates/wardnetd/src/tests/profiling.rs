@@ -1,5 +1,5 @@
-use crate::config::PyroscopeConfig;
 use crate::profiling::ProfilingAgent;
+use wardnet_common::config::PyroscopeConfig;
 
 #[test]
 fn start_returns_none_when_disabled() {

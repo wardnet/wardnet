@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use wireguard_control::{Backend, Device, DeviceUpdate, InterfaceName, Key, PeerConfigBuilder};
 
-use crate::tunnel_interface::{CreateTunnelParams, TunnelConfig, TunnelInterface, TunnelStats};
+use wardnetd_services::tunnel::interface::{
+    CreateTunnelParams, TunnelConfig, TunnelInterface, TunnelStats,
+};
 
 /// Input data for a single peer's stats (used by the pure aggregation function).
 #[derive(Debug, Clone)]

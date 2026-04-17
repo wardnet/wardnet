@@ -10,30 +10,16 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wardnet_types::auth::AuthContext;
-use wardnet_types::dhcp::{DhcpConfig, DhcpLease};
-
-use crate::auth_context;
-use crate::error::AppError;
-use crate::service::DhcpService;
+use wardnet_common::auth::AuthContext;
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnetd_services::auth_context;
+use wardnetd_services::dhcp::DhcpService;
+use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
+use wardnetd_services::error::AppError;
 
 // ---------------------------------------------------------------------------
-// DhcpSocket trait
+// UdpDhcpSocket — production socket impl
 // ---------------------------------------------------------------------------
-
-/// Abstraction over UDP socket operations for DHCP packet I/O.
-///
-/// Allows injecting a mock socket in tests instead of binding a real
-/// UDP port.
-#[async_trait]
-pub trait DhcpSocket: Send + Sync {
-    /// Receive a DHCP packet, returning the number of bytes read and
-    /// the source address.
-    async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)>;
-
-    /// Send a DHCP response to the given destination.
-    async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize>;
-}
 
 /// Production [`DhcpSocket`] backed by a real tokio UDP socket.
 pub struct UdpDhcpSocket {
@@ -63,25 +49,6 @@ impl DhcpSocket for UdpDhcpSocket {
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize> {
         self.socket.send_to(buf, target).await
     }
-}
-
-// ---------------------------------------------------------------------------
-// DhcpServer trait
-// ---------------------------------------------------------------------------
-
-/// Abstraction over the raw DHCP packet handling server.
-///
-/// Allows testing with a noop or mock implementation.
-#[async_trait]
-pub trait DhcpServer: Send + Sync {
-    /// Start listening for DHCP packets on UDP port 67.
-    async fn start(&self) -> Result<(), AppError>;
-
-    /// Stop the running server.
-    async fn stop(&self) -> Result<(), AppError>;
-
-    /// Whether the server is currently running.
-    fn is_running(&self) -> bool;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +169,7 @@ impl DhcpServer for UdpDhcpServer {
                 *guard = Some(actual_addr);
             }
 
-            tracing::info!(%actual_addr, "DHCP server listening");
+            tracing::info!(%actual_addr, "DHCP server listening on {actual_addr}");
 
             Arc::new(udp_socket)
         };
@@ -269,7 +236,7 @@ pub(crate) async fn server_loop(
                 match result {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::error!(error = %e, "DHCP socket recv error");
+                        tracing::error!(error = %e, "DHCP socket recv error: {e}");
                         continue;
                     }
                 }
@@ -280,7 +247,7 @@ pub(crate) async fn server_loop(
         let msg = match Message::decode(&mut Decoder::new(packet)) {
             Ok(m) => m,
             Err(e) => {
-                tracing::debug!(error = %e, "failed to decode DHCP message");
+                tracing::debug!(error = %e, "failed to decode DHCP message: {e}");
                 continue;
             }
         };
@@ -291,7 +258,7 @@ pub(crate) async fn server_loop(
         };
 
         let mac = format_mac(msg.chaddr());
-        tracing::debug!(%mac, ?msg_type, xid = msg.xid(), "received DHCP message");
+        tracing::debug!(%mac, ?msg_type, xid = msg.xid(), "received DHCP message: mac={mac}, type={msg_type:?}");
 
         let cfg = config.read().await.clone();
 
@@ -304,7 +271,7 @@ pub(crate) async fn server_loop(
                     send_response(socket.as_ref(), &response, broadcast).await;
                 }
                 Err(e) => {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER");
+                    tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
                 }
             },
             MessageType::Request => match handle_request(&service, &msg, &mac, &cfg).await {
@@ -320,7 +287,7 @@ pub(crate) async fn server_loop(
                     send_response(socket.as_ref(), &response, dest).await;
                 }
                 Err(e) => {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST");
+                    tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST for {mac}: {e}");
                 }
             },
             MessageType::Release => {
@@ -330,11 +297,11 @@ pub(crate) async fn server_loop(
                 if let Err(e) =
                     auth_context::with_context(admin_ctx, service.release_lease(&mac)).await
                 {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPRELEASE");
+                    tracing::error!(%mac, error = %e, "failed to handle DHCPRELEASE for {mac}: {e}");
                 }
             }
             other => {
-                tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type");
+                tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type: mac={mac}, type={other:?}");
             }
         }
     }
@@ -361,7 +328,9 @@ pub(crate) async fn handle_discover(
         %mac,
         ip = %lease.ip_address,
         lease_id = %lease.id,
-        "sending DHCPOFFER"
+        "sending DHCPOFFER: mac={mac}, ip={ip}",
+        mac = mac,
+        ip = lease.ip_address,
     );
 
     Ok(build_response(msg, MessageType::Offer, &lease, config))
@@ -383,7 +352,9 @@ pub(crate) async fn handle_request(
         %mac,
         ip = %lease.ip_address,
         lease_id = %lease.id,
-        "sending DHCPACK"
+        "sending DHCPACK: mac={mac}, ip={ip}",
+        mac = mac,
+        ip = lease.ip_address,
     );
 
     Ok(build_response(msg, MessageType::Ack, &lease, config))
@@ -446,12 +417,12 @@ pub(crate) async fn send_response(socket: &dyn DhcpSocket, msg: &Message, dest: 
     let mut encoder = Encoder::new(&mut buf);
 
     if let Err(e) = msg.encode(&mut encoder) {
-        tracing::error!(error = %e, "failed to encode DHCP response");
+        tracing::error!(error = %e, "failed to encode DHCP response: {e}");
         return;
     }
 
     if let Err(e) = socket.send_to(&buf, dest).await {
-        tracing::error!(error = %e, dest = %dest, "failed to send DHCP response");
+        tracing::error!(error = %e, dest = %dest, "failed to send DHCP response to {dest}: {e}");
     }
 }
 
@@ -478,24 +449,4 @@ pub(crate) fn extract_hostname(msg: &Message) -> Option<String> {
         }
     }
     None
-}
-
-/// No-op DHCP server implementation for testing and `--mock-network` mode.
-pub struct NoopDhcpServer;
-
-#[async_trait]
-impl DhcpServer for NoopDhcpServer {
-    async fn start(&self) -> Result<(), AppError> {
-        tracing::info!("noop DHCP server: start (no-op)");
-        Ok(())
-    }
-
-    async fn stop(&self) -> Result<(), AppError> {
-        tracing::info!("noop DHCP server: stop (no-op)");
-        Ok(())
-    }
-
-    fn is_running(&self) -> bool {
-        false
-    }
 }

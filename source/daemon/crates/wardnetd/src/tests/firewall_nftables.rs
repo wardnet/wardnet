@@ -3,9 +3,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::command::{CommandExecutor, CommandOutput};
-use crate::firewall::FirewallManager;
 use crate::firewall_nftables::{NftablesFirewallManager, parse_rule_handle};
+use wardnetd_services::command::{CommandExecutor, CommandOutput};
+use wardnetd_services::routing::firewall::FirewallManager;
 
 // ---------------------------------------------------------------------------
 // Mock infrastructure

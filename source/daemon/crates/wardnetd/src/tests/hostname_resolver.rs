@@ -1,5 +1,5 @@
-use crate::hostname_resolver::HostnameResolver;
 use crate::hostname_resolver::SystemHostnameResolver;
+use wardnetd_services::device::hostname_resolver::HostnameResolver;
 
 #[tokio::test]
 async fn resolve_loopback_returns_localhost() {

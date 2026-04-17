@@ -5,13 +5,13 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wardnet_types::device::{Device, DeviceType};
+use wardnet_common::device::{Device, DeviceType};
 
-use crate::config::DetectionConfig;
 use crate::device_detector::DeviceDetector;
-use crate::error::AppError;
-use crate::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
-use crate::service::{DeviceDiscoveryService, ObservationResult};
+use wardnet_common::config::DetectionConfig;
+use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
+use wardnetd_services::error::AppError;
+use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 // ---------------------------------------------------------------------------
 // Mock: PacketCapture

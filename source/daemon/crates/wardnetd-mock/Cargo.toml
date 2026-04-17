@@ -1,0 +1,38 @@
+[package]
+name = "wardnetd-mock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "wardnetd-mock"
+path = "src/main.rs"
+
+[lib]
+name = "wardnetd_mock"
+path = "src/lib.rs"
+
+[dependencies]
+wardnet-common.workspace = true
+wardnetd-api.workspace = true
+wardnetd-data.workspace = true
+wardnetd-services.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+clap.workspace = true
+ipnetwork.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+axum.workspace = true

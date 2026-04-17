@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use wardnet_types::event::WardnetEvent;
+use wardnet_common::auth::AuthContext;
+use wardnet_common::event::WardnetEvent;
 
-use crate::event::EventPublisher;
-use crate::repository::DeviceRepository;
-use crate::service::RoutingService;
+use wardnetd_services::event::EventPublisher;
+use wardnetd_services::routing::RoutingService;
 
 /// Background task that listens for domain events and updates kernel routing state.
 ///
@@ -27,18 +27,14 @@ impl RoutingListener {
     pub fn start(
         events: &Arc<dyn EventPublisher>,
         routing: Arc<dyn RoutingService>,
-        devices: Arc<dyn DeviceRepository>,
         parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "routing_listener");
 
-        // Subscribe before spawning to avoid missing events published between
-        // spawn and the first `rx.recv()`.
         let rx = events.subscribe();
 
-        let handle =
-            tokio::spawn(event_loop(rx, routing, devices, cancel.clone()).instrument(span));
+        let handle = tokio::spawn(event_loop(rx, routing, cancel.clone()).instrument(span));
 
         Self { cancel, handle }
     }
@@ -51,11 +47,9 @@ impl RoutingListener {
     }
 }
 
-/// Subscribe to domain events and dispatch routing-relevant ones.
 async fn event_loop(
     mut rx: tokio::sync::broadcast::Receiver<WardnetEvent>,
     routing: Arc<dyn RoutingService>,
-    devices: Arc<dyn DeviceRepository>,
     cancel: CancellationToken,
 ) {
     loop {
@@ -64,10 +58,10 @@ async fn event_loop(
             result = rx.recv() => {
                 match result {
                     Ok(event) => {
-                        handle_event(event, &*routing, &*devices).await;
+                        handle_event(event, &*routing).await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(skipped = n, "routing listener: lagged behind event bus");
+                        tracing::warn!(skipped = n, "routing listener: lagged behind event bus: skipped={n}");
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         tracing::info!("routing listener: event bus closed");
@@ -79,21 +73,35 @@ async fn event_loop(
     }
 }
 
-/// Dispatch a single domain event to the appropriate routing service method.
-async fn handle_event(
-    event: WardnetEvent,
-    routing: &dyn RoutingService,
-    devices: &dyn DeviceRepository,
-) {
+#[allow(clippy::too_many_lines)]
+async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
     match event {
         WardnetEvent::RoutingRuleChanged {
             device_id, target, ..
         } => {
-            handle_routing_rule_changed(device_id, &target, routing, devices).await;
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.apply_rule_for_device(device_id, &target),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, device_id = %device_id, "failed to apply routing rule for device {device_id}: {e}");
+            }
         }
 
         WardnetEvent::DeviceDiscovered { device_id, ip, .. } => {
-            handle_device_discovered(device_id, &ip, routing, devices).await;
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.apply_rule_for_discovered_device(device_id, &ip),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, device_id = %device_id, "failed to apply rule for discovered device {device_id}: {e}");
+            }
         }
 
         WardnetEvent::DeviceIpChanged {
@@ -102,23 +110,23 @@ async fn handle_event(
             new_ip,
             ..
         } => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
                 routing.handle_ip_change(device_id, &old_ip, &new_ip),
             )
             .await
             {
-                tracing::warn!(error = %e, device_id = %device_id, "failed to handle IP change");
+                tracing::warn!(error = %e, device_id = %device_id, "failed to handle IP change for {device_id}: {e}");
             }
         }
 
         WardnetEvent::DeviceGone {
             device_id, last_ip, ..
         } => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
                 routing.remove_device_routes(device_id, &last_ip),
@@ -127,47 +135,47 @@ async fn handle_event(
             {
                 tracing::warn!(
                     error = %e, device_id = %device_id,
-                    "failed to remove routes for departed device"
+                    "failed to remove routes for departed device {device_id}: {e}"
                 );
             }
         }
 
         WardnetEvent::TunnelUp { tunnel_id, .. } => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
                 routing.handle_tunnel_up(tunnel_id),
             )
             .await
             {
-                tracing::warn!(error = %e, tunnel_id = %tunnel_id, "failed to handle tunnel up");
+                tracing::warn!(error = %e, tunnel_id = %tunnel_id, "failed to handle tunnel up for {tunnel_id}: {e}");
             }
         }
 
         WardnetEvent::TunnelDown { tunnel_id, .. } => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
                 routing.handle_tunnel_down(tunnel_id),
             )
             .await
             {
-                tracing::warn!(error = %e, tunnel_id = %tunnel_id, "failed to handle tunnel down");
+                tracing::warn!(error = %e, tunnel_id = %tunnel_id, "failed to handle tunnel down for {tunnel_id}: {e}");
             }
         }
 
         WardnetEvent::RouteTableLost { table, .. } => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
                 routing.handle_route_table_lost(table),
             )
             .await
             {
-                tracing::warn!(error = %e, table, "failed to handle route table lost");
+                tracing::warn!(error = %e, table, "failed to handle route table lost {table}: {e}");
             }
         }
 
@@ -182,76 +190,5 @@ async fn handle_event(
         | WardnetEvent::DnsConfigChanged { .. }
         | WardnetEvent::DnsBlocklistUpdated { .. }
         | WardnetEvent::DnsFiltersChanged { .. } => {}
-    }
-}
-
-/// Look up the device and apply the routing rule for a `RoutingRuleChanged` event.
-async fn handle_routing_rule_changed(
-    device_id: uuid::Uuid,
-    target: &wardnet_types::routing::RoutingTarget,
-    routing: &dyn RoutingService,
-    devices: &dyn DeviceRepository,
-) {
-    tracing::debug!(device_id = %device_id, ?target, "handling routing rule change");
-
-    match devices.find_by_id(&device_id.to_string()).await {
-        Ok(Some(device)) => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
-                routing.apply_rule(device_id, &device.last_ip, target),
-            )
-            .await
-            {
-                tracing::warn!(error = %e, device_id = %device_id, "failed to apply routing rule");
-            }
-        }
-        Ok(None) => {
-            tracing::warn!(device_id = %device_id, "device not found for routing rule change");
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e, device_id = %device_id,
-                "failed to look up device for routing rule change"
-            );
-        }
-    }
-}
-
-/// Check if a newly discovered device has a routing rule and apply it.
-async fn handle_device_discovered(
-    device_id: uuid::Uuid,
-    ip: &str,
-    routing: &dyn RoutingService,
-    devices: &dyn DeviceRepository,
-) {
-    tracing::debug!(device_id = %device_id, ip = %ip, "handling device discovered");
-
-    match devices.find_rule_for_device(&device_id.to_string()).await {
-        Ok(Some(rule)) => {
-            if let Err(e) = crate::auth_context::with_context(
-                wardnet_types::auth::AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
-                routing.apply_rule(device_id, ip, &rule.target),
-            )
-            .await
-            {
-                tracing::warn!(
-                    error = %e, device_id = %device_id,
-                    "failed to apply rule for newly discovered device"
-                );
-            }
-        }
-        Ok(None) => {
-            // No routing rule for this device — nothing to do.
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e, device_id = %device_id,
-                "failed to look up routing rule for discovered device"
-            );
-        }
     }
 }

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::command::{CommandExecutor, CommandOutput};
-use crate::firewall::FirewallManager;
+use wardnetd_services::command::{CommandExecutor, CommandOutput};
+use wardnetd_services::routing::firewall::FirewallManager;
 
 /// Production [`FirewallManager`] implementation backed by the Linux `nft` CLI tool.
 ///

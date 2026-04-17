@@ -14,21 +14,14 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use wardnet_types::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
-
-use super::cache::DnsCache;
-use super::filter::DnsFilter;
+use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
+use wardnetd_services::dns::cache::DnsCache;
+use wardnetd_services::dns::filter::DnsFilter;
+use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 
 // ---------------------------------------------------------------------------
-// DnsSocket trait
+// UdpDnsSocket — production socket impl
 // ---------------------------------------------------------------------------
-
-/// Abstraction over UDP socket operations for DNS packet I/O.
-#[async_trait]
-pub trait DnsSocket: Send + Sync {
-    async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)>;
-    async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize>;
-}
 
 /// Production [`DnsSocket`] backed by a real tokio UDP socket.
 pub struct UdpDnsSocket {
@@ -55,35 +48,6 @@ impl DnsSocket for UdpDnsSocket {
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> std::io::Result<usize> {
         self.socket.send_to(buf, target).await
     }
-}
-
-// ---------------------------------------------------------------------------
-// DnsServer trait
-// ---------------------------------------------------------------------------
-
-/// Abstraction over the DNS server.
-#[async_trait]
-pub trait DnsServer: Send + Sync {
-    /// Start listening for DNS queries on UDP port 53.
-    async fn start(&self) -> anyhow::Result<()>;
-
-    /// Stop the running server.
-    async fn stop(&self) -> anyhow::Result<()>;
-
-    /// Whether the server is currently running.
-    fn is_running(&self) -> bool;
-
-    /// Flush the DNS cache. Returns number of entries cleared.
-    async fn flush_cache(&self) -> u64;
-
-    /// Current cache size.
-    async fn cache_size(&self) -> u64;
-
-    /// Cache hit rate (0.0 to 1.0).
-    async fn cache_hit_rate(&self) -> f64;
-
-    /// Update the DNS configuration at runtime.
-    async fn update_config(&self, config: DnsConfig);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +144,7 @@ impl DnsServer for UdpDnsServer {
                 *guard = Some(actual_addr);
             }
 
-            tracing::info!(%actual_addr, "DNS server listening");
+            tracing::info!(%actual_addr, "DNS server listening on {actual_addr}");
             Arc::new(udp_socket)
         };
 
@@ -237,37 +201,6 @@ impl DnsServer for UdpDnsServer {
 }
 
 // ---------------------------------------------------------------------------
-// NoopDnsServer
-// ---------------------------------------------------------------------------
-
-/// No-op DNS server for `--mock-network` mode.
-pub struct NoopDnsServer;
-
-#[async_trait]
-impl DnsServer for NoopDnsServer {
-    async fn start(&self) -> anyhow::Result<()> {
-        tracing::info!("DNS server disabled (mock network mode)");
-        Ok(())
-    }
-    async fn stop(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-    fn is_running(&self) -> bool {
-        false
-    }
-    async fn flush_cache(&self) -> u64 {
-        0
-    }
-    async fn cache_size(&self) -> u64 {
-        0
-    }
-    async fn cache_hit_rate(&self) -> f64 {
-        0.0
-    }
-    async fn update_config(&self, _config: DnsConfig) {}
-}
-
-// ---------------------------------------------------------------------------
 // Server loop
 // ---------------------------------------------------------------------------
 
@@ -308,12 +241,12 @@ async fn server_loop(
                             if let Err(e) = handle_query(
                                 &packet, src, &socket, &config, &cache, &filter, &resolver,
                             ).await {
-                                tracing::debug!(error = %e, %src, "failed to handle DNS query");
+                                tracing::debug!(error = %e, %src, "failed to handle DNS query from {src}: {e}");
                             }
                         });
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "DNS socket recv error");
+                        tracing::warn!(error = %e, "DNS socket recv error: {e}");
                     }
                 }
             }
@@ -475,7 +408,7 @@ async fn handle_query(
             socket.send_to(&bytes, src).await?;
 
             let elapsed = start.elapsed();
-            tracing::debug!(%domain, ?rtype, ?elapsed, error = %e, "upstream failed");
+            tracing::debug!(%domain, ?rtype, ?elapsed, error = %e, "upstream failed for {domain}: {e}");
         }
     }
 
@@ -499,7 +432,9 @@ fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
                 tracing::warn!(
                     address = %upstream.address,
                     protocol = ?upstream.protocol,
-                    "encrypted DNS not yet enabled, falling back to TCP"
+                    "encrypted DNS not yet enabled, falling back to TCP: address={address}, protocol={protocol:?}",
+                    address = upstream.address,
+                    protocol = upstream.protocol,
                 );
                 Protocol::Tcp
             }
@@ -515,7 +450,7 @@ fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
             let ns = NameServerConfig::new(SocketAddr::new(ip, port), protocol);
             resolver_config.add_name_server(ns);
         } else {
-            tracing::warn!(address = %upstream.address, "skipping upstream: not a valid IP");
+            tracing::warn!(address = %upstream.address, "skipping upstream: not a valid IP: address={address}", address = upstream.address);
         }
     }
 

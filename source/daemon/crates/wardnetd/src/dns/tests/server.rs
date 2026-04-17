@@ -1,56 +1,14 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use wardnet_types::dns::DnsConfig;
+use wardnet_common::dns::DnsConfig;
 
-use crate::dns::filter::DnsFilter;
-use crate::dns::server::{DnsServer, NoopDnsServer, UdpDnsServer};
+use crate::dns::server::UdpDnsServer;
+use wardnetd_services::dns::filter::DnsFilter;
+use wardnetd_services::dns::server::DnsServer;
 
 fn empty_filter() -> Arc<tokio::sync::RwLock<DnsFilter>> {
     Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()))
-}
-
-// ---------------------------------------------------------------------------
-// NoopDnsServer tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn noop_server_is_not_running() {
-    let server = NoopDnsServer;
-    assert!(!server.is_running());
-}
-
-#[tokio::test]
-async fn noop_server_start_and_stop() {
-    let server = NoopDnsServer;
-    server.start().await.unwrap();
-    server.stop().await.unwrap();
-    assert!(!server.is_running());
-}
-
-#[tokio::test]
-async fn noop_server_flush_cache_returns_zero() {
-    let server = NoopDnsServer;
-    assert_eq!(server.flush_cache().await, 0);
-}
-
-#[tokio::test]
-async fn noop_server_cache_size_returns_zero() {
-    let server = NoopDnsServer;
-    assert_eq!(server.cache_size().await, 0);
-}
-
-#[tokio::test]
-async fn noop_server_cache_hit_rate_returns_zero() {
-    let server = NoopDnsServer;
-    assert!(server.cache_hit_rate().await.abs() < f64::EPSILON);
-}
-
-#[tokio::test]
-async fn noop_server_update_config_is_noop() {
-    let server = NoopDnsServer;
-    // Should not panic or block.
-    server.update_config(DnsConfig::default()).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +151,7 @@ use hickory_proto::rr::{Name, RecordType};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use tokio::sync::Mutex;
 
-use crate::dns::server::DnsSocket;
+use wardnetd_services::dns::server::DnsSocket;
 
 /// Mock socket that stores sent packets and returns pre-loaded received packets.
 struct MockDnsSocket {
@@ -272,7 +230,7 @@ fn client_addr() -> SocketAddr {
 
 /// Default config pointing at an unreachable upstream so forwarding fails fast.
 fn test_config() -> DnsConfig {
-    use wardnet_types::dns::{DnsProtocol, UpstreamDns};
+    use wardnet_common::dns::{DnsProtocol, UpstreamDns};
     DnsConfig {
         enabled: true,
         upstream_servers: vec![UpstreamDns {
@@ -568,11 +526,11 @@ async fn server_forwards_successfully_to_upstream() {
     // Build config pointing at the mock upstream.
     let config = DnsConfig {
         enabled: true,
-        upstream_servers: vec![wardnet_types::dns::UpstreamDns {
+        upstream_servers: vec![wardnet_common::dns::UpstreamDns {
             address: upstream_addr.ip().to_string(),
             name: "mock".to_owned(),
             port: Some(upstream_addr.port()),
-            protocol: wardnet_types::dns::DnsProtocol::Udp,
+            protocol: wardnet_common::dns::DnsProtocol::Udp,
         }],
         cache_size: 100,
         cache_ttl_min_secs: 0,
@@ -672,11 +630,11 @@ async fn server_query_without_questions_is_ignored() {
 async fn build_resolver_with_tls_protocol_falls_back() {
     // TLS protocol triggers the warn-and-fallback branch. Server should still start.
     let config = DnsConfig {
-        upstream_servers: vec![wardnet_types::dns::UpstreamDns {
+        upstream_servers: vec![wardnet_common::dns::UpstreamDns {
             address: "1.1.1.1".to_owned(),
             name: "Cloudflare TLS".to_owned(),
             port: Some(853),
-            protocol: wardnet_types::dns::DnsProtocol::Tls,
+            protocol: wardnet_common::dns::DnsProtocol::Tls,
         }],
         ..DnsConfig::default()
     };
@@ -690,11 +648,11 @@ async fn build_resolver_with_tls_protocol_falls_back() {
 async fn build_resolver_with_https_protocol_falls_back() {
     // HTTPS protocol triggers the warn-and-fallback branch.
     let config = DnsConfig {
-        upstream_servers: vec![wardnet_types::dns::UpstreamDns {
+        upstream_servers: vec![wardnet_common::dns::UpstreamDns {
             address: "1.1.1.1".to_owned(),
             name: "Cloudflare HTTPS".to_owned(),
             port: Some(443),
-            protocol: wardnet_types::dns::DnsProtocol::Https,
+            protocol: wardnet_common::dns::DnsProtocol::Https,
         }],
         ..DnsConfig::default()
     };
@@ -708,11 +666,11 @@ async fn build_resolver_with_https_protocol_falls_back() {
 async fn build_resolver_with_invalid_ip_skips_upstream() {
     // Non-IP address should be skipped with a warning. Fallback to Cloudflare.
     let config = DnsConfig {
-        upstream_servers: vec![wardnet_types::dns::UpstreamDns {
+        upstream_servers: vec![wardnet_common::dns::UpstreamDns {
             address: "not-an-ip".to_owned(),
             name: "bad".to_owned(),
             port: Some(53),
-            protocol: wardnet_types::dns::DnsProtocol::Udp,
+            protocol: wardnet_common::dns::DnsProtocol::Udp,
         }],
         ..DnsConfig::default()
     };
@@ -726,7 +684,7 @@ async fn build_resolver_with_invalid_ip_skips_upstream() {
 // Ad-blocking filter integration tests
 // ---------------------------------------------------------------------------
 
-use crate::dns::filter::FilterInputs;
+use wardnetd_services::dns::filter::FilterInputs;
 
 fn filter_with_block(domain: &str) -> Arc<tokio::sync::RwLock<DnsFilter>> {
     let inputs = FilterInputs {

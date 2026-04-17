@@ -6,10 +6,10 @@ use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::util::MacAddr;
 
-use crate::packet_capture::PacketSource;
 use crate::packet_capture_pnet::{
     build_arp_request, find_interface, format_mac, parse_frame, should_filter_mac, subnet_hosts,
 };
+use wardnetd_services::device::packet_capture::PacketSource;
 
 // ---------------------------------------------------------------------------
 // format_mac

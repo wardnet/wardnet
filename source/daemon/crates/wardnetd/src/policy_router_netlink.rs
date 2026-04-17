@@ -8,8 +8,8 @@ use rtnetlink::packet_route::route::{RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
 
-use crate::command::CommandExecutor;
-use crate::policy_router::PolicyRouter;
+use wardnetd_services::command::CommandExecutor;
+use wardnetd_services::routing::policy_router::PolicyRouter;
 
 /// Production [`PolicyRouter`] backed by Linux netlink sockets.
 ///

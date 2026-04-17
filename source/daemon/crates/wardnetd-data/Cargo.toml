@@ -1,0 +1,44 @@
+[package]
+name = "wardnetd-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Internal
+wardnet-common.workspace = true
+
+# https://crates.io/crates/tokio
+tokio.workspace = true
+# https://crates.io/crates/sqlx
+sqlx.workspace = true
+# https://crates.io/crates/serde
+serde.workspace = true
+# https://crates.io/crates/serde_json
+serde_json.workspace = true
+# https://crates.io/crates/uuid
+uuid.workspace = true
+# https://crates.io/crates/chrono
+chrono.workspace = true
+# https://crates.io/crates/tracing
+tracing.workspace = true
+# https://crates.io/crates/argon2
+argon2.workspace = true
+# https://crates.io/crates/password-hash — enables getrandom for SaltString::generate
+password-hash.workspace = true
+# https://crates.io/crates/anyhow
+anyhow.workspace = true
+# https://crates.io/crates/rand
+rand.workspace = true
+# https://crates.io/crates/toml
+toml.workspace = true
+# https://crates.io/crates/async-trait
+async-trait.workspace = true
+
+[dev-dependencies]
+# https://crates.io/crates/tokio
+tokio = { workspace = true, features = ["test-util"] }

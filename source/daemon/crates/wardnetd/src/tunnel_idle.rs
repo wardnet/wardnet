@@ -6,11 +6,11 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use uuid::Uuid;
-use wardnet_types::event::WardnetEvent;
-use wardnet_types::routing::RoutingTarget;
+use wardnet_common::event::WardnetEvent;
+use wardnet_common::routing::RoutingTarget;
 
-use crate::event::EventPublisher;
-use crate::service::{RoutingService, TunnelService};
+use wardnetd_services::event::EventPublisher;
+use wardnetd_services::{RoutingService, TunnelService};
 
 /// Tracks per-tunnel idle countdowns and the set of known-active tunnels.
 ///
@@ -140,8 +140,8 @@ async fn handle_event(event: &WardnetEvent, routing: &dyn RoutingService, state:
         } => {
             // If previous target was a tunnel, check if it's now idle.
             if let Some(RoutingTarget::Tunnel { tunnel_id }) = previous_target {
-                let users = crate::auth_context::with_context(
-                    wardnet_types::auth::AuthContext::Admin {
+                let users = wardnetd_services::auth_context::with_context(
+                    wardnet_common::auth::AuthContext::Admin {
                         admin_id: Uuid::nil(),
                     },
                     routing.devices_using_tunnel(*tunnel_id),
@@ -186,8 +186,8 @@ async fn handle_event(event: &WardnetEvent, routing: &dyn RoutingService, state:
                 if state.idle_since.contains_key(&tid) {
                     continue;
                 }
-                let users = crate::auth_context::with_context(
-                    wardnet_types::auth::AuthContext::Admin {
+                let users = wardnetd_services::auth_context::with_context(
+                    wardnet_common::auth::AuthContext::Admin {
                         admin_id: Uuid::nil(),
                     },
                     routing.devices_using_tunnel(tid),
@@ -247,8 +247,8 @@ async fn sweep_idle(tunnel_service: &dyn TunnelService, state: &mut IdleState, t
     for tunnel_id in expired {
         state.idle_since.remove(&tunnel_id);
         tracing::info!(tunnel_id = %tunnel_id, "tearing down idle tunnel");
-        if let Err(e) = crate::auth_context::with_context(
-            wardnet_types::auth::AuthContext::Admin {
+        if let Err(e) = wardnetd_services::auth_context::with_context(
+            wardnet_common::auth::AuthContext::Admin {
                 admin_id: Uuid::nil(),
             },
             tunnel_service.tear_down_internal(tunnel_id, "idle timeout"),

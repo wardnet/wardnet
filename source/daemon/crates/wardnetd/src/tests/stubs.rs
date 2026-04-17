@@ -8,38 +8,37 @@
 //! custom logic and swap only the service(s) under test.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use tokio::sync::broadcast;
 use uuid::Uuid;
-use wardnet_types::api::{
+use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
     ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
     ListTunnelsResponse, SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse,
     SystemStatusResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
-use wardnet_types::device::{Device, DeviceType};
-use wardnet_types::event::WardnetEvent;
-use wardnet_types::routing::RoutingTarget;
-use wardnet_types::tunnel::Tunnel;
+use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::event::WardnetEvent;
+use wardnet_common::routing::RoutingTarget;
+use wardnet_common::tunnel::Tunnel;
 
-use crate::config::Config;
-use crate::error::AppError;
-use crate::event::EventPublisher;
-use crate::packet_capture::ObservedDevice;
-use crate::service::auth::LoginResult;
-use crate::service::{
-    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, ObservationResult,
-    ProviderService, RoutingService, SystemService, TunnelService,
-};
-use crate::state::AppState;
-use wardnet_types::api::{
+use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
     RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
-use wardnet_types::dhcp::{DhcpConfig, DhcpLease};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::device::packet_capture::ObservedDevice;
+use wardnetd_services::error::AppError;
+use wardnetd_services::event::EventPublisher;
+use wardnetd_services::{
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, ObservationResult,
+    RoutingService, SystemService, TunnelService, VpnProviderService,
+};
+
+use wardnetd_api::state::AppState;
 
 // ---------------------------------------------------------------------------
 // StubAuthService
@@ -149,6 +148,12 @@ pub struct StubSystemService;
 
 #[async_trait]
 impl SystemService for StubSystemService {
+    fn version(&self) -> &'static str {
+        "0.0.0-stub"
+    }
+    fn uptime(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(0)
+    }
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         unimplemented!()
     }
@@ -162,7 +167,7 @@ impl SystemService for StubSystemService {
 pub struct StubProviderService;
 
 #[async_trait]
-impl ProviderService for StubProviderService {
+impl VpnProviderService for StubProviderService {
     async fn list_providers(&self) -> Result<ListProvidersResponse, AppError> {
         unimplemented!()
     }
@@ -208,9 +213,6 @@ impl TunnelService for StubTunnelService {
         unimplemented!()
     }
     async fn list_tunnels(&self) -> Result<ListTunnelsResponse, AppError> {
-        // Return empty — several API handlers enrich their responses with the
-        // tunnel list, and tests that don't care about tunnels would otherwise
-        // panic. Tests that need specific tunnels plug in their own mock.
         Ok(ListTunnelsResponse { tunnels: vec![] })
     }
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
@@ -232,6 +234,12 @@ impl TunnelService for StubTunnelService {
         unimplemented!()
     }
     async fn restore_tunnels(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn collect_stats(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn run_health_check(&self) -> Result<(), AppError> {
         unimplemented!()
     }
 }
@@ -281,6 +289,20 @@ impl RoutingService for StubRoutingService {
         Ok(())
     }
     async fn devices_using_tunnel(&self, _tunnel_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        unimplemented!()
+    }
+    async fn apply_rule_for_device(
+        &self,
+        _device_id: Uuid,
+        _target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn apply_rule_for_discovered_device(
+        &self,
+        _device_id: Uuid,
+        _ip: &str,
+    ) -> Result<(), AppError> {
         unimplemented!()
     }
 }
@@ -359,103 +381,137 @@ impl DhcpService for StubDhcpService {
 pub struct StubDnsService;
 
 #[async_trait]
-impl crate::service::DnsService for StubDnsService {
-    async fn get_config(&self) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+impl wardnetd_services::dns::DnsService for StubDnsService {
+    async fn get_config(&self) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
         unimplemented!()
     }
     async fn update_config(
         &self,
-        _req: wardnet_types::api::UpdateDnsConfigRequest,
-    ) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+        _req: wardnet_common::api::UpdateDnsConfigRequest,
+    ) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
         unimplemented!()
     }
     async fn toggle(
         &self,
-        _req: wardnet_types::api::ToggleDnsRequest,
-    ) -> Result<wardnet_types::api::DnsConfigResponse, AppError> {
+        _req: wardnet_common::api::ToggleDnsRequest,
+    ) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
         unimplemented!()
     }
-    async fn status(&self) -> Result<wardnet_types::api::DnsStatusResponse, AppError> {
+    async fn status(&self) -> Result<wardnet_common::api::DnsStatusResponse, AppError> {
         unimplemented!()
     }
-    async fn flush_cache(&self) -> Result<wardnet_types::api::DnsCacheFlushResponse, AppError> {
+    async fn flush_cache(&self) -> Result<wardnet_common::api::DnsCacheFlushResponse, AppError> {
         unimplemented!()
     }
-    async fn get_dns_config(&self) -> Result<wardnet_types::dns::DnsConfig, AppError> {
+    async fn get_dns_config(&self) -> Result<wardnet_common::dns::DnsConfig, AppError> {
         unimplemented!()
     }
     async fn list_blocklists(
         &self,
-    ) -> Result<wardnet_types::api::ListBlocklistsResponse, AppError> {
+    ) -> Result<wardnet_common::api::ListBlocklistsResponse, AppError> {
         unimplemented!()
     }
     async fn create_blocklist(
         &self,
-        _req: wardnet_types::api::CreateBlocklistRequest,
-    ) -> Result<wardnet_types::api::CreateBlocklistResponse, AppError> {
+        _req: wardnet_common::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_common::api::CreateBlocklistResponse, AppError> {
         unimplemented!()
     }
     async fn update_blocklist(
         &self,
         _id: uuid::Uuid,
-        _req: wardnet_types::api::UpdateBlocklistRequest,
-    ) -> Result<wardnet_types::api::UpdateBlocklistResponse, AppError> {
+        _req: wardnet_common::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, AppError> {
         unimplemented!()
     }
     async fn delete_blocklist(
         &self,
         _id: uuid::Uuid,
-    ) -> Result<wardnet_types::api::DeleteBlocklistResponse, AppError> {
+    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, AppError> {
         unimplemented!()
     }
     async fn update_blocklist_now(
         &self,
         _id: uuid::Uuid,
-    ) -> Result<wardnet_types::api::UpdateBlocklistNowResponse, AppError> {
+    ) -> Result<wardnet_common::api::UpdateBlocklistNowResponse, AppError> {
         unimplemented!()
     }
-    async fn list_allowlist(&self) -> Result<wardnet_types::api::ListAllowlistResponse, AppError> {
+    async fn list_allowlist(&self) -> Result<wardnet_common::api::ListAllowlistResponse, AppError> {
         unimplemented!()
     }
     async fn create_allowlist_entry(
         &self,
-        _req: wardnet_types::api::CreateAllowlistRequest,
-    ) -> Result<wardnet_types::api::CreateAllowlistResponse, AppError> {
+        _req: wardnet_common::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_common::api::CreateAllowlistResponse, AppError> {
         unimplemented!()
     }
     async fn delete_allowlist_entry(
         &self,
         _id: uuid::Uuid,
-    ) -> Result<wardnet_types::api::DeleteAllowlistResponse, AppError> {
+    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, AppError> {
         unimplemented!()
     }
     async fn list_filter_rules(
         &self,
-    ) -> Result<wardnet_types::api::ListFilterRulesResponse, AppError> {
+    ) -> Result<wardnet_common::api::ListFilterRulesResponse, AppError> {
         unimplemented!()
     }
     async fn create_filter_rule(
         &self,
-        _req: wardnet_types::api::CreateFilterRuleRequest,
-    ) -> Result<wardnet_types::api::CreateFilterRuleResponse, AppError> {
+        _req: wardnet_common::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, AppError> {
         unimplemented!()
     }
     async fn update_filter_rule(
         &self,
         _id: uuid::Uuid,
-        _req: wardnet_types::api::UpdateFilterRuleRequest,
-    ) -> Result<wardnet_types::api::UpdateFilterRuleResponse, AppError> {
+        _req: wardnet_common::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, AppError> {
         unimplemented!()
     }
     async fn delete_filter_rule(
         &self,
         _id: uuid::Uuid,
-    ) -> Result<wardnet_types::api::DeleteFilterRuleResponse, AppError> {
+    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, AppError> {
         unimplemented!()
     }
-    async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
+    async fn load_filter_inputs(
+        &self,
+    ) -> Result<wardnetd_services::dns::filter::FilterInputs, AppError> {
         unimplemented!()
     }
+}
+
+// ---------------------------------------------------------------------------
+// StubLogService
+// ---------------------------------------------------------------------------
+
+/// Stub log service — satisfies trait bounds without real behaviour.
+pub struct StubLogService;
+
+#[async_trait]
+impl wardnetd_services::logging::LogService for StubLogService {
+    fn subscribe(&self) -> broadcast::Receiver<wardnetd_services::logging::stream::LogEntry> {
+        let (tx, rx) = broadcast::channel(1);
+        drop(tx);
+        rx
+    }
+    fn get_recent_errors(&self) -> Vec<wardnetd_services::logging::error_notifier::ErrorEntry> {
+        Vec::new()
+    }
+    async fn list_log_files(
+        &self,
+    ) -> Result<Vec<wardnetd_services::logging::service::LogFileInfo>, AppError> {
+        Ok(Vec::new())
+    }
+    async fn download_log_file(&self, _name: Option<&str>) -> Result<String, AppError> {
+        Ok(String::new())
+    }
+    fn tracing_layers(&self) -> Vec<wardnetd_services::logging::BoxedLayer> {
+        Vec::new()
+    }
+    fn start_all(&self) {}
+    fn stop_all(&self) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +531,56 @@ impl EventPublisher for StubEventPublisher {
 }
 
 // ---------------------------------------------------------------------------
+// StubDhcpServer
+// ---------------------------------------------------------------------------
+
+/// Stub DHCP server — all methods return Ok/false.
+pub struct StubDhcpServer;
+
+#[async_trait]
+impl wardnetd_services::dhcp::server::DhcpServer for StubDhcpServer {
+    async fn start(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn stop(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubDnsServer
+// ---------------------------------------------------------------------------
+
+/// Stub DNS server — all methods return Ok/false/0.
+pub struct StubDnsServer;
+
+#[async_trait]
+impl wardnetd_services::dns::server::DnsServer for StubDnsServer {
+    async fn start(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn stop(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+    async fn flush_cache(&self) -> u64 {
+        0
+    }
+    async fn cache_size(&self) -> u64 {
+        0
+    }
+    async fn cache_hit_rate(&self) -> f64 {
+        0.0
+    }
+    async fn update_config(&self, _config: wardnet_common::dns::DnsConfig) {}
+}
+
+// ---------------------------------------------------------------------------
 // Helper: test_app_state
 // ---------------------------------------------------------------------------
 
@@ -491,16 +597,13 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDiscoveryService),
+        Arc::new(StubLogService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
-        Arc::new(crate::dhcp::server::NoopDhcpServer),
-        Arc::new(crate::dns::server::NoopDnsServer),
+        Arc::new(StubDhcpServer),
+        Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
-        crate::log_broadcast::LogBroadcaster::new(16),
-        crate::recent_errors::RecentErrors::new(),
-        Config::default(),
-        Instant::now(),
     )
 }
