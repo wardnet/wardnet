@@ -118,10 +118,18 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate daemon coverage
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
+      - name: Generate daemon coverage and test results
         run: |
           mkdir -p coverage
-          make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
+          cd source/daemon && cargo llvm-cov nextest \
+            --workspace \
+            --profile ci \
+            --lcov --output-path ../../coverage/daemon-lcov.info \
+            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)'
+          cp target/nextest/ci/junit.xml ../../coverage/daemon-junit.xml
 
       - name: Enable Corepack
         run: corepack enable
@@ -132,16 +140,26 @@ jobs:
           cache: yarn
           cache-dependency-path: source/site/yarn.lock
 
-      - name: Generate site coverage
+      - name: Generate site coverage and test results
         run: cd source/site && yarn install --immutable && yarn test:coverage
 
-      - name: Collect site coverage
-        run: cp source/site/coverage/lcov.info coverage/site-lcov.info
+      - name: Collect coverage and test results
+        run: |
+          cp source/site/coverage/lcov.info coverage/site-lcov.info
+          cp source/site/test-results/junit.xml coverage/site-junit.xml
 
-      - name: Upload to Codecov
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           files: coverage/daemon-lcov.info,coverage/site-lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          files: coverage/daemon-junit.xml,coverage/site-junit.xml
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

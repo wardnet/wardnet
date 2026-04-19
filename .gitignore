@@ -4,6 +4,7 @@ source/web-ui/dist/
 !source/web-ui/dist/index.html
 source/site/dist/
 source/site/coverage/
+source/site/test-results/
 **/.yarn/install-state.gz
 *.db
 *.db-shm
