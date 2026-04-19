@@ -813,10 +813,9 @@ async fn renew_lease_migrates_to_reserved_ip_when_reservation_changed() {
     let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.105");
     seed_reservation(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.106");
 
-    let lease =
-        auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:30"))
-            .await
-            .unwrap();
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:30"))
+        .await
+        .unwrap();
 
     // Device should now hold the reserved IP.
     assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 106));
@@ -855,10 +854,9 @@ async fn renew_lease_does_not_migrate_when_reservation_matches_current_ip() {
     let existing_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
     seed_reservation(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
 
-    let lease =
-        auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:31"))
-            .await
-            .unwrap();
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:31"))
+        .await
+        .unwrap();
 
     // Same lease ID — just renewed, not replaced.
     assert_eq!(lease.id.to_string(), existing_id);

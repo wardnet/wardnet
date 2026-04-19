@@ -633,9 +633,7 @@ impl DhcpService for DhcpServiceImpl {
                         .insert_lease_log(&DhcpLeaseLogRow {
                             lease_id: existing.id.to_string(),
                             event_type: "expired".to_owned(),
-                            details: Some(format!(
-                                "superseded by reservation for {reserved_ip}"
-                            )),
+                            details: Some(format!("superseded by reservation for {reserved_ip}")),
                         })
                         .await
                         .map_err(AppError::Internal)?;
