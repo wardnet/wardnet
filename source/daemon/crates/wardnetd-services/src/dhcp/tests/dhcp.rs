@@ -802,6 +802,71 @@ async fn renew_lease_extends_expiry_into_the_future() {
     );
 }
 
+// Renewal with mismatched reservation: device migrates to reserved IP.
+// Scenario: Device holds .105 (active lease), but a reservation now maps its
+// MAC to .106. On renewal the old lease must be expired and the device must
+// receive .106, closing the window where a new device could be handed .105.
+#[tokio::test]
+async fn renew_lease_migrates_to_reserved_ip_when_reservation_changed() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.105");
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.106");
+
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:30"))
+        .await
+        .unwrap();
+
+    // Device should now hold the reserved IP.
+    assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 106));
+    assert_eq!(lease.status, DhcpLeaseStatus::Active);
+
+    // Old lease must be expired so .105 is no longer in the active pool.
+    let old_row = dhcp
+        .leases
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.id == old_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(old_row.status, "expired", "old lease should be expired");
+
+    // Log should record the migration event followed by the assignment.
+    let logs = dhcp.logs.lock().unwrap();
+    assert!(
+        logs.iter().any(|l| l.event_type == "expired"
+            && l.details.as_deref().unwrap_or("").contains("192.168.1.106")),
+        "expected expiry log mentioning new reserved IP"
+    );
+    assert!(
+        logs.iter().any(|l| l.event_type == "assigned"),
+        "expected assigned log for new lease"
+    );
+}
+
+// Renewal where the reservation matches the current IP: no migration,
+// just a normal extension of the existing lease.
+#[tokio::test]
+async fn renew_lease_does_not_migrate_when_reservation_matches_current_ip() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    let existing_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
+
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:31"))
+        .await
+        .unwrap();
+
+    // Same lease ID — just renewed, not replaced.
+    assert_eq!(lease.id.to_string(), existing_id);
+    assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 107));
+
+    let logs = dhcp.logs.lock().unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].event_type, "renewed");
+}
+
 // =========================================================================
 // release_lease tests
 // =========================================================================
