@@ -5,6 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.94-orange.svg)](https://www.rust-lang.org)
 [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/pedromvgomes/wardnet)](https://rust-reportcard.xuri.me/report/github.com/pedromvgomes/wardnet)
 [![Security Audit](https://github.com/pedromvgomes/wardnet/actions/workflows/security.yml/badge.svg)](https://github.com/pedromvgomes/wardnet/actions/workflows/security.yml)
+[![Known Vulnerabilities](https://snyk.io/test/github/pedromvgomes/wardnet/badge.svg)](https://snyk.io/test/github/pedromvgomes/wardnet)
 [![Dependabot](https://badgen.net/github/dependabot/pedromvgomes/wardnet)](https://github.com/pedromvgomes/wardnet/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 

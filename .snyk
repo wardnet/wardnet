@@ -1,0 +1,12 @@
+# Snyk (https://snyk.io) policy file
+version: v1.25.1
+
+# Ignore rules can be added here to suppress specific vulnerabilities.
+# Example:
+# ignore:
+#   SNYK-RUST-CRATENAME-12345:
+#     - '*':
+#         reason: Not exploitable in this context
+#         expires: '2026-12-31T00:00:00.000Z'
+ignore: {}
+patch: {}

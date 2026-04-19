@@ -7,12 +7,20 @@ on:
       - "source/daemon/**/Cargo.toml"
       - "source/daemon/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
+      - "source/web-ui/package.json"
+      - "source/web-ui/yarn.lock"
+      - "source/site/package.json"
+      - "source/site/yarn.lock"
   pull_request:
     branches: [main]
     paths:
       - "source/daemon/**/Cargo.toml"
       - "source/daemon/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
+      - "source/web-ui/package.json"
+      - "source/web-ui/yarn.lock"
+      - "source/site/package.json"
+      - "source/site/yarn.lock"
   schedule:
     # Run daily at 06:00 UTC to catch newly disclosed advisories
     - cron: "0 6 * * *"
@@ -37,3 +45,114 @@ jobs:
 
       - name: Run cargo-audit
         run: cd source/daemon && cargo audit
+
+  snyk-rust:
+    name: Snyk - Rust
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94"
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Snyk test
+        run: snyk test --file=source/daemon/Cargo.toml --all-projects --sarif-file-output=snyk-rust.sarif
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-rust.sarif
+
+      - name: Snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: snyk monitor --file=source/daemon/Cargo.toml --all-projects --project-name=wardnet-daemon
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  snyk-web-ui:
+    name: Snyk - Web UI
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: cd source/web-ui && yarn install
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Snyk test
+        run: snyk test --file=source/web-ui/package.json --sarif-file-output=snyk-web-ui.sarif
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-web-ui.sarif
+
+      - name: Snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: snyk monitor --file=source/web-ui/package.json --project-name=wardnet-web-ui
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  snyk-site:
+    name: Snyk - Site
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: cd source/site && yarn install
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Snyk test
+        run: snyk test --file=source/site/package.json --sarif-file-output=snyk-site.sarif
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-site.sarif
+
+      - name: Snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: snyk monitor --file=source/site/package.json --project-name=wardnet-site
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
