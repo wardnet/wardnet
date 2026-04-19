@@ -17,7 +17,7 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make build-web`** — build web UI only
 - **`make build-daemon`** — build daemon for host target
 - **`make build-pi`** — cross-compile daemon for Raspberry Pi (`aarch64-unknown-linux-gnu`)
-- **`make check`** — run all checks (SDK + web + daemon: format, lint, tests)
+- **`make check`** — run all checks (SDK + web + site + daemon: format, lint, tests)
 - **`make check-sdk`** — SDK typecheck + format check
 - **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
 - **`make check-daemon`** — Rust format + clippy + tests. **Linux-only**: the daemon depends on Linux kernel interfaces (netlink, rtnetlink) and cannot compile on macOS. On non-Linux hosts this target auto-detects `podman` or `docker` and runs inside a `rust:1.94` container. Build artefacts are cached in `.target-linux/` (gitignored) and crate downloads in a named volume (`wardnet-cargo-cache`).
@@ -38,7 +38,7 @@ All commands run from `source/daemon/`. **Linux only** — on macOS use `make ch
 - **Test**: `cargo test --workspace`
 - **Lint**: `cargo clippy --all-targets -- -D warnings`
 - **Format**: `cargo fmt` (check: `cargo fmt --check`)
-- **Single crate test**: `cargo test -p wardnetd`, `cargo test -p wardnet-types`
+- **Single crate test**: `cargo test -p wardnetd`, `cargo test -p wardnet-common`, `cargo test -p wardnetd-services`
 
 #### SDK (`@wardnet/js`)
 
@@ -65,48 +65,65 @@ All commands run from `source/web-ui/`. Uses **Yarn 4** (via Corepack).
 source/
 ├── daemon/                          # Rust workspace (Cargo.toml at this level)
 │   └── crates/
-│       ├── wardnet-types/           # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs
-│       ├── wardnetd/                # Daemon binary
+│       ├── wardnet-common/          # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs, Config
+│       ├── wardnetd-data/           # Data access layer
+│       │   ├── src/
+│       │   │   ├── repository/      # Trait definitions (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, DnsRepository, SystemConfigRepository, etc.)
+│       │   │   │   └── sqlite/      # SQLite implementations of all repository traits
+│       │   │   ├── bootstrap/       # Admin account initialization (first-run setup)
+│       │   │   ├── db/              # SQLite pool init (WAL mode, migrations)
+│       │   │   ├── keys/            # KeyStore trait + FileKeyStore (WireGuard private key files)
+│       │   │   └── oui/             # MAC OUI prefix lookup (full IEEE MA-L database, ~39K entries)
+│       │   └── migrations/          # SQLite migration files (sqlx)
+│       ├── wardnetd-services/       # Business logic layer
+│       │   └── src/
+│       │       ├── auth/            # AuthService: login, session management, API key auth
+│       │       ├── device/          # DeviceService + DeviceDiscoveryService
+│       │       │   └── discovery/   # Background ARP scan + observation loop
+│       │       ├── dhcp/            # DhcpService + DhcpRunner lifecycle
+│       │       ├── dns/             # DnsService + DNS filter + blocklist downloader
+│       │       ├── tunnel/          # TunnelService: VPN tunnel lifecycle management
+│       │       ├── routing/         # RoutingService: policy rules, per-device routing
+│       │       ├── vpn/             # VpnProviderService: provider credentials, server list
+│       │       ├── system/          # SystemService: host CPU/memory, uptime
+│       │       ├── logging/         # LogService, log streaming, error notification
+│       │       ├── event/           # BroadcastEventBus (EventPublisher implementation)
+│       │       ├── auth_context/    # Task-local auth context (require_admin, with_context)
+│       │       ├── request_context/ # Request-scoped context
+│       │       ├── command/         # CommandExecutor trait (shell command abstraction)
+│       │       └── version/         # Compile-time version info
+│       ├── wardnetd-api/            # HTTP API layer (Axum)
+│       │   └── src/
+│       │       ├── api/             # Endpoint handlers (auth, devices, dhcp, dns, info, setup, system, tunnels, providers)
+│       │       │   └── logs_ws.rs   # WebSocket log streaming endpoint
+│       │       ├── middleware.rs    # AuthContextLayer, RequestContextLayer, CORS, tracing
+│       │       ├── state.rs         # AppState (holds Arc<dyn Service> trait objects + EventPublisher)
+│       │       └── web.rs           # rust-embed static file serving (fallback to index.html)
+│       ├── wardnetd/                # Daemon binary: Linux-specific backends + startup orchestration
 │       │   ├── build.rs             # Build script (version, OUI database generation)
 │       │   ├── data/oui.csv         # IEEE MA-L OUI database (~39K entries)
-│       │   ├── migrations/          # SQLite migrations (sqlx)
 │       │   └── src/
-│       │       ├── main.rs          # Entry point (thin — wires dependencies, starts server)
-│       │       ├── lib.rs           # Crate root (re-exports modules for testability)
-│       │       ├── config.rs        # TOML config loading with defaults
-│       │       ├── db.rs            # SQLite pool init (WAL mode, migrations)
-│       │       ├── error.rs         # AppError → axum IntoResponse
-│       │       ├── state.rs         # AppState (holds service trait objects + event publisher)
-│       │       ├── event.rs         # EventPublisher trait + BroadcastEventBus
-│       │       ├── keys.rs          # KeyStore trait + FileKeyStore (private key files)
-│       │       ├── tunnel_interface.rs         # TunnelInterface trait + types (CreateTunnelParams, TunnelConfig, TunnelStats)
+│       │       ├── main.rs          # Entry point: wires real backends, calls init_services(), starts axum server
 │       │       ├── tunnel_interface_wireguard.rs  # WireGuard impl (Linux kernel + macOS userspace)
-│       │       ├── tunnel_monitor.rs  # Background health check + stats collection
-│       │       ├── tunnel_idle.rs     # Idle tunnel teardown on DeviceGone
-│       │       ├── firewall.rs        # FirewallManager trait (masquerade, DNS DNAT)
-│       │       ├── firewall_nftables.rs  # nftables impl via CommandExecutor
-│       │       ├── policy_router.rs      # PolicyRouter trait (ip rule, ip route, sysctl)
-│       │       ├── policy_router_iproute.rs  # iproute2 impl via CommandExecutor
-│       │       ├── routing_listener.rs   # Background event→routing dispatcher (subscribes to event bus)
-│       │       ├── command.rs         # CommandExecutor trait (shell command abstraction for testability)
-│       │       ├── device_detector.rs   # DeviceDetector: spawns capture + observation loop
-│       │       ├── packet_capture.rs    # PacketCapture trait + types
-│       │       ├── packet_capture_pnet.rs  # Real pnet impl
-│       │       ├── hostname_resolver.rs    # HostnameResolver trait + SystemHostnameResolver
-│       │       ├── oui.rs             # MAC OUI prefix lookup (full IEEE MA-L database, ~39K entries)
-│       │       ├── bootstrap.rs      # Daemon initialisation logic
-│       │       ├── web.rs           # rust-embed static file serving
-│       │       ├── dhcp/            # DHCP server module
-│       │       │   ├── mod.rs       # Module root
-│       │       │   ├── server.rs    # DhcpSocket trait + DHCP packet processing (DISCOVER/OFFER/REQUEST/ACK)
-│       │       │   ├── runner.rs    # DhcpRunner lifecycle management (start/stop/reload)
-│       │       │   └── tests/       # DHCP-specific tests
-│       │       ├── vpn_provider.rs  # VpnProvider async trait (validate, list servers, generate config)
-│       │       ├── vpn_provider_registry.rs  # VpnProviderRegistry (config-driven, self-registering)
-│       │       ├── vpn_provider_nordvpn.rs   # NordVPN impl + NordVpnApi trait (async reqwest)
-│       │       ├── repository/      # Data access layer (traits in root, SQLite impls in sqlite/)
-│       │       ├── service/         # Business logic (traits + impls: Auth, Device, Discovery, Tunnel, Routing, DHCP, Provider, System)
-│       │       └── api/             # HTTP handlers (thin, delegate to services)
+│       │       ├── firewall_nftables.rs           # nftables impl via CommandExecutor
+│       │       ├── policy_router_netlink.rs        # Netlink routing policies (ip rule, ip route)
+│       │       ├── packet_capture_pnet.rs          # pnet raw socket packet capture
+│       │       ├── hostname_resolver.rs            # System hostname resolution
+│       │       ├── device_detector.rs              # DeviceDetector: spawns capture + observation loop
+│       │       ├── tunnel_monitor.rs               # Background health check + stats collection
+│       │       ├── tunnel_idle.rs                  # Idle tunnel teardown on DeviceGone
+│       │       ├── routing_listener.rs             # Background event→routing dispatcher
+│       │       ├── route_monitor.rs                # Kernel route table observation
+│       │       ├── metrics_collector.rs            # OpenTelemetry metrics export
+│       │       ├── profiling.rs                    # Pyroscope profiling integration
+│       │       ├── dhcp/                           # DHCP server (dhcproto)
+│       │       └── dns/                            # DNS server (hickory)
+│       ├── wardnetd-mock/           # Local dev binary: full API with no-op Linux backends
+│       │   └── src/
+│       │       ├── main.rs          # Entry point: in-memory SQLite + demo data seed + fake events
+│       │       ├── backends/        # No-op impls (noop_tunnel, noop_routing, noop_dhcp, noop_dns, noop_device, in-memory key store)
+│       │       ├── seed.rs          # Demo data seeder (writes directly via repositories)
+│       │       └── events.rs        # Periodic fake event emitter for UI testing
 │       ├── wctl/                    # CLI tool (clap: status, devices, tunnels subcommands)
 │       └── wardnet-test-agent/      # Pi-side kernel state inspector for system tests
 │           └── src/
@@ -143,12 +160,14 @@ source/
 
 ### Daemon
 - Rust 1.94, edition 2024 (pinned in `rust-toolchain.toml`)
+- **Multi-crate workspace**: `wardnet-common` (shared types/config) → `wardnetd-data` (repositories) → `wardnetd-services` (business logic) → `wardnetd-api` (HTTP layer) → `wardnetd` (Linux binary)
 - axum 0.8, tokio, tower-http
 - SQLite via sqlx 0.8 (runtime queries with `.bind()`, not compile-time macros)
 - argon2 for password/API key hashing (Argon2id), SHA-256 for session tokens
 - sysinfo for host CPU/memory monitoring
 - rust-embed to serve web UI from the binary
 - async-trait for trait object interfaces
+- `wardnetd-mock` — local dev binary: full API with no-op backends and in-memory SQLite (run without Pi hardware)
 
 ### SDK (`@wardnet/js`)
 - TypeScript 5.9, zero runtime dependencies
@@ -171,20 +190,25 @@ source/
 ### Layered design with dependency injection
 
 ```
-main.rs  →  builds concrete implementations, injects into AppState
-              │
-API layer     │  Thin HTTP handlers, extract request, call service, return response
-              ↓
-Service layer │  Business logic via traits (AuthService, DeviceService, DeviceDiscoveryService, TunnelService, RoutingService, DhcpService, ProviderService, SystemService)
-              ↓
-Repository    │  Data access via traits (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, SystemConfigRepository, etc.)
-              ↓
-SQLite        │  Parameterized queries only (`.bind()`), never string interpolation
+wardnetd (main.rs)   →  wires real Linux backends, calls init_services(), starts axum server
+                              │
+wardnetd-api          │  AppState + Axum router: thin handlers, extract request, call service
+                              ↓
+wardnetd-services     │  Services struct + init_services(): AuthService, DeviceService, TunnelService,
+                      │  RoutingService, DhcpService, VpnProviderService, SystemService, LogService
+                              ↓
+wardnetd-data         │  RepositoryFactory: AdminRepository, DeviceRepository, TunnelRepository,
+                      │  DhcpRepository, DnsRepository, SystemConfigRepository, etc.
+                              ↓
+SQLite                │  Parameterized queries only (`.bind()`), never string interpolation
+
+wardnet-common        ─  Shared types, config, events — referenced by all crates above
+wardnetd-mock         ─  Dev binary: same wardnetd-api/services/data stack, no-op Linux backends
 ```
 
 - **Traits define ALL boundaries** — every layer depends on trait interfaces, not concrete types. This includes infrastructure: `TunnelInterface`, `KeyStore`, `EventPublisher`, `FirewallManager`, `PolicyRouter`, `CommandExecutor`, `PacketCapture`, `DhcpSocket`, `NordVpnApi` (provider-specific HTTP abstraction)
-- **`main.rs`** uses `wardnetd::` paths (separate binary crate); all other files use `crate::` paths
-- **`AppState`** holds `Arc<dyn Service>` trait objects, no pool exposed to handlers
+- **`wardnetd-services`** exports a `Services` struct and `init_services()` function — the single wiring point for all service implementations
+- **`AppState`** (in `wardnetd-api`) holds `Arc<dyn Service>` trait objects; no pool exposed to handlers
 - **API handlers never touch the database** — they call services, services call repositories
 
 ### Auth model
@@ -202,7 +226,7 @@ Every service method **must** validate the authentication context as its first o
 **Background tasks calling services:** Background processes (e.g. `IdleTunnelWatcher` tearing down idle tunnels, DHCP lease expiry) run outside the HTTP middleware, so no `AuthContext` is set by default. They **must** wrap service calls in `auth_context::with_context()` to establish an admin identity:
 
 ```rust
-use wardnet_types::auth::AuthContext;
+use wardnet_common::auth::AuthContext;
 
 // Background task calling a service method:
 let admin_ctx = AuthContext::Admin { admin_id: Uuid::nil() };
