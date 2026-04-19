@@ -605,6 +605,44 @@ impl DhcpService for DhcpServiceImpl {
             .await
             .map_err(AppError::Internal)?
         {
+            // If a reservation now points this MAC to a different IP, the device
+            // needs to migrate. Expire the current lease so the old IP is freed
+            // and fall through to assign_lease, which will allocate the reserved IP.
+            // This closes the window where the old IP could be handed to a new
+            // device while the original device still holds it.
+            if let Some(reservation) = self
+                .dhcp
+                .find_reservation_by_mac(mac)
+                .await
+                .map_err(AppError::Internal)?
+            {
+                let reserved_ip: Ipv4Addr = reservation.ip_address;
+
+                if reserved_ip != existing.ip_address {
+                    tracing::info!(
+                        mac,
+                        old_ip = %existing.ip_address,
+                        new_ip = %reserved_ip,
+                        "reservation changed: expiring old lease to migrate device to reserved IP"
+                    );
+                    self.dhcp
+                        .update_lease_status(&existing.id.to_string(), "expired")
+                        .await
+                        .map_err(AppError::Internal)?;
+                    self.dhcp
+                        .insert_lease_log(&DhcpLeaseLogRow {
+                            lease_id: existing.id.to_string(),
+                            event_type: "expired".to_owned(),
+                            details: Some(format!(
+                                "superseded by reservation for {reserved_ip}"
+                            )),
+                        })
+                        .await
+                        .map_err(AppError::Internal)?;
+                    return self.assign_lease(mac, None).await;
+                }
+            }
+
             let config = self.load_config().await?;
             let new_end = chrono::Utc::now()
                 + chrono::Duration::seconds(i64::from(config.lease_duration_secs));
