@@ -10,6 +10,9 @@ export type DeviceType =
   | "game_console"
   | "settop_box"
   | "iot"
+  | "router"
+  | "managed_switch"
+  | "server"
   | "unknown";
 
 /** A discovered network device. */

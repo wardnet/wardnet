@@ -13,6 +13,9 @@ pub enum DeviceType {
     GameConsole,
     SettopBox,
     Iot,
+    Router,
+    ManagedSwitch,
+    Server,
     Unknown,
 }
 
