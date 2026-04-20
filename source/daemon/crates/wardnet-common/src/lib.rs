@@ -5,6 +5,7 @@ pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod event;
+pub mod jobs;
 pub mod routing;
 pub mod tunnel;
 pub mod vpn_provider;

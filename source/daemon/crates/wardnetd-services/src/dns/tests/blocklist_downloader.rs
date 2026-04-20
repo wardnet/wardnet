@@ -145,3 +145,173 @@ fn http_blocklist_fetcher_default_creates_client() {
     // The Default impl delegates to new().
     let _fetcher = HttpBlocklistFetcher::default();
 }
+
+#[test]
+fn parse_oisd_wildcard_format() {
+    // OISD small lists use `*.domain.com` meaning "block domain + subdomains".
+    // Our filter's DomainBlock already matches subdomains, so the wildcard
+    // entry normalises to a bare domain.
+    let body = "\
+# Title: oisd small
+*.doubleclick.example
+*.metrics-mock.example.com
+example.com
+";
+    let domains = parse_blocklist_body(body);
+    assert_eq!(domains.len(), 3);
+    assert!(domains.contains(&"doubleclick.example".to_owned()));
+    assert!(domains.contains(&"metrics-mock.example.com".to_owned()));
+    assert!(domains.contains(&"example.com".to_owned()));
+}
+
+// ---------------------------------------------------------------------------
+// refresh_blocklist end-to-end tests
+// ---------------------------------------------------------------------------
+
+mod refresh_blocklist_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use uuid::Uuid;
+    use wardnet_common::dns::Blocklist;
+
+    use crate::dns::blocklist_downloader::{BlocklistFetcher, refresh_blocklist};
+    use crate::dns::tests::dns::{MockDnsRepository, MockEventPublisher};
+
+    /// Fetcher that returns a fixed body.
+    struct OkFetcher(&'static str);
+    #[async_trait]
+    impl BlocklistFetcher for OkFetcher {
+        async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+            Ok(self.0.to_owned())
+        }
+    }
+
+    /// Fetcher that simulates a network failure.
+    struct FailFetcher;
+    #[async_trait]
+    impl BlocklistFetcher for FailFetcher {
+        async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+            anyhow::bail!("network unreachable")
+        }
+    }
+
+    fn make_blocklist() -> Blocklist {
+        let now = Utc::now();
+        Blocklist {
+            id: Uuid::new_v4(),
+            name: "Test".to_owned(),
+            url: "https://example.com/list.txt".to_owned(),
+            enabled: true,
+            entry_count: 0,
+            last_updated: None,
+            cron_schedule: "0 3 * * *".to_owned(),
+            last_error: None,
+            last_error_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn success_path_stores_domains_and_publishes_event() {
+        let dns_repo = Arc::new(MockDnsRepository::new());
+        let events = Arc::new(MockEventPublisher::new());
+        let fetcher = OkFetcher("ads.example.com\ntracker.example.com\n");
+        let bl = make_blocklist();
+
+        let count = refresh_blocklist(&bl, dns_repo.as_ref(), &fetcher, events.as_ref(), None)
+            .await
+            .expect("refresh should succeed");
+
+        assert_eq!(count, 2);
+        // Event publisher should have seen exactly one DnsBlocklistUpdated.
+        let published = events.published_events();
+        assert_eq!(published.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn fetch_failure_propagates_without_publishing() {
+        let dns_repo = Arc::new(MockDnsRepository::new());
+        let events = Arc::new(MockEventPublisher::new());
+        let fetcher = FailFetcher;
+        let bl = make_blocklist();
+
+        let result =
+            refresh_blocklist(&bl, dns_repo.as_ref(), &fetcher, events.as_ref(), None).await;
+
+        assert!(result.is_err(), "fetch failure should surface as Err");
+        // No event published on failure — prevents a filter rebuild that
+        // would otherwise reload from an empty table.
+        assert!(events.published_events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn success_path_reports_progress_when_reporter_supplied() {
+        // Exercises the `Some(reporter)` branches in refresh_blocklist —
+        // same payload as the basic success test but with a real
+        // JobServiceImpl providing the reporter, so the tokio writes to
+        // the shared registry actually run.
+        use crate::jobs::{JobService, JobServiceExt, JobServiceImpl, ProgressReporter};
+        use wardnet_common::jobs::JobKind;
+
+        let svc: Arc<dyn JobService> = JobServiceImpl::new();
+        let dns_repo = Arc::new(MockDnsRepository::new());
+        let events = Arc::new(MockEventPublisher::new());
+        let bl = make_blocklist();
+
+        let dns_clone = dns_repo.clone();
+        let events_clone = events.clone();
+        let bl_clone = bl.clone();
+        let job_id = svc
+            .dispatch(
+                JobKind::BlocklistRefresh,
+                move |reporter: ProgressReporter| async move {
+                    refresh_blocklist(
+                        &bl_clone,
+                        dns_clone.as_ref(),
+                        &OkFetcher("example.com\n"),
+                        events_clone.as_ref(),
+                        Some(&reporter),
+                    )
+                    .await
+                    .map(|_| ())
+                },
+            )
+            .await;
+
+        // Poll until terminal.
+        for _ in 0..100 {
+            if let Some(j) = svc.get(job_id).await
+                && j.status.is_terminal()
+            {
+                assert_eq!(j.status, wardnet_common::jobs::JobStatus::Succeeded);
+                assert_eq!(j.percentage_done, 100);
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("progress-reporter job did not terminate within 1s");
+    }
+
+    #[tokio::test]
+    async fn zero_parsed_domains_is_an_error() {
+        // Body that reqwest might surface from a 302-to-HTML redirect: valid
+        // HTTP response, but nothing the parser accepts as a blocklist entry.
+        let dns_repo = Arc::new(MockDnsRepository::new());
+        let events = Arc::new(MockEventPublisher::new());
+        let fetcher = OkFetcher("<!doctype html><body>not a blocklist</body>");
+        let bl = make_blocklist();
+
+        let result =
+            refresh_blocklist(&bl, dns_repo.as_ref(), &fetcher, events.as_ref(), None).await;
+
+        assert!(
+            result.is_err(),
+            "zero domains parsed should fail rather than wipe existing state"
+        );
+        // No event published → no filter rebuild from a wiped table.
+        assert!(events.published_events().is_empty());
+    }
+}

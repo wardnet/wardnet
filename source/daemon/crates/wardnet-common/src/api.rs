@@ -462,13 +462,10 @@ pub struct DeleteBlocklistResponse {
     pub message: String,
 }
 
-/// Response for POST /api/dns/blocklists/{id}/update.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateBlocklistNowResponse {
-    pub blocklist: Blocklist,
-    pub entry_count: u64,
-    pub message: String,
-}
+// Response for POST /api/dns/blocklists/{id}/update is now
+// `crate::jobs::JobDispatchedResponse` — the handler dispatches a background
+// job instead of doing the fetch inline, and the client polls the job for
+// progress and completion.
 
 // ---------------------------------------------------------------------------
 // DNS Ad Blocking — Allowlist

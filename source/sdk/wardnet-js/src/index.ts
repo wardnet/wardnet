@@ -11,8 +11,13 @@ export { SystemService } from "./services/system.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
+export { JobsService } from "./services/jobs.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
+
+// Types — jobs
+export type { Job, JobKind, JobStatus, JobDispatchedResponse } from "./types/jobs.js";
+export { isTerminal as isJobTerminal } from "./types/jobs.js";
 
 // Types — devices
 export type {
@@ -105,4 +110,23 @@ export type {
   ToggleDnsRequest,
   DnsStatusResponse,
   DnsCacheFlushResponse,
+  Blocklist,
+  AllowlistEntry,
+  CustomFilterRule,
+  ListBlocklistsResponse,
+  CreateBlocklistRequest,
+  CreateBlocklistResponse,
+  UpdateBlocklistRequest,
+  UpdateBlocklistResponse,
+  DeleteBlocklistResponse,
+  ListAllowlistResponse,
+  CreateAllowlistRequest,
+  CreateAllowlistResponse,
+  DeleteAllowlistResponse,
+  ListFilterRulesResponse,
+  CreateFilterRuleRequest,
+  CreateFilterRuleResponse,
+  UpdateFilterRuleRequest,
+  UpdateFilterRuleResponse,
+  DeleteFilterRuleResponse,
 } from "./types/dns.js";

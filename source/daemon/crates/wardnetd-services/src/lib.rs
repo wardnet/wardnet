@@ -2,6 +2,7 @@ pub mod auth_context;
 pub mod command;
 pub mod error;
 pub mod event;
+pub mod jobs;
 pub mod keys;
 pub mod request_context;
 pub mod version;
@@ -32,6 +33,7 @@ use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
 use crate::dns::DnsServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
+use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::system::SystemServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
@@ -41,6 +43,7 @@ pub use crate::auth::AuthService;
 pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult};
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
+pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::routing::RoutingService;
 pub use crate::system::SystemService;
@@ -58,6 +61,7 @@ pub struct Backends {
     pub packet_capture: Arc<dyn device::PacketCapture>,
     pub hostname_resolver: Arc<dyn device::HostnameResolver>,
     pub key_store: Arc<dyn wardnetd_data::keys::KeyStore>,
+    pub blocklist_fetcher: Arc<dyn dns::blocklist_downloader::BlocklistFetcher>,
 }
 
 /// All wired services, ready to use.
@@ -73,6 +77,7 @@ pub struct Services {
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub event_publisher: Arc<dyn EventPublisher>,
+    pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
 }
 
@@ -166,6 +171,7 @@ fn create_services(
     let tunnel_repo = repo_factory.tunnel();
 
     let event_publisher: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(256));
+    let job_service: Arc<dyn JobService> = JobServiceImpl::new();
 
     let auth_service: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(
         admin_repo,
@@ -190,6 +196,8 @@ fn create_services(
         system_config_repo.clone(),
         dns_repo.clone(),
         event_publisher.clone(),
+        job_service.clone(),
+        backends.blocklist_fetcher.clone(),
     ));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
@@ -247,6 +255,7 @@ fn create_services(
         system: system_service,
         tunnel: tunnel_service,
         event_publisher,
+        jobs: job_service,
         dns_repo,
     }
 }

@@ -2,9 +2,9 @@ use crate::api::{
     CreateAllowlistRequest, CreateAllowlistResponse, CreateBlocklistRequest,
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse, DnsConfigResponse,
-    ListAllowlistResponse, ListBlocklistsResponse, ListFilterRulesResponse,
-    UpdateBlocklistNowResponse, UpdateBlocklistRequest, UpdateBlocklistResponse,
-    UpdateDnsConfigRequest, UpdateFilterRuleRequest, UpdateFilterRuleResponse, UpstreamDnsRequest,
+    ListAllowlistResponse, ListBlocklistsResponse, ListFilterRulesResponse, UpdateBlocklistRequest,
+    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
+    UpdateFilterRuleResponse, UpstreamDnsRequest,
 };
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
@@ -484,30 +484,6 @@ fn delete_blocklist_response_round_trip() {
     let json = serde_json::to_string(&resp).unwrap();
     let back: DeleteBlocklistResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(back.message, "Deleted");
-}
-
-#[test]
-fn update_blocklist_now_response_round_trip() {
-    let resp = UpdateBlocklistNowResponse {
-        blocklist: Blocklist {
-            id: Uuid::new_v4(),
-            name: "Test".to_owned(),
-            url: "https://example.com".to_owned(),
-            enabled: true,
-            entry_count: 1234,
-            last_updated: Some(Utc::now()),
-            cron_schedule: "0 3 * * *".to_owned(),
-            last_error: None,
-            last_error_at: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        },
-        entry_count: 1234,
-        message: "Refreshed".to_owned(),
-    };
-    let json = serde_json::to_string(&resp).unwrap();
-    let back: UpdateBlocklistNowResponse = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.entry_count, 1234);
 }
 
 #[test]

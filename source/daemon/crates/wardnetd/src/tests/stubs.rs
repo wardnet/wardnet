@@ -433,7 +433,7 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     async fn update_blocklist_now(
         &self,
         _id: uuid::Uuid,
-    ) -> Result<wardnet_common::api::UpdateBlocklistNowResponse, AppError> {
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
         unimplemented!()
     }
     async fn list_allowlist(&self) -> Result<wardnet_common::api::ListAllowlistResponse, AppError> {
@@ -605,5 +605,6 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        wardnetd_services::jobs::JobServiceImpl::new(),
     )
 }

@@ -123,6 +123,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 
@@ -355,6 +356,7 @@ async fn recent_errors_returns_populated_errors() {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     );
 
     let app = system_app_full(state);
@@ -475,6 +477,7 @@ async fn download_logs_returns_text_when_log_exists() {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     );
 
     let app = system_app_full(state);
@@ -560,6 +563,7 @@ async fn download_logs_formats_non_json_lines_as_is() {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     );
 
     let app = system_app_full(state);
@@ -631,6 +635,7 @@ async fn download_logs_finds_dated_file() {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     );
 
     let app = system_app_full(state);
@@ -702,6 +707,7 @@ async fn download_logs_no_file_returns_500() {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     );
 
     let app = system_app_full(state);

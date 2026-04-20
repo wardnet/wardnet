@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,17 +8,20 @@ use wardnet_common::api::{
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
     DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
-    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistNowResponse,
-    UpdateBlocklistRequest, UpdateBlocklistResponse, UpdateDnsConfigRequest,
-    UpdateFilterRuleRequest, UpdateFilterRuleResponse,
+    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistRequest,
+    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
+    UpdateFilterRuleResponse,
 };
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode, UpstreamDns};
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::jobs::{JobDispatchedResponse, JobKind};
 
 use crate::auth_context;
+use crate::dns::blocklist_downloader::{self, BlocklistFetcher};
 use crate::dns::filter::FilterInputs;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::jobs::{JobService, JobServiceExt};
 use wardnetd_data::repository::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
     SystemConfigRepository,
@@ -68,7 +70,10 @@ pub trait DnsService: Send + Sync {
     async fn delete_blocklist(&self, id: Uuid) -> Result<DeleteBlocklistResponse, AppError>;
 
     /// Trigger a blocklist refresh (placeholder).
-    async fn update_blocklist_now(&self, id: Uuid) -> Result<UpdateBlocklistNowResponse, AppError>;
+    /// Dispatch a background job to refresh the blocklist (fetch + parse +
+    /// bulk-replace domains). Returns immediately with the job id; clients
+    /// poll `GET /api/jobs/:id` for progress and completion.
+    async fn update_blocklist_now(&self, id: Uuid) -> Result<JobDispatchedResponse, AppError>;
 
     // ── Allowlist ───────────────────────────────────────────────────────
 
@@ -121,6 +126,8 @@ pub struct DnsServiceImpl {
     system_config: Arc<dyn SystemConfigRepository>,
     dns_repo: Arc<dyn DnsRepository>,
     events: Arc<dyn EventPublisher>,
+    jobs: Arc<dyn JobService>,
+    blocklist_fetcher: Arc<dyn BlocklistFetcher>,
 }
 
 impl DnsServiceImpl {
@@ -128,11 +135,15 @@ impl DnsServiceImpl {
         system_config: Arc<dyn SystemConfigRepository>,
         dns_repo: Arc<dyn DnsRepository>,
         events: Arc<dyn EventPublisher>,
+        jobs: Arc<dyn JobService>,
+        blocklist_fetcher: Arc<dyn BlocklistFetcher>,
     ) -> Self {
         Self {
             system_config,
             dns_repo,
             events,
+            jobs,
+            blocklist_fetcher,
         }
     }
 
@@ -248,9 +259,10 @@ impl DnsServiceImpl {
         Ok(())
     }
 
-    /// Validate a cron expression.
+    /// Validate a cron expression. Accepts 5-field POSIX (`min hour dom mon
+    /// dow`) as well as the `cron` crate's native 6-field form.
     fn validate_cron(schedule: &str) -> Result<(), AppError> {
-        cron::Schedule::from_str(schedule)
+        crate::dns::cron_parse::parse_schedule(schedule)
             .map_err(|e| AppError::BadRequest(format!("Invalid cron expression: {e}")))?;
         Ok(())
     }
@@ -525,9 +537,10 @@ impl DnsService for DnsServiceImpl {
         })
     }
 
-    async fn update_blocklist_now(&self, id: Uuid) -> Result<UpdateBlocklistNowResponse, AppError> {
+    async fn update_blocklist_now(&self, id: Uuid) -> Result<JobDispatchedResponse, AppError> {
         auth_context::require_admin()?;
 
+        // Verify the blocklist exists before we spawn the background job.
         let blocklist = self
             .dns_repo
             .get_blocklist(id)
@@ -535,13 +548,26 @@ impl DnsService for DnsServiceImpl {
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::NotFound(format!("blocklist {id} not found")))?;
 
-        self.publish_filters_changed();
+        let dns_repo = self.dns_repo.clone();
+        let fetcher = self.blocklist_fetcher.clone();
+        let events = self.events.clone();
 
-        Ok(UpdateBlocklistNowResponse {
-            entry_count: blocklist.entry_count,
-            blocklist,
-            message: "blocklist refresh triggered".to_owned(),
-        })
+        let job_id = self
+            .jobs
+            .dispatch(JobKind::BlocklistRefresh, move |reporter| async move {
+                blocklist_downloader::refresh_blocklist(
+                    &blocklist,
+                    dns_repo.as_ref(),
+                    fetcher.as_ref(),
+                    events.as_ref(),
+                    Some(&reporter),
+                )
+                .await
+                .map(|_count| ())
+            })
+            .await;
+
+        Ok(JobDispatchedResponse { job_id })
     }
 
     // ── Allowlist ───────────────────────────────────────────────────────

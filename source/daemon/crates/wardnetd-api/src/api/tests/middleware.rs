@@ -80,6 +80,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 
@@ -357,6 +358,7 @@ fn make_state_with_device(
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 

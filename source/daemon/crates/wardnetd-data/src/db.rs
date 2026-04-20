@@ -2,6 +2,7 @@ use std::path::Path;
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+use uuid::Uuid;
 
 const MAX_CONNECTIONS: u32 = 5;
 const MEMORY_CONNECTION_STRING: &str = ":memory:";
@@ -10,25 +11,33 @@ const MEMORY_CONNECTION_STRING: &str = ":memory:";
 ///
 /// Accepts either the literal string `":memory:"` (for an ephemeral in-memory
 /// database — primarily used by the mock server and tests) or a file-system
-/// path. For file paths, a WAL-mode on-disk database is created with the
-/// standard multi-connection pool. For `:memory:`, a single-connection pool
-/// is used so that migrations and subsequent queries all hit the same
-/// in-memory database (each fresh `:memory:` connection otherwise sees its
-/// own empty DB), and the journal mode is set to `MEMORY` since WAL is
-/// incompatible with `:memory:`.
-///
-/// Migrations are applied once the pool is ready.
+/// path. `:memory:` is rewritten to a shared in-memory URI so the standard
+/// multi-connection pool sees the same database across connections. File
+/// paths get a WAL-mode on-disk database. Migrations run once the pool is
+/// ready.
 pub async fn init_pool_from_connection_string(conn: &str) -> anyhow::Result<SqlitePool> {
     let pool = if conn == MEMORY_CONNECTION_STRING {
+        // Each call gets a unique shared-memory DB name so one pool's
+        // connections see each other, but different pools (e.g. parallel
+        // tests in the same process) don't collide on schema locks.
+        let uri = format!(
+            "file:wnm_{}?mode=memory&cache=shared",
+            Uuid::new_v4().simple()
+        );
         let connect_options = SqliteConnectOptions::new()
-            .in_memory(true)
+            .filename(&uri)
             .journal_mode(SqliteJournalMode::Memory)
             .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true);
 
         SqlitePoolOptions::new()
-            // A single connection keeps all queries on the same in-memory DB.
-            .max_connections(1)
+            .max_connections(MAX_CONNECTIONS)
+            // Keep at least one connection alive for the process lifetime so
+            // the shared in-memory DB doesn't get dropped when the last
+            // connection is closed.
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
             .connect_with(connect_options)
             .await?
     } else {

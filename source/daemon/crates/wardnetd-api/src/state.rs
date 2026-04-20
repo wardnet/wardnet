@@ -4,8 +4,8 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
-    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService, LogService,
-    RoutingService, SystemService, TunnelService, VpnProviderService,
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService, JobService,
+    LogService, RoutingService, SystemService, TunnelService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -31,6 +31,7 @@ struct Inner {
     dhcp_server: Arc<dyn DhcpServer>,
     dns_server: Arc<dyn DnsServer>,
     event_publisher: Arc<dyn EventPublisher>,
+    job_service: Arc<dyn JobService>,
 }
 
 impl AppState {
@@ -50,6 +51,7 @@ impl AppState {
         dhcp_server: Arc<dyn DhcpServer>,
         dns_server: Arc<dyn DnsServer>,
         event_publisher: Arc<dyn EventPublisher>,
+        job_service: Arc<dyn JobService>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -66,6 +68,7 @@ impl AppState {
                 dhcp_server,
                 dns_server,
                 event_publisher,
+                job_service,
             }),
         }
     }
@@ -140,5 +143,12 @@ impl AppState {
     #[must_use]
     pub fn dns_server(&self) -> &dyn DnsServer {
         self.inner.dns_server.as_ref()
+    }
+
+    /// Access the background-job executor used by handlers that dispatch
+    /// async work and by the `/api/jobs/:id` polling endpoint.
+    #[must_use]
+    pub fn job_service(&self) -> &dyn JobService {
+        self.inner.job_service.as_ref()
     }
 }

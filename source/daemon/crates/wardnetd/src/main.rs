@@ -155,6 +155,7 @@ async fn run(
     // Build real network backends (Linux kernel interfaces).
     let executor = Arc::new(wardnetd::command::ShellCommandExecutor);
     let packet_capture = Arc::new(PnetCapture);
+    let blocklist_fetcher: Arc<dyn BlocklistFetcher> = Arc::new(HttpBlocklistFetcher::new());
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
         policy_router: Arc::new(
@@ -165,6 +166,7 @@ async fn run(
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
         key_store: Arc::new(FileKeyStore::new(config.tunnel.keys_dir.clone())),
+        blocklist_fetcher: blocklist_fetcher.clone(),
     };
 
     // Wire services (initialises repo factory, bootstraps admin, creates all services).
@@ -293,9 +295,10 @@ async fn run(
         &root_span,
     );
 
-    // Build and start DNS server and runner.
+    // Build and start DNS server and runner. The blocklist fetcher was
+    // constructed earlier as a backend; the runner reuses the same instance
+    // for its periodic cron-driven downloads.
     let dns_filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()));
-    let blocklist_fetcher: Arc<dyn BlocklistFetcher> = Arc::new(HttpBlocklistFetcher::new());
     let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> =
         Arc::new(wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
@@ -326,6 +329,7 @@ async fn run(
         dhcp_server,
         dns_server,
         services.event_publisher.clone(),
+        services.jobs.clone(),
     );
 
     let app = wardnetd_api::api::router(state);

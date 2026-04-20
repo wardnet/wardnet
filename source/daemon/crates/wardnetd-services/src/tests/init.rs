@@ -173,6 +173,15 @@ fn stub_backends() -> Backends {
         packet_capture: Arc::new(StubPacketCapture),
         hostname_resolver: Arc::new(StubHostnameResolver),
         key_store: Arc::new(StubKeyStore),
+        blocklist_fetcher: Arc::new(StubBlocklistFetcher),
+    }
+}
+
+struct StubBlocklistFetcher;
+#[async_trait::async_trait]
+impl crate::dns::blocklist_downloader::BlocklistFetcher for StubBlocklistFetcher {
+    async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+        unimplemented!("init tests never dispatch a blocklist refresh")
     }
 }
 

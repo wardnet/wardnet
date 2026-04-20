@@ -3,6 +3,7 @@ mod devices;
 mod dhcp;
 mod dns;
 mod info;
+mod jobs;
 mod middleware;
 mod providers;
 mod request_context;
