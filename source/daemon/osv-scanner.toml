@@ -1,0 +1,33 @@
+# osv-scanner config for the Rust workspace.
+#
+# Read by `osv-scanner` directly AND by OpenSSF Scorecard's Vulnerabilities
+# check (which shells out to osv-scanner internally). Keep the reasoning
+# here in sync with `.cargo/audit.toml`.
+#
+# Format: https://google.github.io/osv-scanner/configuration/
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+reason = """
+rsa timing sidechannel (Marvin Attack). Transitive via sqlx-mysql, which
+we don't link — sqlx is compiled with SQLite only. No upstream fix.
+"""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+reason = """
+paste crate unmaintained. Compile-time proc-macro pulled in via
+netlink-packet-core (used by rtnetlink for kernel policy routing). Not
+a CVE — the author stopped publishing updates. Zero runtime footprint.
+Re-evaluate if the netlink-rs ecosystem migrates away from paste.
+"""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0097"
+reason = """
+Rand is unsound with a custom logger using `rand::rng()`. Transitive
+via sqlx-postgres and a few others. Fixed in rand 0.9.3, but our
+transitives still pin the older 0.8 / 0.9.2 lines. We don't install a
+custom logger that touches rand internals, so the unsoundness is
+unreachable in our usage. Re-evaluate when sqlx bumps rand.
+"""

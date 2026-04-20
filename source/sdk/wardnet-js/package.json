@@ -20,8 +20,8 @@
     "format:check": "prettier --check src/"
   },
   "devDependencies": {
-    "prettier": "^3.8.1",
-    "typescript": "~5.9.3"
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
   },
   "packageManager": "yarn@4.13.0"
 }
