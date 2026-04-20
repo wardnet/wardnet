@@ -10,7 +10,7 @@ describe("HowItWorks", () => {
 
   it("renders all three steps", () => {
     render(<HowItWorks />);
-    expect(screen.getByText("Install on your Pi")).toBeInTheDocument();
+    expect(screen.getByText("Install on your gateway")).toBeInTheDocument();
     expect(screen.getByText("Connect your devices")).toBeInTheDocument();
     expect(screen.getByText("Control from the dashboard")).toBeInTheDocument();
   });

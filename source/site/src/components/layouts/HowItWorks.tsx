@@ -3,8 +3,9 @@ import { StepCard } from "@/components/compound/StepCard";
 const STEPS = [
   {
     step: 1,
-    title: "Install on your Pi",
-    description: "Flash your Raspberry Pi, run the install script, and Wardnet is ready.",
+    title: "Install on your gateway",
+    description:
+      "Run the install script on a Raspberry Pi, a mini-PC, or any Linux host with a spare NIC.",
   },
   {
     step: 2,

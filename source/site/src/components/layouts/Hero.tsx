@@ -17,8 +17,9 @@ export function Hero({ onExplore }: HeroProps) {
       <h1 className="mb-3 text-5xl font-bold tracking-tight text-white sm:text-6xl">Wardnet</h1>
       <p className="mb-2 text-xl text-gray-300 sm:text-2xl">Your network. Your rules.</p>
       <p className="mb-6 max-w-xl text-base leading-relaxed text-gray-400">
-        A self-hosted privacy gateway for Raspberry Pi. Per-device VPN routing, DNS ad blocking, and
-        a web dashboard — all in a single binary.
+        A self-hosted privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or
+        any Linux host. Per-device VPN routing, DNS ad blocking, and a web dashboard, all in a
+        single binary.
       </p>
       <LatestReleaseBadge variant="dark" className="mb-8" />
       <div className="flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row sm:justify-center">

@@ -221,7 +221,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
+      # `contents: write` — create the Release.
+      # `actions: write` — dispatch the deploy-site workflow at the end.
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -261,3 +264,12 @@ jobs:
             release-artefacts/*.tar.gz \
             release-artefacts/*.tar.gz.sha256 \
             release-artefacts/*.tar.gz.minisig
+
+      - name: Dispatch deploy-site so the marketing site picks up the new release
+        # `release: [published]` on deploy-site.yml does NOT fire when the
+        # release is created by GITHUB_TOKEN (GitHub blocks cascading events
+        # from the default token). An explicit `workflow_dispatch` IS allowed
+        # from GITHUB_TOKEN, so we kick off the site build ourselves here.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy-site.yml --ref main
