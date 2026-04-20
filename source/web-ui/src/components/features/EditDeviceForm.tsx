@@ -25,6 +25,9 @@ const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
   { value: "game_console", label: "Console" },
   { value: "settop_box", label: "Set-top Box" },
   { value: "iot", label: "IoT" },
+  { value: "router", label: "Router" },
+  { value: "managed_switch", label: "Managed Switch" },
+  { value: "server", label: "Server" },
   { value: "unknown", label: "Unknown" },
 ];
 
