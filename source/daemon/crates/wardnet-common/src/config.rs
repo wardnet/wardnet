@@ -21,6 +21,7 @@ pub struct ApplicationConfiguration {
     pub otel: OtelConfig,
     pub vpn_providers: VpnProvidersConfig,
     pub pyroscope: PyroscopeConfig,
+    pub update: UpdateConfig,
 }
 
 impl ApplicationConfiguration {
@@ -367,6 +368,50 @@ impl Default for EnabledMetrics {
             wardnet_tunnel_active_count: true,
             wardnet_uptime_seconds: true,
             wardnet_db_size_bytes: true,
+        }
+    }
+}
+
+/// Auto-update subsystem configuration.
+///
+/// Runtime behaviour (auto-update on/off, channel) lives in `system_config`
+/// so admins can toggle it from the UI without editing the TOML. The values
+/// here are the deploy-time knobs: where to fetch releases from, how often
+/// to check, and the binary layout paths.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// HTTPS base URL for the release manifest server.
+    ///
+    /// The runner fetches `<manifest_base_url>/<channel>.json`. The default
+    /// points at `wardnet.network`, which is the authenticity anchor: TLS
+    /// protects the fetch, the embedded signing key protects the payload.
+    pub manifest_base_url: String,
+    /// Background check interval in seconds. Jittered by ±10% at runtime.
+    pub check_interval_secs: u64,
+    /// Absolute path to the currently-executing binary. Auto-detected from
+    /// `/proc/self/exe` on startup when left at the default sentinel.
+    pub live_binary_path: PathBuf,
+    /// Directory used to stage downloads and extracted binaries. Must be
+    /// writable by the daemon user and on the same filesystem as the live
+    /// binary for atomic rename.
+    pub staging_dir: PathBuf,
+    /// Require a valid minisign signature before swapping the binary.
+    /// Production builds must set this to `true`.
+    pub require_signature: bool,
+    /// HTTP request timeout for manifest/asset fetches, in seconds.
+    pub http_timeout_secs: u64,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            manifest_base_url: "https://releases.wardnet.network".to_owned(),
+            check_interval_secs: 6 * 60 * 60,
+            live_binary_path: PathBuf::from("/usr/local/bin/wardnetd"),
+            staging_dir: PathBuf::from("/var/lib/wardnet/updates"),
+            require_signature: true,
+            http_timeout_secs: 60,
         }
     }
 }

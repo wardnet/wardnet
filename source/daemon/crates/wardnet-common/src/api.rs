@@ -7,6 +7,7 @@ use crate::dns::{
 };
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
+use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
@@ -546,4 +547,65 @@ pub struct UpdateFilterRuleResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeleteFilterRuleResponse {
     pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// Update API types
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/update/status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateStatusResponse {
+    pub status: UpdateStatus,
+}
+
+/// Response for POST /api/update/check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckResponse {
+    pub status: UpdateStatus,
+}
+
+/// Request body for POST /api/update/install.
+///
+/// If `version` is omitted, installs the latest known version for the current
+/// channel. The operation is idempotent — calling twice while one is in
+/// flight returns the same handle.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InstallUpdateRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// Response for POST /api/update/install.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstallUpdateResponse {
+    pub handle: InstallHandle,
+    pub message: String,
+}
+
+/// Response for POST /api/update/rollback.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackResponse {
+    pub message: String,
+}
+
+/// Request body for PUT /api/update/config.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_update_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<UpdateChannel>,
+}
+
+/// Response for PUT /api/update/config.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfigResponse {
+    pub status: UpdateStatus,
+}
+
+/// Response for GET /api/update/history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateHistoryResponse {
+    pub entries: Vec<UpdateHistoryEntry>,
 }

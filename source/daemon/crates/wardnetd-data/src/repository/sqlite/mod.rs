@@ -11,6 +11,7 @@ pub mod dns;
 pub mod session;
 pub mod system_config;
 pub mod tunnel;
+pub mod update;
 
 pub use admin::SqliteAdminRepository;
 pub use api_key::SqliteApiKeyRepository;
@@ -20,3 +21,4 @@ pub use dns::SqliteDnsRepository;
 pub use session::SqliteSessionRepository;
 pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;
+pub use update::SqliteUpdateRepository;

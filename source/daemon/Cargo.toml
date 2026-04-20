@@ -112,6 +112,14 @@ dhcproto = "0.14"
 
 # https://crates.io/crates/regex
 regex = "1"
+# https://crates.io/crates/semver — SemVer parsing and ordering for auto-update version comparison
+semver = { version = "1", features = ["serde"] }
+# https://crates.io/crates/flate2 — gzip decompression for release tarballs
+flate2 = "1"
+# https://crates.io/crates/tar — tarball extraction for release artefacts
+tar = "0.4"
+# https://crates.io/crates/minisign-verify — verify minisign signatures on release artefacts
+minisign-verify = "0.2"
 # https://crates.io/crates/futures
 futures = "0.3"
 # https://crates.io/crates/cron

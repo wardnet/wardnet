@@ -8,6 +8,7 @@ pub mod event;
 pub mod jobs;
 pub mod routing;
 pub mod tunnel;
+pub mod update;
 pub mod vpn_provider;
 pub mod wireguard_config;
 

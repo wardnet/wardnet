@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::routing::{RoutingTarget, RuleCreator};
 use crate::tunnel::TunnelStatus;
+use crate::update::InstallPhase;
 
 /// Domain events emitted by the Wardnet daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +104,27 @@ pub enum WardnetEvent {
     /// Filter inputs (blocklists, allowlist, custom rules) changed via CRUD or
     /// blocklist refresh — runner should rebuild the in-memory `DnsFilter`.
     DnsFiltersChanged {
+        timestamp: DateTime<Utc>,
+    },
+    UpdateAvailable {
+        current_version: String,
+        latest_version: String,
+        timestamp: DateTime<Utc>,
+    },
+    UpdateProgress {
+        target_version: String,
+        phase: InstallPhase,
+        timestamp: DateTime<Utc>,
+    },
+    UpdateCompleted {
+        from_version: String,
+        to_version: String,
+        timestamp: DateTime<Utc>,
+    },
+    UpdateFailed {
+        target_version: String,
+        phase: InstallPhase,
+        error: String,
         timestamp: DateTime<Utc>,
     },
 }

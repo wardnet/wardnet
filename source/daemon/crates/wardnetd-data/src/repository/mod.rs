@@ -7,6 +7,7 @@ pub mod session;
 pub mod sqlite;
 pub mod system_config;
 pub mod tunnel;
+pub mod update;
 
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
@@ -20,10 +21,11 @@ pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
     SqliteDnsRepository, SqliteSessionRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository,
+    SqliteTunnelRepository, SqliteUpdateRepository,
 };
 pub use system_config::SystemConfigRepository;
 pub use tunnel::{TunnelRepository, TunnelRow};
+pub use update::{UpdateHistoryRow, UpdateRepository};
 
 #[cfg(test)]
 mod tests;
