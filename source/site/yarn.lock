@@ -955,7 +955,7 @@ __metadata:
     prettier: "npm:^3.8.3"
     react: "npm:^19.2.5"
     react-dom: "npm:^19.2.5"
-    react-router: "npm:^7.13.1"
+    react-router: "npm:^7.14.1"
     tailwindcss: "npm:^4.2.2"
     typescript: "npm:~6.0.3"
     vite: "npm:^8.0.9"
@@ -1971,9 +1971,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-router@npm:^7.13.1":
-  version: 7.13.1
-  resolution: "react-router@npm:7.13.1"
+"react-router@npm:^7.14.1":
+  version: 7.14.1
+  resolution: "react-router@npm:7.14.1"
   dependencies:
     cookie: "npm:^1.0.1"
     set-cookie-parser: "npm:^2.6.0"
@@ -1983,7 +1983,7 @@ __metadata:
   peerDependenciesMeta:
     react-dom:
       optional: true
-  checksum: 10c0/a64c645cede74251f21483fbfad740b36dc5133522d6f53f12317a873a22865fce659d4c2377d5e19c912f85c7b12b88224a2c70d8f70c082496b569cc4abc31
+  checksum: 10c0/57b86accdc50b917509e4b21f821dd432807e3f62b5e978d0d5174fc7da3798ce57ce896cbf70a8ba8f6f3d53515a07021e759829908239b4eee34c804695120
   languageName: node
   linkType: hard
 
