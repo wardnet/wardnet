@@ -1097,6 +1097,72 @@ async fn update_blocklist_now_not_found() {
 }
 
 #[tokio::test]
+async fn update_blocklist_now_dispatch_runs_fetch_and_store() {
+    // End-to-end coverage: dispatch a real job that actually fetches (via a
+    // canned fetcher), parses, and writes through to the repo. Polls the
+    // JobService until terminal so we exercise every branch of the success
+    // path, not just the handler's Ok return.
+    struct OkFetcher;
+    #[async_trait]
+    impl BlocklistFetcher for OkFetcher {
+        async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+            Ok("ads.example.com\ntracker.example.com\n".to_owned())
+        }
+    }
+
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
+    let fetcher: Arc<dyn BlocklistFetcher> = Arc::new(OkFetcher);
+    let svc = DnsServiceImpl::new(
+        system_config,
+        dns_repo.clone(),
+        events.clone(),
+        jobs.clone(),
+        fetcher,
+    );
+
+    let created = auth_context::with_context(
+        admin_ctx(),
+        svc.create_blocklist(CreateBlocklistRequest {
+            name: "OK blocklist".to_owned(),
+            url: "https://example.com/list.txt".to_owned(),
+            cron_schedule: "0 0 3 * * *".to_owned(),
+            enabled: true,
+        }),
+    )
+    .await
+    .unwrap();
+
+    let resp =
+        auth_context::with_context(admin_ctx(), svc.update_blocklist_now(created.blocklist.id))
+            .await
+            .unwrap();
+    assert!(!resp.job_id.is_nil());
+
+    // Poll until terminal — the in-memory JobService runs the closure on the
+    // tokio runtime. 1s budget is generous for a no-op fetch + MockDnsRepo.
+    let mut job = None;
+    for _ in 0..100 {
+        if let Some(j) = jobs.get(resp.job_id).await
+            && j.status.is_terminal()
+        {
+            job = Some(j);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let job = job.expect("dispatched job should terminate within 1s");
+    assert_eq!(
+        job.status,
+        wardnet_common::jobs::JobStatus::Succeeded,
+        "real fetch+parse+replace path should succeed"
+    );
+    assert_eq!(job.percentage_done, 100);
+}
+
+#[tokio::test]
 async fn delete_allowlist_not_found() {
     let fs = build_full_service();
     let result =

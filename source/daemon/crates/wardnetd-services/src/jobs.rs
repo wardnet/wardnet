@@ -85,11 +85,11 @@ impl ProgressReporter {
     /// Update the job's completion percentage (clamped to `0..=100`).
     pub async fn set_progress(&self, percentage: u8) {
         let pct = percentage.min(100);
-        if let Some(job) = self.registry.write().await.get_mut(&self.job_id) {
-            if job.percentage_done != pct {
-                job.percentage_done = pct;
-                job.updated_at = Utc::now();
-            }
+        if let Some(job) = self.registry.write().await.get_mut(&self.job_id)
+            && job.percentage_done != pct
+        {
+            job.percentage_done = pct;
+            job.updated_at = Utc::now();
         }
     }
 }
@@ -101,6 +101,7 @@ pub struct JobServiceImpl {
 
 impl JobServiceImpl {
     /// Construct a new service and spawn its GC task.
+    #[must_use]
     pub fn new() -> Arc<Self> {
         let svc = Arc::new(Self {
             registry: Arc::new(RwLock::new(HashMap::new())),

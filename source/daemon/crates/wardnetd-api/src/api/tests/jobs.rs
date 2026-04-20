@@ -17,11 +17,11 @@ use crate::tests::stubs::{
     StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
     StubSystemService, StubTunnelService,
 };
+use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
 use wardnetd_services::jobs::{BoxedJobTask, JobService};
-use wardnetd_services::{AuthService, DnsService as _};
 
 struct AlwaysAdminAuth;
 #[async_trait]

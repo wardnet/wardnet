@@ -248,6 +248,54 @@ mod refresh_blocklist_tests {
     }
 
     #[tokio::test]
+    async fn success_path_reports_progress_when_reporter_supplied() {
+        // Exercises the `Some(reporter)` branches in refresh_blocklist —
+        // same payload as the basic success test but with a real
+        // JobServiceImpl providing the reporter, so the tokio writes to
+        // the shared registry actually run.
+        use crate::jobs::{JobService, JobServiceExt, JobServiceImpl, ProgressReporter};
+        use wardnet_common::jobs::JobKind;
+
+        let svc: Arc<dyn JobService> = JobServiceImpl::new();
+        let dns_repo = Arc::new(MockDnsRepository::new());
+        let events = Arc::new(MockEventPublisher::new());
+        let bl = make_blocklist();
+
+        let dns_clone = dns_repo.clone();
+        let events_clone = events.clone();
+        let bl_clone = bl.clone();
+        let job_id = svc
+            .dispatch(
+                JobKind::BlocklistRefresh,
+                move |reporter: ProgressReporter| async move {
+                    refresh_blocklist(
+                        &bl_clone,
+                        dns_clone.as_ref(),
+                        &OkFetcher("example.com\n"),
+                        events_clone.as_ref(),
+                        Some(&reporter),
+                    )
+                    .await
+                    .map(|_| ())
+                },
+            )
+            .await;
+
+        // Poll until terminal.
+        for _ in 0..100 {
+            if let Some(j) = svc.get(job_id).await
+                && j.status.is_terminal()
+            {
+                assert_eq!(j.status, wardnet_common::jobs::JobStatus::Succeeded);
+                assert_eq!(j.percentage_done, 100);
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("progress-reporter job did not terminate within 1s");
+    }
+
+    #[tokio::test]
     async fn zero_parsed_domains_is_an_error() {
         // Body that reqwest might surface from a 302-to-HTML redirect: valid
         // HTTP response, but nothing the parser accepts as a blocklist entry.

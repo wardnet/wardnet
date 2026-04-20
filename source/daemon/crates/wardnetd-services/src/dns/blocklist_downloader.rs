@@ -115,7 +115,7 @@ pub async fn refresh_blocklist(
         let msg = format!("failed to store domains: {e}");
         tracing::error!(blocklist_id = %blocklist.id, error = %e, "failed to store blocklist domains");
         let _ = dns_repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
-        return Err(e.into());
+        return Err(e);
     }
 
     if let Err(e) = dns_repo.set_blocklist_error(blocklist.id, None).await {

@@ -33,6 +33,7 @@ impl JobStatus {
     /// A job in a terminal state stays in the registry for the GC TTL and
     /// then disappears. Pollers should stop once they observe a terminal
     /// status.
+    #[must_use]
     pub fn is_terminal(self) -> bool {
         matches!(self, JobStatus::Succeeded | JobStatus::Failed)
     }

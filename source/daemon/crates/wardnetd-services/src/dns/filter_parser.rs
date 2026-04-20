@@ -133,6 +133,7 @@ impl RuleModifiers {
 ///
 /// Returns [`ParseError`] when the line cannot be classified as one of the
 /// supported rule formats or contains malformed modifiers.
+#[allow(clippy::too_many_lines)] // Linear classifier — splitting hurts readability.
 pub fn parse_line(raw: &str) -> Result<Option<ParsedRule>, ParseError> {
     let line = raw.trim();
 
@@ -209,19 +210,18 @@ pub fn parse_line(raw: &str) -> Result<Option<ParsedRule>, ParseError> {
     // `DomainBlock` already matches the domain itself and all subdomains.
     // Only recognised when the remainder is a plain domain — any extra
     // wildcards force the line down the regex/pattern path instead.
-    if let Some(stripped) = body.strip_prefix("*.") {
-        if !stripped.contains('*')
-            && !stripped.contains('/')
-            && stripped.contains('.')
-            && is_valid_domain(stripped)
-        {
-            let normalized = normalize_domain(stripped)?;
-            return Ok(Some(ParsedRule::DomainBlock {
-                domain: normalized,
-                modifiers: RuleModifiers::default(),
-                allow,
-            }));
-        }
+    if let Some(stripped) = body.strip_prefix("*.")
+        && !stripped.contains('*')
+        && !stripped.contains('/')
+        && stripped.contains('.')
+        && is_valid_domain(stripped)
+    {
+        let normalized = normalize_domain(stripped)?;
+        return Ok(Some(ParsedRule::DomainBlock {
+            domain: normalized,
+            modifiers: RuleModifiers::default(),
+            allow,
+        }));
     }
 
     // Hosts-file: <ip> <domain> [aliases...]
