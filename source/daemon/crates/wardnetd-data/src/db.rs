@@ -20,7 +20,10 @@ pub async fn init_pool_from_connection_string(conn: &str) -> anyhow::Result<Sqli
         // Each call gets a unique shared-memory DB name so one pool's
         // connections see each other, but different pools (e.g. parallel
         // tests in the same process) don't collide on schema locks.
-        let uri = format!("file:wnm_{}?mode=memory&cache=shared", Uuid::new_v4().simple());
+        let uri = format!(
+            "file:wnm_{}?mode=memory&cache=shared",
+            Uuid::new_v4().simple()
+        );
         let connect_options = SqliteConnectOptions::new()
             .filename(&uri)
             .journal_mode(SqliteJournalMode::Memory)

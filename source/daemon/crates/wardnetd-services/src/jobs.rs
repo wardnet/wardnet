@@ -31,8 +31,7 @@ const JOB_GC_INTERVAL: Duration = Duration::from_secs(60);
 /// resolving to the job result. Callers should prefer [`JobServiceExt::dispatch`]
 /// which boxes this automatically.
 pub type BoxedJobTask = Box<
-    dyn FnOnce(ProgressReporter) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>
-        + Send,
+    dyn FnOnce(ProgressReporter) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> + Send,
 >;
 
 /// Registry handle. Using a type alias keeps the long generic out of public

@@ -2,9 +2,9 @@ use crate::api::{
     CreateAllowlistRequest, CreateAllowlistResponse, CreateBlocklistRequest,
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse, DnsConfigResponse,
-    ListAllowlistResponse, ListBlocklistsResponse, ListFilterRulesResponse,
-    UpdateBlocklistRequest, UpdateBlocklistResponse,
-    UpdateDnsConfigRequest, UpdateFilterRuleRequest, UpdateFilterRuleResponse, UpstreamDnsRequest,
+    ListAllowlistResponse, ListBlocklistsResponse, ListFilterRulesResponse, UpdateBlocklistRequest,
+    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
+    UpdateFilterRuleResponse, UpstreamDnsRequest,
 };
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,

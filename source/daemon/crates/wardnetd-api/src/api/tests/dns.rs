@@ -24,8 +24,8 @@ use wardnet_common::api::{
     UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
     UpdateFilterRuleResponse,
 };
-use wardnet_common::jobs::JobDispatchedResponse;
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode};
+use wardnet_common::jobs::JobDispatchedResponse;
 
 use crate::state::AppState;
 use crate::tests::stubs::{

@@ -74,7 +74,7 @@ impl SystemConfigRepository for MockSystemConfigRepository {
 
 // -- Mock DnsRepository -------------------------------------------------------
 
-struct MockDnsRepository {
+pub(super) struct MockDnsRepository {
     blocklists: Mutex<Vec<Blocklist>>,
     allowlist: Mutex<Vec<AllowlistEntry>>,
     custom_rules: Mutex<Vec<CustomFilterRule>>,
@@ -82,7 +82,7 @@ struct MockDnsRepository {
 }
 
 impl MockDnsRepository {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             blocklists: Mutex::new(Vec::new()),
             allowlist: Mutex::new(Vec::new()),
@@ -268,13 +268,13 @@ impl DnsRepository for MockDnsRepository {
 
 // -- Mock EventPublisher ------------------------------------------------------
 
-struct MockEventPublisher {
+pub(super) struct MockEventPublisher {
     events: Mutex<Vec<WardnetEvent>>,
     tx: broadcast::Sender<WardnetEvent>,
 }
 
 impl MockEventPublisher {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (tx, _) = broadcast::channel(16);
         Self {
             events: Mutex::new(Vec::new()),
@@ -282,7 +282,7 @@ impl MockEventPublisher {
         }
     }
 
-    fn published_events(&self) -> Vec<WardnetEvent> {
+    pub(super) fn published_events(&self) -> Vec<WardnetEvent> {
         self.events.lock().unwrap().clone()
     }
 }
