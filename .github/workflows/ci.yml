@@ -8,6 +8,7 @@ on:
       - "Makefile"
       - "VERSION"
       - ".github/workflows/ci.yml"
+      - ".github/actions/**"
   pull_request:
     branches: [main]
     paths:
@@ -15,6 +16,7 @@ on:
       - "Makefile"
       - "VERSION"
       - ".github/workflows/ci.yml"
+      - ".github/actions/**"
 
 permissions: read-all
 
@@ -38,13 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: ./.github/actions/setup-node-yarn
         with:
-          node-version: "25"
-          cache: yarn
           cache-dependency-path: source/web-ui/yarn.lock
 
       - name: Check
@@ -75,13 +72,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: ./.github/actions/setup-node-yarn
         with:
-          node-version: "25"
-          cache: yarn
           cache-dependency-path: source/web-ui/yarn.lock
 
       - name: Build
@@ -105,15 +97,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.94"
           components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: source/daemon
 
       - name: Install clippy SARIF tooling
         uses: taiki-e/install-action@v2
@@ -225,15 +211,9 @@ jobs:
           name: web-ui-dist
           path: source/web-ui/dist/
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.94"
           targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: source/daemon
 
       - name: Install cross-compilation toolchain
         if: matrix.cross

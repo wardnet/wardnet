@@ -1,0 +1,28 @@
+name: Setup Node and Yarn
+description: >
+  Enables Corepack, installs a pinned Node.js, and configures Yarn 4 caching
+  against a caller-provided yarn.lock path. One-step replacement for the
+  "Enable Corepack + actions/setup-node with yarn cache" pattern used across
+  the web UI and site builds.
+
+inputs:
+  cache-dependency-path:
+    description: Path to the yarn.lock used as the cache key (e.g. source/web-ui/yarn.lock).
+    required: true
+  node-version:
+    description: Node.js major version to install.
+    required: false
+    default: "25"
+
+runs:
+  using: composite
+  steps:
+    - name: Enable Corepack
+      shell: bash
+      run: corepack enable
+
+    - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: yarn
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}

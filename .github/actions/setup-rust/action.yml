@@ -1,0 +1,40 @@
+name: Setup Rust
+description: >
+  Installs the pinned Rust toolchain and enables the Swatinem build cache
+  against the daemon workspace. Used by every job that compiles Rust
+  (check-daemon, build-daemon, coverage, release).
+
+inputs:
+  toolchain:
+    description: Rust toolchain version (must match `rust-toolchain.toml`).
+    required: false
+    default: "1.94"
+  targets:
+    description: Comma- or space-separated list of additional Rust targets to install.
+    required: false
+    default: ""
+  components:
+    description: Comma-separated list of toolchain components (e.g. "clippy, rustfmt").
+    required: false
+    default: ""
+  cache-key:
+    description: >
+      Optional suffix appended to the cache key. Use to isolate caches between
+      workflows that build different crates/profiles (e.g. "release-aarch64").
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        workspaces: source/daemon
+        key: ${{ inputs.cache-key }}
