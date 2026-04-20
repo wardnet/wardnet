@@ -322,6 +322,7 @@ fn build_state_with_dhcp(
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 

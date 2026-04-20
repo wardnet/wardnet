@@ -15,9 +15,11 @@ use wardnet_common::dns::{
 use wardnet_common::event::WardnetEvent;
 
 use crate::auth_context;
+use crate::dns::blocklist_downloader::BlocklistFetcher;
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use crate::{DnsService, DnsServiceImpl};
+use crate::jobs::JobServiceImpl;
+use crate::{DnsService, DnsServiceImpl, JobService};
 use wardnetd_data::repository::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
     QueryLogFilter, QueryLogRow, SystemConfigRepository,
@@ -72,7 +74,7 @@ impl SystemConfigRepository for MockSystemConfigRepository {
 
 // -- Mock DnsRepository -------------------------------------------------------
 
-struct MockDnsRepository {
+pub(super) struct MockDnsRepository {
     blocklists: Mutex<Vec<Blocklist>>,
     allowlist: Mutex<Vec<AllowlistEntry>>,
     custom_rules: Mutex<Vec<CustomFilterRule>>,
@@ -80,7 +82,7 @@ struct MockDnsRepository {
 }
 
 impl MockDnsRepository {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             blocklists: Mutex::new(Vec::new()),
             allowlist: Mutex::new(Vec::new()),
@@ -266,13 +268,13 @@ impl DnsRepository for MockDnsRepository {
 
 // -- Mock EventPublisher ------------------------------------------------------
 
-struct MockEventPublisher {
+pub(super) struct MockEventPublisher {
     events: Mutex<Vec<WardnetEvent>>,
     tx: broadcast::Sender<WardnetEvent>,
 }
 
 impl MockEventPublisher {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (tx, _) = broadcast::channel(16);
         Self {
             events: Mutex::new(Vec::new()),
@@ -280,7 +282,7 @@ impl MockEventPublisher {
         }
     }
 
-    fn published_events(&self) -> Vec<WardnetEvent> {
+    pub(super) fn published_events(&self) -> Vec<WardnetEvent> {
         self.events.lock().unwrap().clone()
     }
 }
@@ -304,25 +306,41 @@ fn admin_ctx() -> AuthContext {
     }
 }
 
+struct StubBlocklistFetcher;
+#[async_trait]
+impl BlocklistFetcher for StubBlocklistFetcher {
+    async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+        unimplemented!("tests never dispatch a manual blocklist refresh")
+    }
+}
+
+fn stub_jobs() -> Arc<dyn JobService> {
+    JobServiceImpl::new()
+}
+
+fn stub_fetcher() -> Arc<dyn BlocklistFetcher> {
+    Arc::new(StubBlocklistFetcher)
+}
+
 fn build_service() -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::new());
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    DnsServiceImpl::new(system_config, dns_repo, events)
+    DnsServiceImpl::new(system_config, dns_repo, events, stub_jobs(), stub_fetcher())
 }
 
 fn build_service_with_config(data: HashMap<String, String>) -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::with_data(data));
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    DnsServiceImpl::new(system_config, dns_repo, events)
+    DnsServiceImpl::new(system_config, dns_repo, events, stub_jobs(), stub_fetcher())
 }
 
 fn build_service_with_repo() -> (DnsServiceImpl, Arc<MockSystemConfigRepository>) {
     let repo = Arc::new(MockSystemConfigRepository::new());
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    let svc = DnsServiceImpl::new(repo.clone(), dns_repo, events);
+    let svc = DnsServiceImpl::new(repo.clone(), dns_repo, events, stub_jobs(), stub_fetcher());
     (svc, repo)
 }
 
@@ -336,7 +354,13 @@ fn build_full_service() -> FullService {
     let system_config = Arc::new(MockSystemConfigRepository::new());
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    let svc = DnsServiceImpl::new(system_config, dns_repo.clone(), events.clone());
+    let svc = DnsServiceImpl::new(
+        system_config,
+        dns_repo.clone(),
+        events.clone(),
+        stub_jobs(),
+        stub_fetcher(),
+    );
     FullService {
         svc,
         dns_repo,
@@ -1058,8 +1082,10 @@ async fn update_blocklist_now_success() {
         .await
         .unwrap();
 
-    assert_eq!(resp.message, "blocklist refresh triggered");
-    assert_eq!(resp.blocklist.id, id);
+    // The endpoint dispatches a background job and returns its id. The stub
+    // fetcher panics if invoked, which is fine — the job spawns on the
+    // tokio runtime and we only assert the dispatch path.
+    assert!(!resp.job_id.is_nil());
 }
 
 #[tokio::test]
@@ -1068,6 +1094,72 @@ async fn update_blocklist_now_not_found() {
     let result =
         auth_context::with_context(admin_ctx(), fs.svc.update_blocklist_now(Uuid::new_v4())).await;
     assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn update_blocklist_now_dispatch_runs_fetch_and_store() {
+    // End-to-end coverage: dispatch a real job that actually fetches (via a
+    // canned fetcher), parses, and writes through to the repo. Polls the
+    // JobService until terminal so we exercise every branch of the success
+    // path, not just the handler's Ok return.
+    struct OkFetcher;
+    #[async_trait]
+    impl BlocklistFetcher for OkFetcher {
+        async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
+            Ok("ads.example.com\ntracker.example.com\n".to_owned())
+        }
+    }
+
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let dns_repo = Arc::new(MockDnsRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
+    let fetcher: Arc<dyn BlocklistFetcher> = Arc::new(OkFetcher);
+    let svc = DnsServiceImpl::new(
+        system_config,
+        dns_repo.clone(),
+        events.clone(),
+        jobs.clone(),
+        fetcher,
+    );
+
+    let created = auth_context::with_context(
+        admin_ctx(),
+        svc.create_blocklist(CreateBlocklistRequest {
+            name: "OK blocklist".to_owned(),
+            url: "https://example.com/list.txt".to_owned(),
+            cron_schedule: "0 0 3 * * *".to_owned(),
+            enabled: true,
+        }),
+    )
+    .await
+    .unwrap();
+
+    let resp =
+        auth_context::with_context(admin_ctx(), svc.update_blocklist_now(created.blocklist.id))
+            .await
+            .unwrap();
+    assert!(!resp.job_id.is_nil());
+
+    // Poll until terminal — the in-memory JobService runs the closure on the
+    // tokio runtime. 1s budget is generous for a no-op fetch + MockDnsRepo.
+    let mut job = None;
+    for _ in 0..100 {
+        if let Some(j) = jobs.get(resp.job_id).await
+            && j.status.is_terminal()
+        {
+            job = Some(j);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let job = job.expect("dispatched job should terminate within 1s");
+    assert_eq!(
+        job.status,
+        wardnet_common::jobs::JobStatus::Succeeded,
+        "real fetch+parse+replace path should succeed"
+    );
+    assert_eq!(job.percentage_done, 100);
 }
 
 #[tokio::test]

@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -230,7 +229,7 @@ async fn check_blocklist_cron(
             continue;
         }
 
-        let schedule = match cron::Schedule::from_str(&bl.cron_schedule) {
+        let schedule = match crate::dns::cron_parse::parse_schedule(&bl.cron_schedule) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(

@@ -28,6 +28,7 @@ use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRoute
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
+use wardnetd_services::dns::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
@@ -71,7 +72,6 @@ struct Cli {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    init_tracing(cli.verbose);
 
     // Build a default configuration and override the pieces the mock needs.
     let mut config = ApplicationConfiguration::default();
@@ -89,15 +89,9 @@ async fn main() -> anyhow::Result<()> {
     config.otel.enabled = false;
     config.pyroscope.enabled = false;
 
-    run(cli, config).await
-}
-
-async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
-    let started_at = Instant::now();
-
-    // Build a minimal LogService — mock never rotates files and tracing is
-    // already wired to stderr via `init_tracing`, so this mostly exists to
-    // satisfy the service constructor.
+    // Build the log service BEFORE init_tracing so its tracing layers are
+    // attached to the subscriber. This is what feeds the /system/logs/stream
+    // websocket the web UI subscribes to.
     let log_stream = Arc::new(LogStreamService::new(config.logging.broadcast_capacity));
     let error_notifier = Arc::new(ErrorNotifierService::new(config.logging.max_recent_errors));
     let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
@@ -105,6 +99,18 @@ async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
         error_notifier,
         config.logging.path.clone(),
     ));
+
+    init_tracing(cli.verbose, log_service.as_ref());
+
+    run(cli, config, log_service).await
+}
+
+async fn run(
+    cli: Cli,
+    config: ApplicationConfiguration,
+    log_service: Arc<dyn LogService>,
+) -> anyhow::Result<()> {
+    let started_at = Instant::now();
 
     // Build the repository factory *first* so we can seed data before
     // services wake up and start observing events.
@@ -131,7 +137,11 @@ async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
         tunnels.into_iter().map(|t| t.id).collect::<Vec<_>>()
     };
 
-    // Assemble the no-op backends.
+    // No-op backends are used only for subsystems that require Linux kernel
+    // APIs unavailable on macOS (WireGuard, netlink routing, nftables, pnet
+    // capture). Anything that works cross-platform — like HTTP blocklist
+    // fetches — uses the real implementation so dev testing exercises the
+    // actual code path.
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
         policy_router: Arc::new(NoopPolicyRouter),
@@ -139,6 +149,7 @@ async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
         packet_capture: Arc::new(NoopPacketCapture),
         hostname_resolver: Arc::new(NoopHostnameResolver),
         key_store: Arc::new(InMemoryKeyStore::default()),
+        blocklist_fetcher: Arc::new(HttpBlocklistFetcher::new()),
     };
 
     // A synthetic LAN IP that looks plausible in UI copy.
@@ -174,6 +185,7 @@ async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
         dhcp_server,
         dns_server,
         services.event_publisher.clone(),
+        services.jobs.clone(),
     );
 
     // Start the fake event emitter (unless disabled).
@@ -214,8 +226,12 @@ async fn run(cli: Cli, config: ApplicationConfiguration) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Initialise a stderr-only tracing subscriber suitable for a dev tool.
-fn init_tracing(verbose: bool) {
+/// Initialise the tracing subscriber for the mock.
+///
+/// Attaches the `LogService` layers first (so `/system/logs/stream` actually
+/// receives events), then the filter, then a stderr formatter for local
+/// terminal output. `start_all` kicks off the log service background tasks.
+fn init_tracing(verbose: bool, log_service: &dyn LogService) {
     let default = if verbose {
         "debug,wardnetd_mock=debug,wardnet_common=debug,wardnetd_services=debug,wardnetd_data=debug,wardnetd_api=debug"
     } else {
@@ -227,10 +243,15 @@ fn init_tracing(verbose: bool) {
         .with_writer(std::io::stderr)
         .with_target(true);
 
+    // LogService layers must be applied directly on the Registry, so they
+    // come first before filter/formatter layers (mirrors wardnetd main).
     tracing_subscriber::registry()
+        .with(log_service.tracing_layers())
         .with(filter)
         .with(stderr_layer)
         .init();
+
+    log_service.start_all();
 }
 
 async fn shutdown_signal() {

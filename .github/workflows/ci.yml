@@ -6,12 +6,14 @@ on:
     paths:
       - "source/**"
       - "Makefile"
+      - "VERSION"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "source/**"
       - "Makefile"
+      - "VERSION"
       - ".github/workflows/ci.yml"
 
 permissions: read-all
@@ -21,6 +23,15 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  check-version:
+    name: Check Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify all versioned files match ./VERSION
+        run: make check-version
+
   check-web:
     name: Check Web
     runs-on: ubuntu-latest
@@ -86,6 +97,11 @@ jobs:
   check-daemon:
     name: Check Daemon
     runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the clippy SARIF file to Code Scanning.
+      security-events: write
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -99,8 +115,27 @@ jobs:
         with:
           workspaces: source/daemon
 
+      - name: Install clippy SARIF tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: clippy-sarif,sarif-fmt
+
       - name: Check
-        run: make check-daemon
+        # `SARIF_OUT` flips `make check-daemon` into piping clippy output
+        # through clippy-sarif — single clippy run, SARIF as a by-product.
+        run: make check-daemon SARIF_OUT=rust-clippy-results.sarif
+
+      - name: Upload clippy findings to Code Scanning
+        # Upload even if the Check step failed (so SARIF captures the
+        # warnings that caused the failure) — but only when the file was
+        # actually written. A failure in `cargo fmt --check` (which runs
+        # before clippy) means no SARIF exists, and `hashFiles` evaluates
+        # to an empty string, skipping the upload.
+        if: always() && hashFiles('rust-clippy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
 
   coverage:
     name: Code Coverage

@@ -21,6 +21,7 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
+use wardnetd_services::jobs::{BoxedJobTask, JobService};
 use wardnetd_services::logging::component::BoxedLayer;
 use wardnetd_services::logging::error_notifier::ErrorEntry;
 use wardnetd_services::logging::service::{LogFileInfo, LogService};
@@ -183,7 +184,7 @@ impl DnsService for StubDnsService {
     async fn update_blocklist_now(
         &self,
         _id: Uuid,
-    ) -> Result<UpdateBlocklistNowResponse, AppError> {
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
         unimplemented!()
     }
     async fn list_allowlist(&self) -> Result<ListAllowlistResponse, AppError> {
@@ -477,6 +478,26 @@ impl DnsServer for StubDnsServer {
     async fn update_config(&self, _config: wardnet_common::dns::DnsConfig) {}
 }
 
+pub struct StubJobService;
+impl StubJobService {
+    pub fn new_arc() -> Arc<dyn JobService> {
+        Arc::new(StubJobService)
+    }
+}
+#[async_trait]
+impl JobService for StubJobService {
+    async fn dispatch_boxed(
+        &self,
+        _kind: wardnet_common::jobs::JobKind,
+        _task: BoxedJobTask,
+    ) -> Uuid {
+        unimplemented!()
+    }
+    async fn get(&self, _id: Uuid) -> Option<wardnet_common::jobs::Job> {
+        None
+    }
+}
+
 pub struct StubEventPublisher;
 impl EventPublisher for StubEventPublisher {
     fn publish(&self, _event: wardnet_common::event::WardnetEvent) {}
@@ -508,5 +529,6 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        StubJobService::new_arc(),
     )
 }

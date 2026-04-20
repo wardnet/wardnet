@@ -7,10 +7,11 @@ use wardnet_common::api::{
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
     DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
-    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistNowResponse,
-    UpdateBlocklistRequest, UpdateBlocklistResponse, UpdateDnsConfigRequest,
-    UpdateFilterRuleRequest, UpdateFilterRuleResponse,
+    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistRequest,
+    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
+    UpdateFilterRuleResponse,
 };
+use wardnet_common::jobs::JobDispatchedResponse;
 
 use crate::api::middleware::AdminAuth;
 use crate::state::AppState;
@@ -127,14 +128,16 @@ pub async fn delete_blocklist(
     Ok(Json(response))
 }
 
-/// POST /api/dns/blocklists/{id}/update
+/// POST /api/dns/blocklists/{id}/update — dispatches a background job that
+/// fetches, parses, and stores the blocklist. Returns 202 Accepted with the
+/// job id so the client can poll `GET /api/jobs/:id` for progress.
 pub async fn update_blocklist_now(
     State(state): State<AppState>,
     _auth: AdminAuth,
     Path(id): Path<Uuid>,
-) -> Result<Json<UpdateBlocklistNowResponse>, AppError> {
+) -> Result<(StatusCode, Json<JobDispatchedResponse>), AppError> {
     let response = state.dns_service().update_blocklist_now(id).await?;
-    Ok(Json(response))
+    Ok((StatusCode::ACCEPTED, Json(response)))
 }
 
 // ---------------------------------------------------------------------------

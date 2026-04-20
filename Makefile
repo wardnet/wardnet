@@ -1,6 +1,10 @@
 # Wardnet Makefile
 # Unified build commands for local development and CI.
 
+# Recipes use bash (not /bin/sh → dash on Ubuntu) so `set -o pipefail`,
+# `[[ ... ]]`, and other bash-isms work consistently across macOS and CI.
+SHELL := /bin/bash
+
 # ---------- Configuration ----------
 
 PI_TARGET    := aarch64-unknown-linux-gnu
@@ -40,10 +44,50 @@ COV_FMT    ?= --summary-only
         check check-sdk check-web check-site check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         fmt clippy test \
-        deploy run-pi system-test system-test-setup system-test-teardown \
+        deploy run-pi run-dev system-test system-test-setup system-test-teardown \
+        sync-version check-version \
         clean help
 
+# ---------- Version ----------
+
+# Single source of truth for the project version (daemon Cargo workspace +
+# all three package.json files). Edit ./VERSION and then:
+#   make sync-version   # propagate to daemon Cargo.toml + web-ui/sdk/site package.json
+#   make check-version  # verify everything agrees with ./VERSION (used in CI)
+VERSION_FILE := VERSION
+VERSION      := $(shell cat $(VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
+
 all: build
+
+# ---------- Version sync ----------
+
+# Propagate the ./VERSION file into the daemon Cargo workspace and every
+# package.json. Uses perl (available on macOS + Linux) rather than sed to
+# avoid BSD/GNU flag differences.
+sync-version:
+	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
+	@echo "Syncing version -> $(VERSION)"
+	@perl -pi -e 's/^(version = )"[^"]+"/$$1"$(VERSION)"/ if $$. < 25 && !$$done; $$done=1 if s/^(version = )"[^"]+"/$$1"$(VERSION)"/' $(DAEMON_DIR)/Cargo.toml
+	@for f in $(SDK_DIR)/package.json $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
+		perl -pi -e 'if (!$$done && /"version":\s*"[^"]*"/) { s/"version":\s*"[^"]*"/"version": "$(VERSION)"/; $$done=1 }' $$f; \
+	done
+	@echo "  updated: $(DAEMON_DIR)/Cargo.toml"
+	@echo "  updated: $(SDK_DIR)/package.json"
+	@echo "  updated: $(WEBUI_DIR)/package.json"
+	@echo "  updated: $(SITE_DIR)/package.json"
+	@echo "Tip: regenerate lockfiles via 'cargo check' and 'yarn install' before committing."
+
+# Verify every versioned file agrees with ./VERSION. Intended for CI.
+check-version:
+	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
+	@ok=true; \
+	v=$$(awk '/^\[workspace\.package\]/{p=1; next} p && /^\[/{exit} p && /^version[[:space:]]*=/{gsub(/[" ]/, "", $$3); print $$3; exit}' $(DAEMON_DIR)/Cargo.toml); \
+	if [ "$$v" != "$(VERSION)" ]; then echo "MISMATCH $(DAEMON_DIR)/Cargo.toml: $$v != $(VERSION)"; ok=false; fi; \
+	for f in $(SDK_DIR)/package.json $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
+		v=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $$f | head -1); \
+		if [ "$$v" != "$(VERSION)" ]; then echo "MISMATCH $$f: $$v != $(VERSION)"; ok=false; fi; \
+	done; \
+	if [ "$$ok" = "true" ]; then echo "All files match $(VERSION_FILE)=$(VERSION)"; else exit 1; fi
 
 # ---------- Dev environment setup ----------
 
@@ -124,9 +168,22 @@ else
 check-daemon: check-daemon-container
 endif
 
+# SARIF_OUT: when set to a path, `check-daemon-native` pipes clippy output
+# through `clippy-sarif` and writes a SARIF file there (for CI upload to the
+# GitHub Code Scanning tab). When unset, clippy runs plainly — no extra
+# tooling required for local dev.
+SARIF_OUT ?=
+
 check-daemon-native:
 	cd $(DAEMON_DIR) && cargo fmt --check
-	cd $(DAEMON_DIR) && cargo clippy --all-targets -- -D warnings
+	@set -o pipefail; \
+	if [ -n "$(SARIF_OUT)" ]; then \
+		echo "Emitting clippy SARIF -> $(SARIF_OUT)"; \
+		cd $(DAEMON_DIR) && cargo clippy --all-targets --message-format=json -- -D warnings \
+			| clippy-sarif | tee "$(abspath $(SARIF_OUT))" | sarif-fmt; \
+	else \
+		cd $(DAEMON_DIR) && cargo clippy --all-targets -- -D warnings; \
+	fi
 	cd $(DAEMON_DIR) && cargo test --workspace
 
 check-daemon-container:
@@ -175,6 +232,34 @@ check: check-web check-site check-daemon
 # ---------- Deploy & Run ----------
 
 RESUME ?= false
+LOCAL_DIR := $(CURDIR)/.wardnet-local
+
+# Run the mock daemon + web UI dev server locally.
+#
+# wardnetd-mock serves the HTTP API on 127.0.0.1:7411 with no-op network
+# backends and seeded demo data. Vite dev server runs on :7412 and proxies
+# /api to the mock. Ctrl+C stops the dev server and tears down the mock
+# via the EXIT trap. Database is in-memory by default (ephemeral).
+# Use RESUME=true to persist the database at .wardnet-local/wardnet.db.
+run-dev:
+	@mkdir -p $(LOCAL_DIR)
+	@if [ "$(RESUME)" = "true" ]; then \
+		DB_ARG="--database $(LOCAL_DIR)/wardnet.db --no-seed"; \
+		[ -f $(LOCAL_DIR)/wardnet.db ] || DB_ARG="--database $(LOCAL_DIR)/wardnet.db"; \
+		echo "Using on-disk DB at $(LOCAL_DIR)/wardnet.db"; \
+	else \
+		DB_ARG=""; \
+		echo "Using in-memory DB (use RESUME=true for on-disk persistence)"; \
+	fi; \
+	echo "=== Starting wardnetd-mock + web UI dev server ==="; \
+	echo "Mock API : http://127.0.0.1:7411"; \
+	echo "Web UI   : http://127.0.0.1:7412  (proxies /api to mock)"; \
+	echo ""; \
+	set -e; \
+	cargo run --manifest-path=$(DAEMON_DIR)/Cargo.toml --bin wardnetd-mock -- --verbose $$DB_ARG & \
+	DAEMON_PID=$$!; \
+	trap "kill $$DAEMON_PID 2>/dev/null; wait $$DAEMON_PID 2>/dev/null; true" EXIT INT TERM; \
+	cd $(WEBUI_DIR) && yarn dev
 
 run-pi: build-pi
 	@test -n "$(PI_HOST)" || { echo "Error: PI_HOST is required"; exit 1; }
@@ -312,6 +397,12 @@ help:
 	@echo "  check-daemon   Format + clippy + tests for daemon (auto: native on Linux, container on macOS)"
 	@echo "  coverage-daemon Line-coverage summary for daemon (auto: native on Linux, container on macOS)"
 	@echo ""
+	@echo "  run-dev        Run wardnetd-mock + web UI dev server locally"
+	@echo "                 Mock API on :7411, web UI on :7412 (proxies /api)"
+	@echo "                 Ctrl+C stops both. In-memory DB by default."
+	@echo "                 make run-dev                    (ephemeral in-memory DB)"
+	@echo "                 make run-dev RESUME=true        (persist DB at .wardnet-local/)"
+	@echo ""
 	@echo "  run-pi         Build, deploy, and run on Pi via SSH (interactive)"
 	@echo "                 Deletes the database by default for a clean start."
 	@echo "                 make run-pi PI_HOST=10.232.1.1 PI_USER=pgomes PI_LAN_IF=end0"
@@ -323,5 +414,8 @@ help:
 	@echo "                 make system-test PI_HOST=10.232.1.1"
 	@echo "  system-test-setup    Deploy and start test environment (leave running)"
 	@echo "  system-test-teardown Stop test environment on Pi"
+	@echo ""
+	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"
+	@echo "  check-version  Verify all versioned files match ./VERSION (CI gate)"
 	@echo ""
 	@echo "  clean          Clean all build artifacts"

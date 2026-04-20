@@ -3,6 +3,7 @@ pub mod devices;
 pub mod dhcp;
 pub mod dns;
 pub mod info;
+pub mod jobs;
 pub mod logs_ws;
 pub mod middleware;
 pub mod providers;
@@ -42,6 +43,7 @@ pub fn router(state: AppState) -> Router {
             get(devices::get_device).put(devices::update_device),
         )
         .route("/info", get(info::info))
+        .route("/jobs/{id}", get(jobs::get_job))
         .route("/setup/status", get(setup::setup_status))
         .route("/setup", post(setup::setup))
         .route("/system/status", get(system::status))

@@ -20,11 +20,12 @@ use wardnet_common::api::{
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
     DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
-    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistNowResponse,
-    UpdateBlocklistRequest, UpdateBlocklistResponse, UpdateDnsConfigRequest,
-    UpdateFilterRuleRequest, UpdateFilterRuleResponse,
+    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistRequest,
+    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
+    UpdateFilterRuleResponse,
 };
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode};
+use wardnet_common::jobs::JobDispatchedResponse;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -188,25 +189,9 @@ impl DnsService for MockDnsService {
             message: format!("blocklist {id} deleted"),
         })
     }
-    async fn update_blocklist_now(&self, id: Uuid) -> Result<UpdateBlocklistNowResponse, AppError> {
-        let now = chrono::Utc::now();
-        let blocklist = wardnet_common::dns::Blocklist {
-            id,
-            name: "Test".to_owned(),
-            url: "https://example.com/list.txt".to_owned(),
-            enabled: true,
-            entry_count: 42,
-            last_updated: None,
-            cron_schedule: "0 0 3 * * *".to_owned(),
-            last_error: None,
-            last_error_at: None,
-            created_at: now,
-            updated_at: now,
-        };
-        Ok(UpdateBlocklistNowResponse {
-            entry_count: blocklist.entry_count,
-            blocklist,
-            message: "blocklist refresh triggered".to_owned(),
+    async fn update_blocklist_now(&self, _id: Uuid) -> Result<JobDispatchedResponse, AppError> {
+        Ok(JobDispatchedResponse {
+            job_id: Uuid::new_v4(),
         })
     }
     async fn list_allowlist(&self) -> Result<ListAllowlistResponse, AppError> {
@@ -304,6 +289,7 @@ fn build_state(dns_svc: impl DnsService + 'static) -> AppState {
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 
@@ -695,14 +681,14 @@ async fn delete_blocklist_returns_ok() {
 }
 
 #[tokio::test]
-async fn update_blocklist_now_returns_ok() {
+async fn update_blocklist_now_dispatches_job() {
     let state = build_state(MockDnsService);
     let app = dns_router(state);
     let id = Uuid::new_v4();
 
     let (status, json) = post_json(app, &format!("/api/dns/blocklists/{id}/update"), "{}").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["message"], "blocklist refresh triggered");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert!(json.get("job_id").and_then(|v| v.as_str()).is_some());
 }
 
 #[tokio::test]
@@ -786,6 +772,7 @@ fn build_state_with_failing_server(dns_svc: impl DnsService + 'static) -> AppSta
         Arc::new(StubDhcpServer),
         Arc::new(FailingDnsServer),
         Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
     )
 }
 
