@@ -181,11 +181,16 @@ jobs:
           echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
           chmod 0600 minisign.key
 
-          MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${TARBALL}" \
-            -s minisign.key \
-            -t "wardnetd ${VERSION} (${TARGET})" \
-            -c "Wardnet release signing key" \
-            -x "${MINISIG_FILE}"
+          # Feed the password both via stdin (older minisigns fall back to
+          # stdin when /dev/tty isn't available — which is the case on
+          # GitHub runners) and via the MINISIGN_PASSWORD env var (honoured
+          # by newer versions). Using both is safe and version-agnostic.
+          printf '%s\n' "${MINISIGN_PASSWORD}" | \
+            MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${TARBALL}" \
+              -s minisign.key \
+              -t "wardnetd ${VERSION} (${TARGET})" \
+              -c "Wardnet release signing key" \
+              -x "${MINISIG_FILE}"
 
           # Destroy the key material immediately so it never leaks into uploads.
           shred -u minisign.key
