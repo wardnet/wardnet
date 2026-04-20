@@ -406,6 +406,10 @@ async fn create_and_find_by_username() {
 - **Branch naming**: `feature/<description>`, `fix/<description>`
 - **Main branch**: `main`
 - **Commit messages**: Conventional commits (`feat:`, `fix:`, `chore:`, `refactor:`)
+- **Do NOT add `Co-Authored-By: Claude ...` trailers (or any AI-agent
+  attribution) to commit messages.** Commits land under the human
+  author only; GitHub parses `Co-Authored-By` trailers and inflates the
+  repo contributor graph with bot accounts.
 - Run `cargo fmt && cargo clippy --all-targets` before committing Rust changes
 - Run `yarn format && yarn lint` before committing web UI changes
 
