@@ -2,7 +2,4 @@
 
 declare module "@fontsource-variable/geist";
 
-declare module "*.yml" {
-  const data: Record<string, unknown>;
-  export default data;
-}
+/// <reference types="unplugin-yaml/types" />

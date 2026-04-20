@@ -2,12 +2,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import yaml from "@modyfi/vite-plugin-yaml";
+import YAMLPlugin from "unplugin-yaml/vite";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || "/",
-  plugins: [react(), tailwindcss(), yaml()],
+  plugins: [react(), tailwindcss(), YAMLPlugin()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
