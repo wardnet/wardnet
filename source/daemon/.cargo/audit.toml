@@ -3,10 +3,25 @@
 
 [advisories]
 # RUSTSEC-2023-0071: rsa timing sidechannel (Marvin Attack)
-# Transitive dependency via sqlx-mysql, which we don't use (SQLite only).
-# No fix available upstream. Safe to ignore for our use case.
+# Transitive via sqlx-mysql. We compile sqlx with SQLite only, so the
+# vulnerable rsa path isn't linked into wardnetd. No upstream fix.
 #
 # RUSTSEC-2024-0436: paste crate unmaintained
-# Transitive dependency via wireguard-control's netlink stack.
-# Nothing we can act on until wireguard-control updates.
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2024-0436"]
+# Compile-time proc-macro pulled in via netlink-packet-core (used by
+# rtnetlink for kernel policy routing). Not a CVE — the author stopped
+# publishing updates. Zero runtime footprint. Re-evaluate if the
+# netlink-rs ecosystem migrates away from paste, or consider filing a
+# PR upstream at rust-netlink/netlink-packet-core.
+#
+# RUSTSEC-2026-0097 / GHSA-cq8v-f236-94qc: rand unsound with a custom
+# logger using `rand::rng()`.
+# Transitive via sqlx-postgres and a few other crates. Fixed in rand
+# 0.9.3, but our transitives still pin older 0.8 / 0.9.2 lines. We
+# don't install a custom logger that touches rand internals, so the
+# unsoundness is unreachable in our usage. Re-evaluate when sqlx
+# bumps rand.
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0097",
+]
