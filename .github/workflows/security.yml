@@ -49,6 +49,7 @@ jobs:
   snyk-rust:
     name: Snyk - Rust
     runs-on: ubuntu-latest
+    if: ${{ secrets.SNYK_TOKEN != '' }}
     permissions:
       security-events: write
     steps:
@@ -82,6 +83,7 @@ jobs:
   snyk-web-ui:
     name: Snyk - Web UI
     runs-on: ubuntu-latest
+    if: ${{ secrets.SNYK_TOKEN != '' }}
     permissions:
       security-events: write
     steps:
@@ -121,6 +123,7 @@ jobs:
   snyk-site:
     name: Snyk - Site
     runs-on: ubuntu-latest
+    if: ${{ secrets.SNYK_TOKEN != '' }}
     permissions:
       security-events: write
     steps:
