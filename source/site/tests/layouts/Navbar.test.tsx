@@ -32,7 +32,7 @@ describe("Navbar", () => {
     );
     expect(screen.getByRole("link", { name: "GitHub" })).toHaveAttribute(
       "href",
-      "https://github.com/pedromvgomes/wardnet",
+      "https://github.com/wardnet/wardnet",
     );
   });
 

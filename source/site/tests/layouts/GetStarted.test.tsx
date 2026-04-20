@@ -10,12 +10,12 @@ describe("GetStarted", () => {
 
   it("renders the install command", () => {
     render(<GetStarted />);
-    expect(screen.getByText("curl -sSL https://wardnet.dev/install.sh | bash")).toBeInTheDocument();
+    expect(screen.getByText("curl -sSL https://wardnet.network/install.sh | bash")).toBeInTheDocument();
   });
 
   it("renders the GitHub link", () => {
     render(<GetStarted />);
     const link = screen.getByRole("link", { name: "View on GitHub" });
-    expect(link).toHaveAttribute("href", "https://github.com/pedromvgomes/wardnet");
+    expect(link).toHaveAttribute("href", "https://github.com/wardnet/wardnet");
   });
 });

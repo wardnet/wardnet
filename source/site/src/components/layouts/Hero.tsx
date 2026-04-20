@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { LatestReleaseBadge } from "@/components/compound/LatestReleaseBadge";
 import { Logo } from "@/components/compound/Logo";
 
 interface HeroProps {
@@ -15,19 +16,20 @@ export function Hero({ onExplore }: HeroProps) {
       <Logo size={128} className="mb-8" />
       <h1 className="mb-3 text-5xl font-bold tracking-tight text-white sm:text-6xl">Wardnet</h1>
       <p className="mb-2 text-xl text-gray-300 sm:text-2xl">Your network. Your rules.</p>
-      <p className="mb-10 max-w-xl text-base leading-relaxed text-gray-400">
+      <p className="mb-6 max-w-xl text-base leading-relaxed text-gray-400">
         A self-hosted privacy gateway for Raspberry Pi. Per-device VPN routing, DNS ad blocking, and
         a web dashboard — all in a single binary.
       </p>
+      <LatestReleaseBadge variant="dark" className="mb-8" />
       <div className="flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row sm:justify-center">
         <a
-          href="https://github.com/pedromvgomes/wardnet/releases"
+          href="https://github.com/wardnet/wardnet/releases"
           className="inline-block w-full rounded-lg bg-[var(--brand-green)] px-8 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-[var(--brand-green-hover)] sm:w-48"
         >
           Download
         </a>
         <a
-          href="https://github.com/pedromvgomes/wardnet"
+          href="https://github.com/wardnet/wardnet"
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#24292f] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#32383f] sm:w-48"
         >
           <svg viewBox="0 0 16 16" className="h-4 w-4 fill-current" aria-hidden="true">

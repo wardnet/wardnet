@@ -2,14 +2,14 @@ import { Link } from "react-router";
 import { Logo } from "@/components/compound/Logo";
 
 const EXTERNAL_LINKS = [
-  { label: "GitHub", href: "https://github.com/pedromvgomes/wardnet" },
+  { label: "GitHub", href: "https://github.com/wardnet/wardnet" },
   {
     label: "Releases",
-    href: "https://github.com/pedromvgomes/wardnet/releases",
+    href: "https://github.com/wardnet/wardnet/releases",
   },
   {
     label: "MIT License",
-    href: "https://github.com/pedromvgomes/wardnet/blob/main/LICENSE",
+    href: "https://github.com/wardnet/wardnet/blob/main/LICENSE",
   },
 ] as const;
 

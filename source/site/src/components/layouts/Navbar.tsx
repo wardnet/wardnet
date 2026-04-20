@@ -40,7 +40,7 @@ export function Navbar({ onLogoClick, showBack }: NavbarProps) {
           Documentation
         </Link>
         <a
-          href="https://github.com/pedromvgomes/wardnet"
+          href="https://github.com/wardnet/wardnet"
           className="text-white/70 transition-colors hover:text-white"
           aria-label="GitHub"
         >

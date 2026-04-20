@@ -19,13 +19,13 @@ describe("Hero", () => {
   it("renders the Download CTA with correct href", () => {
     render(<Hero onExplore={noop} />);
     const link = screen.getByRole("link", { name: "Download" });
-    expect(link).toHaveAttribute("href", "https://github.com/pedromvgomes/wardnet/releases");
+    expect(link).toHaveAttribute("href", "https://github.com/wardnet/wardnet/releases");
   });
 
   it("renders the GitHub CTA with correct href", () => {
     render(<Hero onExplore={noop} />);
     const link = screen.getByRole("link", { name: "View on GitHub" });
-    expect(link).toHaveAttribute("href", "https://github.com/pedromvgomes/wardnet");
+    expect(link).toHaveAttribute("href", "https://github.com/wardnet/wardnet");
   });
 
   it("calls onExplore when the Explore button is clicked", async () => {

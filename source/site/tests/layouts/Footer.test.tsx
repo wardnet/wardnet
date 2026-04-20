@@ -20,13 +20,13 @@ describe("Footer", () => {
   it("renders the GitHub link", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "GitHub" });
-    expect(link).toHaveAttribute("href", "https://github.com/pedromvgomes/wardnet");
+    expect(link).toHaveAttribute("href", "https://github.com/wardnet/wardnet");
   });
 
   it("renders the Releases link", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Releases" });
-    expect(link).toHaveAttribute("href", "https://github.com/pedromvgomes/wardnet/releases");
+    expect(link).toHaveAttribute("href", "https://github.com/wardnet/wardnet/releases");
   });
 
   it("renders the Documentation link", () => {

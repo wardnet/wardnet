@@ -1,0 +1,239 @@
+name: Release
+
+# Tag-driven release workflow.
+#
+# Triggered by pushing an annotated tag matching `v*.*.*`. For every target
+# listed in the build matrix, cross-compiles the daemon, signs the tarball
+# with minisign, and attaches the artefacts to a GitHub Release.
+#
+# Adding a new target is a one-line matrix entry — no other plumbing changes.
+# v1 ships aarch64-linux-gnu only (Raspberry Pi), but the workflow is not
+# Pi-specific.
+#
+# Channel classification is SemVer-driven and handled by the marketing site's
+# manifest generator at build time (see source/site/scripts/generate-manifests.ts).
+# A tag with a pre-release suffix (e.g. `v0.2.1-beta.1`, `v0.2.1-rc.1`) is
+# marked as a GitHub "pre-release" and feeds the `beta` channel; a clean
+# `vX.Y.Z` tag feeds the `stable` channel.
+#
+# `workflow_dispatch` is supported for dry runs on non-tag refs: the build
+# and signing steps all run, but the publish job is skipped.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions: read-all
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  resolve:
+    name: Resolve version and channel
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and classify channel from ref
+        id: version
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+
+            # Verify the VERSION file agrees with the tag. Prevents "tag says
+            # v0.2.1 but the binary reports 0.2.0" mismatches.
+            FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+            if [[ "${VERSION%%-*}" != "${FILE_VERSION%%-*}" ]]; then
+              echo "::error::tag v${VERSION} does not agree with ./VERSION (${FILE_VERSION}). Run 'make sync-version' and re-tag."
+              exit 1
+            fi
+          else
+            # workflow_dispatch on a non-tag ref — derive a dev version.
+            TAG=""
+            VERSION="$(git describe --tags --always --dirty | sed 's/^v//')"
+          fi
+
+          # SemVer pre-release suffix → beta channel.
+          if [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Release version: ${VERSION} (tag=${TAG:-<dispatch>}, prerelease=${PRERELEASE})"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Raspberry Pi (primary target for v1).
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross_apt_packages: gcc-aarch64-linux-gnu
+            strip: aarch64-linux-gnu-strip
+          # Additional targets slot in here as new matrix entries — no other
+          # plumbing changes needed.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/web-ui/yarn.lock
+
+      - name: Build web UI (embedded into the daemon binary)
+        run: make build-web
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target }}
+          cache-key: release-${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain
+        if: matrix.cross_apt_packages != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
+
+      - name: Cross-compile daemon
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: wardnetd
+        run: make build-daemon
+
+      - name: Strip binary
+        env:
+          STRIP_TOOL: ${{ matrix.strip }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          BIN="source/daemon/target/${TARGET}/release/wardnetd"
+          "${STRIP_TOOL}" "${BIN}"
+          ls -l "${BIN}"
+
+      - name: Install minisign
+        run: sudo apt-get install -y minisign
+
+      - name: Package and sign artefact
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
+            echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required to produce a signed release. See deploy/keys/README.md."
+            exit 1
+          fi
+
+          BASENAME="wardnetd-${VERSION}-${TARGET}"
+          TARBALL="${BASENAME}.tar.gz"
+          SHA256_FILE="${TARBALL}.sha256"
+          MINISIG_FILE="${TARBALL}.minisig"
+
+          mkdir -p release-artefacts
+          pushd release-artefacts >/dev/null
+
+          # Stage just the `wardnetd` binary in a clean directory so the
+          # tarball contains `wardnetd` at the top level (no leading dir).
+          mkdir staged
+          cp "../source/daemon/target/${TARGET}/release/wardnetd" staged/wardnetd
+          chmod 0755 staged/wardnetd
+
+          tar -C staged -czf "${TARBALL}" wardnetd
+          sha256sum "${TARBALL}" | awk '{print $1}' > "${SHA256_FILE}"
+
+          # Write the encrypted private key to a local file and sign. The
+          # MINISIGN_PASSWORD env var is honoured by minisign >= 0.10, which
+          # is what ubuntu-latest ships.
+          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
+          chmod 0600 minisign.key
+
+          MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${TARBALL}" \
+            -s minisign.key \
+            -t "wardnetd ${VERSION} (${TARGET})" \
+            -c "Wardnet release signing key" \
+            -x "${MINISIG_FILE}"
+
+          # Destroy the key material immediately so it never leaks into uploads.
+          shred -u minisign.key
+
+          # Sanity check: the public key in the repo must verify the signature.
+          minisign -Vm "${TARBALL}" \
+            -p "../deploy/keys/wardnet-release.pub" \
+            -x "${MINISIG_FILE}"
+
+          ls -l
+          popd >/dev/null
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-artefacts-${{ matrix.target }}
+          path: |
+            release-artefacts/*.tar.gz
+            release-artefacts/*.sha256
+            release-artefacts/*.minisig
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [resolve, build]
+    # Only publish when triggered by an actual tag push. workflow_dispatch runs
+    # exercise the full build path but stop short of creating a release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download artefacts from all targets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-artefacts-*
+          path: release-artefacts/
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          ARGS=(--verify-tag --generate-notes --title "Wardnet ${VERSION}")
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "${TAG}" "${ARGS[@]}" \
+            release-artefacts/*.tar.gz \
+            release-artefacts/*.tar.gz.sha256 \
+            release-artefacts/*.tar.gz.minisig

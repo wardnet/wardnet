@@ -1,12 +1,12 @@
 # Wardnet
 
-[![CI](https://github.com/pedromvgomes/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/pedromvgomes/wardnet/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/pedromvgomes/wardnet/branch/main/graph/badge.svg)](https://codecov.io/gh/pedromvgomes/wardnet)
+[![CI](https://github.com/wardnet/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/wardnet/wardnet/branch/main/graph/badge.svg)](https://codecov.io/gh/wardnet/wardnet)
 [![Rust](https://img.shields.io/badge/rust-1.94-orange.svg)](https://www.rust-lang.org)
-[![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/pedromvgomes/wardnet)](https://rust-reportcard.xuri.me/report/github.com/pedromvgomes/wardnet)
-[![Security Audit](https://github.com/pedromvgomes/wardnet/actions/workflows/security.yml/badge.svg)](https://github.com/pedromvgomes/wardnet/actions/workflows/security.yml)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/pedromvgomes/wardnet/badge)](https://securityscorecards.dev/viewer/?uri=github.com/pedromvgomes/wardnet)
-[![Dependabot](https://badgen.net/github/dependabot/pedromvgomes/wardnet)](https://github.com/pedromvgomes/wardnet/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)
+[![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/wardnet/wardnet)](https://rust-reportcard.xuri.me/report/github.com/wardnet/wardnet)
+[![Security Audit](https://github.com/wardnet/wardnet/actions/workflows/security.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/security.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/wardnet/wardnet/badge)](https://securityscorecards.dev/viewer/?uri=github.com/wardnet/wardnet)
+[![Dependabot](https://badgen.net/github/dependabot/wardnet/wardnet)](https://github.com/wardnet/wardnet/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Wardnet is a self-hosted network privacy gateway that runs on a Raspberry Pi. It sits alongside an existing home or small-office router and acts as the warden of every device's connection to the internet — encrypting traffic, blocking ads and trackers at the DNS level, and giving you per-device control over how each device connects.
@@ -38,8 +38,8 @@ Devices that cannot run VPN software themselves (smart TVs, consoles, IoT) are f
 
 **Known caveats when in use**
 
-- After switching a device *off* a tunnel (VPN → direct, or between tunnels), the device's existing TCP sockets may stay stuck for ~30–60s while their stack times out. Routing on the Pi is correct immediately; toggling Wi-Fi on the device fixes it instantly. See pedromvgomes/wardnet#77.
-- A NordVPN server selected at tunnel-creation time may be unhealthy when you actually try to use it; the daemon currently still marks such tunnels as "up" even when no WireGuard handshake has ever completed. See pedromvgomes/wardnet#79 and pedromvgomes/wardnet#80.
+- After switching a device *off* a tunnel (VPN → direct, or between tunnels), the device's existing TCP sockets may stay stuck for ~30–60s while their stack times out. Routing on the Pi is correct immediately; toggling Wi-Fi on the device fixes it instantly. See wardnet/wardnet#77.
+- A NordVPN server selected at tunnel-creation time may be unhealthy when you actually try to use it; the daemon currently still marks such tunnels as "up" even when no WireGuard handshake has ever completed. See wardnet/wardnet#79 and wardnet/wardnet#80.
 
 ## Features
 
