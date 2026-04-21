@@ -120,6 +120,8 @@ flate2 = "1"
 tar = "0.4"
 # https://crates.io/crates/minisign-verify — verify minisign signatures on release artefacts
 minisign-verify = "0.2"
+# https://crates.io/crates/age — symmetric passphrase encryption for backup bundles (scrypt KDF + ChaCha20-Poly1305)
+age = { version = "0.11", default-features = false }
 # https://crates.io/crates/futures
 futures = "0.3"
 # https://crates.io/crates/cron
