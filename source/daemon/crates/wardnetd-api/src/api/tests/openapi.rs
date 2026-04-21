@@ -177,6 +177,7 @@ fn scalar_html_wires_runtime_config() {
         "/api/docs/logo.png",
         "/favicon-32.png",
         "agent: { disabled: true }",
+        "mcp: { disabled: true }",
         "showDeveloperTools: 'never'",
         "hideDarkModeToggle: true",
         "Scalar.createApiReference",

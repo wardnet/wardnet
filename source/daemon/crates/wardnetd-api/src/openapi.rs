@@ -106,17 +106,27 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   <script>
     // Scalar 2.x programmatic API — gives us access to nested config keys
-    // (`agent`, `showDeveloperTools`) that the `data-configuration` attribute
-    // struggles to round-trip cleanly. The Ask-AI composer is disabled because
-    // Wardnet is a privacy tool and we don't want to ship an LLM widget in our
-    // own docs. `/favicon-32.png` is the same file the admin SPA uses, served
-    // by the daemon's rust-embed static handler.
-    // Standalone bundle exposes the factory under `window.Scalar`.
+    // (`agent`, `showDeveloperTools`, `sources`) that the `data-configuration`
+    // attribute can't round-trip cleanly. The Ask-AI composer is disabled
+    // because Wardnet is a privacy tool and we don't want to ship an LLM
+    // widget in our own docs. `/favicon-32.png` is the same file the admin
+    // SPA uses, served by the daemon's rust-embed static handler.
+    //
+    // `logoUrl` is a per-source property in modern Scalar (not top-level),
+    // so the brand logo lives inside the `sources` entry rather than on the
+    // config root. The standalone bundle exposes the factory under
+    // `window.Scalar`.
     Scalar.createApiReference('#wardnet-api-docs', {
-      url: '/api/openapi.json',
+      sources: [
+        {
+          url: '/api/openapi.json',
+          logoUrl: '/api/docs/logo.png',
+          title: 'Wardnet API',
+        },
+      ],
       favicon: '/favicon-32.png',
-      logoUrl: '/api/docs/logo.png',
       agent: { disabled: true },
+      mcp: { disabled: true },
       showDeveloperTools: 'never',
       hideDarkModeToggle: true,
       hideClientButton: true,
