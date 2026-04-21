@@ -104,20 +104,26 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
        (github.com/scalar/scalar/discussions/914); DOM injection is the
        documented workaround. The container matches the sidebar palette
        and spacing so the logo feels native. */
+    /* Mirror the admin web UI sidebar header exactly:
+       container `p-4` + `gap-2.5`; logo 28px; title `text-lg` bold
+       `tracking-tight`, color `--primary` (green). Kept in lockstep so the
+       docs page feels like a continuation of the admin app. */
     .wardnet-brand {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 14px 16px;
-      color: oklch(0.95 0.005 240);
-      font-weight: 600;
-      font-size: 0.95rem;
-      letter-spacing: -0.01em;
+      gap: 0.625rem;
+      padding: 1rem;
     }
     .wardnet-brand img {
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      border-radius: 0.375rem;
+    }
+    .wardnet-brand span {
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: oklch(0.72 0.16 145);
     }
   </style>
 </head>
