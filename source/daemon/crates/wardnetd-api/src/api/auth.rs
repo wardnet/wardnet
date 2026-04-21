@@ -15,14 +15,14 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router.routes(routes!(login))
 }
 
-/// Log in with username and password, issuing a session cookie.
-///
-/// Thin handler — delegates credential verification and session creation
-/// to [`AuthService`](wardnetd_services::AuthService), then sets the session cookie.
 #[utoipa::path(
     post,
     path = "/api/auth/login",
     tag = "auth",
+    description = "Log in with username and password. On success, sets a \
+                   `wardnet_session` cookie the browser replays on subsequent \
+                   admin-gated requests. Also returned as a JSON body so \
+                   non-browser clients can surface the login message.",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Login successful; session cookie is set", body = LoginResponse),

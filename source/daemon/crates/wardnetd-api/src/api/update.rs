@@ -44,11 +44,13 @@ const fn default_history_limit() -> u32 {
     20
 }
 
-/// Get the current auto-update status.
 #[utoipa::path(
     get,
     path = "/api/update/status",
     tag = "update",
+    description = "Return the current auto-update state: currently running version, \
+                   latest known release from the manifest, configured channel, and \
+                   whether an install is in progress. Admin only.",
     responses(
         (status = 200, description = "Current auto-update status", body = UpdateStatusResponse),
         AuthErrors,
@@ -65,11 +67,13 @@ pub async fn status(
     Ok(Json(state.update_service().status().await?))
 }
 
-/// Force a manifest refresh to check for new releases.
 #[utoipa::path(
     post,
     path = "/api/update/check",
     tag = "update",
+    description = "Force an immediate refresh of the update manifest from the release \
+                   server, bypassing the normal polling interval, and return whether \
+                   a newer version is available on the configured channel. Admin only.",
     responses(
         (status = 200, description = "Manifest refresh result", body = UpdateCheckResponse),
         AuthErrors,
@@ -86,11 +90,14 @@ pub async fn check(
     Ok(Json(state.update_service().check().await?))
 }
 
-/// Kick off an install of an available release.
 #[utoipa::path(
     post,
     path = "/api/update/install",
     tag = "update",
+    description = "Kick off an install of an available release. If the request body is \
+                   omitted, the latest release on the configured channel is installed. \
+                   The install runs asynchronously; poll /api/update/status for \
+                   progress. Admin only.",
     request_body(content = InstallUpdateRequest, description = "Install options; if omitted, installs the latest available release"),
     responses(
         (status = 200, description = "Install initiated", body = InstallUpdateResponse),
@@ -111,11 +118,13 @@ pub async fn install(
     Ok(Json(state.update_service().install(req).await?))
 }
 
-/// Roll back to the previous binary swapped aside as `<live>.old`.
 #[utoipa::path(
     post,
     path = "/api/update/rollback",
     tag = "update",
+    description = "Roll back to the previous binary that was swapped aside as \
+                   `<live>.old` during the last successful install. Used to recover \
+                   from a bad release without manual SSH intervention. Admin only.",
     responses(
         (status = 200, description = "Rollback initiated", body = RollbackResponse),
         AuthErrors,
@@ -132,11 +141,13 @@ pub async fn rollback(
     Ok(Json(state.update_service().rollback().await?))
 }
 
-/// Toggle auto-update or switch release channel.
 #[utoipa::path(
     put,
     path = "/api/update/config",
     tag = "update",
+    description = "Update auto-update settings: enable or disable automatic installs \
+                   and switch between release channels (e.g. stable vs. beta). Admin \
+                   only.",
     request_body = UpdateConfigRequest,
     responses(
         (status = 200, description = "Updated auto-update configuration", body = UpdateConfigResponse),
@@ -156,11 +167,14 @@ pub async fn update_config(
     Ok(Json(state.update_service().update_config(body).await?))
 }
 
-/// List recent install/rollback attempts.
 #[utoipa::path(
     get,
     path = "/api/update/history",
     tag = "update",
+    description = "List recent install and rollback attempts, including timestamp, \
+                   source and target versions, outcome, and any error message. The \
+                   `limit` query parameter caps the number of entries returned \
+                   (default 20). Admin only.",
     params(HistoryQuery),
     responses(
         (status = 200, description = "Update history", body = UpdateHistoryResponse),

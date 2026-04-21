@@ -20,13 +20,12 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(delete_tunnel))
 }
 
-/// List all configured VPN tunnels.
-///
-/// Thin handler — lists all configured tunnels. Requires admin authentication.
 #[utoipa::path(
     get,
     path = "/api/tunnels",
     tag = "tunnels",
+    description = "List every configured VPN tunnel with its label, country, peer \
+                   endpoint summary, and current runtime status. Admin only.",
     responses(
         (status = 200, description = "Configured tunnels", body = ListTunnelsResponse),
         AuthErrors,
@@ -44,14 +43,13 @@ pub async fn list_tunnels(
     Ok(Json(response))
 }
 
-/// Import a tunnel from a `WireGuard` `.conf` file.
-///
-/// Thin handler — imports a tunnel from a `WireGuard` `.conf` file.
-/// Requires admin authentication.
 #[utoipa::path(
     post,
     path = "/api/tunnels",
     tag = "tunnels",
+    description = "Import a tunnel from a WireGuard `.conf` file. The daemon parses \
+                   the config, persists the tunnel definition, and stores the private \
+                   key in the key store. Admin only.",
     request_body = CreateTunnelRequest,
     responses(
         (status = 201, description = "Tunnel imported", body = CreateTunnelResponse),
@@ -72,14 +70,13 @@ pub async fn create_tunnel(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Delete a tunnel and its configuration by ID.
-///
-/// Thin handler — deletes a tunnel and its configuration.
-/// Requires admin authentication.
 #[utoipa::path(
     delete,
     path = "/api/tunnels/{id}",
     tag = "tunnels",
+    description = "Delete a tunnel by ID: tear down the live WireGuard interface if \
+                   it is up, remove the persisted config, and delete the associated \
+                   private key from the key store. Admin only.",
     params(("id" = Uuid, Path, description = "Tunnel ID")),
     responses(
         (status = 200, description = "Tunnel deleted", body = DeleteTunnelResponse),

@@ -15,14 +15,14 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router.routes(routes!(get_job))
 }
 
-/// Poll the status of a background job.
-///
-/// Returns 404 when the job id is unknown (either never dispatched or GC'd
-/// after its TTL).
 #[utoipa::path(
     get,
     path = "/api/jobs/{id}",
     tag = "jobs",
+    description = "Poll the status of a background job previously dispatched by another \
+                   endpoint (e.g. a blocklist refresh). Returns 404 when the job id is \
+                   unknown — either never dispatched or garbage-collected after its \
+                   retention TTL. Admin only.",
     params(("id" = Uuid, Path, description = "Job ID")),
     responses(
         (status = 200, description = "Current job state", body = Job),

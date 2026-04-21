@@ -26,14 +26,13 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(download_logs))
 }
 
-/// Get system status: version, uptime, and resource counts.
-///
-/// Thin handler — returns system status (version, uptime, counts).
-/// Requires admin authentication via session cookie or API key.
 #[utoipa::path(
     get,
     path = "/api/system/status",
     tag = "system",
+    description = "Return an aggregate snapshot of system state: daemon version, \
+                   uptime, host CPU and memory usage, and counts of tracked resources \
+                   (devices, tunnels, leases). Admin only.",
     responses(
         (status = 200, description = "System status (version, uptime, counts)", body = SystemStatusResponse),
         AuthErrors,
@@ -51,14 +50,13 @@ pub async fn status(
     Ok(Json(response))
 }
 
-/// Download the full daemon log file as plain text.
-///
-/// Downloads the full log file as human-readable text.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = "/api/system/logs/download",
     tag = "system",
+    description = "Download the full daemon log file as a plain-text attachment. Served \
+                   with Content-Disposition: attachment so browsers prompt to save. \
+                   Admin only.",
     responses(
         (status = 200, description = "Log file stream", content_type = "application/octet-stream", body = Vec<u8>),
         AuthErrors,
@@ -116,14 +114,14 @@ pub struct RecentErrorsResponse {
     pub errors: Vec<ApiErrorEntry>,
 }
 
-/// Get the most recent warnings and errors from the ring buffer.
-///
-/// Returns the last 15 warnings and errors from the in-memory ring buffer.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = "/api/system/errors",
     tag = "system",
+    description = "Return the most recent warnings and errors captured by the \
+                   in-memory error notifier ring buffer (currently the last 15 \
+                   entries). Powers the dashboard's \"recent issues\" panel. \
+                   Admin only.",
     responses(
         (status = 200, description = "Recent warnings and errors", body = RecentErrorsResponse),
         AuthErrors,

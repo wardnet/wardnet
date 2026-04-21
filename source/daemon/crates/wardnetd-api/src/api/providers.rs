@@ -23,11 +23,13 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(setup_tunnel))
 }
 
-/// List all registered VPN providers.
 #[utoipa::path(
     get,
     path = "/api/providers",
     tag = "providers",
+    description = "List every VPN provider the daemon knows how to integrate with \
+                   (e.g. NordVPN), along with the capabilities each provider exposes. \
+                   Admin only.",
     responses(
         (status = 200, description = "Registered VPN providers", body = ListProvidersResponse),
         AuthErrors,
@@ -45,11 +47,13 @@ pub async fn list_providers(
     Ok(Json(response))
 }
 
-/// Validate credentials against a VPN provider.
 #[utoipa::path(
     post,
     path = "/api/providers/{id}/validate",
     tag = "providers",
+    description = "Validate a set of provider credentials by attempting a live auth \
+                   call against the provider's API. Used by the guided setup wizard \
+                   before persisting credentials. Admin only.",
     params(("id" = String, Path, description = "Provider ID")),
     request_body = ValidateCredentialsRequest,
     responses(
@@ -76,11 +80,12 @@ pub async fn validate_credentials(
     Ok(Json(response))
 }
 
-/// List countries where a VPN provider has servers.
 #[utoipa::path(
     get,
     path = "/api/providers/{id}/countries",
     tag = "providers",
+    description = "List the countries in which a given VPN provider offers servers. \
+                   Used by the setup wizard's country picker. Admin only.",
     params(("id" = String, Path, description = "Provider ID")),
     responses(
         (status = 200, description = "Countries with available servers", body = ListCountriesResponse),
@@ -101,11 +106,14 @@ pub async fn list_countries(
     Ok(Json(response))
 }
 
-/// List available VPN servers for a provider using supplied credentials.
 #[utoipa::path(
     post,
     path = "/api/providers/{id}/servers",
     tag = "providers",
+    description = "List the available VPN servers for a provider, optionally filtered \
+                   by country. Credentials are supplied in the request body because \
+                   some providers gate their server catalogue behind authentication. \
+                   Admin only.",
     params(("id" = String, Path, description = "Provider ID")),
     request_body = ListServersRequest,
     responses(
@@ -129,11 +137,14 @@ pub async fn list_servers(
     Ok(Json(response))
 }
 
-/// Run full guided tunnel setup through a VPN provider.
 #[utoipa::path(
     post,
     path = "/api/providers/{id}/setup",
     tag = "providers",
+    description = "Run the full guided tunnel setup for a VPN provider end to end: \
+                   validate credentials, generate a WireGuard key pair via the \
+                   provider's API, materialise the resulting tunnel, and persist it. \
+                   Admin only.",
     params(("id" = String, Path, description = "Provider ID")),
     request_body = SetupProviderRequest,
     responses(

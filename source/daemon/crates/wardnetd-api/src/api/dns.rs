@@ -36,11 +36,12 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(update_filter_rule, delete_filter_rule))
 }
 
-/// Get the current DNS filter configuration.
 #[utoipa::path(
     get,
     path = "/api/dns/config",
     tag = "dns",
+    description = "Return the current DNS filter configuration (enabled flag, cache size, \
+                   upstream resolvers). Admin only.",
     responses(
         (status = 200, description = "Current DNS configuration", body = DnsConfigResponse),
         AuthErrors,
@@ -58,11 +59,13 @@ pub async fn get_config(
     Ok(Json(response))
 }
 
-/// Update the DNS filter configuration.
 #[utoipa::path(
     put,
     path = "/api/dns/config",
     tag = "dns",
+    description = "Update the DNS filter configuration (cache size, upstream resolvers, \
+                   and related options). Does not toggle the enabled flag — use the \
+                   /api/dns/config/toggle endpoint for that. Admin only.",
     request_body = UpdateDnsConfigRequest,
     responses(
         (status = 200, description = "Updated DNS configuration", body = DnsConfigResponse),
@@ -83,11 +86,13 @@ pub async fn update_config(
     Ok(Json(response))
 }
 
-/// Enable or disable the DNS filter server.
 #[utoipa::path(
     post,
     path = "/api/dns/config/toggle",
     tag = "dns",
+    description = "Enable or disable the DNS filter server. In addition to persisting \
+                   the enabled flag, this starts or stops the live DNS server process \
+                   so the change takes effect immediately. Admin only.",
     request_body = ToggleDnsRequest,
     responses(
         (status = 200, description = "Updated DNS configuration", body = DnsConfigResponse),
@@ -118,11 +123,12 @@ pub async fn toggle(
     Ok(Json(response))
 }
 
-/// Get DNS server status and cache statistics.
 #[utoipa::path(
     get,
     path = "/api/dns/status",
     tag = "dns",
+    description = "Return live DNS server status and cache statistics (running flag, \
+                   cache size/capacity, cache hit rate). Admin only.",
     responses(
         (status = 200, description = "DNS server status and cache stats", body = DnsStatusResponse),
         AuthErrors,
@@ -147,11 +153,13 @@ pub async fn status(
     }))
 }
 
-/// Flush the DNS resolver cache.
 #[utoipa::path(
     post,
     path = "/api/dns/cache/flush",
     tag = "dns",
+    description = "Flush the DNS resolver cache, clearing every cached record so \
+                   subsequent queries resolve against upstream. Returns the count of \
+                   entries that were cleared. Admin only.",
     responses(
         (status = 200, description = "Cache flushed", body = DnsCacheFlushResponse),
         AuthErrors,
@@ -176,11 +184,12 @@ pub async fn flush_cache(
 // Blocklists
 // ---------------------------------------------------------------------------
 
-/// List all configured blocklists.
 #[utoipa::path(
     get,
     path = "/api/dns/blocklists",
     tag = "dns",
+    description = "List every configured DNS blocklist source, along with its enabled \
+                   flag, last-updated timestamp, and entry count. Admin only.",
     responses(
         (status = 200, description = "List of blocklists", body = ListBlocklistsResponse),
         AuthErrors,
@@ -198,11 +207,12 @@ pub async fn list_blocklists(
     Ok(Json(response))
 }
 
-/// Create a new blocklist source.
 #[utoipa::path(
     post,
     path = "/api/dns/blocklists",
     tag = "dns",
+    description = "Register a new DNS blocklist source (URL + format) that the daemon \
+                   will periodically fetch and compile into the filter. Admin only.",
     request_body = CreateBlocklistRequest,
     responses(
         (status = 201, description = "Blocklist created", body = CreateBlocklistResponse),
@@ -223,11 +233,12 @@ pub async fn create_blocklist(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Update an existing blocklist by ID.
 #[utoipa::path(
     put,
     path = "/api/dns/blocklists/{id}",
     tag = "dns",
+    description = "Update an existing DNS blocklist (URL, label, enabled flag, or \
+                   refresh interval). Admin only.",
     params(("id" = Uuid, Path, description = "Blocklist ID")),
     request_body = UpdateBlocklistRequest,
     responses(
@@ -251,11 +262,12 @@ pub async fn update_blocklist(
     Ok(Json(response))
 }
 
-/// Delete a blocklist by ID.
 #[utoipa::path(
     delete,
     path = "/api/dns/blocklists/{id}",
     tag = "dns",
+    description = "Delete a DNS blocklist by ID. Any entries contributed by this \
+                   blocklist are removed from the active filter. Admin only.",
     params(("id" = Uuid, Path, description = "Blocklist ID")),
     responses(
         (status = 200, description = "Blocklist deleted", body = DeleteBlocklistResponse),
@@ -276,15 +288,14 @@ pub async fn delete_blocklist(
     Ok(Json(response))
 }
 
-/// Trigger an immediate refresh of a blocklist.
-///
-/// Dispatches a background job that fetches, parses, and stores the blocklist.
-/// Returns 202 Accepted with the job id so the client can poll the jobs
-/// endpoint for progress.
 #[utoipa::path(
     post,
     path = "/api/dns/blocklists/{id}/update",
     tag = "dns",
+    description = "Trigger an immediate refresh of a blocklist. Dispatches a background \
+                   job that fetches, parses, and stores the blocklist, then returns \
+                   202 Accepted with the job id so the client can poll \
+                   /api/jobs/{id} for progress. Admin only.",
     params(("id" = Uuid, Path, description = "Blocklist ID")),
     responses(
         (status = 202, description = "Background update job dispatched", body = JobDispatchedResponse),
@@ -309,11 +320,12 @@ pub async fn update_blocklist_now(
 // Allowlist
 // ---------------------------------------------------------------------------
 
-/// List all DNS allowlist entries.
 #[utoipa::path(
     get,
     path = "/api/dns/allowlist",
     tag = "dns",
+    description = "List every entry in the DNS allowlist. Allowlisted domains bypass \
+                   blocklist entries and always resolve. Admin only.",
     responses(
         (status = 200, description = "List of allowlist entries", body = ListAllowlistResponse),
         AuthErrors,
@@ -331,11 +343,12 @@ pub async fn list_allowlist(
     Ok(Json(response))
 }
 
-/// Add a domain to the DNS allowlist.
 #[utoipa::path(
     post,
     path = "/api/dns/allowlist",
     tag = "dns",
+    description = "Add a domain to the DNS allowlist so it is never blocked, regardless \
+                   of blocklist contents. Admin only.",
     request_body = CreateAllowlistRequest,
     responses(
         (status = 201, description = "Allowlist entry created", body = CreateAllowlistResponse),
@@ -356,11 +369,13 @@ pub async fn create_allowlist_entry(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Remove a domain from the DNS allowlist.
 #[utoipa::path(
     delete,
     path = "/api/dns/allowlist/{id}",
     tag = "dns",
+    description = "Remove a domain from the DNS allowlist. If the domain is also \
+                   listed by an active blocklist, it will start being blocked again. \
+                   Admin only.",
     params(("id" = Uuid, Path, description = "Allowlist entry ID")),
     responses(
         (status = 200, description = "Allowlist entry deleted", body = DeleteAllowlistResponse),
@@ -385,11 +400,13 @@ pub async fn delete_allowlist_entry(
 // Custom filter rules
 // ---------------------------------------------------------------------------
 
-/// List all custom DNS filter rules.
 #[utoipa::path(
     get,
     path = "/api/dns/rules",
     tag = "dns",
+    description = "List every custom DNS filter rule (allow, block, or rewrite) \
+                   configured by the admin. Custom rules are evaluated alongside \
+                   blocklists and allowlists. Admin only.",
     responses(
         (status = 200, description = "List of custom filter rules", body = ListFilterRulesResponse),
         AuthErrors,
@@ -407,11 +424,13 @@ pub async fn list_filter_rules(
     Ok(Json(response))
 }
 
-/// Create a custom DNS filter rule.
 #[utoipa::path(
     post,
     path = "/api/dns/rules",
     tag = "dns",
+    description = "Create a custom DNS filter rule — a named allow/block/rewrite \
+                   entry the admin maintains alongside the imported blocklists. \
+                   Admin only.",
     request_body = CreateFilterRuleRequest,
     responses(
         (status = 201, description = "Filter rule created", body = CreateFilterRuleResponse),
@@ -432,11 +451,12 @@ pub async fn create_filter_rule(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Update a custom DNS filter rule by ID.
 #[utoipa::path(
     put,
     path = "/api/dns/rules/{id}",
     tag = "dns",
+    description = "Update a custom DNS filter rule in place (pattern, action, enabled \
+                   flag). Admin only.",
     params(("id" = Uuid, Path, description = "Filter rule ID")),
     request_body = UpdateFilterRuleRequest,
     responses(
@@ -460,11 +480,11 @@ pub async fn update_filter_rule(
     Ok(Json(response))
 }
 
-/// Delete a custom DNS filter rule by ID.
 #[utoipa::path(
     delete,
     path = "/api/dns/rules/{id}",
     tag = "dns",
+    description = "Delete a custom DNS filter rule by ID. Admin only.",
     params(("id" = Uuid, Path, description = "Filter rule ID")),
     responses(
         (status = 200, description = "Filter rule deleted", body = DeleteFilterRuleResponse),

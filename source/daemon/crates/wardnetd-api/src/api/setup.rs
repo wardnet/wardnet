@@ -14,14 +14,14 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router.routes(routes!(setup_status)).routes(routes!(setup))
 }
 
-/// Check whether the initial setup wizard has been completed.
-///
-/// Thin handler — returns whether the initial setup wizard has been completed.
-/// No authentication required so the web UI can check before rendering.
 #[utoipa::path(
     get,
     path = "/api/setup/status",
     tag = "setup",
+    description = "Report whether the initial setup wizard has been completed (i.e. \
+                   whether any admin account exists). No authentication required — the \
+                   web UI calls this before rendering to decide whether to redirect \
+                   the user to the setup page.",
     responses(
         (status = 200, description = "Whether initial setup is complete", body = SetupStatusResponse),
         (status = 500, description = "Internal server error", body = ApiError),
@@ -35,14 +35,15 @@ pub async fn setup_status(
     Ok(Json(SetupStatusResponse { setup_completed }))
 }
 
-/// Create the first admin account (initial setup wizard).
-///
-/// Thin handler — creates the first admin account during initial setup.
-/// No authentication required. Returns 409 if setup has already been completed.
 #[utoipa::path(
     post,
     path = "/api/setup",
     tag = "setup",
+    description = "Create the first admin account as part of the initial setup wizard. \
+                   Password is hashed with Argon2id before persistence. No \
+                   authentication required (because by definition no admin exists yet), \
+                   but returns 409 Conflict if setup has already been completed to \
+                   prevent this endpoint from being used as an admin-creation backdoor.",
     request_body = SetupRequest,
     responses(
         (status = 201, description = "Admin account created", body = SetupResponse),

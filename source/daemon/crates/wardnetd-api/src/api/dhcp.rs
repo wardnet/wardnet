@@ -36,14 +36,12 @@ const PATH_RESERVATIONS: &str = "/api/dhcp/reservations";
 const PATH_RESERVATION_ITEM: &str = "/api/dhcp/reservations/{id}";
 const PATH_STATUS: &str = "/api/dhcp/status";
 
-/// Get the current DHCP pool configuration.
-///
-/// Thin handler — returns the current DHCP pool configuration.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = PATH_CONFIG,
     tag = TAG,
+    description = "Return the current DHCP pool configuration (enabled flag, range, \
+                   lease time, default options). Admin only.",
     responses(
         (status = 200, description = "Current DHCP configuration", body = DhcpConfigResponse),
         AuthErrors,
@@ -61,14 +59,13 @@ pub async fn get_config(
     Ok(Json(response))
 }
 
-/// Update the DHCP pool configuration.
-///
-/// Thin handler — updates the DHCP pool configuration.
-/// Requires admin authentication.
 #[utoipa::path(
     put,
     path = PATH_CONFIG,
     tag = TAG,
+    description = "Update the DHCP pool configuration (range, lease time, default \
+                   options). Does not toggle the enabled flag — use the \
+                   /api/dhcp/config/toggle endpoint for that. Admin only.",
     request_body = UpdateDhcpConfigRequest,
     responses(
         (status = 200, description = "Updated DHCP configuration", body = DhcpConfigResponse),
@@ -89,14 +86,13 @@ pub async fn update_config(
     Ok(Json(response))
 }
 
-/// Enable or disable the DHCP server.
-///
-/// Thin handler — enables or disables the DHCP server.
-/// Requires admin authentication.
 #[utoipa::path(
     post,
     path = PATH_TOGGLE,
     tag = TAG,
+    description = "Enable or disable the DHCP server. In addition to persisting the \
+                   enabled flag, this starts or stops the live DHCP server process so \
+                   the change takes effect immediately. Admin only.",
     request_body = ToggleDhcpRequest,
     responses(
         (status = 200, description = "Updated DHCP configuration", body = DhcpConfigResponse),
@@ -126,14 +122,12 @@ pub async fn toggle(
     Ok(Json(response))
 }
 
-/// List all active DHCP leases.
-///
-/// Thin handler — lists all active DHCP leases.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = PATH_LEASES,
     tag = TAG,
+    description = "List every active DHCP lease currently tracked by the daemon, \
+                   including MAC, IP, hostname, and expiry. Admin only.",
     responses(
         (status = 200, description = "Active DHCP leases", body = ListDhcpLeasesResponse),
         AuthErrors,
@@ -151,14 +145,13 @@ pub async fn list_leases(
     Ok(Json(response))
 }
 
-/// Revoke an active DHCP lease by ID.
-///
-/// Thin handler — revokes an active DHCP lease.
-/// Requires admin authentication.
 #[utoipa::path(
     delete,
     path = PATH_LEASE_ITEM,
     tag = TAG,
+    description = "Revoke an active DHCP lease by ID. The IP returns to the pool \
+                   and the client will re-negotiate on its next renewal cycle. \
+                   Admin only.",
     params(("id" = Uuid, Path, description = "Lease ID")),
     responses(
         (status = 200, description = "Lease revoked", body = RevokeDhcpLeaseResponse),
@@ -179,14 +172,12 @@ pub async fn revoke_lease(
     Ok(Json(response))
 }
 
-/// List all static DHCP reservations.
-///
-/// Thin handler — lists all static DHCP reservations.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = PATH_RESERVATIONS,
     tag = TAG,
+    description = "List every configured static MAC-to-IP DHCP reservation. \
+                   Reservations take precedence over dynamic leases. Admin only.",
     responses(
         (status = 200, description = "Static DHCP reservations", body = ListDhcpReservationsResponse),
         AuthErrors,
@@ -204,14 +195,12 @@ pub async fn list_reservations(
     Ok(Json(response))
 }
 
-/// Create a static MAC-to-IP DHCP reservation.
-///
-/// Thin handler — creates a new static MAC-to-IP reservation.
-/// Requires admin authentication.
 #[utoipa::path(
     post,
     path = PATH_RESERVATIONS,
     tag = TAG,
+    description = "Create a new static MAC-to-IP DHCP reservation so a given device \
+                   always receives the same IP. Admin only.",
     request_body = CreateDhcpReservationRequest,
     responses(
         (status = 201, description = "Reservation created", body = CreateDhcpReservationResponse),
@@ -232,14 +221,12 @@ pub async fn create_reservation(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Delete a static DHCP reservation by ID.
-///
-/// Thin handler — deletes a static DHCP reservation.
-/// Requires admin authentication.
 #[utoipa::path(
     delete,
     path = PATH_RESERVATION_ITEM,
     tag = TAG,
+    description = "Delete a static DHCP reservation by ID. Any existing lease for the \
+                   MAC is preserved until its natural expiry. Admin only.",
     params(("id" = Uuid, Path, description = "Reservation ID")),
     responses(
         (status = 200, description = "Reservation deleted", body = DeleteDhcpReservationResponse),
@@ -260,14 +247,12 @@ pub async fn delete_reservation(
     Ok(Json(response))
 }
 
-/// Get DHCP server status and pool usage.
-///
-/// Thin handler — returns DHCP server status and pool usage.
-/// Requires admin authentication.
 #[utoipa::path(
     get,
     path = PATH_STATUS,
     tag = TAG,
+    description = "Get live DHCP server status and pool usage (running flag, total/used \
+                   addresses, lease counts). Admin only.",
     responses(
         (status = 200, description = "DHCP server status and pool usage", body = DhcpStatusResponse),
         AuthErrors,

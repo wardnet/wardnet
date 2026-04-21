@@ -31,14 +31,15 @@ const PATH_ME_RULE: &str = "/api/devices/me/rule";
 const PATH_LIST: &str = "/api/devices";
 const PATH_ITEM: &str = "/api/devices/{id}";
 
-/// Get the caller's own device info and routing rule (by source IP).
-///
-/// Thin handler — identifies the caller by source IP and returns their
-/// device info and current routing rule. No authentication required.
 #[utoipa::path(
     get,
     path = PATH_ME,
     tag = TAG,
+    description = "Identify the caller by source IP and return their device info, \
+                   current routing rule, and the list of available tunnels they can \
+                   route through. Used by the self-service \"My Device\" page, so no \
+                   authentication is required — the daemon trusts the source IP of the \
+                   incoming TCP connection.",
     responses(
         (status = 200, description = "Caller device info and available tunnels", body = DeviceMeResponse),
         (status = 500, description = "Internal server error", body = ApiError),
@@ -79,15 +80,14 @@ pub async fn get_me(
     Ok(Json(response))
 }
 
-/// Set the caller's own routing rule (self-service by source IP).
-///
-/// Thin handler — allows the caller to set their own routing rule.
-/// Delegates admin-lock checks to [`DeviceService`](wardnetd_services::DeviceService).
-/// No authentication required (self-service by IP).
 #[utoipa::path(
     put,
     path = PATH_ME_RULE,
     tag = TAG,
+    description = "Let the caller change their own routing rule (direct vs. a specific \
+                   tunnel). The target device is identified by source IP. Admin-locked \
+                   devices are rejected with 403 — an admin must lift the lock first. \
+                   No authentication is required (self-service by IP).",
     request_body = SetMyRuleRequest,
     responses(
         (status = 200, description = "Updated caller routing rule", body = SetMyRuleResponse),
@@ -146,11 +146,13 @@ fn enrich_device(
     }
 }
 
-/// List all devices with their DHCP status (admin only).
 #[utoipa::path(
     get,
     path = PATH_LIST,
     tag = TAG,
+    description = "List every device the daemon has seen on the LAN, enriched with its \
+                   current DHCP status (reservation, active lease, or external/unknown). \
+                   Admin only.",
     responses(
         (status = 200, description = "List of devices with DHCP status", body = ListDevicesResponse),
         AuthErrors,
@@ -175,11 +177,12 @@ pub async fn list_devices(
     Ok(Json(ListDevicesResponse { devices }))
 }
 
-/// Get device detail with its current routing rule (admin only).
 #[utoipa::path(
     get,
     path = PATH_ITEM,
     tag = TAG,
+    description = "Fetch a single device by ID, including its current routing rule and \
+                   DHCP status. Admin only.",
     params(("id" = Uuid, Path, description = "Device ID")),
     responses(
         (status = 200, description = "Device detail", body = DeviceDetailResponse),
@@ -215,14 +218,13 @@ pub async fn get_device(
     }))
 }
 
-/// Update device properties (admin only).
-///
-/// Supports updating name, device type, routing target, and admin-locked flag.
-/// Each field is optional; only provided fields are changed.
 #[utoipa::path(
     put,
     path = PATH_ITEM,
     tag = TAG,
+    description = "Update mutable device properties: display name, device type, routing \
+                   target, and the admin-locked flag. Each field is optional; only \
+                   fields present in the request body are changed. Admin only.",
     params(("id" = Uuid, Path, description = "Device ID")),
     request_body = UpdateDeviceRequest,
     responses(
