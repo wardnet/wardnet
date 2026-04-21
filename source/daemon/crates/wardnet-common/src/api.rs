@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
@@ -616,4 +617,86 @@ pub struct UpdateConfigResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateHistoryResponse {
     pub entries: Vec<UpdateHistoryEntry>,
+}
+
+// ---------------------------------------------------------------------------
+// Backup / restore
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/backup/export`.
+///
+/// The passphrase is used to derive the age encryption key via scrypt.
+/// Server-side we enforce a minimum length of
+/// `crate::backup::MIN_PASSPHRASE_LEN`; clients should surface the same
+/// minimum in UI copy so failures happen before the request.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ExportBackupRequest {
+    /// Passphrase chosen by the admin. Never logged, never persisted —
+    /// lives only in the memory of the request that produced the bundle.
+    pub passphrase: String,
+}
+
+/// Response for `POST /api/backup/import/preview`.
+///
+/// Returned before any daemon state is touched. The UI uses this to show
+/// the admin what will change — which database, config, and key files get
+/// swapped, and which bundle they came from — so the actual apply step
+/// is a conscious confirmation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RestorePreviewResponse {
+    /// Bundle manifest, fully decrypted and validated.
+    pub manifest: BundleManifest,
+    /// True when the bundle's `bundle_format_version` and
+    /// `schema_version` are both compatible with the running daemon. A
+    /// `false` here means `apply_import` will refuse; the UI should
+    /// surface `incompatibility_reason` and hide the confirm button.
+    pub compatible: bool,
+    /// Human-readable reason the bundle is incompatible, when
+    /// `compatible` is `false`. `None` on the happy path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incompatibility_reason: Option<String>,
+    /// Files the apply step will rename to `.bak-<timestamp>` siblings
+    /// and then overwrite. Surfaced verbatim in the UI so operators
+    /// understand the blast radius before confirming.
+    pub files_to_replace: Vec<String>,
+    /// Opaque token the caller passes back to `apply_import` to prove
+    /// they just saw this preview. Scoped to a single bundle + session.
+    pub preview_token: String,
+}
+
+/// Request body for `POST /api/backup/import/apply`.
+///
+/// Consumes the `preview_token` returned by `/preview`, ensuring the
+/// apply step always has a prior preview (no silent blind restores).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApplyImportRequest {
+    pub preview_token: String,
+}
+
+/// Response for `POST /api/backup/import/apply`.
+///
+/// Returned once the swap completes. The daemon restarts subsystems
+/// (DHCP/DNS/update runners) after the swap; subsequent API calls see
+/// the restored state.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApplyImportResponse {
+    /// Final manifest for the applied bundle — identical to the one
+    /// surfaced in the preview but repeated here so the UI can confirm
+    /// without re-fetching.
+    pub manifest: BundleManifest,
+    /// `.bak-<timestamp>` snapshots of the files that were replaced.
+    /// Retained by the background cleanup task for 24 h.
+    pub snapshots: Vec<LocalSnapshot>,
+}
+
+/// Response for `GET /api/backup/status`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BackupStatusResponse {
+    pub status: BackupStatus,
+}
+
+/// Response for `GET /api/backup/snapshots`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListSnapshotsResponse {
+    pub snapshots: Vec<LocalSnapshot>,
 }
