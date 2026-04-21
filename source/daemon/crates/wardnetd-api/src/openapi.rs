@@ -152,8 +152,11 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
     // so we watch for the sidebar element to mount and prepend our own node.
     // The observer auto-disconnects after the first successful insertion.
     (function injectBrand() {
+      // Scalar's sidebar root uses the `t-doc__sidebar` class (verified
+      // against the bundle — generic `.sidebar` selectors match smaller
+      // children like the search placeholder and inject in the wrong place).
       const observer = new MutationObserver(() => {
-        const sidebar = document.querySelector('.sidebar, [class*="sidebar"]');
+        const sidebar = document.querySelector('.t-doc__sidebar');
         if (!sidebar || sidebar.querySelector('.wardnet-brand')) return;
         const brand = document.createElement('div');
         brand.className = 'wardnet-brand';

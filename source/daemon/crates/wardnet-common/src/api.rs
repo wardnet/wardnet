@@ -20,9 +20,17 @@ pub struct LoginRequest {
 }
 
 /// Login response body.
+///
+/// `token` is the same opaque value written into the `wardnet_session` cookie;
+/// non-browser clients (e.g. scripts that don't maintain a cookie jar) can
+/// replay it on admin-gated requests via the `Authorization: Bearer <token>`
+/// header. `expires_in_seconds` is the token's remaining lifetime measured
+/// from the moment this response was generated.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct LoginResponse {
     pub message: String,
+    pub token: String,
+    pub expires_in_seconds: u64,
 }
 
 /// Minimal tunnel info exposed to self-service users for routing selection.

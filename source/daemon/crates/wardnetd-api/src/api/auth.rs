@@ -21,8 +21,11 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     tag = "auth",
     description = "Log in with username and password. On success, sets a \
                    `wardnet_session` cookie the browser replays on subsequent \
-                   admin-gated requests. Also returned as a JSON body so \
-                   non-browser clients can surface the login message.",
+                   admin-gated requests. The JSON body also carries the raw \
+                   `token` and `expires_in_seconds` so non-browser clients \
+                   (scripts, the `wctl` CLI, third-party integrations) can \
+                   replay the token via `Authorization: Bearer <token>` \
+                   without a cookie jar.",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Login successful; session cookie is set", body = LoginResponse),
@@ -50,6 +53,8 @@ pub async fn login(
         [(SET_COOKIE, cookie_value)],
         Json(LoginResponse {
             message: "logged in".to_owned(),
+            token: result.token,
+            expires_in_seconds: result.max_age_seconds,
         }),
     ))
 }
