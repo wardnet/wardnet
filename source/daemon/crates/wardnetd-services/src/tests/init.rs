@@ -181,6 +181,8 @@ fn stub_backends() -> Backends {
             verifier: Arc::new(StubReleaseVerifier),
             applier: Arc::new(StubBinaryApplier),
         },
+        config_path: std::path::PathBuf::from("/tmp/wardnet-init-test.toml"),
+        host_id: "init-test-host".to_owned(),
     }
 }
 
@@ -250,7 +252,7 @@ async fn init_services_with_factory_builds_every_service() {
     let pool = init_pool_from_connection_string(":memory:")
         .await
         .expect("in-memory pool");
-    let factory = SqliteRepositoryFactory::new(pool);
+    let factory = SqliteRepositoryFactory::from_pool(pool, std::path::PathBuf::from(":memory:"));
 
     let config = ApplicationConfiguration::default();
     let lan_ip = Ipv4Addr::new(192, 168, 1, 1);
@@ -286,7 +288,7 @@ async fn init_services_with_factory_respects_disabled_provider() {
     let pool = init_pool_from_connection_string(":memory:")
         .await
         .expect("in-memory pool");
-    let factory = SqliteRepositoryFactory::new(pool);
+    let factory = SqliteRepositoryFactory::from_pool(pool, std::path::PathBuf::from(":memory:"));
 
     let mut config = ApplicationConfiguration::default();
     config
@@ -370,7 +372,7 @@ async fn init_services_with_broadcast_lan_ip_falls_back_to_default_subnet() {
     let pool = init_pool_from_connection_string(":memory:")
         .await
         .expect("in-memory pool");
-    let factory = SqliteRepositoryFactory::new(pool);
+    let factory = SqliteRepositoryFactory::from_pool(pool, std::path::PathBuf::from(":memory:"));
     let config = ApplicationConfiguration::default();
 
     let services = init_services_with_factory(

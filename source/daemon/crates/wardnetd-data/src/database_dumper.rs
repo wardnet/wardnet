@@ -36,6 +36,12 @@ pub trait DatabaseDumper: Send + Sync {
     /// the restored database — surfaced so the caller can log it and
     /// decide whether to trigger an online migration pass.
     async fn restore(&self, bytes: &[u8]) -> anyhow::Result<i64>;
+
+    /// Read the highest applied migration version from the live
+    /// database. Used to build `BundleManifest.schema_version` on
+    /// export and to refuse imports from a newer schema than the
+    /// running daemon supports.
+    async fn current_schema_version(&self) -> anyhow::Result<i64>;
 }
 
 /// Default [`DatabaseDumper`] backed by a live [`SqlitePool`] plus a
@@ -175,6 +181,14 @@ impl DatabaseDumper for SqliteDumper {
             "database restore complete: schema_version={schema_version}",
             schema_version = row.0,
         );
+        Ok(row.0)
+    }
+
+    async fn current_schema_version(&self) -> anyhow::Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COALESCE(MAX(version), 0) FROM _sqlx_migrations")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to read current schema version: {e}"))?;
         Ok(row.0)
     }
 }

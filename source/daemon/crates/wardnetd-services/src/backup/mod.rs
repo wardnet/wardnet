@@ -1,32 +1,42 @@
-//! Backup and restore — encrypted bundle pack/unpack plus `SQLite`
-//! dump helpers.
+//! Backup and restore — encrypted bundle pack/unpack + the service
+//! that composes it with a provider-supplied database dumper and a
+//! secret store.
 //!
-//! The subsystem is composed of two narrow traits so each concern can
-//! be unit-tested in isolation and mocked from the service layer:
+//! ### Traits
 //!
-//! * [`BackupArchiver`] — turns bundle inputs into an encrypted
-//!   `.wardnet.age` byte stream and back. Concrete impl: [`AgeArchiver`]
-//!   (tar + gzip + age passphrase encryption).
-//! * [`DatabaseDumper`] — captures a point-in-time `SQLite` snapshot
-//!   via `VACUUM INTO` (consistent under concurrent writes) and
-//!   restores one in place. Concrete impl: [`SqliteDumper`].
+//! * [`BackupService`] (in `service`) is the outward-facing admin
+//!   surface: `export`, `preview_import`, `apply_import`,
+//!   `list_snapshots`, `cleanup_old_snapshots`. Admin-guarded at the
+//!   first line of every method.
+//! * `BackupArchiver` (in `archiver`) codes the `.wardnet.age` wire
+//!   format — `age(gzip(tar(files)))` with a scrypt-derived
+//!   passphrase key. Internal to this module.
 //!
 //! Secret-store bundling lives on the
-//! [`SecretStore`](wardnetd_data::secret_store::SecretStore) trait
-//! itself via `backup_contents()` / `restore_from_backup()`, so each
-//! provider (filesystem today, `HashiCorp` Vault / `OnePassword` /
-//! AWS Secrets Manager later) controls what it contributes to a
-//! bundle.
+//! [`SecretStore`](wardnetd_data::secret_store::SecretStore) trait via
+//! `backup_contents()` / `restore_from_backup()`, so each provider
+//! (`file_system` today, `HashiCorp` Vault / `OnePassword` / AWS
+//! Secrets Manager later) controls what it contributes.
 //!
-//! Nothing in this module depends on the HTTP layer — the API lives in
-//! `wardnetd-api` and calls into the `BackupService` (added in a later
-//! commit) which composes these primitives.
+//! The database dumper lives in
+//! [`wardnetd_data::database_dumper`] alongside the repositories: each
+//! storage backend ships its own dumper. The backup service consumes
+//! it via `factory.dumper()`.
+//!
+//! Nothing in this module depends on the HTTP layer — the API in
+//! `wardnetd-api` calls into `BackupService`, which composes these
+//! pieces.
 
 pub mod archiver;
-pub mod database_dumper;
+pub mod runner;
+pub mod service;
 
-pub use archiver::{AgeArchiver, BackupArchiver, BundleContents};
-pub use database_dumper::{DatabaseDumper, SqliteDumper};
+// Only `BackupService`, `BackupServiceImpl` (used by
+// `create_services` for wiring), and the cleanup runner leave this
+// module. The archiver and the dumper are implementation details
+// that stay internal — the binaries don't need to know about them.
+pub use runner::{BackupCleanupRunner, DEFAULT_SNAPSHOT_RETENTION};
+pub use service::{BACKUP_RESTART_PENDING_KEY, BackupService, BackupServiceImpl};
 
 #[cfg(test)]
 mod tests;

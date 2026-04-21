@@ -16,7 +16,10 @@ async fn populate_inserts_expected_demo_data() {
         .await
         .expect("in-memory pool should initialise");
 
-    let factory: Box<dyn RepositoryFactory> = Box::new(SqliteRepositoryFactory::new(pool));
+    let factory: Box<dyn RepositoryFactory> = Box::new(SqliteRepositoryFactory::from_pool(
+        pool,
+        std::path::PathBuf::from(":memory:"),
+    ));
     let ids = populate(factory.as_ref())
         .await
         .expect("populate should succeed");
@@ -49,7 +52,10 @@ async fn populate_inserts_expected_demo_data() {
 #[tokio::test]
 async fn populate_routing_rule_references_first_device_and_tunnel() {
     let pool = init_pool_from_connection_string(":memory:").await.unwrap();
-    let factory: Box<dyn RepositoryFactory> = Box::new(SqliteRepositoryFactory::new(pool));
+    let factory: Box<dyn RepositoryFactory> = Box::new(SqliteRepositoryFactory::from_pool(
+        pool,
+        std::path::PathBuf::from(":memory:"),
+    ));
     let ids = populate(factory.as_ref()).await.unwrap();
 
     let first_device_id = ids.device_ids.first().expect("at least one device");

@@ -2,4 +2,3 @@
 //! primitive in isolation.
 
 mod archiver;
-mod database_dumper;

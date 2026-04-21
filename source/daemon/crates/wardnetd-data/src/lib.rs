@@ -1,4 +1,5 @@
 pub mod bootstrap;
+pub mod database_dumper;
 pub mod db;
 pub mod oui;
 pub mod repository;
@@ -33,6 +34,15 @@ pub trait RepositoryFactory: Send + Sync {
     fn dns(&self) -> Arc<dyn DnsRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
+
+    /// Provider-specific database dumper for backup/restore.
+    ///
+    /// Kept on the factory rather than on a service wiring seam so the
+    /// dumper implementation and the repository implementations stay
+    /// in one place per backend — a future non-`SQLite` provider
+    /// ships its own dumper alongside its own repositories without
+    /// touching the backup service layer.
+    fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper>;
 }
 
 /// Create a [`RepositoryFactory`] from the application configuration.
@@ -45,9 +55,9 @@ pub async fn create_repository_factory(
 ) -> anyhow::Result<Box<dyn RepositoryFactory>> {
     match config.database.provider {
         DatabaseProvider::Sqlite => {
-            let pool =
-                db::init_pool_from_connection_string(&config.database.connection_string).await?;
-            Ok(Box::new(SqliteRepositoryFactory::new(pool)))
+            let factory =
+                SqliteRepositoryFactory::connect(&config.database.connection_string).await?;
+            Ok(Box::new(factory))
         }
     }
 }
@@ -55,12 +65,36 @@ pub async fn create_repository_factory(
 /// `SQLite`-backed repository factory.
 pub struct SqliteRepositoryFactory {
     pool: SqlitePool,
+    database_path: std::path::PathBuf,
 }
 
 impl SqliteRepositoryFactory {
+    /// Initialise a new factory: open the connection pool against
+    /// `connection_string`, run migrations, and bind everything to the
+    /// factory instance. The production entry point called from
+    /// [`create_repository_factory`].
+    pub async fn connect(connection_string: &str) -> anyhow::Result<Self> {
+        let pool = db::init_pool_from_connection_string(connection_string).await?;
+        let database_path = std::path::PathBuf::from(connection_string);
+        Ok(Self {
+            pool,
+            database_path,
+        })
+    }
+
+    /// Construct from an already-initialised pool.
+    ///
+    /// Used by the mock (which pre-seeds data into an in-memory pool
+    /// and needs to hand the populated pool to the service layer) and
+    /// by tests. Not for production wiring — prefer
+    /// [`Self::connect`], which keeps pool creation inside the
+    /// factory's lifecycle.
     #[must_use]
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn from_pool(pool: SqlitePool, database_path: std::path::PathBuf) -> Self {
+        Self {
+            pool,
+            database_path,
+        }
     }
 }
 
@@ -99,5 +133,12 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn update(&self) -> Arc<dyn UpdateRepository> {
         Arc::new(SqliteUpdateRepository::new(self.pool.clone()))
+    }
+
+    fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper> {
+        Arc::new(database_dumper::SqliteDumper::new(
+            self.pool.clone(),
+            self.database_path.clone(),
+        ))
     }
 }

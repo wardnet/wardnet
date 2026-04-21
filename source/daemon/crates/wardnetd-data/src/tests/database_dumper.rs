@@ -8,7 +8,7 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Executor, SqlitePool};
 use uuid::Uuid;
 
-use crate::backup::database_dumper::{DatabaseDumper, SqliteDumper};
+use crate::database_dumper::{DatabaseDumper, SqliteDumper};
 
 fn temp_db_path() -> PathBuf {
     std::env::temp_dir().join(format!("wardnet-dumper-test-{}.db", Uuid::new_v4()))
