@@ -8,6 +8,7 @@ pub mod secret_store;
 pub mod version;
 
 pub mod auth;
+pub mod backup;
 pub mod device;
 pub mod dhcp;
 pub mod dns;

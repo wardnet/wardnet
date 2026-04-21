@@ -69,10 +69,12 @@ hickory-proto.workspace = true
 semver.workspace = true
 # https://crates.io/crates/minisign-verify — signature verification for release tarballs
 minisign-verify.workspace = true
-# https://crates.io/crates/flate2 — gzip decompression for release tarballs
+# https://crates.io/crates/flate2 — gzip for release tarballs and backup bundles
 flate2.workspace = true
-# https://crates.io/crates/tar — tarball extraction for release artefacts
+# https://crates.io/crates/tar — tar layer for release artefacts and backup bundles
 tar.workspace = true
+# https://crates.io/crates/age — symmetric passphrase encryption for backup bundles
+age.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio
