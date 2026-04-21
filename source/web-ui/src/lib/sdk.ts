@@ -1,6 +1,7 @@
 import {
   WardnetClient,
   AuthService,
+  BackupService,
   DeviceService,
   TunnelService,
   ProviderService,
@@ -29,3 +30,4 @@ export const dnsService = new DnsService(client);
 export const jobsService = new JobsService(client);
 export const logService = new LogService(client, window.location.origin);
 export const updateService = new UpdateService(client);
+export const backupService = new BackupService(client);

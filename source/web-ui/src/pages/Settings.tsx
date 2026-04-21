@@ -1,6 +1,10 @@
+import { useState } from "react";
+import type { RestorePreviewResponse } from "@wardnet/js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { PageHeader } from "@/components/compound/PageHeader";
+import { BackupCard } from "@/components/features/BackupCard";
 import { UpdateCard } from "@/components/features/UpdateCard";
+import { useApplyImport, useExportBackup, usePreviewImport } from "@/hooks/useBackup";
 import { useSystemStatus } from "@/hooks/useSystemStatus";
 import {
   useCheckForUpdates,
@@ -19,6 +23,14 @@ export default function Settings() {
   const install = useInstallUpdate();
   const rollback = useRollbackUpdate();
   const saveConfig = useUpdateConfig();
+
+  // Backup flow — preview response is held in page-local state so the
+  // BackupCard can render it between the two steps of the restore
+  // wizard. `onDismissPreview` clears it when the operator cancels.
+  const [preview, setPreview] = useState<RestorePreviewResponse | null>(null);
+  const exportBackup = useExportBackup();
+  const previewImport = usePreviewImport();
+  const applyImport = useApplyImport();
 
   return (
     <>
@@ -71,6 +83,26 @@ export default function Settings() {
           onRollback={() => rollback.mutate()}
           onToggleAutoUpdate={(enabled) => saveConfig.mutate({ auto_update_enabled: enabled })}
           onChangeChannel={(channel) => saveConfig.mutate({ channel })}
+        />
+
+        <BackupCard
+          isExporting={exportBackup.isPending}
+          isPreviewing={previewImport.isPending}
+          isApplying={applyImport.isPending}
+          preview={preview}
+          onExport={(passphrase) => exportBackup.mutate({ passphrase })}
+          onPreview={(args) =>
+            previewImport.mutate(args, {
+              onSuccess: (data) => setPreview(data),
+            })
+          }
+          onApply={(previewToken) =>
+            applyImport.mutate(
+              { preview_token: previewToken },
+              { onSuccess: () => setPreview(null) },
+            )
+          }
+          onDismissPreview={() => setPreview(null)}
         />
 
         <Card>
