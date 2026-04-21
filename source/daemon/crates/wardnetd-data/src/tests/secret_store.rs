@@ -8,7 +8,9 @@
 use uuid::Uuid;
 use wardnet_common::config::SecretStoreConfig;
 
-use crate::secret_store::{FileSecretStore, NullSecretStore, SecretStore, build_secret_store};
+use crate::secret_store::{
+    FileSecretStore, NullSecretStore, SecretEntry, SecretStore, build_secret_store,
+};
 
 fn fresh_root() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("wardnet-test-secrets-{}", Uuid::new_v4()))
@@ -137,4 +139,88 @@ async fn build_secret_store_wires_file_system_provider() {
 async fn build_secret_store_wires_null_when_config_absent() {
     let store = build_secret_store(None);
     assert!(store.put("wireguard/x", b"y").await.is_err());
+}
+
+#[tokio::test]
+async fn file_secret_store_backup_contents_enumerates_every_entry() {
+    let root = fresh_root();
+    let store = FileSecretStore::new(root.clone());
+
+    store.put("wireguard/a.key", b"AAA").await.unwrap();
+    store.put("wireguard/b.key", b"BBB").await.unwrap();
+    store.put("backup/passphrases/j1", b"PPP").await.unwrap();
+
+    let mut entries = store.backup_contents().await.unwrap();
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0].path, "backup/passphrases/j1");
+    assert_eq!(entries[0].value, b"PPP");
+    assert_eq!(entries[1].path, "wireguard/a.key");
+    assert_eq!(entries[2].path, "wireguard/b.key");
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn file_secret_store_restore_from_backup_replaces_store_state() {
+    let root = fresh_root();
+    let store = FileSecretStore::new(root.clone());
+
+    // Pre-existing state that must NOT survive the restore.
+    store.put("wireguard/stale.key", b"STALE").await.unwrap();
+    store.put("wireguard/kept.key", b"OLD").await.unwrap();
+
+    store
+        .restore_from_backup(&[
+            SecretEntry {
+                path: "wireguard/kept.key".to_owned(),
+                value: b"NEW".to_vec(),
+            },
+            SecretEntry {
+                path: "wireguard/fresh.key".to_owned(),
+                value: b"FRESH".to_vec(),
+            },
+        ])
+        .await
+        .unwrap();
+
+    assert!(store.get("wireguard/stale.key").await.unwrap().is_none());
+    assert_eq!(
+        store.get("wireguard/kept.key").await.unwrap().unwrap(),
+        b"NEW"
+    );
+    assert_eq!(
+        store.get("wireguard/fresh.key").await.unwrap().unwrap(),
+        b"FRESH"
+    );
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn null_secret_store_backup_contents_is_empty() {
+    let store = NullSecretStore;
+    let entries = store.backup_contents().await.unwrap();
+    assert!(entries.is_empty());
+}
+
+#[tokio::test]
+async fn null_secret_store_restore_from_backup_rejects_non_empty_bundle() {
+    let store = NullSecretStore;
+    // Empty restore is fine — nothing to do.
+    store.restore_from_backup(&[]).await.unwrap();
+    // Non-empty restore errors: the bundle has secrets with nowhere to go.
+    let err = store
+        .restore_from_backup(&[SecretEntry {
+            path: "wireguard/x".to_owned(),
+            value: b"y".to_vec(),
+        }])
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{err:#}")
+            .to_lowercase()
+            .contains("no secret store"),
+        "expected 'no secret store' error, got: {err}"
+    );
 }

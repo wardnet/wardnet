@@ -36,6 +36,24 @@ use async_trait::async_trait;
 
 use wardnet_common::config::SecretStoreConfig;
 
+/// One entry from the secret store as it travels inside a backup
+/// bundle.
+///
+/// Lives on the store trait (not the backup module) because the store
+/// itself decides what shape its backup export takes — `FileSecretStore`
+/// emits every `(path, bytes)` pair; external providers (`HashiCorp`
+/// Vault, `OnePassword`, AWS Secrets Manager) emit whatever — if
+/// anything — they need to survive a restore.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretEntry {
+    /// Path inside the store, e.g. `wireguard/<uuid>.key`.
+    pub path: String,
+    /// Raw secret bytes. External providers may leave this empty and
+    /// encode a reference in the `path` or a convention their own
+    /// `restore_from_backup` understands.
+    pub value: Vec<u8>,
+}
+
 /// A generic secret store keyed by forward-slash-separated paths.
 ///
 /// The path is opaque to the backend — `FileSecretStore` maps each segment
@@ -46,6 +64,18 @@ use wardnet_common::config::SecretStoreConfig;
 /// empty segments. Implementations treat a violation as a hard error
 /// rather than silently sanitising, because mis-pathed secrets are a sign
 /// of a bug, not input to recover from.
+///
+/// ### Backup contract
+///
+/// The [`Self::backup_contents`] and [`Self::restore_from_backup`]
+/// methods let each provider decide what (if anything) it contributes
+/// to a backup bundle. For `FileSecretStore` the default
+/// implementation dumps every entry and replaces every entry on
+/// restore — the secret bytes *are* the state. For providers whose
+/// secrets live in an external system (`HashiCorp` Vault, `OnePassword`,
+/// AWS Secrets Manager) the override typically returns an empty list
+/// and no-ops the restore, because the authoritative copy never left
+/// the external service.
 #[async_trait]
 pub trait SecretStore: Send + Sync {
     /// Write `value` at `path`, replacing any existing secret.
@@ -58,8 +88,53 @@ pub trait SecretStore: Send + Sync {
     async fn delete(&self, path: &str) -> anyhow::Result<()>;
 
     /// List secret paths whose leading segments match `prefix`. Returns
-    /// full paths so results can be round-tripped back through [`Self::get`].
+    /// full paths so results can be round-tripped back through
+    /// [`Self::get`].
     async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>>;
+
+    /// Snapshot everything this store wants to ship in a backup
+    /// bundle.
+    ///
+    /// Default: enumerate via `list("")` + `get`. Suitable for any
+    /// provider that owns its secret bytes locally. Override to return
+    /// an empty `Vec` (nothing to back up) or a provider-specific blob
+    /// if the authoritative copy lives in an external system.
+    async fn backup_contents(&self) -> anyhow::Result<Vec<SecretEntry>> {
+        let mut out = Vec::new();
+        for path in self.list("").await? {
+            if let Some(value) = self.get(&path).await? {
+                out.push(SecretEntry { path, value });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Replace the store's contents with `entries`, as produced by a
+    /// previous [`Self::backup_contents`] call.
+    ///
+    /// Default: delete every path not present in `entries`, then `put`
+    /// each entry. This is what any local-state provider wants — the
+    /// post-call state matches the bundle byte-for-byte.
+    ///
+    /// Providers whose secrets live externally should override this
+    /// to short-circuit: if `entries` is empty there's nothing to do;
+    /// otherwise they can log a warning and skip (the operator
+    /// re-authenticates the external provider as part of restore) or
+    /// error, depending on their trust model.
+    async fn restore_from_backup(&self, entries: &[SecretEntry]) -> anyhow::Result<()> {
+        let existing = self.list("").await?;
+        let incoming: std::collections::HashSet<&str> =
+            entries.iter().map(|e| e.path.as_str()).collect();
+        for path in &existing {
+            if !incoming.contains(path.as_str()) {
+                self.delete(path).await?;
+            }
+        }
+        for entry in entries {
+            self.put(&entry.path, &entry.value).await?;
+        }
+        Ok(())
+    }
 }
 
 /// Reject paths that would escape the store root or otherwise surprise a
@@ -219,6 +294,27 @@ impl SecretStore for NullSecretStore {
 
     async fn list(&self, _prefix: &str) -> anyhow::Result<Vec<String>> {
         anyhow::bail!(NULL_MSG)
+    }
+
+    async fn backup_contents(&self) -> anyhow::Result<Vec<SecretEntry>> {
+        // Nothing to back up — the default implementation would call
+        // `list` and blow up. Exporting with no secret store configured
+        // is a valid scenario: operators may run a read-only Wardnet
+        // (DHCP/DNS/device detection) without tunnels or backup creds.
+        Ok(Vec::new())
+    }
+
+    async fn restore_from_backup(&self, entries: &[SecretEntry]) -> anyhow::Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // If the bundle carries secrets but we have no place to write
+        // them, fail loud — the operator must configure a secret store
+        // before importing.
+        anyhow::bail!(
+            "bundle contains {} secret entries but no secret store is configured — add a [secret_store] section to wardnet.toml before importing",
+            entries.len()
+        );
     }
 }
 
