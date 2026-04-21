@@ -34,6 +34,9 @@ NOT inside `source/daemon/`. Always read and update memory at the repo root, reg
 - `TunnelRow.listen_port` is `Option<u16>` (not `i64`) so the service can pass values from parsed config without casting.
 - Clippy requires backticks around `WireGuard` in doc comments (`///`) but not in regular comments (`//`).
 
+## Linked topic notes
+- [utoipa ToSchema gotchas](utoipa_notes.md) — Ipv4Addr/IpAddr need `#[schema(value_type = String)]`; chrono/uuid work out of the box
+
 ## Test Conventions
 - Tests go in separate files: `src/repository/tests/<name>.rs`, `src/service/tests/<name>.rs`
 - Repository tests use `super::test_pool()` (in-memory SQLite with migrations)

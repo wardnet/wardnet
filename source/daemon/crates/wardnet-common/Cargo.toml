@@ -25,3 +25,5 @@ uuid.workspace = true
 chrono.workspace = true
 # https://crates.io/crates/thiserror
 thiserror.workspace = true
+# https://crates.io/crates/utoipa
+utoipa.workspace = true

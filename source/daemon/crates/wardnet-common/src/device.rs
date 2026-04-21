@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The type/category of a network device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceType {
     Tv,
@@ -20,7 +20,7 @@ pub enum DeviceType {
 }
 
 /// Whether a device's IP is managed by the wardnet DHCP server.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DhcpStatus {
     /// Device has an active DHCP lease from wardnet.
@@ -32,7 +32,7 @@ pub enum DhcpStatus {
 }
 
 /// A discovered network device.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Device {
     pub id: Uuid,
     pub mac: String,

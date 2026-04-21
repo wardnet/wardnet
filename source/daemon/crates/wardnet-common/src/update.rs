@@ -12,7 +12,7 @@ use uuid::Uuid;
 /// `Stable` tracks only full semver releases (e.g. `0.1.2`). `Beta` also
 /// considers pre-release builds. `Beta` is v2 scope; the v1 daemon still
 /// accepts the value but the runner only checks `Stable`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum UpdateChannel {
     #[default]
@@ -42,7 +42,7 @@ impl UpdateChannel {
 }
 
 /// Phase of an in-flight update install.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum InstallPhase {
     /// No install in progress.
@@ -85,7 +85,7 @@ pub struct Release {
 }
 
 /// A single entry in the persistent update history.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateHistoryEntry {
     pub id: i64,
     pub from_version: String,
@@ -98,7 +98,7 @@ pub struct UpdateHistoryEntry {
 }
 
 /// Final status of a historical update attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateHistoryStatus {
     Started,
@@ -133,14 +133,14 @@ impl UpdateHistoryStatus {
 }
 
 /// Handle returned when an install is kicked off.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct InstallHandle {
     pub install_id: Uuid,
     pub target_version: String,
 }
 
 /// Snapshot of the update subsystem's current state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateStatus {
     /// Currently running daemon version.
     pub current_version: String,

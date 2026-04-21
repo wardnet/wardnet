@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Supported authentication methods for a VPN provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderAuthMethod {
     /// Username + password (service credentials).
@@ -11,7 +11,7 @@ pub enum ProviderAuthMethod {
 }
 
 /// Metadata about a registered VPN provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ProviderInfo {
     /// Unique machine identifier (e.g. "nordvpn").
     pub id: String,
@@ -31,7 +31,7 @@ pub struct ProviderInfo {
 }
 
 /// Credentials submitted by the admin for provider operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProviderCredentials {
     /// Username/password pair (service credentials).
@@ -49,7 +49,7 @@ pub enum ProviderCredentials {
 }
 
 /// Filters for server listing.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ServerFilter {
     /// ISO 3166-1 alpha-2 country code.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,7 +60,7 @@ pub struct ServerFilter {
 }
 
 /// A country available from a VPN provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CountryInfo {
     /// ISO 3166-1 alpha-2 country code (e.g. "US").
     pub code: String,
@@ -69,7 +69,7 @@ pub struct CountryInfo {
 }
 
 /// Information about a single VPN server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ServerInfo {
     /// Provider-specific server identifier.
     pub id: String,

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 /// Discriminator for what kind of work a job represents. The kind is fixed
 /// at job creation time; new kinds get new variants here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     BlocklistRefresh,
@@ -18,7 +18,7 @@ pub enum JobKind {
 
 /// Lifecycle state of a [`Job`]. Jobs start as `Pending`, move to `Running`
 /// when execution begins, and end in one of the two terminal states.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum JobStatus {
     Pending,
@@ -40,7 +40,7 @@ impl JobStatus {
 }
 
 /// Snapshot of a job, returned by `GET /api/jobs/:id`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Job {
     pub id: Uuid,
     pub kind: JobKind,
@@ -55,7 +55,7 @@ pub struct Job {
 
 /// Response body for a handler that dispatches a background job instead of
 /// doing the work inline. The HTTP status code is `202 Accepted`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JobDispatchedResponse {
     pub job_id: Uuid,
 }

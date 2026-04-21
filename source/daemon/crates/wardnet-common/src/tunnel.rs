@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The current status of a `WireGuard` tunnel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TunnelStatus {
     Up,
@@ -12,7 +12,7 @@ pub enum TunnelStatus {
 }
 
 /// A `WireGuard` tunnel configuration and its live state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Tunnel {
     pub id: Uuid,
     pub label: String,
@@ -30,7 +30,7 @@ pub struct Tunnel {
 use crate::wireguard_config::WgPeerConfig;
 
 /// Persisted tunnel configuration (excludes private key).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TunnelConfig {
     pub address: Vec<String>,
     pub dns: Vec<String>,

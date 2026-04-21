@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// DNS resolution strategy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsResolutionMode {
     /// Forward queries to configured upstream DNS servers.
@@ -15,7 +15,7 @@ pub enum DnsResolutionMode {
 }
 
 /// Transport protocol for upstream DNS communication.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsProtocol {
     Udp,
@@ -25,7 +25,7 @@ pub enum DnsProtocol {
 }
 
 /// A configured upstream DNS server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpstreamDns {
     /// IP address or hostname (e.g. "1.1.1.1", "dns.google").
     pub address: String,
@@ -43,7 +43,7 @@ pub struct UpstreamDns {
 /// Persisted as individual keys in the `system_config` KV table,
 /// following the same pattern as [`crate::dhcp::DhcpConfig`].
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsConfig {
     pub enabled: bool,
     pub resolution_mode: DnsResolutionMode,
@@ -92,7 +92,7 @@ impl Default for DnsConfig {
 }
 
 /// DNS record type for custom local records.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DnsRecordType {
     A,
@@ -104,7 +104,7 @@ pub enum DnsRecordType {
 }
 
 /// A user-defined local DNS record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CustomDnsRecord {
     pub id: Uuid,
     pub zone_id: Option<Uuid>,
@@ -118,7 +118,7 @@ pub struct CustomDnsRecord {
 }
 
 /// An authoritative local DNS zone (e.g. "lab", "home", "local").
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsZone {
     pub id: Uuid,
     pub name: String,
@@ -128,7 +128,7 @@ pub struct DnsZone {
 }
 
 /// A URL-sourced domain blocklist for ad blocking.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Blocklist {
     pub id: Uuid,
     pub name: String,
@@ -149,7 +149,7 @@ pub struct Blocklist {
 }
 
 /// An allowlist entry that overrides blocklist matches.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AllowlistEntry {
     pub id: Uuid,
     pub domain: String,
@@ -158,7 +158,7 @@ pub struct AllowlistEntry {
 }
 
 /// A user-created AdGuard-syntax filter rule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CustomFilterRule {
     pub id: Uuid,
     pub rule_text: String,
@@ -169,7 +169,7 @@ pub struct CustomFilterRule {
 }
 
 /// A conditional forwarding rule (domain → specific upstream).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ConditionalForwardingRule {
     pub id: Uuid,
     pub domain: String,
@@ -179,7 +179,7 @@ pub struct ConditionalForwardingRule {
 }
 
 /// Result classification for a DNS query.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsQueryResult {
     /// Answered by upstream server.
@@ -197,7 +197,7 @@ pub enum DnsQueryResult {
 }
 
 /// A single entry in the DNS query log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsQueryLogEntry {
     pub id: i64,
     pub timestamp: DateTime<Utc>,
@@ -213,7 +213,7 @@ pub struct DnsQueryLogEntry {
 /// Action returned by the DNS filter for a given query.
 ///
 /// Returned by `DnsFilter::check` to tell the server how to respond.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum FilterAction {
     /// Allow the query to proceed (cache lookup + upstream resolution).
@@ -221,11 +221,14 @@ pub enum FilterAction {
     /// Block the query — server returns NXDOMAIN.
     Block,
     /// Synthesize a response with the given IP address (`$dnsrewrite`).
-    Rewrite { ip: IpAddr },
+    Rewrite {
+        #[schema(value_type = String)]
+        ip: IpAddr,
+    },
 }
 
 /// Aggregated DNS statistics over a time window.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsStats {
     pub total_queries: u64,
     pub blocked_queries: u64,

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Parsed `[Interface]` section of a `WireGuard` config file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct WgInterfaceConfig {
     pub private_key: String,
     pub address: Vec<String>,
@@ -10,7 +10,7 @@ pub struct WgInterfaceConfig {
 }
 
 /// Parsed `[Peer]` section of a `WireGuard` config file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct WgPeerConfig {
     pub public_key: String,
     pub endpoint: Option<String>,
@@ -20,7 +20,7 @@ pub struct WgPeerConfig {
 }
 
 /// Complete parsed `WireGuard` configuration file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct WgConfig {
     pub interface: WgInterfaceConfig,
     pub peers: Vec<WgPeerConfig>,

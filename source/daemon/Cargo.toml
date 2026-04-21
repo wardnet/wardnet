@@ -150,3 +150,10 @@ opentelemetry-appender-tracing = "0.31"
 
 # https://crates.io/crates/pyroscope
 pyroscope = { version = "2", features = ["backend-pprof-rs"] }
+
+# https://crates.io/crates/utoipa
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+# https://crates.io/crates/utoipa-axum
+utoipa-axum = "0.2"
+# https://crates.io/crates/utoipa-scalar
+utoipa-scalar = { version = "0.3", features = ["axum"] }
