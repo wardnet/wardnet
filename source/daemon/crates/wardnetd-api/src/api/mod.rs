@@ -23,7 +23,9 @@ use axum::http;
 use axum::routing::get;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
+use utoipa_scalar::{Scalar, Servable};
 
 use crate::state::AppState;
 use crate::web::static_handler;
@@ -45,9 +47,9 @@ pub fn router(state: AppState) -> Router {
     // handlers. Order is purely cosmetic — it controls the grouping in the
     // generated docs.
     //
-    // TODO(openapi docs mount): Commit 3 will consume `_openapi` to expose the
-    // generated schema behind `/api/docs`.
-    let mut api_router = OpenApiRouter::<AppState>::new();
+    // Seed the router with `ApiDoc` so the merged document carries the shared
+    // metadata (title, tags, security schemes) declared in `openapi.rs`.
+    let mut api_router = OpenApiRouter::<AppState>::with_openapi(crate::openapi::ApiDoc::openapi());
     api_router = auth::register(api_router);
     api_router = setup::register(api_router);
     api_router = info::register(api_router);
@@ -60,13 +62,39 @@ pub fn router(state: AppState) -> Router {
     api_router = jobs::register(api_router);
     api_router = update::register(api_router);
 
-    let (api_router, _openapi) = api_router.split_for_parts();
+    // `split_for_parts` merges every handler path into the seeded `ApiDoc`
+    // and returns the fully populated OpenAPI document.
+    let (api_router, openapi) = api_router.split_for_parts();
 
     // Handler `#[utoipa::path(path = "/api/...")]` declares the full path, so
     // the generated axum router already routes under `/api/*`. WebSocket
     // endpoints cannot be modeled in OpenAPI; attach them to the generated
     // axum router as a plain route (using the full path for consistency).
     let api_router = api_router.route("/api/system/logs/stream", get(logs_ws::logs_ws));
+
+    // Spec endpoint: admin-gated JSON. `AdminAuth` as an extractor ensures the
+    // handler returns 401 for unauthenticated callers without any extra
+    // middleware plumbing.
+    let openapi_for_spec = openapi.clone();
+    let api_router = api_router.route(
+        "/api/openapi.json",
+        get(move |_: middleware::AdminAuth| {
+            let spec = openapi_for_spec.clone();
+            async move { axum::Json(spec) }
+        }),
+    );
+
+    // Scalar UI: a single HTML page with the spec embedded as JSON. Because
+    // the spec is baked into the HTML at render time, `/api/docs` is the only
+    // route Scalar registers (no sub-path asset loading to gate separately).
+    // `route_layer` applies `AdminAuth` extraction to the Scalar sub-router so
+    // the docs shell itself is 401 for unauthenticated callers.
+    let scalar_router: Router<AppState> = Scalar::with_url("/api/docs", openapi).into();
+    let scalar_router = scalar_router.route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        require_admin_mw,
+    ));
+    let api_router = api_router.merge(scalar_router);
 
     Router::new()
         .merge(api_router)
@@ -111,4 +139,27 @@ pub fn router(state: AppState) -> Router {
         )
         .layer(CorsLayer::permissive())
         .with_state(state)
+}
+
+/// Middleware that rejects non-admin callers with 401.
+///
+/// Used to gate the Scalar docs router, which merges a full `Router` that can't
+/// accept extractors inline. Delegates to the same session-cookie/API-key
+/// logic as [`middleware::AdminAuth`] by running that extractor on the request.
+async fn require_admin_mw(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::extract::FromRequestParts;
+    use axum::response::IntoResponse;
+
+    let (mut parts, body) = req.into_parts();
+    match middleware::AdminAuth::from_request_parts(&mut parts, &state).await {
+        Ok(_) => {
+            let req = axum::extract::Request::from_parts(parts, body);
+            next.run(req).await
+        }
+        Err(err) => err.into_response(),
+    }
 }
