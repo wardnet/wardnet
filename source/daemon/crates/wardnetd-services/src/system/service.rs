@@ -3,15 +3,17 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use sysinfo::System;
+use tokio_util::sync::CancellationToken;
 use wardnet_common::api::SystemStatusResponse;
 
 use crate::auth_context;
 use crate::error::AppError;
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 
-/// How long the restart handler waits before `exit(0)`. Lets the HTTP
-/// response flush so the client sees `204 No Content` before the
-/// connection drops. Anything longer isn't needed; anything shorter
+/// How long the restart handler waits before cancelling the shutdown
+/// token. Lets the HTTP response flush so the client sees
+/// `204 No Content` before the graceful-shutdown path starts draining
+/// connections. Anything longer isn't needed; anything shorter
 /// occasionally cuts the response short on a busy connection.
 const RESTART_GRACE: Duration = Duration::from_millis(500);
 
@@ -45,11 +47,20 @@ pub trait SystemService: Send + Sync {
 /// Holds a persistent `sysinfo::System` instance behind a `tokio::sync::Mutex`
 /// so that successive calls to `status()` produce accurate CPU readings
 /// (sysinfo needs two measurement points to compute CPU usage).
+///
+/// Also carries the daemon's shutdown [`CancellationToken`].
+/// `request_restart` cancels it after a short grace period, which in
+/// turn triggers the `with_graceful_shutdown` arm in `main.rs`
+/// (see `shutdown_signal`) — axum finishes draining in-flight
+/// requests and the background runners shut down cleanly via their
+/// own `shutdown().await` sequence. Plumbing the same token through
+/// here keeps `std::process::exit` out of the codebase.
 pub struct SystemServiceImpl {
     system_config: Arc<dyn SystemConfigRepository>,
     tunnel_repo: Arc<dyn TunnelRepository>,
     started_at: Instant,
     sysinfo: tokio::sync::Mutex<System>,
+    shutdown_token: CancellationToken,
 }
 
 impl SystemServiceImpl {
@@ -57,12 +68,14 @@ impl SystemServiceImpl {
         system_config: Arc<dyn SystemConfigRepository>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         started_at: Instant,
+        shutdown_token: CancellationToken,
     ) -> Self {
         Self {
             system_config,
             tunnel_repo,
             started_at,
             sysinfo: tokio::sync::Mutex::new(System::new_all()),
+            shutdown_token,
         }
     }
 }
@@ -135,15 +148,20 @@ impl SystemService for SystemServiceImpl {
         auth_context::require_admin()?;
         tracing::warn!(
             grace_ms = RESTART_GRACE.as_millis(),
-            "daemon restart requested via API — exiting in {grace_ms}ms",
+            "daemon restart requested via API — triggering graceful shutdown in {grace_ms}ms",
             grace_ms = RESTART_GRACE.as_millis(),
         );
+        let token = self.shutdown_token.clone();
         tokio::spawn(async move {
             tokio::time::sleep(RESTART_GRACE).await;
-            // `Restart=always` in wardnetd.service brings us back up on
-            // a Pi install. On the dev mock the process simply exits
-            // and the operator re-runs `make run-dev`.
-            std::process::exit(0);
+            // Cancelling the token wakes `shutdown_signal` in main.rs
+            // which returns from `axum::serve.with_graceful_shutdown`.
+            // The main task then runs the existing runner.shutdown()
+            // sequence before the process exits with code 0.
+            // `Restart=always` in wardnetd.service brings the daemon
+            // back up on a Pi install; on the dev mock the process
+            // exits cleanly and the operator re-runs `make run-dev`.
+            token.cancel();
         });
         Ok(())
     }

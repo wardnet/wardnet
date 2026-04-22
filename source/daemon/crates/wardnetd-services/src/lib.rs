@@ -78,6 +78,12 @@ pub struct Backends {
     /// Operators see this in the restore preview so they can
     /// double-check they're restoring the right machine.
     pub host_id: String,
+    /// Shutdown token shared with `main.rs`'s `shutdown_signal`.
+    /// `SystemService::request_restart` cancels this token (rather
+    /// than calling `std::process::exit`) so the existing graceful-
+    /// shutdown path runs — axum drains connections, runners exit
+    /// cleanly, Drop impls fire.
+    pub shutdown_token: tokio_util::sync::CancellationToken,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -241,6 +247,7 @@ fn create_services(
         system_config_repo,
         tunnel_repo.clone(),
         started_at,
+        backends.shutdown_token.clone(),
     ));
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(

@@ -185,6 +185,14 @@ async fn run(
     };
 
     let host_id = sysinfo::System::host_name().unwrap_or_else(|| "wardnet".to_owned());
+
+    // One shutdown token shared by three consumers:
+    //   - `shutdown_signal` below (waits on it alongside SIGINT/SIGTERM)
+    //   - `SystemService::request_restart` (cancels it to trigger restart)
+    //   - cleanup logic after `axum::serve` returns
+    // Cancelling it from any source drives the same graceful-shutdown path.
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
         policy_router: Arc::new(
@@ -199,6 +207,7 @@ async fn run(
         update: update_backends,
         config_path: config_path.clone(),
         host_id,
+        shutdown_token: shutdown_token.clone(),
     };
 
     // Wire services (initialises repo factory, bootstraps admin, creates all services).
@@ -402,7 +411,7 @@ async fn run(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(shutdown_token.clone()))
     .into_future()
     .instrument(api_span)
     .await?;
@@ -657,7 +666,7 @@ fn init_tracing(
     }
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(restart_token: tokio_util::sync::CancellationToken) {
     let ctrl_c = tokio::signal::ctrl_c();
 
     #[cfg(unix)]
@@ -667,12 +676,16 @@ async fn shutdown_signal() {
         tokio::select! {
             _ = ctrl_c => {},
             _ = sigterm.recv() => {},
+            () = restart_token.cancelled() => {},
         }
     }
 
     #[cfg(not(unix))]
     {
-        ctrl_c.await.ok();
+        tokio::select! {
+            _ = ctrl_c => {},
+            () = restart_token.cancelled() => {},
+        }
     }
 
     tracing::info!("shutdown signal received");

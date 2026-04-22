@@ -183,6 +183,7 @@ fn stub_backends() -> Backends {
         },
         config_path: std::path::PathBuf::from("/tmp/wardnet-init-test.toml"),
         host_id: "init-test-host".to_owned(),
+        shutdown_token: tokio_util::sync::CancellationToken::new(),
     }
 }
 

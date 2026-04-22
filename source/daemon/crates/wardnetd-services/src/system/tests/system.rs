@@ -109,6 +109,7 @@ fn build_service(
             active: active_tunnels,
         }),
         Instant::now(),
+        tokio_util::sync::CancellationToken::new(),
     )
 }
 

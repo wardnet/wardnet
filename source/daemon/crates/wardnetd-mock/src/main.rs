@@ -187,6 +187,12 @@ async fn run(
         let _ = tokio::fs::write(&mock_config_path, b"# mock wardnet.toml\n").await;
     }
 
+    // Token is wired through the mock too so the Settings restart
+    // button behaves identically in dev — it cancels the token,
+    // `shutdown_signal` wakes up, and the mock exits. The operator
+    // reruns `make run-dev` to bring it back.
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
         policy_router: Arc::new(NoopPolicyRouter),
@@ -198,6 +204,7 @@ async fn run(
         update: update_backends,
         config_path: mock_config_path,
         host_id: "wardnetd-mock".to_owned(),
+        shutdown_token: shutdown_token.clone(),
     };
 
     // A synthetic LAN IP that looks plausible in UI copy.
@@ -263,7 +270,7 @@ async fn run(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(shutdown_token.clone()))
     .into_future()
     .instrument(api_span)
     .await?;
@@ -304,7 +311,7 @@ fn init_tracing(verbose: bool, log_service: &dyn LogService) {
     log_service.start_all();
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(restart_token: tokio_util::sync::CancellationToken) {
     let ctrl_c = tokio::signal::ctrl_c();
 
     #[cfg(unix)]
@@ -314,12 +321,16 @@ async fn shutdown_signal() {
         tokio::select! {
             _ = ctrl_c => {}
             _ = sigterm.recv() => {}
+            () = restart_token.cancelled() => {}
         }
     }
 
     #[cfg(not(unix))]
     {
-        ctrl_c.await.ok();
+        tokio::select! {
+            _ = ctrl_c => {}
+            () = restart_token.cancelled() => {}
+        }
     }
 
     tracing::info!("mock shutdown signal received");
