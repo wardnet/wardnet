@@ -28,6 +28,36 @@ enum Commands {
     /// Manage auto-update
     #[command(subcommand)]
     Update(UpdateCommand),
+    /// Export and restore encrypted backup bundles
+    #[command(subcommand)]
+    Backup(BackupCommand),
+}
+
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// Show the current backup subsystem phase.
+    Status,
+    /// Export an encrypted `.wardnet.age` bundle to `--out`.
+    Export {
+        /// Destination path for the bundle.
+        #[arg(long)]
+        out: String,
+        /// Read the passphrase from this file instead of prompting.
+        /// Use `-` to read from stdin.
+        #[arg(long)]
+        passphrase_file: Option<String>,
+    },
+    /// Restore a previously-exported bundle.
+    Import {
+        /// Path to the `.wardnet.age` bundle.
+        bundle: String,
+        /// Read the passphrase from this file instead of prompting.
+        /// Use `-` to read from stdin.
+        #[arg(long)]
+        passphrase_file: Option<String>,
+    },
+    /// List `.bak-<timestamp>` snapshots retained from prior restores.
+    Snapshots,
 }
 
 #[derive(Subcommand)]
@@ -128,6 +158,30 @@ fn main() {
                 None => println!("update install: not yet implemented"),
             },
             UpdateCommand::Rollback => println!("update rollback: not yet implemented"),
+        },
+        Commands::Backup(cmd) => match cmd {
+            BackupCommand::Status => println!("backup status: not yet implemented"),
+            BackupCommand::Export {
+                out,
+                passphrase_file,
+            } => match passphrase_file {
+                Some(p) => {
+                    println!(
+                        "backup export --out {out} --passphrase-file {p}: not yet implemented"
+                    );
+                }
+                None => println!("backup export --out {out}: not yet implemented"),
+            },
+            BackupCommand::Import {
+                bundle,
+                passphrase_file,
+            } => match passphrase_file {
+                Some(p) => {
+                    println!("backup import {bundle} --passphrase-file {p}: not yet implemented");
+                }
+                None => println!("backup import {bundle}: not yet implemented"),
+            },
+            BackupCommand::Snapshots => println!("backup snapshots: not yet implemented"),
         },
     }
 }
