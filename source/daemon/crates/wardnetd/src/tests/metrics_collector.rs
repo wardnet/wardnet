@@ -33,6 +33,9 @@ impl SystemService for MockSystemService {
             memory_total_bytes: 1_000_000_000,
         })
     }
+    async fn request_restart(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 /// Mock system service that always returns an error.
@@ -47,6 +50,11 @@ impl SystemService for FailingSystemService {
         std::time::Duration::from_secs(0)
     }
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
+    }
+    async fn request_restart(&self) -> Result<(), AppError> {
         Err(AppError::Internal(anyhow::anyhow!(
             "simulated service failure"
         )))

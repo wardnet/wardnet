@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use sysinfo::System;
@@ -8,6 +8,12 @@ use wardnet_common::api::SystemStatusResponse;
 use crate::auth_context;
 use crate::error::AppError;
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
+
+/// How long the restart handler waits before `exit(0)`. Lets the HTTP
+/// response flush so the client sees `204 No Content` before the
+/// connection drops. Anything longer isn't needed; anything shorter
+/// occasionally cuts the response short on a busy connection.
+const RESTART_GRACE: Duration = Duration::from_millis(500);
 
 /// System-wide status and health information.
 ///
@@ -24,6 +30,14 @@ pub trait SystemService: Send + Sync {
 
     /// Build a status response with version, uptime, entity counts, and host resource usage.
     async fn status(&self) -> Result<SystemStatusResponse, AppError>;
+
+    /// Ask the daemon to exit cleanly so the supervisor (systemd on a
+    /// Pi install, the operator on dev) brings it back up.
+    ///
+    /// The call returns immediately; a background task performs the
+    /// actual `exit(0)` after a short grace period so the HTTP
+    /// response completes before the socket closes. Admin-only.
+    async fn request_restart(&self) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`SystemService`] backed by [`SystemConfigRepository`].
@@ -115,5 +129,22 @@ impl SystemService for SystemServiceImpl {
             memory_used_bytes,
             memory_total_bytes,
         })
+    }
+
+    async fn request_restart(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::warn!(
+            grace_ms = RESTART_GRACE.as_millis(),
+            "daemon restart requested via API — exiting in {grace_ms}ms",
+            grace_ms = RESTART_GRACE.as_millis(),
+        );
+        tokio::spawn(async move {
+            tokio::time::sleep(RESTART_GRACE).await;
+            // `Restart=always` in wardnetd.service brings us back up on
+            // a Pi install. On the dev mock the process simply exits
+            // and the operator re-runs `make run-dev`.
+            std::process::exit(0);
+        });
+        Ok(())
     }
 }

@@ -191,6 +191,9 @@ impl SystemService for StubSystemService {
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         unimplemented!()
     }
+    async fn request_restart(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

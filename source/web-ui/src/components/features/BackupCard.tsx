@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@/components/core/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
@@ -63,9 +63,12 @@ export function BackupCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Export a single encrypted bundle of the database, operator config, and WireGuard keys — or
-          restore one on a fresh install. Bundles are encrypted with age (passphrase mode); keep the
-          passphrase somewhere safe.
+          Export a single encrypted bundle of the database, operator config, and WireGuard keys. Use
+          it to restore a fresh install, recover from an SD-card failure, or roll back a risky
+          configuration change. Bundles are encrypted with age in passphrase mode.
+        </p>
+        <p className="text-sm font-semibold">
+          Keep the passphrase somewhere safe. We can&apos;t recover it for you.
         </p>
 
         <div className="flex gap-2">
@@ -153,7 +156,7 @@ function ExportDialog({
         <DialogHeader>
           <DialogTitle>Download an encrypted backup</DialogTitle>
           <DialogDescription>
-            Choose a passphrase — at least {MIN_PASSPHRASE_LEN} characters. The passphrase is
+            Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters. The passphrase is
             required to restore this bundle; we can&apos;t recover it if you lose it.
           </DialogDescription>
         </DialogHeader>
@@ -235,6 +238,23 @@ function RestoreDialog({
     onDismissPreview();
   };
 
+  // Dialog instances are kept mounted even when closed, so we explicitly
+  // reset local state on every transition to open — a failed preview in
+  // a previous session would otherwise leave the file + passphrase
+  // pre-filled the next time the operator clicks "Restore". The parent
+  // clears preview state via `onDismissPreview` on close; this takes
+  // care of the local inputs. Tracked via a ref so the lint rule against
+  // setState-in-effect doesn't fire on every render.
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      setBundle(null);
+      setPassphrase("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+    wasOpenRef.current = open;
+  }, [open]);
+
   return (
     <Dialog
       open={open}
@@ -243,7 +263,7 @@ function RestoreDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>Restore from a backup</DialogTitle>
           <DialogDescription>
@@ -274,7 +294,14 @@ function RestoreDialog({
               <Input
                 id="restore-passphrase"
                 type="password"
-                autoComplete="current-password"
+                // `off` + `new-password` together suppress every popular
+                // browser's autofill for this field — this is a bundle
+                // passphrase, not a login credential, and we don't want
+                // it remembered or pre-filled from the site's saved
+                // passwords.
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
               />
@@ -314,21 +341,23 @@ function RestoreDialog({
 
 function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse }) {
   return (
-    <div className="space-y-3 text-sm">
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto text-sm">
       {!preview.compatible && (
         <div className="flex gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive">
           <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <div className="font-medium">Bundle incompatible</div>
-            <div className="text-xs">{preview.incompatibility_reason ?? "Unknown reason"}</div>
+            <div className="break-words text-xs">
+              {preview.incompatibility_reason ?? "Unknown reason"}
+            </div>
           </div>
         </div>
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         <dt className="text-muted-foreground">From version</dt>
-        <dd className="font-mono">{preview.manifest.wardnet_version}</dd>
+        <dd className="break-all font-mono">{preview.manifest.wardnet_version}</dd>
         <dt className="text-muted-foreground">Host ID</dt>
-        <dd className="font-mono">{preview.manifest.host_id}</dd>
+        <dd className="break-all font-mono">{preview.manifest.host_id}</dd>
         <dt className="text-muted-foreground">Created</dt>
         <dd>{new Date(preview.manifest.created_at).toLocaleString()}</dd>
         <dt className="text-muted-foreground">Schema version</dt>
@@ -340,13 +369,18 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
         <div className="mb-1 text-muted-foreground">Will replace:</div>
         <ul className="list-inside list-disc space-y-0.5 font-mono text-xs">
           {preview.files_to_replace.map((f) => (
-            <li key={f}>{f}</li>
+            <li key={f} className="break-all">
+              {f}
+            </li>
           ))}
         </ul>
       </div>
       <p className="text-xs text-muted-foreground">
-        A `.bak-&lt;timestamp&gt;` sibling is kept for every replaced file and retained for
-        24&nbsp;hours. Restart the daemon after the restore completes.
+        A{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.7rem]">
+          .bak-&lt;timestamp&gt;
+        </code>{" "}
+        sibling is kept for every replaced file and retained for 24&nbsp;hours.
       </p>
     </div>
   );

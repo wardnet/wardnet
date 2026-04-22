@@ -16,14 +16,16 @@ use crate::state::AppState;
 use wardnetd_services::error::AppError;
 use wardnetd_services::logging::error_notifier::ErrorEntry;
 
-/// Register system routes (status, log download, recent errors) onto the given
-/// [`OpenApiRouter`]. The WebSocket log stream is registered separately in
-/// [`crate::api::router`] since it cannot be modeled in `OpenAPI`.
+/// Register system routes (status, log download, recent errors,
+/// restart) onto the given [`OpenApiRouter`]. The WebSocket log stream
+/// is registered separately in [`crate::api::router`] since it cannot
+/// be modeled in `OpenAPI`.
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(status))
         .routes(routes!(recent_errors))
         .routes(routes!(download_logs))
+        .routes(routes!(restart))
 }
 
 #[utoipa::path(
@@ -82,6 +84,37 @@ pub async fn download_logs(
         ],
         Body::from(formatted),
     ))
+}
+
+/// Ask the daemon to exit so the supervisor restarts it.
+///
+/// Returns `204 No Content` immediately; the actual exit happens
+/// ~500 ms later so the response flushes. On a Pi install systemd
+/// (with `Restart=always` on `wardnetd.service`) brings the daemon
+/// back up; on the dev mock the operator re-runs `make run-dev`.
+#[utoipa::path(
+    post,
+    path = "/api/system/restart",
+    tag = "system",
+    description = "Ask the daemon to exit cleanly so the supervisor \
+                   (systemd on a Pi install) restarts it. The response \
+                   returns before the process exits; the daemon will be \
+                   unreachable for a few seconds while it comes back up.",
+    responses(
+        (status = 204, description = "Restart scheduled"),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn restart(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<axum::http::StatusCode, AppError> {
+    state.system_service().request_restart().await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 /// API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that

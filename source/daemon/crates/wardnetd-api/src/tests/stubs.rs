@@ -373,6 +373,9 @@ impl SystemService for StubSystemService {
             memory_total_bytes: 0,
         })
     }
+    async fn request_restart(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 pub struct StubTunnelService;

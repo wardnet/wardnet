@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import type { RestorePreviewResponse } from "@wardnet/js";
+import { Button } from "@/components/core/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { BackupCard } from "@/components/features/BackupCard";
+import { RestartProgressDialog } from "@/components/features/RestartProgressDialog";
 import { UpdateCard } from "@/components/features/UpdateCard";
 import { useApplyImport, useExportBackup, usePreviewImport } from "@/hooks/useBackup";
+import { useRestart } from "@/hooks/useRestart";
 import { useSystemStatus } from "@/hooks/useSystemStatus";
 import {
   useCheckForUpdates,
@@ -13,7 +17,9 @@ import {
   useUpdateConfig,
   useUpdateStatus,
 } from "@/hooks/useUpdate";
+import { useAuthStore } from "@/stores/authStore";
 import { formatBytes, formatUptime } from "@/lib/utils";
+import { RotateCwIcon } from "lucide-react";
 
 /** Settings page for system configuration (admin only). */
 export default function Settings() {
@@ -23,6 +29,8 @@ export default function Settings() {
   const install = useInstallUpdate();
   const rollback = useRollbackUpdate();
   const saveConfig = useUpdateConfig();
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
 
   // Backup flow — preview response is held in page-local state so the
   // BackupCard can render it between the two steps of the restore
@@ -31,6 +39,23 @@ export default function Settings() {
   const exportBackup = useExportBackup();
   const previewImport = usePreviewImport();
   const applyImport = useApplyImport();
+
+  // Restart lifecycle — shared between the explicit "Restart daemon"
+  // button and the post-restore prompt. The hook owns the poll loop
+  // and exposes a phase state machine; the dialog renders phase-
+  // specific copy.
+  const restart = useRestart();
+
+  const onRestartReady = () => {
+    restart.reset();
+  };
+  const onRestartSignIn = () => {
+    // Session cookie was invalidated by the restart (e.g. in-memory
+    // session store). Clear local admin flag and route to login.
+    logout();
+    restart.reset();
+    void navigate("/login");
+  };
 
   return (
     <>
@@ -69,6 +94,19 @@ export default function Settings() {
             ) : (
               <p className="text-sm text-muted-foreground">Unable to connect to daemon.</p>
             )}
+
+            <div className="mt-6 flex items-center justify-between border-t pt-4">
+              <div>
+                <div className="text-sm font-medium">Restart daemon</div>
+                <div className="text-xs text-muted-foreground">
+                  The daemon will be unreachable for a few seconds while it restarts.
+                </div>
+              </div>
+              <Button variant="outline" onClick={() => restart.start()} disabled={restart.isOpen}>
+                <RotateCwIcon className="mr-2 h-4 w-4" />
+                Restart
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -99,7 +137,15 @@ export default function Settings() {
           onApply={(previewToken) =>
             applyImport.mutate(
               { preview_token: previewToken },
-              { onSuccess: () => setPreview(null) },
+              {
+                onSuccess: () => {
+                  setPreview(null);
+                  // Reuse the same lifecycle as the manual restart;
+                  // the dialog will walk through scheduled → down →
+                  // ready and offer a sign-in button if needed.
+                  restart.start();
+                },
+              },
             )
           }
           onDismissPreview={() => setPreview(null)}
@@ -116,6 +162,15 @@ export default function Settings() {
           </CardContent>
         </Card>
       </div>
+
+      <RestartProgressDialog
+        open={restart.isOpen}
+        phase={restart.phase}
+        startedAt={restart.startedAt}
+        errorMessage={restart.errorMessage}
+        onDismiss={onRestartReady}
+        onSignIn={onRestartSignIn}
+      />
     </>
   );
 }

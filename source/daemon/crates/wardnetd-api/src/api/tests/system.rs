@@ -102,6 +102,9 @@ impl SystemService for MockSystemService {
             Err(_) => Err(AppError::Internal(anyhow::anyhow!("mock error"))),
         }
     }
+    async fn request_restart(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
