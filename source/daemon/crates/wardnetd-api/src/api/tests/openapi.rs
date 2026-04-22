@@ -34,6 +34,17 @@ fn api_doc_has_title_and_license() {
 }
 
 #[test]
+fn api_doc_version_matches_crate_version() {
+    // `CARGO_PKG_VERSION` is kept in lockstep with `./VERSION` via
+    // `make sync-version`, so a tagged daemon binary and the spec it
+    // serves always agree on the version string. If this test fails
+    // after a release, the `info.version` wiring in `openapi.rs` has
+    // drifted from `env!("CARGO_PKG_VERSION")`.
+    let doc = crate::api_doc();
+    assert_eq!(doc.info.version, env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
 fn api_doc_registers_both_security_schemes() {
     let doc = crate::api_doc();
     let components = doc.components.expect("components block must exist");
