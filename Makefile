@@ -43,6 +43,7 @@ COV_FMT    ?= --summary-only
 .PHONY: all init build build-daemon build-sdk build-web build-site build-pi \
         check check-sdk check-web check-site check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
+        openapi check-openapi \
         fmt clippy test \
         deploy run-pi run-dev system-test system-test-setup system-test-teardown \
         sync-version check-version \
@@ -223,6 +224,41 @@ coverage-daemon-container:
 		$(RUST_IMAGE) \
 		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
 
+# ---------- OpenAPI spec ----------
+#
+# The `dump_openapi` binary lives inside the `wardnetd-api` crate (at
+# `crates/wardnetd-api/src/bin/dump_openapi.rs`), so Cargo rebuilds it
+# whenever any handler annotation or DTO changes. Output is exactly the
+# same JSON the daemon serves at runtime on `/api/openapi.json`.
+#
+# The checked-in `docs/openapi.json` is the canonical snapshot on every
+# commit. Release tags upload this file as an asset, and the site's
+# manifest generator dedupes by content hash so users only see distinct
+# spec versions. Keeping the file in-tree means API consumers can diff
+# it in PRs and CI can gate on drift without the release workflow being
+# the only place the spec ever gets regenerated.
+
+OPENAPI_FILE := docs/openapi.json
+
+openapi:
+	@mkdir -p $(dir $(OPENAPI_FILE))
+	@cd $(DAEMON_DIR) && cargo run -p wardnetd-api --bin dump_openapi --quiet \
+		> $(CURDIR)/$(OPENAPI_FILE)
+	@echo "Wrote $(OPENAPI_FILE)"
+
+# Drift gate: regenerate the spec and fail if the committed copy is
+# stale. Author runs `make openapi` locally and commits the updated
+# file; CI never auto-commits.
+check-openapi: openapi
+	@if ! git diff --exit-code -- $(OPENAPI_FILE) > /dev/null; then \
+		echo ""; \
+		echo "OpenAPI spec drift detected in $(OPENAPI_FILE)."; \
+		echo "Run 'make openapi' locally and commit the updated file."; \
+		git --no-pager diff --stat -- $(OPENAPI_FILE); \
+		exit 1; \
+	fi
+	@echo "OpenAPI spec is in sync."
+
 # ---------- Compound targets ----------
 
 build: build-web build-daemon
@@ -396,6 +432,9 @@ help:
 	@echo "  check-site     Typecheck + format check + tests for public site"
 	@echo "  check-daemon   Format + clippy + tests for daemon (auto: native on Linux, container on macOS)"
 	@echo "  coverage-daemon Line-coverage summary for daemon (auto: native on Linux, container on macOS)"
+	@echo ""
+	@echo "  openapi        Regenerate $(OPENAPI_FILE) from the daemon's #[utoipa::path] annotations"
+	@echo "  check-openapi  Drift gate: fail if $(OPENAPI_FILE) is stale (run 'make openapi' to fix)"
 	@echo ""
 	@echo "  run-dev        Run wardnetd-mock + web UI dev server locally"
 	@echo "                 Mock API on :7411, web UI on :7412 (proxies /api)"

@@ -472,6 +472,10 @@ The `--ignore-filename-regex` (defined once in the Makefile's `COV_IGNORE` varia
 - Follow the layered architecture: handlers → services → repositories
 - Keep API handlers thin — business logic belongs in services
 - Use existing trait patterns for new features
+- Run `make openapi` and commit `docs/openapi.json` whenever you change an
+  HTTP handler annotation, DTO shape, or anything else that affects the
+  generated `OpenAPI` spec. CI's `check-openapi` job gates on the committed
+  file matching `cargo run -p wardnetd-api --bin dump_openapi`.
 
 ### Ask first
 - Adding new dependencies to `Cargo.toml` or `package.json`

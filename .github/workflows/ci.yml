@@ -123,6 +123,20 @@ jobs:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
 
+  check-openapi:
+    name: Check OpenAPI drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Regenerate docs/openapi.json and verify no drift
+        # `make check-openapi` runs `dump_openapi` against the current
+        # handler annotations and diffs against the committed file. Any
+        # API change must land with a fresh `docs/openapi.json`.
+        run: make check-openapi
+
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
