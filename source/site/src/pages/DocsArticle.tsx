@@ -66,6 +66,33 @@ const MD_COMPONENTS: Components = {
   strong: (props) => (
     <strong className="font-semibold text-gray-900 dark:text-gray-100" {...props} />
   ),
+  // Screenshots are captured at retina density (~2x) which makes the raw
+  // pixel dimensions overwhelm our `max-w-[72rem]` article column. Cap
+  // them at a readable width and centre them so every screenshot reads
+  // as a focused illustration rather than a full-bleed hero image.
+  //
+  // A few screenshots (wide cards, banners) read better when they fill
+  // the whole column. Opt in by setting the markdown title:
+  //
+  //   ![alt](path "wide")   → no width cap
+  //
+  // Default (no title) stays at `max-w-2xl` — the right size for
+  // dialog / modal screenshots.
+  img: ({ title, ...props }) => {
+    const wide = title === "wide";
+    return (
+      <img
+        className={
+          "my-6 mx-auto block w-full rounded-lg border border-gray-200 dark:border-gray-800" +
+          (wide ? "" : " max-w-2xl")
+        }
+        loading="lazy"
+        // The `title` was a sizing directive — don't let it leak
+        // into the rendered HTML as a tooltip.
+        {...props}
+      />
+    );
+  },
 };
 
 /**

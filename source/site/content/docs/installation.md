@@ -120,7 +120,9 @@ admin account. From there, the daemon is managed entirely through the
 web UI or via `wctl` on the host.
 
 **Next step:** follow the [first-time setup](/docs/first-run) guide to
-walk through the wizard.
+walk through the wizard. Once you've configured a few devices and
+tunnels, head to [backup & restore](/docs/backup-restore) for a
+one-click encrypted safety net before you start tinkering.
 
 Useful follow-ups:
 

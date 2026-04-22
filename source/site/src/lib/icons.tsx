@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Code,
+  Database,
   Download,
   Settings,
   Route,
@@ -8,6 +9,7 @@ import {
   Ban,
   Network,
   Globe,
+  Save,
   Users,
   Terminal,
   Sparkles,
@@ -18,6 +20,7 @@ import type { ComponentType } from "react";
 const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
   "book-open": BookOpen,
   code: Code,
+  database: Database,
   download: Download,
   settings: Settings,
   route: Route,
@@ -25,6 +28,7 @@ const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
   ban: Ban,
   network: Network,
   globe: Globe,
+  save: Save,
   users: Users,
   terminal: Terminal,
   sparkles: Sparkles,

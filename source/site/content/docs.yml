@@ -74,6 +74,16 @@ topics:
     icon: users
     description: Admin vs self-service model — how device ownership and access control work.
 
+  - slug: backup-restore
+    title: Backup & restore
+    icon: save
+    description: Export an encrypted archive of the database, config, and keys; restore it on a fresh install.
+
+  - slug: database-backup-sqlite
+    title: Database backup — SQLite
+    icon: database
+    description: Under-the-hood details of how the SQLite provider captures a consistent snapshot and restores it.
+
   - slug: cli-reference
     title: CLI reference
     icon: terminal
