@@ -1,0 +1,24 @@
+# Pinned nightly for cargo-fuzz.
+#
+# cargo-fuzz is hard-requires nightly — the libFuzzer + sanitizer
+# rustc flags (-Zsanitizer=address, -Cpasses=sancov-module, etc.) are
+# nightly-only. Floating `channel = "nightly"` would work but pulls
+# whatever nightly happens to be current on each CI run, which means
+# (a) a reproducer from yesterday's crash may not reproduce today,
+# (b) rust-lang nightly regressions break the fuzz job silently.
+#
+# Dated pin gives reproducibility and a deliberate update cadence
+# (typical OSS-Fuzz projects bump quarterly). Bumping procedure:
+#
+#   1. Pick a recent nightly that satisfies the daemon's MSRV
+#      (rust-version = "1.94" in the workspace crates).
+#      Check dates at https://rust-lang.github.io/rustup-components-history/
+#   2. Update the channel below + `cargo +nightly-<date> fuzz build`
+#      locally once to confirm.
+#   3. Commit. The next fuzzing-scheduled run will pick it up.
+#
+# Dependabot doesn't auto-bump this — no ecosystem support for
+# nightly-date pins.
+[toolchain]
+channel = "nightly-2026-04-15"
+components = ["rust-src"]
