@@ -1,0 +1,40 @@
+name: Detect changes
+description: >-
+  Classifies the changed paths of a push/PR into named buckets
+  (daemon, site, ci, ...). Used by orchestrator workflows to gate
+  heavy reusable leaves and skip noop builds.
+
+  All filter rules live here so adding a new area (e.g. docs) is a
+  one-file change instead of editing every orchestrator.
+
+outputs:
+  daemon:
+    description: "'true' when daemon code, Makefile, or VERSION changed."
+    value: ${{ steps.filter.outputs.daemon }}
+  site:
+    description: "'true' when marketing-site code or the Makefile changed."
+    value: ${{ steps.filter.outputs.site }}
+  ci:
+    description: "'true' when a workflow or composite action changed."
+    value: ${{ steps.filter.outputs.ci }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        # Every orchestrator should treat `ci == true` as "run everything":
+        # a workflow/action change can invalidate any assumption and the
+        # only honest response is a full validation.
+        filters: |
+          daemon:
+            - 'source/daemon/**'
+            - 'Makefile'
+            - 'VERSION'
+          site:
+            - 'source/site/**'
+            - 'Makefile'
+          ci:
+            - '.github/workflows/**'
+            - '.github/actions/**'

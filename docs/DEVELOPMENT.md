@@ -203,7 +203,7 @@ The `WARDNET_VERSION` env var seen by the daemon at compile time is derived from
 3. Annotated tag: `git tag -a vX.Y.Z -m "..."`.
 4. Push: `git push && git push --tags`.
 5. The [Release workflow](../.github/workflows/release.yml) builds the daemon for every matrix target, signs each tarball with minisign, and publishes a GitHub Release with the `tarball + .sha256 + .minisig` for each target. It also attaches the committed `docs/openapi.json` and its `.sha256` as release assets so external consumers can download the OpenAPI spec for a specific daemon version.
-6. The [Deploy Site workflow](../.github/workflows/deploy-site.yml) rebuilds the marketing site on `release: [published]`, regenerating `public/releases/stable.json`, `public/releases/beta.json`, and `public/releases/openapi-versions.json` from the GitHub API. The daemon's auto-update runner (v0.3.0+) reads the stable/beta manifests; the site's docs page uses `openapi-versions.json` to list distinct published specs (deduped by content hash).
+6. The [Release workflow](../.github/workflows/release.yml) also calls [`build-site.yml`](../.github/workflows/build-site.yml), which regenerates `public/releases/stable.json`, `public/releases/beta.json`, and `public/releases/openapi-versions.json` from the GitHub API, then hands the bundle to [`deploy-site.yml`](../.github/workflows/deploy-site.yml) for publication to GitHub Pages. The daemon's auto-update runner (v0.3.0+) reads the stable/beta manifests; the site's docs page uses `openapi-versions.json` to list distinct published specs (deduped by content hash).
 
 SemVer pre-release tags (`vX.Y.Z-beta.N`, `vX.Y.Z-rc.N`) are automatically flagged as GitHub pre-releases and feed the `beta` channel. Clean `vX.Y.Z` tags feed `stable`.
 
@@ -236,18 +236,34 @@ For signing-key setup and rotation, see [`deploy/keys/README.md`](../deploy/keys
 
 ## Continuous integration
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every PR:
+CI is split into thin orchestrators (one per event type) that compose
+reusable `workflow_call` leaves. Every orchestrator starts with a
+`preflight` job that runs the [detect-changes](../.github/actions/detect-changes/action.yml)
+and [check-version](../.github/actions/check-version/action.yml)
+composite actions; its outputs gate the heavy leaves.
 
-1. `check-version` — all versioned files agree with `./VERSION`
-2. `check-web`, `check-site`, `check-daemon` — format + lint + type-check + tests
-3. `build-web`, `build-daemon` (x86_64 + aarch64 matrix) — verifies release artefacts build
-4. `coverage` — daemon + site coverage uploaded to Codecov, clippy findings to GitHub Code Scanning
+[`.github/workflows/pr.yml`](../.github/workflows/pr.yml) runs on every PR to `main`:
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: cross-compile + sign + create GitHub Release.
+1. `preflight` — detect-changes + check-version.
+2. `build-daemon` — [reusable leaf](../.github/workflows/build-daemon.yml). Lints, runs `cargo test --workspace`, verifies OpenAPI drift, builds the embedded web UI, cross-compiles `wardnetd` (x86_64 + aarch64) and `wardnetd-mock` (x86_64), uploads tarballs as artifacts.
+3. `build-site` — [reusable leaf](../.github/workflows/build-site.yml). Lints + type-checks, builds the marketing site, uploads `site-dist`.
+4. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
+5. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
 
-[`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) runs on push-to-main, release-published, and manual dispatch: build + publish the marketing site + release manifests.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, publishes the GitHub Release).
+
+[`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) is a reusable `workflow_call` leaf: it downloads a pre-built `site-dist` artifact and publishes it to GitHub Pages. It is invoked from `release.yml` only.
+
+Fuzzing is handled by two separate workflows driven by cron and the [ClusterFuzzLite](../.clusterfuzzlite/README.md) setup:
+
+- [`.github/workflows/fuzzing-scheduled.yml`](../.github/workflows/fuzzing-scheduled.yml) runs every 12 hours in batch mode against the fuzz targets under `source/daemon/fuzz/`, files GitHub Issues on new crashes.
+- [`.github/workflows/fuzzing-maintenance.yml`](../.github/workflows/fuzzing-maintenance.yml) runs weekly for coverage reports + corpus pruning.
 
 [`.github/workflows/security.yml`](../.github/workflows/security.yml) runs `cargo audit` nightly and on dependency changes.
+
+[`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml) runs CodeQL analysis weekly + on PRs.
 
 [`.github/workflows/scorecard.yml`](../.github/workflows/scorecard.yml) runs OpenSSF Scorecard weekly.
 

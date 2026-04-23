@@ -1,0 +1,144 @@
+name: Release Daemon
+
+# Reusable leaf that turns build-daemon.yml's unsigned artifacts into a
+# published GitHub Release: rename to include the version, sha256, sign
+# with minisign, verify the signature against the committed pubkey,
+# and attach to a `gh release create` call.
+#
+# The wardnetd-mock artifact is deliberately NOT attached — it's a
+# dev/test tool, not a shipped binary.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Semantic version (e.g. `0.2.1`, `0.2.1-beta.1`).
+        type: string
+        required: true
+      tag:
+        description: Git tag (e.g. `v0.2.1`).
+        type: string
+        required: true
+      prerelease:
+        description: Mark as pre-release on GitHub.
+        type: boolean
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download wardnetd x86_64
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wardnetd-x86_64-unsigned
+          path: release-staging/
+
+      - name: Download wardnetd aarch64
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wardnetd-aarch64-unsigned
+          path: release-staging/
+
+      - name: Rename, sha256, sign
+        env:
+          VERSION: ${{ inputs.version }}
+          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
+            echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required. See deploy/keys/README.md."
+            exit 1
+          fi
+
+          sudo apt-get update && sudo apt-get install -y minisign
+
+          cd release-staging
+
+          # Write the encrypted private key once. Shredded in the
+          # trailing step regardless of earlier failure.
+          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
+          chmod 0600 minisign.key
+          trap 'shred -u minisign.key || true' EXIT
+
+          for ARCH in x86_64 aarch64; do
+            # build-daemon.yml names the tarball wardnetd-<arch>.tar.gz;
+            # release assets carry the version for end-user clarity and
+            # for the daemon's auto-updater, which builds the URL as
+            # `wardnetd-<version>-<arch>.tar.gz`.
+            SRC="wardnetd-${ARCH}.tar.gz"
+            DST="wardnetd-${VERSION}-${ARCH}.tar.gz"
+            mv "${SRC}" "${DST}"
+
+            sha256sum "${DST}" | awk '{print $1}' > "${DST}.sha256"
+
+            # Feed password both via stdin and env — older minisigns
+            # fall back to stdin, newer honour MINISIGN_PASSWORD.
+            # GitHub runners have no tty, so env-only doesn't always
+            # work.
+            printf '%s\n' "${MINISIGN_PASSWORD}" | \
+              MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${DST}" \
+                -s minisign.key \
+                -t "wardnetd ${VERSION} (${ARCH})" \
+                -c "Wardnet release signing key" \
+                -x "${DST}.minisig"
+
+            # Sanity check against the committed public key.
+            minisign -Vm "${DST}" \
+              -p "../deploy/keys/wardnet-release.pub" \
+              -x "${DST}.minisig"
+          done
+
+          ls -l
+
+      - name: Stage OpenAPI spec + sha256
+        # Published alongside the binary so external consumers can
+        # download the spec for a specific daemon version without
+        # running the daemon. The site's manifest generator dedupes
+        # across historical releases using the .sha256.
+        run: |
+          set -euo pipefail
+          cp docs/openapi.json release-staging/openapi.json
+          sha256sum release-staging/openapi.json | awk '{print $1}' \
+            > release-staging/openapi.json.sha256
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          ARGS=(--verify-tag --title "Wardnet ${VERSION}")
+
+          # Prefer hand-written release notes at docs/releases/vX.Y.Z.md.
+          # Fall back to GitHub's auto-generated notes (diff since last tag).
+          NOTES_FILE="docs/releases/v${VERSION}.md"
+          if [[ -f "${NOTES_FILE}" ]]; then
+            echo "Using release notes from ${NOTES_FILE}"
+            ARGS+=(--notes-file "${NOTES_FILE}")
+          else
+            echo "No ${NOTES_FILE} found — falling back to auto-generated notes"
+            ARGS+=(--generate-notes)
+          fi
+
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "${TAG}" "${ARGS[@]}" \
+            release-staging/*.tar.gz \
+            release-staging/*.tar.gz.sha256 \
+            release-staging/*.tar.gz.minisig \
+            release-staging/openapi.json \
+            release-staging/openapi.json.sha256

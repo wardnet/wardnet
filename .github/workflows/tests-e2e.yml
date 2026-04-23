@@ -1,0 +1,52 @@
+name: E2E Tests
+
+# Reusable leaf for end-to-end tests.
+#
+# STUB TODAY. Real tests will live in `source/system-tests/` and
+# exercise wardnetd in a privileged Linux container (needs root for
+# WireGuard + netlink). Deliberately runs against the real `wardnetd`
+# binary, not `wardnetd-mock` — the mock is a dev-loop tool for running
+# the HTTP API without elevated privileges; e2e wants the full kernel
+# path.
+#
+# Artifacts consumed (fixed names; see build-daemon.yml / build-site.yml):
+#   - wardnetd-x86_64-unsigned  (the tarball, inside is `wardnetd`)
+#   - site-dist                 (raw dist/ tree)
+
+on:
+  workflow_call:
+
+permissions: read-all
+
+jobs:
+  placeholder:
+    name: E2E placeholder
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download wardnetd x86_64
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wardnetd-x86_64-unsigned
+          path: e2e/daemon/
+
+      - name: Download site bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: site-dist
+          path: e2e/site/
+
+      - name: Unpack wardnetd
+        run: |
+          set -euo pipefail
+          tar -C e2e/daemon -xzf e2e/daemon/wardnetd-x86_64.tar.gz
+          ls -l e2e/daemon/wardnetd
+
+      - name: Run placeholder e2e
+        # TODO: swap for `source/system-tests/` runner. Needs a
+        # privileged container so `wardnetd` can create wireguard
+        # interfaces and touch the routing table.
+        run: |
+          echo "TODO: real e2e suite against wardnetd (not the mock)."
+          echo "Daemon binary: $(file e2e/daemon/wardnetd)"
+          echo "Site bundle:   $(ls e2e/site | wc -l) files"
