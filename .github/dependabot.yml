@@ -46,3 +46,13 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(deps):"
+
+  - package-ecosystem: npm
+    directory: /source/sdk/wardnet-js
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /source/system-tests
+    schedule:
+      interval: daily
