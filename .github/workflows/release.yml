@@ -17,7 +17,18 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
-permissions: read-all
+# Workflow-level permissions must be the union of every leaf's
+# declared permissions (called reusable workflows must be a subset of
+# the caller). release.yml needs everything its leaves touch:
+#   - security-events: write  → build-daemon clippy SARIF upload
+#   - pages: write, id-token: write → deploy-site GH Pages publish
+#   - contents: write → release-daemon `gh release create`
+permissions:
+  contents: write
+  actions: read
+  security-events: write
+  pages: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always

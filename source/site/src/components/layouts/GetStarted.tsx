@@ -37,7 +37,10 @@ export function GetStarted() {
         <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
           Bare-metal install
         </p>
-        <CodeBlock code="curl -sSL https://wardnet.network/install.sh | sudo bash" className="text-left" />
+        <CodeBlock
+          code="curl -sSL https://wardnet.network/install.sh | sudo bash"
+          className="text-left"
+        />
 
         <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">
           See the{" "}

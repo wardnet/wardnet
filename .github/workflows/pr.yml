@@ -22,7 +22,14 @@ on:
     branches: [main]
   workflow_call:
 
-permissions: read-all
+# Workflow-level permissions must be the union of every leaf's
+# declared permissions — GitHub requires the called reusable workflow
+# to be a subset of the caller. `security-events: write` is for
+# build-daemon's clippy SARIF upload.
+permissions:
+  contents: read
+  actions: read
+  security-events: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -72,3 +79,36 @@ jobs:
     if: needs.build-daemon.result == 'success' && needs.build-site.result == 'success'
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
+
+  # Aggregator for branch protection. Lists every other job as a
+  # dependency, runs unconditionally (if: always()), and passes iff
+  # each dependency either succeeded or was legitimately skipped via
+  # the changes filter. Failing or cancelled leaves short-circuit to
+  # exit 1.
+  #
+  # Required-check on main branch protection: require ONLY
+  # "All checks passed". Single source of truth, immune to the
+  # gated-leaf trap where a skipped job never reports and blocks the
+  # PR forever.
+  all-checks-passed:
+    name: All checks passed
+    needs: [preflight, build-daemon, build-site, coverage, tests-e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify no failure/cancelled among required leaves
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          echo "Leaf results: ${RESULTS}"
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "::error::a required check failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::a required check was cancelled"
+            exit 1
+          fi
+          echo "all checks succeeded or were legitimately skipped."

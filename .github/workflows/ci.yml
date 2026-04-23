@@ -21,7 +21,14 @@ on:
   push:
     branches: [main]
 
-permissions: read-all
+# Workflow-level permissions must be the union of every leaf's
+# declared permissions (called reusable workflows must be a subset of
+# the caller). `security-events: write` is for build-daemon's clippy
+# SARIF upload.
+permissions:
+  contents: read
+  actions: read
+  security-events: write
 
 env:
   CARGO_TERM_COLOR: always
