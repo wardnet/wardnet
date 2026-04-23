@@ -27,6 +27,14 @@ OTEL_HOST    ?=
 CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 CONTAINER_RT_NAME := $(notdir $(CONTAINER_RT))
 RUST_IMAGE   := docker.io/library/rust:1.94
+
+# Docker image build settings.
+# Override IMAGE_TAG on the CLI to name the local image differently, e.g.:
+#   make image IMAGE_TAG=wardnetd:v0.2.0
+# Override IMAGE_VERSION to pin a specific release (no v-prefix):
+#   make image IMAGE_VERSION=0.2.0
+IMAGE_TAG     ?= wardnetd:dev
+IMAGE_VERSION ?= latest
 # Linux build artefacts live here (gitignored, persists on host for
 # incremental compilation). Separate from the macOS target/ directory.
 LINUX_TARGET := $(CURDIR)/.target-linux
@@ -45,6 +53,7 @@ COV_FMT    ?= --summary-only
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         openapi check-openapi \
         fmt clippy test \
+        image image-multiarch \
         deploy run-pi run-dev run-dev-daemon run-dev-web system-test system-test-setup system-test-teardown \
         sync-version check-version \
         clean help
@@ -430,6 +439,30 @@ system-test: build-system-test
 		ssh $(PI_REMOTE) 'sudo $(SYSTEST_REMOTE_DIR)/run-tests.sh teardown'; \
 		exit $$TEST_EXIT
 
+# ---------- Container images ----------
+
+# Build the production image for the local architecture and load it into the
+# local container daemon. Uses the wardnet release specified by VERSION
+# (default: latest stable via the GitHub Releases API).
+image:
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	$(CONTAINER_RT) build \
+		--build-arg WARDNET_VERSION=$(IMAGE_VERSION) \
+		-f source/daemon/Dockerfile \
+		-t $(IMAGE_TAG) \
+		.
+
+# Build multi-arch production images (linux/amd64 + linux/arm64) via buildx.
+# Requires `docker buildx` or `podman buildx`. Does not load into the local
+# daemon (use --push or --output to export). Intended for the release workflow.
+image-multiarch:
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	$(CONTAINER_RT) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg WARDNET_VERSION=$(IMAGE_VERSION) \
+		-f source/daemon/Dockerfile \
+		.
+
 # ---------- Utilities ----------
 
 clean:
@@ -475,6 +508,12 @@ help:
 	@echo "                 make system-test PI_HOST=10.232.1.1"
 	@echo "  system-test-setup    Deploy and start test environment (leave running)"
 	@echo "  system-test-teardown Stop test environment on Pi"
+	@echo ""
+	@echo "  image          Build production container image (downloads latest release)"
+	@echo "                 make image                              (latest stable release)"
+	@echo "                 make image IMAGE_VERSION=0.2.0          (specific version)"
+	@echo "                 make image IMAGE_TAG=wardnetd:v0.2.0"
+	@echo "  image-multiarch  Build multi-arch image via buildx (amd64 + arm64; no local load)"
 	@echo ""
 	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"
 	@echo "  check-version  Verify all versioned files match ./VERSION (CI gate)"

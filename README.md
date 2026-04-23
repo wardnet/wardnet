@@ -38,18 +38,35 @@ Learn more at [**wardnet.network**](https://wardnet.network).
 
 ## Install
 
+### Run with Docker
+
+```sh
+docker run -d \
+  --name wardnetd \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --device /dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  --tmpfs /run --tmpfs /run/lock \
+  -p 7411:7411 \
+  -v wardnet-data:/var/lib/wardnet \
+  ghcr.io/wardnet/wardnetd:latest
+```
+
+Open **http://localhost:7411** to complete the setup wizard. Auto-update and crash-loop rollback work inside the container because systemd runs as PID 1, but recreating the container resets to the image's baked-in version — only `docker restart` preserves an auto-updated binary. See [`source/daemon/examples/docker-compose.yaml`](source/daemon/examples/docker-compose.yaml) for a reference compose file with all networking options documented.
+
+### Bare-metal install
+
+For setups where you prefer to run the daemon directly on the host:
+
 ```sh
 curl -sSL https://wardnet.network/install.sh | sudo bash
 ```
 
-Full walkthrough, configuration reference, and more in the [**user documentation**](https://wardnet.network/docs).
+Supported targets: `aarch64-unknown-linux-gnu` (Raspberry Pi, aarch64 SBCs) and `x86_64-unknown-linux-gnu` (mini-PCs, x86_64 servers).
 
-Supported targets:
+---
 
-- **Raspberry Pi** (and other aarch64 Linux SBCs) — `aarch64-unknown-linux-gnu`
-- **Mini-PC / x86_64 Linux host** — `x86_64-unknown-linux-gnu`
-
-Both are first-class targets — install on whichever fits your network. See the [latest release](https://github.com/wardnet/wardnet/releases/latest) for signed artefacts and verification instructions.
+Full walkthrough, configuration reference, and guides in the [**user documentation**](https://wardnet.network/docs). See the [latest release](https://github.com/wardnet/wardnet/releases/latest) for signed artefacts and verification instructions.
 
 ## Documentation
 
