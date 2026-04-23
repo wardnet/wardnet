@@ -23,6 +23,7 @@ CHANNEL="${CHANNEL:-stable}"
 MANIFEST_URL="${MANIFEST_URL:-https://releases.wardnet.network/${CHANNEL}.json}"
 LAN_INTERFACE="${LAN_INTERFACE:-}"
 OFFLINE_DIR=""
+CONTAINER_MODE=""
 
 # Embedded release-signing public key. Baking it into the installer is the
 # authenticity anchor: even if DNS or Cloudflare is hijacked, an attacker
@@ -46,6 +47,10 @@ Options:
                         Ignored when --from is given.
   --lan-interface <if>  Bind the daemon to this LAN interface. If omitted,
                         the script prompts (tty) or picks the first candidate.
+  --container-mode      Skip systemctl daemon-reload, start, and restart.
+                        Use when running inside a Docker image build: systemd
+                        is not running yet, but the enable symlink is still
+                        created so systemd starts the service at boot.
   -h, --help            Show this help text.
 
 Environment overrides:
@@ -60,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --from)           OFFLINE_DIR="$2";       shift 2 ;;
         --channel)        CHANNEL="$2";           shift 2 ;;
         --lan-interface)  LAN_INTERFACE="$2";     shift 2 ;;
+        --container-mode) CONTAINER_MODE=true;    shift   ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; print_usage >&2; exit 1 ;;
     esac
@@ -215,7 +221,7 @@ if [[ -n "$OFFLINE_DIR" ]]; then
     VERSION="${VERSION%-${ARCH}.tar.gz}"
 else
     echo "Fetching release manifest from $MANIFEST_URL..."
-    curl -fsSL "$MANIFEST_URL" -o "$WORKDIR/manifest.json"
+    curl -fsSL --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 5 "$MANIFEST_URL" -o "$WORKDIR/manifest.json"
 
     VERSION="$(jq -r '.version'        "$WORKDIR/manifest.json")"
     ASSET_BASE="$(jq -r '.asset_base_url' "$WORKDIR/manifest.json")"
@@ -228,9 +234,9 @@ else
     TARBALL_URL="${ASSET_BASE%/}/${TARBALL_NAME}"
 
     echo "Downloading v$VERSION ($ARCH)..."
-    curl -fsSL "$TARBALL_URL"           -o "$WORKDIR/$TARBALL_NAME"
-    curl -fsSL "${TARBALL_URL}.sha256"  -o "$WORKDIR/${TARBALL_NAME}.sha256"
-    curl -fsSL "${TARBALL_URL}.minisig" -o "$WORKDIR/${TARBALL_NAME}.minisig"
+    curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 5 "$TARBALL_URL"           -o "$WORKDIR/$TARBALL_NAME"
+    curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 5 "${TARBALL_URL}.sha256"  -o "$WORKDIR/${TARBALL_NAME}.sha256"
+    curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 5 "${TARBALL_URL}.minisig" -o "$WORKDIR/${TARBALL_NAME}.minisig"
 fi
 
 # ---------------------------------------------------------------------------
@@ -324,26 +330,38 @@ for unit in wardnetd.service wardnetd-rollback.service; do
     if [[ -n "$src" ]]; then
         install -m 0644 "$src" "/etc/systemd/system/$unit"
     else
-        curl -fsSL "$UNIT_BASE/$unit" -o "/etc/systemd/system/$unit"
+        curl -fsSL --connect-timeout 15 --max-time 60 --retry 3 "$UNIT_BASE/$unit" -o "/etc/systemd/system/$unit"
         chmod 0644 "/etc/systemd/system/$unit"
     fi
 done
-systemctl daemon-reload
+if [[ -z "$CONTAINER_MODE" ]]; then
+    systemctl daemon-reload
+fi
 
-# 6. Enable + start (or restart if upgrading).
-systemctl enable --now wardnetd
-systemctl restart wardnetd
+# 6. Enable (always — creates the WantedBy symlink so the service starts at
+#    boot). In container mode systemd is not running yet during the image
+#    build, so we skip daemon-reload, the immediate start, and the port wait;
+#    systemd will start wardnetd when it initialises as PID 1 at runtime.
+if [[ -n "$CONTAINER_MODE" ]]; then
+    systemctl enable wardnetd
+    echo ""
+    echo "=== Image build complete ==="
+    echo "wardnetd will start when the container initialises (systemd as PID 1)."
+else
+    systemctl enable --now wardnetd
+    systemctl restart wardnetd
 
-# Wait briefly for the daemon to bind its HTTP port so the URL we print is
-# already reachable when the user opens it.
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if ss -lnt 'sport = :7411' 2>/dev/null | grep -q ':7411'; then
-        break
-    fi
-    sleep 1
-done
+    # Wait briefly for the daemon to bind its HTTP port so the URL we print is
+    # already reachable when the user opens it.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if ss -lnt 'sport = :7411' 2>/dev/null | grep -q ':7411'; then
+            break
+        fi
+        sleep 1
+    done
 
-IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-echo ""
-echo "=== Install complete ==="
-echo "Web UI: http://${IP:-<host>}:7411"
+    IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    echo ""
+    echo "=== Install complete ==="
+    echo "Web UI: http://${IP:-<host>}:7411"
+fi

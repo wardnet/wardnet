@@ -1,0 +1,32 @@
+[Unit]
+Description=Wardnet Auto-Update Rollback
+# Triggered by OnFailure= in wardnetd.service when the daemon crash-loops
+# after an auto-update. Restores the previous binary from the .old backup
+# that the update runner leaves in place for exactly this purpose, then
+# re-enables the wardnetd unit so systemd will attempt a clean restart.
+DefaultDependencies=no
+After=wardnetd.service
+
+[Service]
+Type=oneshot
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin
+ProtectHome=yes
+PrivateTmp=yes
+# Only reset-failed + restart when a backup binary was actually restored.
+# Absent .old means the crash is not update-related — exit 0 without
+# restarting so the unit stays failed and the operator can investigate
+# instead of spinning through an infinite crash loop.
+ExecStart=/bin/sh -c '\
+    if [ -f /usr/local/bin/wardnetd.old ]; then \
+        echo "wardnetd-rollback: restoring previous binary" && \
+        mv /usr/local/bin/wardnetd.old /usr/local/bin/wardnetd && \
+        /bin/systemctl reset-failed wardnetd.service && \
+        /bin/systemctl start wardnetd.service; \
+    else \
+        echo "wardnetd-rollback: no backup binary found, not restarting"; \
+    fi'
+
+[Install]
+WantedBy=multi-user.target

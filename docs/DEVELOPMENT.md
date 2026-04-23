@@ -121,10 +121,12 @@ Installs the Rust cross-compilation target, the aarch64-linux-gnu linker, and ya
 ### Build
 
 ```sh
-make build         # web UI + daemon (host target)
-make build-web     # web UI only
-make build-daemon  # daemon only (host target)
-make build-pi      # cross-compile daemon for Raspberry Pi (aarch64-unknown-linux-gnu)
+make build           # web UI + daemon (host target)
+make build-web       # web UI only
+make build-daemon    # daemon only (host target)
+make build-pi        # cross-compile daemon for Raspberry Pi (aarch64-unknown-linux-gnu)
+make image           # build the production container image (downloads latest release)
+make image-multiarch # build linux/amd64 + linux/arm64 production images via buildx
 ```
 
 ### Run locally (no Pi hardware)

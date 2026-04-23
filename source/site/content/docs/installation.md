@@ -1,11 +1,52 @@
 # Installation
 
-Wardnet ships as a single, signed Linux binary. The installer handles
-everything: downloading the latest release, verifying its signature,
-creating a locked-down system user, writing a default configuration, and
-starting the systemd service.
+Wardnet can be installed via Docker or directly on the host (bare-metal).
+Docker is the simpler path — no dependency management, and auto-update +
+crash-loop rollback work identically because systemd runs as PID 1 inside
+the container.
 
-## Requirements
+## Run with Docker
+
+```bash
+docker run -d \
+  --name wardnetd \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --device /dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  --tmpfs /run --tmpfs /run/lock \
+  -p 7411:7411 \
+  -v wardnet-data:/var/lib/wardnet \
+  ghcr.io/wardnet/wardnetd:latest
+```
+
+Open **http://localhost:7411** to complete the setup wizard.
+
+The flags are required:
+
+| Flag | Why |
+| --- | --- |
+| `--cap-add NET_ADMIN` | Create/configure WireGuard interfaces, manage nftables and `ip rule`. |
+| `--cap-add NET_RAW` | Raw sockets for the packet-capture device detector. |
+| `--device /dev/net/tun` | WireGuard tunnels use the tun device. |
+| `--sysctl net.ipv4.ip_forward=1` | Required to route LAN traffic through WireGuard tunnels. |
+| `--tmpfs /run --tmpfs /run/lock` | systemd (PID 1) needs a writable, non-persistent `/run`. |
+| `-v wardnet-data:/var/lib/wardnet` | Persistent state: database, WireGuard keys, staged updates. |
+
+A reference compose file with all options documented is at
+[`source/daemon/examples/docker-compose.yaml`](https://github.com/wardnet/wardnet/blob/main/source/daemon/examples/docker-compose.yaml).
+
+### Auto-update in Docker
+
+The daemon's built-in auto-update runner works inside the container:
+systemd restarts `wardnetd` in place, and `wardnetd-rollback.service`
+fires on crash-loop just as it does on bare metal. One caveat: recreating
+the container (`docker rm` + `docker run`) resets to the image's baked-in
+version. Use `docker restart` to preserve an auto-updated binary, or
+re-pull a newer image tag.
+
+## Bare-metal install
+
+### Requirements
 
 - A Raspberry Pi (aarch64) or x86_64 Linux host.
 - A Debian/Ubuntu-based distribution (other distros work too, as long as
@@ -35,7 +76,7 @@ If any tool is missing, the installer fails early with a clear message
 listing the missing packages — it never installs anything behind your
 back.
 
-## One-shot install
+### One-shot install
 
 ```bash
 curl -sSL https://wardnet.network/install.sh | sudo bash
@@ -58,7 +99,7 @@ Verification flow the installer runs, in order:
 5. Extract, install the binary owned by the `wardnet` user at
    `/usr/local/bin/wardnetd`, drop the systemd units, enable, and start.
 
-## What the installer sets up
+### What the installer sets up
 
 | Path | Purpose |
 | --- | --- |
@@ -73,7 +114,7 @@ Verification flow the installer runs, in order:
 The `wardnet` system user owns all of the above. The daemon never runs
 as root.
 
-## Air-gapped install
+### Air-gapped install
 
 No outbound network from the target machine? Download the release bundle
 on a machine that does have internet, copy it across, and point the
@@ -93,7 +134,7 @@ The bundle directory must contain:
 The installer still verifies SHA-256 and the minisign signature against
 its embedded public key — air-gapped mode does not skip verification.
 
-## Choosing a channel
+### Choosing a channel
 
 By default the installer pulls from the `stable` channel. To install a
 pre-release build, pass `--channel beta`:
@@ -106,7 +147,7 @@ You can also switch channels at any time from the daemon's Settings page
 (Auto-update card) — the background runner will then track the chosen
 channel for future updates.
 
-## Verifying the service
+### Verifying the service
 
 After the installer finishes, it prints the web UI URL, for example:
 
@@ -137,7 +178,7 @@ sudo journalctl -u wardnetd -f
 sudo -u wardnet wctl status
 ```
 
-## Upgrades
+### Upgrades
 
 You never need to re-run `install.sh` for upgrades — the daemon's
 auto-update runner polls the release manifest every six hours and, when
@@ -148,7 +189,7 @@ If an upgrade produces a crash-looping daemon, systemd automatically
 fires the `wardnetd-rollback.service` unit after three failures within
 120 seconds, which restores the previous binary (`/usr/local/bin/wardnetd.old`).
 
-## Uninstall
+### Uninstall
 
 ```bash
 sudo systemctl disable --now wardnetd

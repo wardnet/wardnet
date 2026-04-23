@@ -1,0 +1,60 @@
+# wardnetd reference compose.
+#
+# Copy this file to your project, adjust the configuration, and run:
+#   docker compose up -d
+#
+# The daemon needs a few host-level permissions to manage WireGuard interfaces,
+# nftables rules, and DHCP/DNS sockets. None of these require `privileged: true`.
+
+services:
+  wardnetd:
+    image: ghcr.io/wardnet/wardnetd:latest
+    container_name: wardnetd
+    restart: unless-stopped
+
+    # NET_ADMIN — create/configure WireGuard interfaces, add ip rules, manage nftables.
+    # NET_RAW   — raw sockets used by the packet-capture device detector.
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # WireGuard tunnels use the tun/tap device.
+    devices:
+      - /dev/net/tun
+
+    # IP forwarding is required to route LAN traffic through WireGuard tunnels.
+    sysctls:
+      net.ipv4.ip_forward: "1"
+
+    # systemd (PID 1) requires a writable /run. Do not use a named volume here —
+    # systemd's runtime state must not persist across container restarts.
+    tmpfs:
+      - /run
+      - /run/lock
+
+    ports:
+      # Web UI and daemon API. Open this to any host that needs dashboard access.
+      - "7411:7411/tcp"
+      # DNS: publish only on the LAN-facing interface if your host has multiple.
+      # Example: - "192.168.1.1:53:53/udp"
+      - "53:53/udp"
+      - "53:53/tcp"
+      # DHCP: UDP broadcast — the container must share the LAN bridge for DHCP
+      # to reach clients. Binding the port alone is not sufficient; see the
+      # network section below or use `network_mode: host` for simple setups.
+      - "67:67/udp"
+
+    volumes:
+      # Persistent state: database, WireGuard keys, staged updates, logs.
+      # Mount this volume on a persistent (non-tmpfs) filesystem.
+      - wardnet-data:/var/lib/wardnet
+      # Optional: override the default configuration.
+      # - ./wardnet.toml:/etc/wardnet/wardnet.toml:ro
+
+    # Optional: attach the container directly to the host network so DHCP
+    # broadcasts reach LAN clients without additional bridge configuration.
+    # Comment out the `ports` section above when using this.
+    # network_mode: host
+
+volumes:
+  wardnet-data:
