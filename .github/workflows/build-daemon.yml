@@ -46,7 +46,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install clippy SARIF tooling
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # v2
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -61,7 +61,7 @@ jobs:
         # cargo fmt --check fails (runs before clippy), no SARIF exists;
         # hashFiles evaluates to empty and the upload is skipped.
         if: always() && hashFiles('rust-clippy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true

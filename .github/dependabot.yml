@@ -27,3 +27,22 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(ci):"
+
+  # Production wardnetd image (source/daemon/Dockerfile) — pinned by
+  # digest for Scorecard / supply-chain integrity, so Dependabot is
+  # the channel that surfaces base-image updates.
+  - package-ecosystem: "docker"
+    directory: "/source/daemon"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+
+  # ClusterFuzzLite build image (.clusterfuzzlite/Dockerfile) — same
+  # pin-then-bump story.
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"

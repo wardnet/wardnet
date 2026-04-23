@@ -24,7 +24,10 @@
 #   --sysctl net.ipv4.ip_forward=1
 #   --tmpfs /run --tmpfs /run/lock
 
-FROM debian:bookworm-slim
+# Pinned by digest for Scorecard / supply-chain integrity.
+# Dependabot (.github/dependabot.yml) watches this and opens PRs
+# when Debian publishes a new bookworm-slim image.
+FROM debian:bookworm-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
 
 # Runtime dependencies that stay in the final image.
 # wget is kept for the HEALTHCHECK; curl and minisign are purged after install.
