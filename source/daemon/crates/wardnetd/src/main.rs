@@ -404,6 +404,26 @@ async fn run(
         config.database.connection_string,
     );
 
+    let _pidfile = match wardnetd::pidfile::PidfileGuard::write(&config.pidfile_path) {
+        Ok(guard) => {
+            tracing::info!(
+                path = %config.pidfile_path.display(),
+                "pidfile written: path={}",
+                config.pidfile_path.display()
+            );
+            Some(guard)
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                path = %config.pidfile_path.display(),
+                "failed to write pidfile at {}: {e}",
+                config.pidfile_path.display()
+            );
+            None
+        }
+    };
+
     let listener = TcpListener::bind(addr).await?;
 
     let api_span = tracing::info_span!(parent: &root_span, "api_server");

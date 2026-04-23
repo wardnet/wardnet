@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 /// by the mock server. All sub-crates receive this via dependency injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[derive(Default)]
 pub struct ApplicationConfiguration {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -33,6 +32,39 @@ pub struct ApplicationConfiguration {
     /// Secrets Manager) will plug in as additional variants of
     /// [`SecretStoreConfig`] behind the same `SecretStore` trait.
     pub secret_store: Option<SecretStoreConfig>,
+    /// Path to the PID file written on startup and removed on clean exit.
+    ///
+    /// The daemon writes its process ID to this file immediately after
+    /// binding its listen socket. Operators and tooling can use
+    /// `kill -TERM $(cat /run/wardnetd.pid)` to trigger a graceful shutdown
+    /// without relying on service-manager process tracking.
+    #[serde(default = "default_pidfile_path")]
+    pub pidfile_path: PathBuf,
+}
+
+impl Default for ApplicationConfiguration {
+    fn default() -> Self {
+        Self {
+            server: ServerConfig::default(),
+            database: DatabaseConfig::default(),
+            logging: LoggingConfig::default(),
+            network: NetworkConfig::default(),
+            auth: AuthConfig::default(),
+            admin: None,
+            tunnel: TunnelConfig::default(),
+            detection: DetectionConfig::default(),
+            otel: OtelConfig::default(),
+            vpn_providers: VpnProvidersConfig::default(),
+            pyroscope: PyroscopeConfig::default(),
+            update: UpdateConfig::default(),
+            secret_store: None,
+            pidfile_path: default_pidfile_path(),
+        }
+    }
+}
+
+fn default_pidfile_path() -> PathBuf {
+    PathBuf::from("/run/wardnetd.pid")
 }
 
 impl ApplicationConfiguration {

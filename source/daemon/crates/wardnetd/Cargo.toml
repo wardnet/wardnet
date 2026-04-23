@@ -88,3 +88,5 @@ cron.workspace = true
 [dev-dependencies]
 # https://crates.io/crates/tokio
 tokio = { workspace = true, features = ["test-util"] }
+# https://crates.io/crates/tempfile
+tempfile.workspace = true

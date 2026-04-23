@@ -157,3 +157,6 @@ pyroscope = { version = "2", features = ["backend-pprof-rs"] }
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # https://crates.io/crates/utoipa-axum
 utoipa-axum = "0.2"
+
+# https://crates.io/crates/tempfile
+tempfile = "=3.27"

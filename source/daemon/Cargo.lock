@@ -5068,6 +5068,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "tempfile",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",

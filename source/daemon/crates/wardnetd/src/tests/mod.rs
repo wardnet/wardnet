@@ -3,6 +3,7 @@ mod firewall_nftables;
 mod hostname_resolver;
 mod metrics_collector;
 mod packet_capture;
+mod pidfile;
 mod profiling;
 mod routing_listener;
 pub mod stubs;

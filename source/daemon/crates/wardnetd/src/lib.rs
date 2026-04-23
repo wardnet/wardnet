@@ -1,3 +1,6 @@
+// PID file management.
+pub mod pidfile;
+
 // Real backend implementations (Linux-specific).
 pub mod command;
 pub mod firewall_nftables;
