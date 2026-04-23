@@ -159,6 +159,17 @@ impl BackupArchiver for AgeArchiver {
     }
 }
 
+/// Synchronous unpack exposed for fuzz harnesses. Gated on the
+/// `fuzz-internals` cargo feature so production builds never pick up a
+/// public sync entry-point by accident — calling it from async code
+/// blocks the tokio runtime, defeating `spawn_blocking`.
+///
+/// See `source/daemon/fuzz/fuzz_targets/archiver_unpack.rs`.
+#[cfg(feature = "fuzz-internals")]
+pub fn unpack_sync_for_fuzz(passphrase: &str, bytes: &[u8]) -> anyhow::Result<BundleContents> {
+    unpack_sync(passphrase, bytes)
+}
+
 /// Synchronous core of [`AgeArchiver::pack`].
 fn pack_sync(passphrase: &str, contents: &BundleContents) -> anyhow::Result<Vec<u8>> {
     let manifest_bytes = serde_json::to_vec_pretty(&contents.manifest)

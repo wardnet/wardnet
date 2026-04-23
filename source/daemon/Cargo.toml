@@ -9,6 +9,9 @@ members = [
     "crates/wardnetd-services",
     "crates/wctl",
 ]
+# The fuzz harness is its own workspace — libfuzzer-sys + nightly
+# sanitizer rustflags must not leak into normal daemon builds.
+exclude = ["fuzz"]
 resolver = "3"
 
 [workspace.package]

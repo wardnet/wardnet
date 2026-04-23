@@ -1,0 +1,72 @@
+name: Fuzzing (maintenance)
+
+# Weekly ClusterFuzzLite maintenance — coverage reports + corpus
+# pruning. Separated from fuzzing-scheduled.yml because these jobs
+# don't need twice-daily cadence and the reports are cheaper to
+# produce all at once on a quiet schedule.
+#
+# Coverage output publishes to the `gh-pages` branch of
+# wardnet/wardnet-fuzz-corpus; browse at
+# https://github.com/wardnet/wardnet-fuzz-corpus/tree/gh-pages/coverage
+# (or the GH Pages URL once that branch is Pages-enabled).
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build Fuzzers (coverage sanitizer)
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: rust
+          sanitizer: coverage
+
+      - name: Run Fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          language: rust
+          fuzz-seconds: 600
+          mode: coverage
+          sanitizer: coverage
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          storage-repo: https://x-access-token:${{ secrets.FUZZ_CORPUS_PAT }}@github.com/wardnet/wardnet-fuzz-corpus.git
+          storage-repo-branch: main
+          storage-repo-branch-coverage: gh-pages
+
+  prune:
+    name: Prune corpus
+    needs: coverage
+    runs-on: ubuntu-latest
+    # fuzz-seconds (20) + CFLite build + setup.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build Fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: rust
+          sanitizer: address
+
+      - name: Run Fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          language: rust
+          fuzz-seconds: 1200
+          mode: prune
+          sanitizer: address
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          storage-repo: https://x-access-token:${{ secrets.FUZZ_CORPUS_PAT }}@github.com/wardnet/wardnet-fuzz-corpus.git
+          storage-repo-branch: main
