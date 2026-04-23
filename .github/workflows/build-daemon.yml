@@ -22,7 +22,12 @@ name: Build Daemon
 on:
   workflow_call:
 
-permissions: read-all
+# Explicit scopes (not read-all) so this leaf's workflow-level stays a
+# subset of the caller's workflow-level — GitHub's reusable-workflow
+# permission rules reject leaf > caller. `check-daemon` escalates to
+# `security-events: write` via its own job-level block.
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always

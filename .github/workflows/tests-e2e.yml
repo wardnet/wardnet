@@ -16,7 +16,11 @@ name: E2E Tests
 on:
   workflow_call:
 
-permissions: read-all
+# Explicit scopes (not read-all) so this leaf's workflow-level stays a
+# subset of the caller's workflow-level — GitHub's reusable-workflow
+# permission rules reject leaf > caller.
+permissions:
+  contents: read
 
 jobs:
   placeholder:
