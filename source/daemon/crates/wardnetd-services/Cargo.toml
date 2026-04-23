@@ -8,6 +8,14 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes the synchronous core of AgeArchiver::unpack for fuzz harnesses.
+# NEVER enable this in production builds — calling the sync path from
+# async code will block the tokio runtime. The flag exists so
+# source/daemon/fuzz/ can skip the spawn_blocking + buffer clone that
+# the public async API pays per call.
+fuzz-internals = []
+
 [dependencies]
 # Internal
 wardnet-common.workspace = true

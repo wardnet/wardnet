@@ -1,0 +1,68 @@
+# Standalone cargo workspace for ClusterFuzzLite / cargo-fuzz.
+#
+# The parent daemon workspace excludes this directory (see
+# `source/daemon/Cargo.toml` `[workspace] exclude`), so libfuzzer-sys
+# and its nightly sanitizer rustflags never leak into normal
+# `cargo build --workspace` paths.
+#
+# The fuzz targets link against the real daemon crates via path
+# dependencies, which is deliberate: a fuzz target that drifts away
+# from the production types would only find bugs in the harness.
+
+[package]
+name = "wardnet-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# Shared runtime for the async harnesses. "rt-multi-thread" is
+# sufficient; we don't need the full feature set.
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros"] }
+once_cell = "1"
+
+# Needed to construct a throwaway SqlitePool for the sqlite_restore
+# harness (SqliteDumper::new takes a pool it later replaces).
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+serde_json = "1"
+
+# Production crates under fuzz — path deps, no versions, so the fuzz
+# workspace always tracks the in-repo code.
+wardnet-common = { path = "../crates/wardnet-common" }
+wardnetd-data = { path = "../crates/wardnetd-data" }
+# `fuzz-internals` exposes the synchronous unpack core so the
+# archiver_unpack harness can skip spawn_blocking + the per-input
+# buffer clone that AgeArchiver::unpack pays.
+wardnetd-services = { path = "../crates/wardnetd-services", features = ["fuzz-internals"] }
+
+# Enable debug info in release so crash stacks symbolicate cleanly.
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "archiver_unpack"
+path = "fuzz_targets/archiver_unpack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sqlite_restore"
+path = "fuzz_targets/sqlite_restore.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_manifest"
+path = "fuzz_targets/bundle_manifest.rs"
+test = false
+doc = false
+bench = false

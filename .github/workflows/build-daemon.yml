@@ -1,0 +1,210 @@
+name: Build Daemon
+
+# Reusable leaf for daemon lint + test + release builds.
+#
+# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml
+# (via pr.yml). Produces three artifacts with fixed names that
+# downstream jobs and workflows download by reference:
+#
+#   - wardnetd-x86_64-unsigned   — stripped wardnetd binary, tarball
+#   - wardnetd-aarch64-unsigned  — stripped wardnetd binary, tarball
+#   - wardnet-mock-x86_64        — stripped wardnetd-mock binary, tarball
+#
+# No version in the filename — release-daemon.yml renames to
+# wardnetd-<version>-<arch>.tar.gz at publish time. Keeping build-daemon
+# release-agnostic means every PR run produces a tarball in the same
+# shape a release consumes, so signing+publishing is a thin wrapper.
+#
+# The wardnetd-mock binary is x86_64-only on purpose — it's a dev/test
+# tool, not a release asset, and building it for aarch64 would add
+# ~3min of cross-compile time with zero consumers.
+
+on:
+  workflow_call:
+
+permissions: read-all
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check-daemon:
+    name: Check Daemon
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Upload clippy SARIF to Code Scanning.
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: clippy, rustfmt
+
+      - name: Install clippy SARIF tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: clippy-sarif,sarif-fmt
+
+      - name: Check
+        # SARIF_OUT flips `make check-daemon` into piping clippy output
+        # through clippy-sarif — single clippy run, SARIF as by-product.
+        run: make check-daemon SARIF_OUT=rust-clippy-results.sarif
+
+      - name: Upload clippy findings to Code Scanning
+        # Upload even if Check failed (captures the warnings that caused
+        # the failure) — but only when SARIF was actually written. If
+        # cargo fmt --check fails (runs before clippy), no SARIF exists;
+        # hashFiles evaluates to empty and the upload is skipped.
+        if: always() && hashFiles('rust-clippy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
+
+  check-openapi:
+    name: Check OpenAPI drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Regenerate docs/openapi.json and verify no drift
+        # `make check-openapi` runs `dump_openapi` against the current
+        # handler annotations and diffs against the committed file. Any
+        # API change must land with a fresh `docs/openapi.json`.
+        run: make check-openapi
+
+  build-web:
+    name: Build Web (for daemon embed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/web-ui/yarn.lock
+
+      - name: Build
+        run: make build-web
+
+      - name: Upload dist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: web-ui-dist
+          path: source/web-ui/dist/
+          retention-days: 1
+
+  build:
+    name: Build Daemon (${{ matrix.arch }})
+    needs: [build-web, check-daemon]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            strip: strip
+            build-mock: true
+          - arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            strip: aarch64-linux-gnu-strip
+            cross_apt_packages: gcc-aarch64-linux-gnu
+            build-mock: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # rust-embed picks the web UI up from this directory at daemon
+      # compile time. Downloading the shared artifact avoids re-running
+      # `yarn build` per matrix entry.
+      - name: Download web-ui dist
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: web-ui-dist
+          path: source/web-ui/dist/
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain
+        if: matrix.cross_apt_packages != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
+
+      - name: Build wardnetd
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: wardnetd
+        run: make build-daemon
+
+      - name: Build wardnetd-mock (x86_64 only)
+        if: matrix.build-mock
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: wardnetd-mock
+        run: make build-daemon
+
+      - name: Strip binaries
+        env:
+          STRIP_TOOL: ${{ matrix.strip }}
+          TARGET: ${{ matrix.target }}
+          BUILD_MOCK: ${{ matrix.build-mock }}
+        run: |
+          set -euo pipefail
+          BIN_DIR="source/daemon/target/${TARGET}/release"
+          "${STRIP_TOOL}" "${BIN_DIR}/wardnetd"
+          ls -l "${BIN_DIR}/wardnetd"
+          if [[ "${BUILD_MOCK}" == "true" ]]; then
+            "${STRIP_TOOL}" "${BIN_DIR}/wardnetd-mock"
+            ls -l "${BIN_DIR}/wardnetd-mock"
+          fi
+
+      - name: Package wardnetd
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p build-artefacts/staged-wardnetd
+          cp "source/daemon/target/${TARGET}/release/wardnetd" \
+            "build-artefacts/staged-wardnetd/wardnetd"
+          chmod 0755 "build-artefacts/staged-wardnetd/wardnetd"
+          tar -C build-artefacts/staged-wardnetd \
+            -czf "build-artefacts/wardnetd-${ARCH}.tar.gz" wardnetd
+
+      - name: Upload wardnetd artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wardnetd-${{ matrix.arch }}-unsigned
+          path: build-artefacts/wardnetd-${{ matrix.arch }}.tar.gz
+          retention-days: 7
+
+      - name: Package wardnetd-mock (x86_64 only)
+        if: matrix.build-mock
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p build-artefacts/staged-mock
+          cp "source/daemon/target/${TARGET}/release/wardnetd-mock" \
+            "build-artefacts/staged-mock/wardnetd-mock"
+          chmod 0755 "build-artefacts/staged-mock/wardnetd-mock"
+          tar -C build-artefacts/staged-mock \
+            -czf "build-artefacts/wardnet-mock-x86_64.tar.gz" wardnetd-mock
+
+      - name: Upload wardnetd-mock artifact (x86_64 only)
+        if: matrix.build-mock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wardnet-mock-x86_64
+          path: build-artefacts/wardnet-mock-x86_64.tar.gz
+          retention-days: 7

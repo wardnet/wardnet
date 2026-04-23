@@ -1,0 +1,149 @@
+name: Coverage
+
+# Reusable leaf for daemon + site coverage.
+#
+# Called only from pr.yml (coverage doesn't run on push-to-main —
+# Codecov's patch-coverage feature keys off PRs). Daemon and site
+# coverage run in parallel jobs, and a single `upload` job combines
+# both LCOV/JUnit files into ONE Codecov invocation per PR so we get a
+# single PR comment with a coherent base comparison rather than
+# dueling uploads from separate leaves.
+
+on:
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        description: Codecov upload token
+        required: true
+
+permissions: read-all
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  daemon-coverage:
+    name: Daemon coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: "1.94"
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: source/daemon
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@87d97b95c884523e049410b5322ea91b2acdbc89 # cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@024e8cba30d328c34bf69b86cfaaaad61ad5c4cb # cargo-nextest
+
+      - name: Generate daemon coverage + test results
+        run: |
+          mkdir -p coverage
+          cd source/daemon && cargo llvm-cov nextest \
+            --workspace \
+            --profile ci \
+            --lcov --output-path ../../coverage/daemon-lcov.info \
+            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)'
+          cp target/nextest/ci/junit.xml ../../coverage/daemon-junit.xml
+
+      - name: Upload daemon coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-daemon
+          path: coverage/
+          retention-days: 1
+
+  site-coverage:
+    name: Site coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "25"
+          cache: yarn
+          cache-dependency-path: source/site/yarn.lock
+
+      - name: Generate site coverage + test results
+        run: cd source/site && yarn install --immutable && yarn test:coverage
+
+      - name: Collect into shared layout
+        run: |
+          mkdir -p coverage
+          cp source/site/coverage/lcov.info coverage/site-lcov.info
+          cp source/site/test-results/junit.xml coverage/site-junit.xml
+
+      - name: Upload site coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-site
+          path: coverage/
+          retention-days: 1
+
+  upload:
+    name: Upload to Codecov
+    needs: [daemon-coverage, site-coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Run even if one side failed so partial coverage still uploads —
+    # a failing daemon test shouldn't hide a site coverage regression.
+    if: always() && (needs.daemon-coverage.result == 'success' || needs.site-coverage.result == 'success')
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download daemon coverage
+        if: needs.daemon-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-daemon
+          path: coverage/
+
+      - name: Download site coverage
+        if: needs.site-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-site
+          path: coverage/
+
+      - name: Resolve present coverage files
+        id: files
+        run: |
+          set -euo pipefail
+          LCOV=""
+          JUNIT=""
+          [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
+          [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
+          [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
+          [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
+          echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
+          echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage to Codecov
+        if: steps.files.outputs.lcov != ''
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        with:
+          files: ${{ steps.files.outputs.lcov }}
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && steps.files.outputs.junit != '' }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
+        with:
+          files: ${{ steps.files.outputs.junit }}
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

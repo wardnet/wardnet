@@ -1,23 +1,15 @@
 name: Release
 
-# Tag-driven release workflow.
+# Tag-driven release orchestrator.
 #
-# Triggered by pushing an annotated tag matching `v*.*.*`. For every target
-# listed in the build matrix, cross-compiles the daemon, signs the tarball
-# with minisign, and attaches the artefacts to a GitHub Release.
+# Composes the same leaves as ci.yml + pr.yml plus release-specific
+# ones. Release does NOT nest pr.yml — pr.yml's preflight gating
+# (paths-filter) is meaningless on a tag push, and coverage shouldn't
+# run on release (Codecov's patch-coverage is PR-keyed).
 #
-# Adding a new target is a one-line matrix entry — no other plumbing changes.
-# v1 ships aarch64-linux-gnu only (Raspberry Pi), but the workflow is not
-# Pi-specific.
-#
-# Channel classification is SemVer-driven and handled by the marketing site's
-# manifest generator at build time (see source/site/scripts/generate-manifests.ts).
-# A tag with a pre-release suffix (e.g. `v0.2.1-beta.1`, `v0.2.1-rc.1`) is
-# marked as a GitHub "pre-release" and feeds the `beta` channel; a clean
-# `vX.Y.Z` tag feeds the `stable` channel.
-#
-# `workflow_dispatch` is supported for dry runs on non-tag refs: the build
-# and signing steps all run, but the publish job is skipped.
+# `workflow_dispatch` is supported for dry runs on non-tag refs: the
+# build + sign paths all run, but `release-daemon` (publish) is gated
+# on the ref being a tag so nothing reaches GitHub Releases.
 
 on:
   push:
@@ -35,6 +27,7 @@ jobs:
   resolve:
     name: Resolve version and channel
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -81,221 +74,44 @@ jobs:
 
           echo "Release version: ${VERSION} (tag=${TAG:-<dispatch>}, prerelease=${PRERELEASE})"
 
-  build:
-    name: Build ${{ matrix.target }}
+  build-daemon:
+    name: Build Daemon
     needs: resolve
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Raspberry Pi and other aarch64 Linux boards.
-          # `arch` is the short-form name embedded in release asset filenames
-          # (`wardnetd-<version>-<arch>.tar.gz`) — only Linux targets ship, so
-          # the full `<arch>-unknown-linux-gnu` triple would just be noise for
-          # users. The daemon's auto-update runner constructs the tarball URL
-          # using this same short form (see `wardnetd_services::update::short_arch`).
-          - target: aarch64-unknown-linux-gnu
-            arch: aarch64
-            runner: ubuntu-latest
-            cross_apt_packages: gcc-aarch64-linux-gnu
-            strip: aarch64-linux-gnu-strip
-          # Non-Pi Linux hosts (mini-PCs, x86_64 servers, etc.). Built natively
-          # on the x86_64 runner, no cross-linker needed.
-          - target: x86_64-unknown-linux-gnu
-            arch: x86_64
-            runner: ubuntu-latest
-            cross_apt_packages: ""
-            strip: strip
-          # Additional targets slot in here as new matrix entries — no other
-          # plumbing changes needed.
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
+    uses: ./.github/workflows/build-daemon.yml
+    secrets: inherit
 
-      - uses: ./.github/actions/setup-node-yarn
-        with:
-          cache-dependency-path: source/web-ui/yarn.lock
+  build-site:
+    name: Build Site
+    needs: resolve
+    uses: ./.github/workflows/build-site.yml
+    secrets: inherit
 
-      - name: Build web UI (embedded into the daemon binary)
-        run: make build-web
+  tests-e2e:
+    name: E2E Tests
+    needs: [build-daemon, build-site]
+    uses: ./.github/workflows/tests-e2e.yml
+    secrets: inherit
 
-      - uses: ./.github/actions/setup-rust
-        with:
-          targets: ${{ matrix.target }}
-          cache-key: release-${{ matrix.target }}
+  deploy-site:
+    name: Deploy Site
+    needs: [build-site, tests-e2e]
+    # Dry-run (workflow_dispatch on non-tag) still deploys the site —
+    # harmless, idempotent, and confirms the Pages path works.
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      bundle-artifact: site-dist
+    secrets: inherit
 
-      - name: Install cross-compilation toolchain
-        if: matrix.cross_apt_packages != ''
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
-
-      - name: Cross-compile daemon
-        env:
-          TARGET: ${{ matrix.target }}
-          CRATE: wardnetd
-        run: make build-daemon
-
-      - name: Strip binary
-        env:
-          STRIP_TOOL: ${{ matrix.strip }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          BIN="source/daemon/target/${TARGET}/release/wardnetd"
-          "${STRIP_TOOL}" "${BIN}"
-          ls -l "${BIN}"
-
-      - name: Install minisign
-        run: sudo apt-get install -y minisign
-
-      - name: Package and sign artefact
-        env:
-          VERSION: ${{ needs.resolve.outputs.version }}
-          TARGET: ${{ matrix.target }}
-          ARCH: ${{ matrix.arch }}
-          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
-          MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
-            echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required to produce a signed release. See deploy/keys/README.md."
-            exit 1
-          fi
-
-          # Asset naming: short arch only (no OS/vendor suffix) — everything
-          # we ship is Linux. The daemon's auto-update runner builds the same
-          # filename from `short_arch(target_triple)`; see release.yml matrix.
-          BASENAME="wardnetd-${VERSION}-${ARCH}"
-          TARBALL="${BASENAME}.tar.gz"
-          SHA256_FILE="${TARBALL}.sha256"
-          MINISIG_FILE="${TARBALL}.minisig"
-
-          mkdir -p release-artefacts
-          pushd release-artefacts >/dev/null
-
-          # Stage just the `wardnetd` binary in a clean directory so the
-          # tarball contains `wardnetd` at the top level (no leading dir).
-          mkdir staged
-          cp "../source/daemon/target/${TARGET}/release/wardnetd" staged/wardnetd
-          chmod 0755 staged/wardnetd
-
-          tar -C staged -czf "${TARBALL}" wardnetd
-          sha256sum "${TARBALL}" | awk '{print $1}' > "${SHA256_FILE}"
-
-          # Write the encrypted private key to a local file and sign. The
-          # MINISIGN_PASSWORD env var is honoured by minisign >= 0.10, which
-          # is what ubuntu-latest ships.
-          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
-          chmod 0600 minisign.key
-
-          # Feed the password both via stdin (older minisigns fall back to
-          # stdin when /dev/tty isn't available — which is the case on
-          # GitHub runners) and via the MINISIGN_PASSWORD env var (honoured
-          # by newer versions). Using both is safe and version-agnostic.
-          printf '%s\n' "${MINISIGN_PASSWORD}" | \
-            MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${TARBALL}" \
-              -s minisign.key \
-              -t "wardnetd ${VERSION} (${TARGET})" \
-              -c "Wardnet release signing key" \
-              -x "${MINISIG_FILE}"
-
-          # Destroy the key material immediately so it never leaks into uploads.
-          shred -u minisign.key
-
-          # Sanity check: the public key in the repo must verify the signature.
-          minisign -Vm "${TARBALL}" \
-            -p "../deploy/keys/wardnet-release.pub" \
-            -x "${MINISIG_FILE}"
-
-          ls -l
-          popd >/dev/null
-
-      - name: Upload artefacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: release-artefacts-${{ matrix.target }}
-          path: |
-            release-artefacts/*.tar.gz
-            release-artefacts/*.sha256
-            release-artefacts/*.minisig
-          retention-days: 7
-
-  publish:
-    name: Publish GitHub Release
-    needs: [resolve, build]
-    # Only publish when triggered by an actual tag push. workflow_dispatch runs
-    # exercise the full build path but stop short of creating a release.
+  release-daemon:
+    name: Release Daemon
+    needs: [resolve, build-daemon, tests-e2e]
+    # Only publish when triggered by an actual tag push. workflow_dispatch
+    # runs exercise the full build + sign path but stop short of the
+    # `gh release create` call.
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      # `contents: write` — create the Release.
-      # `actions: write` — dispatch the deploy-site workflow at the end.
-      contents: write
-      actions: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Download artefacts from all targets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: release-artefacts-*
-          path: release-artefacts/
-          merge-multiple: true
-
-      - name: Stage OpenAPI spec + sha256
-        # Publish the committed `docs/openapi.json` alongside the binary as
-        # a release asset so external consumers can download the spec for a
-        # specific daemon version without running the daemon itself. The
-        # .sha256 companion lets the site's manifest generator dedupe across
-        # releases without fetching the full JSON for every historical tag.
-        run: |
-          set -euo pipefail
-          cp docs/openapi.json release-artefacts/openapi.json
-          sha256sum release-artefacts/openapi.json | awk '{print $1}' \
-            > release-artefacts/openapi.json.sha256
-          ls -l release-artefacts/openapi.*
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
-          VERSION: ${{ needs.resolve.outputs.version }}
-          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
-        run: |
-          set -euo pipefail
-          ARGS=(--verify-tag --title "Wardnet ${VERSION}")
-
-          # Prefer hand-written release notes at docs/releases/vX.Y.Z.md.
-          # Fall back to GitHub's auto-generated notes (diff since last tag).
-          NOTES_FILE="docs/releases/v${VERSION}.md"
-          if [[ -f "${NOTES_FILE}" ]]; then
-            echo "Using release notes from ${NOTES_FILE}"
-            ARGS+=(--notes-file "${NOTES_FILE}")
-          else
-            echo "No ${NOTES_FILE} found — falling back to auto-generated notes"
-            ARGS+=(--generate-notes)
-          fi
-
-          if [[ "${PRERELEASE}" == "true" ]]; then
-            ARGS+=(--prerelease)
-          fi
-
-          gh release create "${TAG}" "${ARGS[@]}" \
-            release-artefacts/*.tar.gz \
-            release-artefacts/*.tar.gz.sha256 \
-            release-artefacts/*.tar.gz.minisig \
-            release-artefacts/openapi.json \
-            release-artefacts/openapi.json.sha256
-
-      - name: Dispatch deploy-site so the marketing site picks up the new release
-        # `release: [published]` on deploy-site.yml does NOT fire when the
-        # release is created by GITHUB_TOKEN (GitHub blocks cascading events
-        # from the default token). An explicit `workflow_dispatch` IS allowed
-        # from GITHUB_TOKEN, so we kick off the site build ourselves here.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run deploy-site.yml --ref main
+    uses: ./.github/workflows/release-daemon.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      prerelease: ${{ fromJSON(needs.resolve.outputs.prerelease) }}
+    secrets: inherit

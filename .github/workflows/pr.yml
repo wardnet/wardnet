@@ -1,0 +1,74 @@
+name: PR
+
+# Orchestrator for pull requests targeting `main`.
+#
+# Also `workflow_call`-able from release.yml so a release tag exercises
+# the same gauntlet a PR would.
+#
+# Structure:
+#   preflight     — detect-changes + check-version composite actions
+#                   in a single job (outputs gate the leaves below)
+#   build-daemon  — lint + tests + release build + artifacts
+#   build-site    — lint + release build + artifact
+#   coverage      — daemon + site coverage, single Codecov upload
+#   tests-e2e     — stub today; needs both daemon + site artifacts
+#
+# Each heavy leaf is gated on `preflight.<area> || preflight.ci`. A
+# change to `.github/workflows/**` runs everything (CI config changes
+# must be fully validated).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions: read-all
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      daemon: ${{ steps.detect.outputs.daemon }}
+      site: ${{ steps.detect.outputs.site }}
+      ci: ${{ steps.detect.outputs.ci }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/detect-changes
+        id: detect
+      - uses: ./.github/actions/check-version
+
+  build-daemon:
+    name: Build Daemon
+    needs: preflight
+    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/build-daemon.yml
+    secrets: inherit
+
+  build-site:
+    name: Build Site
+    needs: preflight
+    if: needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/build-site.yml
+    secrets: inherit
+
+  coverage:
+    name: Coverage
+    needs: preflight
+    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
+  tests-e2e:
+    name: E2E Tests
+    needs: [build-daemon, build-site]
+    # tests-e2e consumes artifacts from both leaves, so it runs only
+    # when both produced output (i.e. both were invoked).
+    if: needs.build-daemon.result == 'success' && needs.build-site.result == 'success'
+    uses: ./.github/workflows/tests-e2e.yml
+    secrets: inherit

@@ -1,0 +1,64 @@
+name: Fuzzing (scheduled)
+
+# ClusterFuzzLite batch-mode fuzzing on a 12-hour cadence.
+#
+# Runs twice daily against the three trust-boundary targets in
+# source/daemon/fuzz/:
+#
+#   - archiver_unpack   (AgeArchiver::unpack on untrusted bytes)
+#   - sqlite_restore    (SqliteDumper::restore on untrusted bytes)
+#   - bundle_manifest   (serde_json::from_slice::<BundleManifest>)
+#
+# Corpus is persisted in a companion repo wardnet/wardnet-fuzz-corpus
+# via a fine-grained PAT stored as FUZZ_CORPUS_PAT. See
+# .clusterfuzzlite/README.md for triage + rotation.
+#
+# Cadence rationale: 12 hours gives sub-day attribution when a
+# regression lands (`git log --since=12h` narrows the suspects). Free
+# on public repos — weekly would save ~60 min/week of minutes that
+# this repo doesn't pay for.
+#
+# PR-gate fuzzing was evaluated and skipped — contributor friction
+# (~15 min added per relevant PR) isn't worth it when the scheduled
+# run catches regressions within half a day anyway.
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # `issues: write` lets CFLite file a GitHub Issue when a fuzzer
+  # reports a new crash. Nothing else on this repo writes.
+  issues: write
+
+jobs:
+  batch:
+    name: Batch fuzz (600s)
+    runs-on: ubuntu-latest
+    # fuzz-seconds (10) + CFLite build + setup. Caps a hung target
+    # before it eats a runner for GitHub's 6h default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: rust
+          sanitizer: address
+
+      - name: Run Fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          language: rust
+          fuzz-seconds: 600
+          mode: batch
+          sanitizer: address
+          output-sarif: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          storage-repo: https://x-access-token:${{ secrets.FUZZ_CORPUS_PAT }}@github.com/wardnet/wardnet-fuzz-corpus.git
+          storage-repo-branch: main
+          storage-repo-branch-coverage: gh-pages
