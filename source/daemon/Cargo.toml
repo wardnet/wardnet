@@ -136,7 +136,7 @@ hickory-proto = "0.25"
 hickory-resolver = "0.25"
 
 # https://crates.io/crates/rtnetlink
-rtnetlink = "0.20"
+rtnetlink = "0.21"
 # https://crates.io/crates/netlink-packet-route
 netlink-packet-route = "0.30"
 # https://crates.io/crates/netlink-sys
