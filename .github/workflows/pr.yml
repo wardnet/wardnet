@@ -67,11 +67,14 @@ jobs:
   coverage:
     name: Coverage
     needs: preflight
-    # Skip for Dependabot: dep bumps don't add or remove tests, so coverage is
-    # identical to main — no value in re-running, and Dependabot PRs can't
-    # access repository secrets (CODECOV_TOKEN) anyway.
+    # Skip for any bot-authored PR (actor ends with '[bot]'): bots push to
+    # same-repo branches, which GitHub denies access to repo secrets for, and
+    # Codecov requires a token for same-repo branches on public repos. Bots
+    # here (Dependabot, step-security-bot) don't change source code anyway.
+    # Fork PRs from community members keep running — they use Codecov's
+    # tokenless upload (unprotected branch ref with colon prefix).
     if: |
-      github.actor != 'dependabot[bot]' && (
+      !endsWith(github.actor, '[bot]') && (
         needs.preflight.outputs.daemon == 'true' ||
         needs.preflight.outputs.site == 'true' ||
         needs.preflight.outputs.ci == 'true'

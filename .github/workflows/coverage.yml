@@ -13,8 +13,13 @@ on:
   workflow_call:
     secrets:
       CODECOV_TOKEN:
-        description: Codecov upload token
-        required: true
+        description: |
+          Codecov upload token. Optional so fork PRs — which GitHub
+          denies access to repo secrets — don't fail at the reusable-
+          workflow validation step. When empty, codecov-action falls
+          back to tokenless upload, accepted for unprotected (fork-
+          prefixed) branch refs on public repos.
+        required: false
 
 # Explicit scopes (not read-all) so this leaf's workflow-level stays a
 # subset of the caller's workflow-level — GitHub's reusable-workflow
