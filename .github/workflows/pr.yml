@@ -72,7 +72,18 @@ jobs:
   coverage:
     name: Coverage
     needs: preflight
-    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
+    # Skip for any bot-authored PR (actor ends with '[bot]'): bots push to
+    # same-repo branches, which GitHub denies access to repo secrets for, and
+    # Codecov requires a token for same-repo branches on public repos. Bots
+    # here (Dependabot, step-security-bot) don't change source code anyway.
+    # Fork PRs from community members keep running — they use Codecov's
+    # tokenless upload (unprotected branch ref with colon prefix).
+    if: |
+      !endsWith(github.actor, '[bot]') && (
+        needs.preflight.outputs.daemon == 'true' ||
+        needs.preflight.outputs.site == 'true' ||
+        needs.preflight.outputs.ci == 'true'
+      )
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
 
