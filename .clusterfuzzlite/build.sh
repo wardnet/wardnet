@@ -9,14 +9,22 @@
 
 cd "$SRC/wardnet/source/daemon/fuzz"
 
-# Force the pinned nightly in rust-toolchain.toml to be installed.
-# The OSS-Fuzz base-builder-rust image ships with a pre-baked rustc
-# (1.91-nightly at the current digest) that doesn't satisfy the daemon
-# workspace's MSRV (1.94). `rustup show` from a directory containing
-# rust-toolchain.toml triggers rustup to install the pinned toolchain
-# when it's missing — single source of truth (the .toml), no version
-# string duplicated here.
-rustup show
+# The OSS-Fuzz base-builder-rust image sets `RUSTUP_TOOLCHAIN` as a
+# container env var (currently nightly-2025-09-05 → rustc 1.91-nightly).
+# That env var takes precedence over rust-toolchain.toml in every
+# rustup proxy call, so the pinned nightly in this directory is
+# silently ignored and builds fail with:
+#
+#   error: rustc 1.91.0-nightly is not supported by the following
+#   packages: wardnet-common@0.2.0 requires rustc 1.94, ...
+#
+# Parse the channel out of rust-toolchain.toml (kept as the single
+# source of truth), install it explicitly, then override the image's
+# RUSTUP_TOOLCHAIN for the rest of the script so cargo-fuzz and every
+# nested cargo/rustc invocation pick up our pin.
+TOOLCHAIN=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml)
+rustup toolchain install "$TOOLCHAIN" --profile minimal --component rust-src
+export RUSTUP_TOOLCHAIN="$TOOLCHAIN"
 
 cargo fuzz build -O
 
