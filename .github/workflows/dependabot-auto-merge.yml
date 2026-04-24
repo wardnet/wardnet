@@ -1,0 +1,117 @@
+name: Dependabot auto-merge
+
+# Daily batch window for merging Dependabot's patch and minor bumps.
+#
+# The Dependabot cooldown (3 days, set in .github/dependabot.yml) is
+# the supply-chain guard — by the time a PR exists, the upstream
+# release has been in the wild long enough to surface yanks /
+# compromises. This workflow is the merge executor on top of that:
+#
+#   1. List open Dependabot PRs
+#   2. For each: parse the bump type from the title, check the PR is
+#      actually mergeable (all required checks green, no review blocks)
+#   3. Squash-merge the eligible ones
+#
+# Major bumps are skipped — those get a human review. Non-Dependabot
+# PRs are untouched.
+#
+# Production exposure is further bounded by the release cycle:
+# dependency updates ride the next tagged release, not every merge to
+# main, so a bad merge has more chances to be caught before users see
+# it.
+
+on:
+  schedule:
+    - cron: "0 1 * * *"  # 01:00 UTC daily
+  workflow_dispatch:     # allow manual triggering for debugging
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot patch/minor PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Merge eligible Dependabot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Pull every open Dependabot PR's merge-relevant fields.
+          # mergeStateStatus ∈ {BEHIND, BLOCKED, CLEAN, DIRTY, DRAFT,
+          # HAS_HOOKS, UNKNOWN, UNSTABLE}; CLEAN / HAS_HOOKS mean the
+          # PR is ready per branch protection.
+          gh pr list --repo "$REPO" \
+            --author app/dependabot \
+            --state open \
+            --json number,title,mergeable,mergeStateStatus,isDraft \
+            > prs.json
+
+          count=$(jq 'length' prs.json)
+          echo "Found ${count} open Dependabot PR(s)."
+
+          # Extract "from X.Y.Z to A.B.C" out of the title, classify
+          # the bump via semver comparison, merge if patch/minor and
+          # the PR is ready.
+          jq -c '.[]' prs.json | while read -r pr; do
+            number=$(echo "$pr" | jq -r '.number')
+            title=$(echo "$pr" | jq -r '.title')
+            mergeable=$(echo "$pr" | jq -r '.mergeable')
+            state=$(echo "$pr" | jq -r '.mergeStateStatus')
+            draft=$(echo "$pr" | jq -r '.isDraft')
+
+            echo ""
+            echo "── PR #${number}: ${title}"
+            echo "   mergeable=${mergeable} state=${state} draft=${draft}"
+
+            if [[ "$draft" == "true" ]]; then
+              echo "   → skip: draft"
+              continue
+            fi
+            if [[ "$mergeable" != "MERGEABLE" ]]; then
+              echo "   → skip: not mergeable (conflicts?)"
+              continue
+            fi
+            if [[ "$state" != "CLEAN" && "$state" != "HAS_HOOKS" && "$state" != "UNSTABLE" ]]; then
+              # UNSTABLE = required checks passed but optional checks failed.
+              # Treat as eligible; branch protection already enforces the required set.
+              echo "   → skip: mergeStateStatus=${state} (checks not green)"
+              continue
+            fi
+
+            # Parse versions from the title. Dependabot's format is
+            # stable: "bump <pkg> from <old> to <new>" (possibly with
+            # " in /path" suffix). Extract old/new.
+            if [[ ! "$title" =~ from\ ([0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9\.\-]+)?\ to\ ([0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9\.\-]+)? ]]; then
+              echo "   → skip: couldn't parse versions from title"
+              continue
+            fi
+            old="${BASH_REMATCH[1]}"
+            new="${BASH_REMATCH[3]}"
+            old_major="${old%%.*}"
+            new_major="${new%%.*}"
+            old_rest="${old#*.}"; old_minor="${old_rest%%.*}"
+            new_rest="${new#*.}"; new_minor="${new_rest%%.*}"
+
+            if [[ "$old_major" != "$new_major" ]]; then
+              bump="major"
+            elif [[ "$old_minor" != "$new_minor" ]]; then
+              bump="minor"
+            else
+              bump="patch"
+            fi
+            echo "   bump: ${old} → ${new} (${bump})"
+
+            if [[ "$bump" == "major" ]]; then
+              echo "   → skip: major bumps require human review"
+              continue
+            fi
+
+            echo "   → merging (squash)"
+            gh pr merge "$number" --repo "$REPO" --squash --delete-branch
+          done
