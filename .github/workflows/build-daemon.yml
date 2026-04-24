@@ -70,10 +70,19 @@ jobs:
         # the failure) — but only when SARIF was actually written. If
         # cargo fmt --check fails (runs before clippy), no SARIF exists;
         # hashFiles evaluates to empty and the upload is skipped.
+        #
+        # `category` is pinned explicitly so main (caller = ci.yml) and
+        # PRs (caller = pr.yml) publish under the same identifier.
+        # Without this, upload-sarif derives the category from the
+        # caller workflow path, and code-scanning flags PRs with
+        # "1 configuration not found" because the PR's category has no
+        # counterpart in main's baseline — which surfaces as a NEUTRAL
+        # conclusion and blocks merges under the `code_quality` rule.
         if: always() && hashFiles('rust-clippy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
         with:
           sarif_file: rust-clippy-results.sarif
+          category: rust-clippy
           wait-for-processing: true
 
   check-openapi:
