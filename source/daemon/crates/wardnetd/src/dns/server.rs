@@ -3,13 +3,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::op::{Message, OpCode, ResponseCode};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
-use hickory_proto::xfer::Protocol;
 use hickory_resolver::Resolver;
-use hickory_resolver::config::{NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{
+    CLOUDFLARE, ConnectionConfig, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts,
+};
 use hickory_resolver::lookup::Lookup;
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
@@ -266,10 +267,10 @@ async fn handle_query(
     resolver: &Arc<RwLock<TokioResolver>>,
 ) -> anyhow::Result<()> {
     let request = Message::from_bytes(packet)?;
-    let id = request.id();
+    let id = request.metadata.id;
 
     // Extract the first question.
-    let Some(question) = request.queries().first() else {
+    let Some(question) = request.queries.first() else {
         return Ok(());
     };
 
@@ -282,7 +283,7 @@ async fn handle_query(
         let mut cache_guard = cache.write().await;
         if let Some(cached) = cache_guard.get(&domain, rtype) {
             let mut response = cached.clone();
-            response.set_id(id);
+            response.metadata.id = id;
             let bytes = response.to_bytes()?;
             socket.send_to(&bytes, src).await?;
             tracing::trace!(%domain, ?rtype, "cache hit");
@@ -300,14 +301,11 @@ async fn handle_query(
             drop(filter_guard);
             match action {
                 FilterAction::Block => {
-                    let mut response = Message::new();
-                    response.set_id(id);
-                    response.set_message_type(MessageType::Response);
-                    response.set_op_code(OpCode::Query);
-                    response.set_recursion_desired(true);
-                    response.set_recursion_available(true);
-                    response.set_response_code(ResponseCode::NXDomain);
-                    response.add_queries(request.queries().to_vec());
+                    let mut response = Message::response(id, OpCode::Query);
+                    response.metadata.recursion_desired = true;
+                    response.metadata.recursion_available = true;
+                    response.metadata.response_code = ResponseCode::NXDomain;
+                    response.add_queries(request.queries.clone());
                     let bytes = response.to_bytes()?;
                     socket.send_to(&bytes, src).await?;
                     tracing::trace!(%domain, ?rtype, "blocked by filter");
@@ -320,14 +318,10 @@ async fn handle_query(
                     };
                     use std::net::IpAddr;
 
-                    let mut response = Message::new();
-                    response.set_id(id);
-                    response.set_message_type(MessageType::Response);
-                    response.set_op_code(OpCode::Query);
-                    response.set_recursion_desired(true);
-                    response.set_recursion_available(true);
-                    response.set_response_code(ResponseCode::NoError);
-                    response.add_queries(request.queries().to_vec());
+                    let mut response = Message::response(id, OpCode::Query);
+                    response.metadata.recursion_desired = true;
+                    response.metadata.recursion_available = true;
+                    response.add_queries(request.queries.clone());
 
                     let name = Name::from_str_relaxed(&domain)?;
                     match ip {
@@ -359,19 +353,15 @@ async fn handle_query(
     match lookup {
         Ok(lookup) => {
             // Build response message from lookup records.
-            let mut response = Message::new();
-            response.set_id(id);
-            response.set_message_type(MessageType::Response);
-            response.set_op_code(OpCode::Query);
-            response.set_recursion_desired(true);
-            response.set_recursion_available(true);
-            response.set_response_code(ResponseCode::NoError);
-            response.add_queries(request.queries().to_vec());
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.add_queries(request.queries.clone());
 
             let mut min_ttl = u32::MAX;
-            for record in lookup.records() {
+            for record in lookup.answers() {
                 response.add_answer(record.clone());
-                min_ttl = min_ttl.min(record.ttl());
+                min_ttl = min_ttl.min(record.ttl);
             }
 
             let bytes = response.to_bytes()?;
@@ -395,14 +385,11 @@ async fn handle_query(
         }
         Err(e) => {
             // Return SERVFAIL to the client.
-            let mut response = Message::new();
-            response.set_id(id);
-            response.set_message_type(MessageType::Response);
-            response.set_op_code(OpCode::Query);
-            response.set_recursion_desired(true);
-            response.set_recursion_available(true);
-            response.set_response_code(ResponseCode::ServFail);
-            response.add_queries(request.queries().to_vec());
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.metadata.response_code = ResponseCode::ServFail;
+            response.add_queries(request.queries.clone());
 
             let bytes = response.to_bytes()?;
             socket.send_to(&bytes, src).await?;
@@ -416,16 +403,16 @@ async fn handle_query(
 }
 
 /// Type alias for the tokio-based resolver.
-type TokioResolver = Resolver<TokioConnectionProvider>;
+type TokioResolver = Resolver<TokioRuntimeProvider>;
 
 /// Build a `TokioResolver` from the configured upstream servers.
 fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
-    let mut resolver_config = ResolverConfig::new();
+    let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {
-        let protocol = match upstream.protocol {
-            DnsProtocol::Udp => Protocol::Udp,
-            DnsProtocol::Tcp => Protocol::Tcp,
+        let mut conn = match upstream.protocol {
+            DnsProtocol::Udp => ConnectionConfig::udp(),
+            DnsProtocol::Tcp => ConnectionConfig::tcp(),
             // DoT and DoH require feature flags on hickory — added in Stage 4 (Security).
             // For now, fall back to TCP for encrypted protocols.
             DnsProtocol::Tls | DnsProtocol::Https => {
@@ -436,18 +423,18 @@ fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
                     address = upstream.address,
                     protocol = upstream.protocol,
                 );
-                Protocol::Tcp
+                ConnectionConfig::tcp()
             }
         };
 
-        let port = upstream.port.unwrap_or(match upstream.protocol {
+        conn.port = upstream.port.unwrap_or(match upstream.protocol {
             DnsProtocol::Udp | DnsProtocol::Tcp => 53,
             DnsProtocol::Tls => 853,
             DnsProtocol::Https => 443,
         });
 
         if let Ok(ip) = upstream.address.parse() {
-            let ns = NameServerConfig::new(SocketAddr::new(ip, port), protocol);
+            let ns = NameServerConfig::new(ip, true, vec![conn]);
             resolver_config.add_name_server(ns);
         } else {
             tracing::warn!(address = %upstream.address, "skipping upstream: not a valid IP: address={address}", address = upstream.address);
@@ -457,14 +444,15 @@ fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
     // Fall back to Cloudflare if no valid upstreams configured.
     if resolver_config.name_servers().is_empty() {
         tracing::warn!("no valid upstream DNS servers, falling back to Cloudflare 1.1.1.1");
-        resolver_config = ResolverConfig::cloudflare();
+        resolver_config = ResolverConfig::udp_and_tcp(&CLOUDFLARE);
     }
 
     let mut opts = ResolverOpts::default();
     opts.cache_size = 0; // We handle caching ourselves.
     opts.use_hosts_file = ResolveHosts::Never;
 
-    TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
+    TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default())
         .with_options(opts)
         .build()
+        .expect("failed to build DNS resolver")
 }

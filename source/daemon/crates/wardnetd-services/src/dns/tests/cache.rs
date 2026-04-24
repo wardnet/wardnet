@@ -1,14 +1,10 @@
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::op::{Message, OpCode};
 use hickory_proto::rr::RecordType;
 
 use crate::dns::cache::DnsCache;
 
 fn make_response() -> Message {
-    let mut msg = Message::new();
-    msg.set_message_type(MessageType::Response);
-    msg.set_op_code(OpCode::Query);
-    msg.set_response_code(ResponseCode::NoError);
-    msg
+    Message::response(0, OpCode::Query)
 }
 
 #[test]

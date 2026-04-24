@@ -209,11 +209,8 @@ impl DnsSocket for MockDnsSocket {
 
 /// Build a minimal DNS query packet for the given domain and record type.
 fn build_dns_query(domain: &str, id: u16) -> Vec<u8> {
-    let mut msg = Message::new();
-    msg.set_id(id);
-    msg.set_message_type(MessageType::Query);
-    msg.set_op_code(OpCode::Query);
-    msg.set_recursion_desired(true);
+    let mut msg = Message::new(id, MessageType::Query, OpCode::Query);
+    msg.metadata.recursion_desired = true;
 
     let name = Name::from_ascii(domain).expect("invalid domain name");
     let mut query = Query::new();
@@ -293,11 +290,14 @@ async fn server_responds_to_query() {
     );
 
     let resp = Message::from_bytes(resp_bytes).expect("response should be valid DNS");
-    assert_eq!(resp.id(), query_id, "response ID must match query ID");
-    assert_eq!(resp.message_type(), MessageType::Response);
+    assert_eq!(
+        resp.metadata.id, query_id,
+        "response ID must match query ID"
+    );
+    assert_eq!(resp.metadata.message_type, MessageType::Response);
 
     // Upstream is unreachable, so we expect SERVFAIL (or NoError if somehow resolved).
-    let code = resp.response_code();
+    let code = resp.metadata.response_code;
     assert!(
         code == ResponseCode::ServFail || code == ResponseCode::NoError,
         "expected ServFail or NoError, got {code:?}"
@@ -343,7 +343,7 @@ async fn server_handles_malformed_packet() {
     let valid_responses: Vec<_> = sent
         .iter()
         .filter_map(|(bytes, _)| Message::from_bytes(bytes).ok())
-        .filter(|m| m.message_type() == MessageType::Response)
+        .filter(|m| m.metadata.message_type == MessageType::Response)
         .collect();
     assert!(
         !valid_responses.is_empty(),
@@ -388,8 +388,8 @@ async fn server_processes_multiple_queries() {
     let response_ids: Vec<u16> = sent
         .iter()
         .filter_map(|(bytes, _)| Message::from_bytes(bytes).ok())
-        .filter(|m| m.message_type() == MessageType::Response)
-        .map(|m| m.id())
+        .filter(|m| m.metadata.message_type == MessageType::Response)
+        .map(|m| m.metadata.id)
         .collect();
 
     // All three query IDs should appear in responses (order may differ due to
@@ -425,7 +425,7 @@ async fn server_cache_hit() {
 
     let first_resp =
         Message::from_bytes(&sent_after_first[0].0).expect("first response should parse");
-    let first_code = first_resp.response_code();
+    let first_code = first_resp.metadata.response_code;
 
     // Second identical query.
     let packet2 = build_dns_query("cached.test.", 0x2222);
@@ -443,15 +443,15 @@ async fn server_cache_hit() {
         Message::from_bytes(&sent_after_second[1].0).expect("second response should parse");
 
     // Second response must have its own query ID.
-    assert_eq!(second_resp.id(), 0x2222);
-    assert_eq!(second_resp.message_type(), MessageType::Response);
+    assert_eq!(second_resp.metadata.id, 0x2222);
+    assert_eq!(second_resp.metadata.message_type, MessageType::Response);
 
     // If the first response was NoError (upstream actually responded), the
     // second should also be NoError from cache. If SERVFAIL, the second will
     // also be SERVFAIL (SERVFAIL responses are not cached).
     if first_code == ResponseCode::NoError {
         assert_eq!(
-            second_resp.response_code(),
+            second_resp.metadata.response_code,
             ResponseCode::NoError,
             "cached response should also be NoError"
         );
@@ -459,7 +459,7 @@ async fn server_cache_hit() {
         // SERVFAIL is not cached, so second query also forwards and likely
         // also returns SERVFAIL.
         assert_eq!(
-            second_resp.response_code(),
+            second_resp.metadata.response_code,
             ResponseCode::ServFail,
             "uncached SERVFAIL should forward again"
         );
@@ -491,18 +491,14 @@ async fn start_mock_upstream() -> SocketAddr {
             let Ok(req) = Message::from_bytes(&buf[..n]) else {
                 continue;
             };
-            let Some(q) = req.queries().first() else {
+            let Some(q) = req.queries.first() else {
                 continue;
             };
 
-            let mut resp = Message::new();
-            resp.set_id(req.id());
-            resp.set_message_type(MessageType::Response);
-            resp.set_op_code(OpCode::Query);
-            resp.set_recursion_desired(true);
-            resp.set_recursion_available(true);
-            resp.set_response_code(ResponseCode::NoError);
-            resp.add_queries(req.queries().to_vec());
+            let mut resp = Message::response(req.metadata.id, OpCode::Query);
+            resp.metadata.recursion_desired = true;
+            resp.metadata.recursion_available = true;
+            resp.add_queries(req.queries.clone());
 
             if q.query_type() == RecordType::A {
                 let record =
@@ -563,9 +559,9 @@ async fn server_forwards_successfully_to_upstream() {
     assert!(!sent.is_empty(), "server should forward and respond");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
-    assert_eq!(resp.response_code(), ResponseCode::NoError);
-    assert!(!resp.answers().is_empty(), "response should have answers");
+    assert_eq!(resp.metadata.id, query_id);
+    assert_eq!(resp.metadata.response_code, ResponseCode::NoError);
+    assert!(!resp.answers.is_empty(), "response should have answers");
 
     // Second identical query should hit cache.
     let cache_size_before = server.cache_size().await;
@@ -605,10 +601,7 @@ async fn server_query_without_questions_is_ignored() {
     server.start().await.unwrap();
 
     // Build a DNS message with no queries (valid wire format, but no question).
-    let mut msg = Message::new();
-    msg.set_id(0x9999);
-    msg.set_message_type(MessageType::Query);
-    msg.set_op_code(OpCode::Query);
+    let msg = Message::new(0x9999, MessageType::Query, OpCode::Query);
     let bytes = msg.to_bytes().unwrap();
 
     socket.push_packet(bytes, client_addr()).await;
@@ -727,9 +720,9 @@ async fn query_blocked_domain_returns_nxdomain() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
+    assert_eq!(resp.metadata.id, query_id);
     assert_eq!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NXDomain,
         "blocked domain should return NXDOMAIN"
     );
@@ -762,14 +755,14 @@ async fn query_rewrite_domain_returns_synthetic_a_record() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
+    assert_eq!(resp.metadata.id, query_id);
     assert_eq!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NoError,
         "rewrite should return NoError"
     );
     assert!(
-        !resp.answers().is_empty(),
+        !resp.answers.is_empty(),
         "rewrite should include answer records"
     );
 
@@ -801,11 +794,11 @@ async fn ad_blocking_disabled_skips_filter() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
+    assert_eq!(resp.metadata.id, query_id);
     // When ad_blocking_enabled is false, the filter is skipped. The query
     // goes to upstream (unreachable TEST-NET) and comes back as SERVFAIL.
     assert_ne!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NXDomain,
         "with ad blocking disabled, should NOT return NXDOMAIN"
     );
@@ -833,11 +826,8 @@ async fn query_rewrite_ipv6_returns_synthetic_aaaa_record() {
     server.start().await.unwrap();
 
     // Build a AAAA query.
-    let mut msg = Message::new();
-    msg.set_id(0xBB04);
-    msg.set_message_type(MessageType::Query);
-    msg.set_op_code(OpCode::Query);
-    msg.set_recursion_desired(true);
+    let mut msg = Message::new(0xBB04, MessageType::Query, OpCode::Query);
+    msg.metadata.recursion_desired = true;
 
     let name = Name::from_ascii("ipv6.corp.").expect("valid name");
     let mut query = Query::new();
@@ -854,14 +844,14 @@ async fn query_rewrite_ipv6_returns_synthetic_aaaa_record() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), 0xBB04);
+    assert_eq!(resp.metadata.id, 0xBB04);
     assert_eq!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NoError,
         "IPv6 rewrite should return NoError"
     );
     assert!(
-        !resp.answers().is_empty(),
+        !resp.answers.is_empty(),
         "IPv6 rewrite should include AAAA answer records"
     );
 
@@ -898,9 +888,9 @@ async fn query_subdomain_of_blocked_domain_returns_nxdomain() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
+    assert_eq!(resp.metadata.id, query_id);
     assert_eq!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NXDomain,
         "subdomain of blocked domain should return NXDOMAIN"
     );
@@ -943,11 +933,11 @@ async fn query_allowed_domain_passes_filter() {
     assert!(!sent.is_empty(), "server should send a response");
 
     let resp = Message::from_bytes(&sent[0].0).expect("valid DNS response");
-    assert_eq!(resp.id(), query_id);
+    assert_eq!(resp.metadata.id, query_id);
     // Allowed domain should NOT return NXDOMAIN — it goes upstream (SERVFAIL
     // expected since upstream is unreachable).
     assert_ne!(
-        resp.response_code(),
+        resp.metadata.response_code,
         ResponseCode::NXDomain,
         "allowed domain should not be blocked"
     );
