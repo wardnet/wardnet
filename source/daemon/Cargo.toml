@@ -131,7 +131,7 @@ futures = "0.3"
 cron = "0.16"
 
 # https://crates.io/crates/hickory-proto
-hickory-proto = "0.25"
+hickory-proto = "0.26"
 # https://crates.io/crates/hickory-resolver
 hickory-resolver = "0.25"
 
