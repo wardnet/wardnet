@@ -77,7 +77,7 @@ tracing-appender = "0.2"
 # https://crates.io/crates/argon2
 argon2 = "0.5"
 # https://crates.io/crates/password-hash — re-exported by argon2, pinned for feature activation
-password-hash = { version = "0.5", features = ["getrandom"] }
+password-hash = { version = "0.6", features = ["getrandom"] }
 # https://crates.io/crates/anyhow
 anyhow = "1"
 # https://crates.io/crates/rand
