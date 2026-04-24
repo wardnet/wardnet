@@ -90,7 +90,7 @@ All business logic lives in `@wardnet/js`. Components are pure presentation. Hoo
 
 | Component       | Technology                                                    |
 |-----------------|---------------------------------------------------------------|
-| Daemon          | Rust 1.94 (edition 2024), axum 0.8, SQLite (sqlx 0.8)         |
+| Daemon          | Rust 1.95, axum 0.8, SQLite (sqlx 0.8)                        |
 | Web UI          | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4              |
 | SDK             | TypeScript 5.9, zero runtime dependencies, native `fetch`     |
 | Package manager | Yarn 4 (via Corepack)                                         |
@@ -105,7 +105,7 @@ All business logic lives in `@wardnet/js`. Components are pure presentation. Hoo
 
 ### Prerequisites
 
-- Rust 1.94+ (pinned via `rust-toolchain.toml`)
+- Rust 1.95+ (pinned via `rust-toolchain.toml`)
 - Node.js 25+
 - Yarn 4 (enabled via `corepack enable`)
 - **Daemon checks on macOS**: Podman or Docker. The daemon uses Linux-only kernel interfaces (netlink, rtnetlink) and cannot compile natively on macOS — `make check-daemon` runs checks inside a Linux container automatically.

@@ -21,6 +21,5 @@ source/site/public/install.sh
 .idea/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-.claude/skills/
 .wardnet-local/
 .target-linux/

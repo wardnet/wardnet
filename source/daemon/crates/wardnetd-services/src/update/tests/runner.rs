@@ -71,7 +71,7 @@ async fn runner_performs_initial_check_on_start() {
     });
     let service_dyn: Arc<dyn UpdateService> = service.clone();
     let parent = tracing::Span::none();
-    let runner = UpdateRunner::start(service_dyn, Duration::from_secs(3600), &parent);
+    let runner = UpdateRunner::start(service_dyn, Duration::from_hours(1), &parent);
 
     // Wait for the initial check.
     for _ in 0..40 {
@@ -94,7 +94,7 @@ async fn runner_shutdown_is_responsive() {
     });
     let service_dyn: Arc<dyn UpdateService> = service;
     let parent = tracing::Span::none();
-    let runner = UpdateRunner::start(service_dyn, Duration::from_secs(3600), &parent);
+    let runner = UpdateRunner::start(service_dyn, Duration::from_hours(1), &parent);
 
     tokio::time::timeout(Duration::from_secs(5), runner.shutdown())
         .await

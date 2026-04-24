@@ -334,15 +334,14 @@ async fn cleanup_old_snapshots_deletes_expired_files() {
 
     // Backdate the mtime to well beyond the retention window so the
     // cleanup sweep treats it as expired.
-    let ten_days_ago = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 24 * 10);
+    let ten_days_ago = std::time::SystemTime::now() - Duration::from_hours(24 * 10);
     let file = std::fs::File::options().write(true).open(&fake).unwrap();
     file.set_modified(ten_days_ago).unwrap();
     drop(file);
 
     let deleted = auth_context::with_context(
         admin_ctx(),
-        h.svc
-            .cleanup_old_snapshots(Duration::from_secs(60 * 60 * 24)),
+        h.svc.cleanup_old_snapshots(Duration::from_hours(24)),
     )
     .await
     .unwrap();
@@ -367,8 +366,7 @@ async fn cleanup_old_snapshots_keeps_recent_files() {
 
     let deleted = auth_context::with_context(
         admin_ctx(),
-        h.svc
-            .cleanup_old_snapshots(Duration::from_secs(60 * 60 * 24)),
+        h.svc.cleanup_old_snapshots(Duration::from_hours(24)),
     )
     .await
     .unwrap();
@@ -431,7 +429,7 @@ async fn cleanup_old_snapshots_requires_admin() {
     let h = build_harness(42);
     let err = h
         .svc
-        .cleanup_old_snapshots(Duration::from_secs(60))
+        .cleanup_old_snapshots(Duration::from_mins(1))
         .await
         .unwrap_err();
     assert!(matches!(err, AppError::Forbidden(_)));

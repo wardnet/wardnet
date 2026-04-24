@@ -753,8 +753,8 @@ async fn sweep_skips_non_expired_tunnels() {
     let mut idle_since = HashMap::new();
     idle_since.insert(tunnel_id, tokio::time::Instant::now());
 
-    // Timeout is 300 seconds — nowhere near expired.
-    let timeout = Duration::from_secs(300);
+    // Timeout is 5 minutes — nowhere near expired.
+    let timeout = Duration::from_mins(5);
 
     let now = tokio::time::Instant::now();
     let mut expired = Vec::new();

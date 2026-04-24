@@ -10,9 +10,13 @@
 # Dated pin gives reproducibility and a deliberate update cadence
 # (typical OSS-Fuzz projects bump quarterly). Bumping procedure:
 #
-#   1. Pick a recent nightly that satisfies the daemon's MSRV
-#      (rust-version = "1.94" in the workspace crates).
-#      Check dates at https://rust-lang.github.io/rustup-components-history/
+#   1. Pick a nightly from the same minor version as the daemon's
+#      stable pin (currently 1.95 — see ../rust-toolchain.toml and
+#      the workspace `rust-version`). Tracking the stable minor avoids
+#      running the fuzzer on unreleased compiler features that would
+#      never be exercised by production builds. The 1.95 nightly
+#      window was roughly 2026-01-22 → 2026-03-03; resolve a specific
+#      date at https://rust-lang.github.io/rustup-components-history/
 #   2. Update the channel below + `cargo +nightly-<date> fuzz build`
 #      locally once to confirm.
 #   3. Commit. The next fuzzing-scheduled run will pick it up.
@@ -20,5 +24,5 @@
 # Dependabot doesn't auto-bump this — no ecosystem support for
 # nightly-date pins.
 [toolchain]
-channel = "nightly-2026-04-15"
+channel = "nightly-2026-02-20"
 components = ["rust-src"]

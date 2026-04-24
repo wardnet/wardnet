@@ -23,9 +23,9 @@ use uuid::Uuid;
 use wardnet_common::jobs::{Job, JobKind, JobStatus};
 
 /// How long a terminated job stays in the registry before GC removes it.
-const JOB_GC_TTL: Duration = Duration::from_secs(30 * 60);
+const JOB_GC_TTL: Duration = Duration::from_mins(30);
 /// How often the GC task sweeps expired jobs.
-const JOB_GC_INTERVAL: Duration = Duration::from_secs(60);
+const JOB_GC_INTERVAL: Duration = Duration::from_mins(1);
 
 /// Type-erased job closure: takes a [`ProgressReporter`] and returns a future
 /// resolving to the job result. Callers should prefer [`JobServiceExt::dispatch`]

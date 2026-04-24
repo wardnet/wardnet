@@ -81,8 +81,8 @@ async fn runner_loop(
         }
     }
 
-    // Periodic lease cleanup interval (every 60 seconds).
-    let mut cleanup_interval = tokio::time::interval(Duration::from_secs(60));
+    // Periodic lease cleanup interval.
+    let mut cleanup_interval = tokio::time::interval(Duration::from_mins(1));
 
     loop {
         tokio::select! {

@@ -20,7 +20,7 @@ use crate::backup::service::BackupService;
 /// deletes it. Long enough for an operator to realise a restore went
 /// wrong and manually recover from the `.bak-<ts>` siblings; short
 /// enough that we don't pile up snapshots indefinitely on an SD card.
-pub const DEFAULT_SNAPSHOT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+pub const DEFAULT_SNAPSHOT_RETENTION: Duration = Duration::from_hours(24);
 
 /// Background runner that periodically trims stale `.bak-*` snapshots
 /// out of the database directory.

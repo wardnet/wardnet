@@ -60,7 +60,7 @@ use crate::error::AppError;
 /// How long a preview token remains valid before `apply_import`
 /// refuses it. Short window on purpose — the operator is expected to
 /// confirm the restore within a few minutes of previewing it.
-const PREVIEW_TOKEN_TTL: Duration = Duration::from_secs(5 * 60);
+const PREVIEW_TOKEN_TTL: Duration = Duration::from_mins(5);
 
 /// `system_config` key flipped to `"true"` after a successful
 /// `apply_import`. The auto-update subsystem's rollback unit reads this
@@ -487,10 +487,7 @@ impl BackupServiceImpl {
                 dst.display()
             ))
         })?;
-        let size = tokio::fs::metadata(&dst)
-            .await
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size = tokio::fs::metadata(&dst).await.map_or(0, |m| m.len());
         Ok(Some(LocalSnapshot {
             path: dst.display().to_string(),
             kind,

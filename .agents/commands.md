@@ -12,7 +12,7 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make check`** — run all checks (SDK + web + site + daemon: format, lint, tests)
 - **`make check-sdk`** — SDK typecheck + format check
 - **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
-- **`make check-daemon`** — Rust format + clippy + tests. **Linux-only**: the daemon depends on Linux kernel interfaces (netlink, rtnetlink) and cannot compile on macOS. On non-Linux hosts this target auto-detects `podman` or `docker` and runs inside a `rust:1.94` container. Build artefacts are cached in `.target-linux/` (gitignored) and crate downloads in a named volume (`wardnet-cargo-cache`).
+- **`make check-daemon`** — Rust format + clippy + tests. **Linux-only**: the daemon depends on Linux kernel interfaces (netlink, rtnetlink) and cannot compile on macOS. On non-Linux hosts this target auto-detects `podman` or `docker` and runs inside a `rust:1.95` container. Build artefacts are cached in `.target-linux/` (gitignored) and crate downloads in a named volume (`wardnet-cargo-cache`).
 - **`make coverage-daemon`** — line-coverage summary via `cargo-llvm-cov`. Same platform auto-detection as `check-daemon` (container on macOS). Uses the same ignore regex as CI.
 - **`make run-dev`** — mock daemon + web UI dev server. `RESUME=true` persists the DB at `.wardnet-local/wardnet.db`.
 - **`make run-dev-daemon`** / **`make run-dev-web`** — run each piece independently.

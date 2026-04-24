@@ -1,7 +1,7 @@
 # Technical Stack
 
 ## Daemon
-- Rust 1.94, edition 2024 (pinned in `rust-toolchain.toml`)
+- Rust 1.95 (pinned in `rust-toolchain.toml`)
 - **Multi-crate workspace**: `wardnet-common` (shared types/config) → `wardnetd-data` (repositories + database dumper + secret store) → `wardnetd-services` (business logic) → `wardnetd-api` (HTTP layer) → `wardnetd` (Linux binary)
 - axum 0.8 (with `macros`, `multipart`, `ws` features), tokio, tower-http
 - utoipa + utoipa-axum for OpenAPI generation, utoipa-scalar for the `/api/docs` UI

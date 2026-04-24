@@ -137,7 +137,7 @@ fn aggregate_picks_latest_handshake_when_later_comes_first() {
 #[test]
 fn aggregate_three_peers_with_mixed_handshakes() {
     let t1 = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
-    let t2 = SystemTime::UNIX_EPOCH + Duration::from_secs(300);
+    let t2 = SystemTime::UNIX_EPOCH + Duration::from_mins(5);
     let t3 = SystemTime::UNIX_EPOCH + Duration::from_secs(200);
 
     let peers = vec![

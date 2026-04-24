@@ -26,7 +26,7 @@ OTEL_HOST    ?=
 # Container runtime: prefer podman, fall back to docker.
 CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 CONTAINER_RT_NAME := $(notdir $(CONTAINER_RT))
-RUST_IMAGE   := docker.io/library/rust:1.94
+RUST_IMAGE   := docker.io/library/rust:1.95
 
 # Docker image build settings.
 # Override IMAGE_TAG on the CLI to name the local image differently, e.g.:

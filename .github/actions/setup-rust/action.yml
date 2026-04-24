@@ -8,7 +8,7 @@ inputs:
   toolchain:
     description: Rust toolchain version (must match `rust-toolchain.toml`).
     required: false
-    default: "1.94"
+    default: "1.95"
   targets:
     description: Comma- or space-separated list of additional Rust targets to install.
     required: false

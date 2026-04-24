@@ -353,7 +353,7 @@ async fn run(
         blocklist_fetcher,
         services.event_publisher.as_ref(),
         &root_span,
-        Duration::from_secs(60),
+        Duration::from_mins(1),
     );
 
     // Start the auto-update poller. An initial check runs immediately; then
@@ -369,7 +369,7 @@ async fn run(
     // so every log line carries the daemon version.
     let backup_cleanup_runner = wardnetd_services::backup::BackupCleanupRunner::start(
         services.backup.clone(),
-        Duration::from_secs(60 * 60),
+        Duration::from_hours(1),
         wardnetd_services::backup::DEFAULT_SNAPSHOT_RETENTION,
         &root_span,
     );

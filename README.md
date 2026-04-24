@@ -10,7 +10,7 @@
 
 [![CI](https://github.com/wardnet/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/wardnet/wardnet/branch/main/graph/badge.svg)](https://codecov.io/gh/wardnet/wardnet)
-[![Rust](https://img.shields.io/badge/rust-1.94-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.95-orange.svg)](https://www.rust-lang.org)
 [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/wardnet/wardnet)](https://rust-reportcard.xuri.me/report/github.com/wardnet/wardnet)
 [![Security Audit](https://github.com/wardnet/wardnet/actions/workflows/security.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/security.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/wardnet/wardnet/badge)](https://securityscorecards.dev/viewer/?uri=github.com/wardnet/wardnet)

@@ -71,7 +71,7 @@ async fn runner_fires_cleanup_on_startup() {
 
     let runner = BackupCleanupRunner::start(
         svc.clone() as Arc<dyn BackupService>,
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
         DEFAULT_SNAPSHOT_RETENTION,
         &parent,
     );
@@ -98,7 +98,7 @@ async fn runner_shuts_down_cleanly_without_tick() {
 
     let runner = BackupCleanupRunner::start(
         svc.clone() as Arc<dyn BackupService>,
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
         DEFAULT_SNAPSHOT_RETENTION,
         &parent,
     );
@@ -108,8 +108,5 @@ async fn runner_shuts_down_cleanly_without_tick() {
 
 #[test]
 fn default_retention_is_24h() {
-    assert_eq!(
-        DEFAULT_SNAPSHOT_RETENTION,
-        Duration::from_secs(60 * 60 * 24)
-    );
+    assert_eq!(DEFAULT_SNAPSHOT_RETENTION, Duration::from_hours(24));
 }
