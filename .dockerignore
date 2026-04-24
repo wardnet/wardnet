@@ -1,9 +1,0 @@
-# The production Dockerfile (source/daemon/Dockerfile) only needs deploy/.
-# Exclude everything else to keep the build context small.
-#
-# When Dockerfile.test is added (Stage 5) this file will be updated to
-# allow source/daemon/, source/web-ui/, and source/sdk/wardnet-js/ while
-# still excluding their build artefacts (target/, node_modules/, dist/).
-
-*
-!deploy/

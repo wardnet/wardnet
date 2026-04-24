@@ -1,0 +1,16 @@
+# Scoped to source/daemon/Dockerfile only. BuildKit picks up
+# <dockerfile>.dockerignore alongside the Dockerfile and uses it in
+# preference to any context-root .dockerignore.
+#
+# The production Dockerfile only copies deploy/, so exclude everything
+# else to keep the build context small. Living next to the Dockerfile
+# (rather than at repo root) means other builds rooted at the repo —
+# notably ClusterFuzzLite (.clusterfuzzlite/Dockerfile) — see the full
+# context and aren't blocked by this filter.
+#
+# When Dockerfile.test is added (Stage 5) this file will be updated to
+# allow source/daemon/, source/web-ui/, and source/sdk/wardnet-js/ while
+# still excluding their build artefacts (target/, node_modules/, dist/).
+
+*
+!deploy/
