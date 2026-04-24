@@ -75,36 +75,36 @@ COPY deploy/ /tmp/wardnet-deploy/
 # In offline mode (--from) install.sh does NOT need curl — only minisign,
 # tar, sha256sum, and systemctl. curl is used only for the bundle download
 # step below, after which it is purged from the image.
-RUN set -euo pipefail; \
-    \
-    # uname -m returns aarch64 or x86_64, matching release asset filenames. \
-    ARCH="$(uname -m)"; \
-    \
-    if [ "$WARDNET_VERSION" = "latest" ]; then \
-        VERSION="$(curl -fsSL \
-            https://api.github.com/repos/wardnet/wardnet/releases/latest \
-            | grep '"tag_name"' | head -1 \
-            | sed 's/.*"v\([^"]*\)".*/\1/')"; \
-    else \
-        VERSION="$WARDNET_VERSION"; \
-    fi; \
-    echo "wardnetd: installing v${VERSION} (${ARCH})"; \
-    \
-    BUNDLE=/tmp/wardnet-bundle; \
-    mkdir "$BUNDLE"; \
-    BASE="https://github.com/wardnet/wardnet/releases/download/v${VERSION}"; \
-    TARBALL="wardnetd-${VERSION}-${ARCH}.tar.gz"; \
-    curl -fsSL "${BASE}/${TARBALL}"         -o "${BUNDLE}/${TARBALL}"; \
-    curl -fsSL "${BASE}/${TARBALL}.sha256"  -o "${BUNDLE}/${TARBALL}.sha256"; \
-    curl -fsSL "${BASE}/${TARBALL}.minisig" -o "${BUNDLE}/${TARBALL}.minisig"; \
-    \
-    LAN_INTERFACE=eth0 bash /tmp/wardnet-deploy/install.sh \
-        --from "$BUNDLE" \
-        --container-mode; \
-    \
-    apt-get purge -y curl minisign; \
-    apt-get autoremove -y; \
-    rm -rf /var/lib/apt/lists/* "$BUNDLE" /tmp/wardnet-deploy
+# Run as a bash heredoc so `set -o pipefail` works. /bin/sh on debian-slim
+# is dash, which doesn't support pipefail; the SHELL directive is silently
+# ignored by podman's default OCI format. Heredocs with an explicit
+# interpreter work across docker, buildx, and podman.
+# `<<"EOF"` (quoted delimiter) prevents Dockerfile-level variable expansion;
+# the heredoc body is passed to bash verbatim and bash expands $VARS itself.
+RUN <<"EOF" bash
+set -euo pipefail
+# uname -m returns aarch64 or x86_64, matching release asset filenames.
+ARCH="$(uname -m)"
+if [ "$WARDNET_VERSION" = "latest" ]; then
+    VERSION="$(curl -fsSL https://api.github.com/repos/wardnet/wardnet/releases/latest \
+        | grep '"tag_name"' | head -1 \
+        | sed 's/.*"v\([^"]*\)".*/\1/')"
+else
+    VERSION="$WARDNET_VERSION"
+fi
+echo "wardnetd: installing v${VERSION} (${ARCH})"
+BUNDLE=/tmp/wardnet-bundle
+mkdir "$BUNDLE"
+BASE="https://github.com/wardnet/wardnet/releases/download/v${VERSION}"
+TARBALL="wardnetd-${VERSION}-${ARCH}.tar.gz"
+curl -fsSL "${BASE}/${TARBALL}"         -o "${BUNDLE}/${TARBALL}"
+curl -fsSL "${BASE}/${TARBALL}.sha256"  -o "${BUNDLE}/${TARBALL}.sha256"
+curl -fsSL "${BASE}/${TARBALL}.minisig" -o "${BUNDLE}/${TARBALL}.minisig"
+LAN_INTERFACE=eth0 bash /tmp/wardnet-deploy/install.sh --from "$BUNDLE" --container-mode
+apt-get purge -y curl minisign
+apt-get autoremove -y
+rm -rf /var/lib/apt/lists/* "$BUNDLE" /tmp/wardnet-deploy
+EOF
 
 # Container-specific service drop-in.
 # ProtectSystem=strict and PrivateTmp=yes set up mount namespaces that require
