@@ -67,7 +67,15 @@ jobs:
   coverage:
     name: Coverage
     needs: preflight
-    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
+    # Skip for Dependabot: dep bumps don't add or remove tests, so coverage is
+    # identical to main — no value in re-running, and Dependabot PRs can't
+    # access repository secrets (CODECOV_TOKEN) anyway.
+    if: |
+      github.actor != 'dependabot[bot]' && (
+        needs.preflight.outputs.daemon == 'true' ||
+        needs.preflight.outputs.site == 'true' ||
+        needs.preflight.outputs.ci == 'true'
+      )
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
 
