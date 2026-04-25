@@ -12,9 +12,6 @@ cd source/sdk/wardnet-js && yarn type-check && yarn format:check
 # Web UI checks
 cd source/web-ui && yarn type-check && yarn lint && yarn format:check
 
-# System tests (requires Pi with SSH access)
-make system-test
-
 # Or run everything at once (unit tests + lint + format):
 # On macOS, daemon checks automatically run inside a Linux container.
 make check

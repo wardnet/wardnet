@@ -2,8 +2,8 @@ name: E2E Tests
 
 # Reusable leaf for end-to-end tests.
 #
-# STUB TODAY. Real tests will live in `source/system-tests/` and
-# exercise wardnetd in a privileged Linux container (needs root for
+# STUB TODAY. Real tests will live in `source/end2end-tests/daemon/`
+# and exercise wardnetd in a privileged Linux container (needs root for
 # WireGuard + netlink). Deliberately runs against the real `wardnetd`
 # binary, not `wardnetd-mock` — the mock is a dev-loop tool for running
 # the HTTP API without elevated privileges; e2e wants the full kernel
@@ -52,7 +52,7 @@ jobs:
           ls -l e2e/daemon/wardnetd
 
       - name: Run placeholder e2e
-        # TODO: swap for `source/system-tests/` runner. Needs a
+        # TODO: swap for `source/end2end-tests/daemon/` runner. Needs a
         # privileged container so `wardnetd` can create wireguard
         # interfaces and touch the routing table.
         run: |

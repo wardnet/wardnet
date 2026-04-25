@@ -4,11 +4,10 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 
 ## Makefile targets (preferred)
 
-- **`make init`** — one-time dev setup: installs Rust cross-target, cross-linker, yarn deps
+- **`make init`** — one-time dev setup: installs yarn deps for SDK, web UI, and site
 - **`make build`** — build web UI + daemon (host target)
 - **`make build-web`** — build web UI only
 - **`make build-daemon`** — build daemon for host target
-- **`make build-pi`** — cross-compile daemon for Raspberry Pi (`aarch64-unknown-linux-gnu`)
 - **`make check`** — run all checks (SDK + web + site + daemon: format, lint, tests)
 - **`make check-sdk`** — SDK typecheck + format check
 - **`make check-web`** — web UI typecheck + lint + format check (depends on SDK)
@@ -16,10 +15,6 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make coverage-daemon`** — line-coverage summary via `cargo-llvm-cov`. Same platform auto-detection as `check-daemon` (container on macOS). Uses the same ignore regex as CI.
 - **`make run-dev`** — mock daemon + web UI dev server. `RESUME=true` persists the DB at `.wardnet-local/wardnet.db`.
 - **`make run-dev-daemon`** / **`make run-dev-web`** — run each piece independently.
-- **`make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>`** — cross-compile, deploy via SSH, run with verbose logging. Cleans database by default; `RESUME=true` keeps existing data. `OTEL=true` enables OpenTelemetry export.
-- **`make system-test`** — full E2E: build, deploy daemon + test-agent to Pi, run system tests, teardown
-- **`make system-test-setup`** — deploy and start test infrastructure on Pi (leave running)
-- **`make system-test-teardown`** — stop test environment on Pi
 - **`make clean`** — clean all build artifacts
 
 ## Direct commands (when needed)

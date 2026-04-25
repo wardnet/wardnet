@@ -90,13 +90,8 @@ source/
 │       ├── stores/                  # Zustand stores (authStore)
 │       ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
 │       └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
-├── site/                            # Public documentation + marketing site (Vite + React)
-│   ├── content/docs/                # Markdown articles served by DocsArticle.tsx
-│   ├── content/docs.yml             # Topic catalogue driving /docs
-│   └── public/docs/                 # Screenshots and other static assets referenced from markdown
-└── system-tests/                    # TypeScript E2E tests targeting real Pi deployment
-    └── src/
-        ├── helpers/                 # client.ts (SDK wrapper), agent.ts (test-agent client), setup.ts
-        ├── runner.ts                # Test orchestrator
-        └── tests/                   # 01-health, 02-tunnel-import, 03-device-detection, 04-device-routing, 05-traffic-routing, 06-multi-tunnel, 07-idle-teardown
+└── site/                            # Public documentation + marketing site (Vite + React)
+    ├── content/docs/                # Markdown articles served by DocsArticle.tsx
+    ├── content/docs.yml             # Topic catalogue driving /docs
+    └── public/docs/                 # Screenshots and other static assets referenced from markdown
 ```

@@ -47,8 +47,7 @@ source/
 ├── sdk/
 │   └── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
 ├── web-ui/                # React 19 + TypeScript frontend (embedded into daemon via rust-embed)
-├── site/                  # Public marketing site (wardnet.network) + release manifests
-└── system-tests/          # TypeScript E2E tests against a real Pi
+└── site/                  # Public marketing site (wardnet.network) + release manifests
 ```
 
 ### Daemon (`wardnetd`)
@@ -116,7 +115,7 @@ All business logic lives in `@wardnet/js`. Components are pure presentation. Hoo
 make init
 ```
 
-Installs the Rust cross-compilation target, the aarch64-linux-gnu linker, and yarn dependencies for the SDK, web UI, and marketing site.
+Installs yarn dependencies for the SDK, web UI, and marketing site. The Rust toolchain is pinned via `rust-toolchain.toml`; cross-compilation for `aarch64-unknown-linux-gnu` is exercised by CI when building release artefacts.
 
 ### Build
 
@@ -124,30 +123,17 @@ Installs the Rust cross-compilation target, the aarch64-linux-gnu linker, and ya
 make build           # web UI + daemon (host target)
 make build-web       # web UI only
 make build-daemon    # daemon only (host target)
-make build-pi        # cross-compile daemon for Raspberry Pi (aarch64-unknown-linux-gnu)
 make image           # build the production container image (downloads latest release)
 make image-multiarch # build linux/amd64 + linux/arm64 production images via buildx
 ```
 
-### Run locally (no Pi hardware)
+### Run locally
 
 ```sh
 make run-dev       # runs wardnetd-mock + web UI dev server, browser opens to localhost:7412
 ```
 
-The mock daemon serves the full API with no-op network backends and an in-memory SQLite database seeded with demo devices and tunnels. Useful for UI work without touching real infrastructure.
-
-### Deploy to a Raspberry Pi
-
-```sh
-# Dev deploy: cross-compile, scp, run with verbose logging
-make run-pi PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>
-
-# Production deploy: runs install.sh + copies binary to /usr/local/bin
-make deploy-prod PI_HOST=<ip> PI_USER=<user> PI_LAN_IF=<iface>
-```
-
-`run-pi` cleans the database by default; pass `RESUME=true` to keep existing data. `OTEL=true` enables OpenTelemetry export.
+The mock daemon serves the full API with no-op network backends and an in-memory SQLite database seeded with demo devices and tunnels. Useful for UI work without touching real infrastructure. To exercise the real Linux backends (WireGuard, DHCP, DNS), run the production image — see the [README](../README.md) for the `docker run` requirements.
 
 ### Checks
 

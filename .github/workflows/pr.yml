@@ -22,14 +22,11 @@ on:
     branches: [main]
   workflow_call:
 
-# Workflow-level permissions must be the union of every leaf's
-# declared permissions — GitHub requires the called reusable workflow
-# to be a subset of the caller. `security-events: write` is for
-# build-daemon's clippy SARIF upload.
+# Workflow-level permissions stay read-only. Each job/leaf elevates
+# to the writes it actually needs via its own `permissions:` block —
+# Scorecard's Token-Permissions check rewards this scoping.
 permissions:
   contents: read
-  actions: read
-  security-events: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -59,6 +56,14 @@ jobs:
     name: Build Daemon
     needs: preflight
     if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
+    # build-daemon.yml's `check-daemon` job uploads clippy SARIF to
+    # Code Scanning — it needs `security-events: write` granted by the
+    # caller. Scoped here (not at workflow-level) so the rest of the
+    # run stays read-only.
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: ./.github/workflows/build-daemon.yml
     secrets: inherit
 

@@ -2,35 +2,22 @@
 
 React + TypeScript frontend for the Wardnet daemon.
 
-## Local Development Against a Pi
+## Local development
 
-The web UI dev server proxies API requests to the daemon. To develop locally while running the daemon on your Raspberry Pi:
-
-### 1. Start the daemon on the Pi
+The fastest dev loop runs the mock daemon and the Vite dev server together:
 
 ```sh
-make run-pi PI_HOST=10.232.1.195 PI_USER=pgomes PI_LAN_IF=eth1 OTEL=false RESUME=true
+make run-dev
 ```
 
-### 2. Open an SSH tunnel to forward the daemon port
+- Mock API on `http://localhost:7411` (full HTTP surface, no-op network backends, seeded demo data).
+- Vite dev server on `http://localhost:7412`, proxying `/api` to the mock.
+- `RESUME=true` persists the mock's SQLite at `.wardnet-local/wardnet.db` between runs.
 
-```sh
-ssh -N -L 7411:127.0.0.1:7411 pgomes@10.232.1.195
-```
+Run the pieces independently with `make run-dev-daemon` (mock only on `:7411`) and `make run-dev-web` (Vite only on `:7412`).
 
-This makes the daemon API available at `http://localhost:7411` on your machine.
+### Against the real daemon
 
-### 3. Start the dev server
+For features that need real backends (WireGuard, DHCP, DNS, device discovery, `/my-device`), run the daemon in a container via `make image` and point `yarn dev` at it — the Vite proxy already targets `http://localhost:7411`.
 
-```sh
-cd source/web-ui
-yarn dev
-```
-
-The Vite dev server proxies `/api` requests to `http://localhost:7411`.
-
-### Self-service mode
-
-Testing the self-service device page (`/my-device`) requires the daemon to see your real LAN IP so it can match you to a discovered device. When accessing through an SSH tunnel, the daemon sees `127.0.0.1` instead of your device's IP, so it cannot identify your device.
-
-To test self-service mode, open the Pi's web UI directly in your browser (e.g. `http://10.232.1.195:7411`).
+The `/my-device` page only matches a device when the daemon sees the request's source IP on its LAN, so reach the UI via the daemon's published port (e.g. `http://localhost:7411`) instead of the Vite dev server when testing self-service flows.

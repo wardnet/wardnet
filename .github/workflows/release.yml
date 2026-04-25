@@ -17,20 +17,16 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
-# Workflow-level permissions must be the union of every leaf's
-# declared permissions (called reusable workflows must be a subset of
-# the caller). release.yml needs everything its leaves touch:
-#   - security-events: write  → build-daemon clippy SARIF upload
-#   - pages: write, id-token: write → deploy-site GH Pages publish
-#   - contents: write → release-daemon `gh release create`
-#   - packages: write → release-image GHCR push
+# Workflow-level permissions stay read-only. Each leaf elevates to
+# the writes it actually needs via its own `permissions:` block —
+# Scorecard's Token-Permissions check rewards this scoping. The
+# write-scoped permissions per leaf are:
+#   - build-daemon  → security-events: write (clippy SARIF upload)
+#   - deploy-site   → pages: write, id-token: write (GH Pages publish)
+#   - release-daemon → contents: write (`gh release create`)
+#   - release-image → packages: write (GHCR push)
 permissions:
-  contents: write
-  actions: read
-  security-events: write
-  pages: write
-  id-token: write
-  packages: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -95,6 +91,10 @@ jobs:
   build-daemon:
     name: Build Daemon
     needs: resolve
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: ./.github/workflows/build-daemon.yml
     secrets: inherit
 
@@ -115,6 +115,10 @@ jobs:
     needs: [build-site, tests-e2e]
     # Dry-run (workflow_dispatch on non-tag) still deploys the site —
     # harmless, idempotent, and confirms the Pages path works.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     uses: ./.github/workflows/deploy-site.yml
     with:
       bundle-artifact: site-dist
@@ -127,6 +131,8 @@ jobs:
     # runs exercise the full build + sign path but stop short of the
     # `gh release create` call.
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     uses: ./.github/workflows/release-daemon.yml
     with:
       version: ${{ needs.resolve.outputs.version }}
@@ -141,6 +147,9 @@ jobs:
     # `https://github.com/.../releases/download/v${VERSION}/...`.
     needs: [resolve, release-daemon]
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/release-image.yml
     with:
       version: ${{ needs.resolve.outputs.version }}

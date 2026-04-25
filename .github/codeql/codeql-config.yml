@@ -36,12 +36,9 @@ paths-ignore:
   - "source/web-ui/tests/**"
   - "source/site/tests/**"
 
-  # TypeScript end-to-end tests that drive a real Pi deployment.
-  - "source/system-tests/**"
-
-  # wardnet-test-agent is a Pi-side test harness (inspects kernel state
-  # during system tests — ip rule, nft, wg show, etc.). It is never part
-  # of a production deployment and exposes HTTP only on the test LAN.
+  # wardnet-test-agent is a test harness that inspects kernel state
+  # (ip rule, nft, wg show, etc.). It is never part of a production
+  # deployment and exposes HTTP only on the test LAN.
   - "source/daemon/crates/wardnet-test-agent/**"
 
 # Default query suite is appropriate for us. We don't need to override
