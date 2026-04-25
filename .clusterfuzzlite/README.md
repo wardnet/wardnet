@@ -9,8 +9,10 @@ bundle archiver, SQLite restore, and bundle-manifest JSON.
 - `Dockerfile` — builds on top of `gcr.io/oss-fuzz-base/base-builder-rust`,
   copies the repo, and stages `build.sh`.
 - `build.sh` — invoked inside the image at build time. Runs
-  `cargo fuzz build -O` against `source/daemon/fuzz/` and copies the
-  resulting binaries into `$OUT/`.
+  `cargo build` (not `cargo fuzz build`) against `source/daemon/fuzz/`
+  with sanitizer flags set via target-specific `RUSTFLAGS` so
+  proc-macro crates are not instrumented, then copies the resulting
+  binaries into `$OUT/`.
 
 Fuzz targets and harnesses live at `source/daemon/fuzz/` — a
 **standalone** cargo workspace (the daemon workspace excludes it)
