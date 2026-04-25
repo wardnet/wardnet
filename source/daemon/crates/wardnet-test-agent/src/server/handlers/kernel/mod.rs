@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use tokio::process::Command;
 use tracing::warn;
 
-use crate::models::{
+use crate::server::models::{
     ErrorResponse, IpRule, IpRulesResponse, LinkShowResponse, NftRulesResponse, WgPeer,
     WgShowResponse,
 };

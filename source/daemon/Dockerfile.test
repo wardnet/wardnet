@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+#
+# wardnetd test image -- adds the wardnet-test-agent binary and a systemd unit
+# that starts it on boot. Built FROM wardnetd:dev so the daemon and test agent
+# share a single container; end-to-end tests query the agent over HTTP and
+# look at the same kernel state the daemon manipulates.
+#
+# Build context: repo root
+#   docker build -f source/daemon/Dockerfile.test -t wardnetd:dev-test .
+#   make image-test            (after `make image`)
+#
+# The test agent listens on :3001 by default and is enabled at install time,
+# so it starts automatically when systemd comes up as PID 1.
+
+# ---- Builder stage: compile wardnet-test-agent from source ----
+# Pinned by digest for supply-chain integrity. Matches the workspace
+# rust-version in source/daemon/rust-toolchain.toml.
+FROM rust:1.95-slim-bookworm@sha256:caaf9ca7acd474892186860307d6f28e51fdbc1a4eada459fcff81517cf46a36 AS builder
+
+WORKDIR /build
+COPY source/daemon/ /build/
+
+# Build only the test-agent crate (and its workspace deps). Release profile
+# matches the daemon image so binary size is comparable.
+RUN cargo build --release -p wardnet-test-agent \
+    && strip target/release/wardnet-test-agent
+
+# ---- Final stage: layer onto the dev daemon image ----
+FROM wardnetd:dev
+
+# `dig` (DNS probe), `iputils-ping`, `isc-dhcp-client` are needed by the
+# `client` subcommands when this image is reused as a generic test client
+# (Stage 6 docker-compose). They are negligible in size and not in the
+# production image's surface.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        dnsutils \
+        iputils-ping \
+        isc-dhcp-client \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/wardnet-test-agent /usr/local/bin/wardnet-test-agent
+COPY source/daemon/packaging/test-agent/wardnet-test-agent.service \
+    /etc/systemd/system/wardnet-test-agent.service
+
+RUN chmod 0755 /usr/local/bin/wardnet-test-agent \
+    && chmod 0644 /etc/systemd/system/wardnet-test-agent.service \
+    && ln -s /etc/systemd/system/wardnet-test-agent.service \
+        /etc/systemd/system/multi-user.target.wants/wardnet-test-agent.service
+
+EXPOSE 3001/tcp

@@ -8,7 +8,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
-use crate::AppState;
+use crate::server::AppState;
 
 /// Maximum allowed length for a fixture filename.
 const MAX_FILENAME_LEN: usize = 64;

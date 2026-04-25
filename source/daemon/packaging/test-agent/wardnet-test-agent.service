@@ -1,0 +1,15 @@
+[Unit]
+Description=Wardnet test agent (HTTP probe API for end-to-end tests)
+Documentation=https://github.com/wardnet/wardnet
+After=network.target wardnetd.service
+Wants=wardnetd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wardnet-test-agent server --port 3001
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

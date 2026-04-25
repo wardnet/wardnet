@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-use crate::models::{ContainerExecRequest, ContainerExecResponse, ErrorResponse};
+use crate::server::models::{ContainerExecRequest, ContainerExecResponse, ErrorResponse};
 
 /// Required prefix for container names. Rejects names that don't start with
 /// this value to prevent executing commands in arbitrary containers.

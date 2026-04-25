@@ -14,6 +14,19 @@ pub struct HealthResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Pid
+// ---------------------------------------------------------------------------
+
+/// Response for the `GET /pid` endpoint.
+#[derive(Debug, Serialize)]
+pub struct PidResponse {
+    /// Process id read from the daemon pidfile.
+    pub pid: i32,
+    /// Whether `/proc/<pid>` exists (i.e. the process is alive).
+    pub running: bool,
+}
+
+// ---------------------------------------------------------------------------
 // ip rule
 // ---------------------------------------------------------------------------
 
