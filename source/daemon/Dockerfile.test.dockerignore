@@ -1,0 +1,31 @@
+# Scoped to source/daemon/Dockerfile.test only. BuildKit picks up
+# <dockerfile>.dockerignore alongside the Dockerfile and uses it in
+# preference to any context-root .dockerignore.
+#
+# The test Dockerfile compiles the Rust workspace from local sources,
+# embeds source/web-ui/dist/ via rust-embed, and runs deploy/install.sh
+# against a synthetic release bundle. Everything else in the repo is
+# noise — exclude build artefacts, IDE state, and unrelated workspaces
+# to keep the build context small and avoid cache invalidation when
+# files outside the daemon scope change.
+
+# Default-deny, then allow the three trees the Dockerfile copies.
+*
+
+!source/daemon/
+!source/web-ui/dist/
+!source/web-ui/src/assets/
+!deploy/
+
+# Re-deny build artefacts inside the allowed trees. These are large
+# (Rust target/, node_modules/) and bust the build cache on every
+# touch even when the Dockerfile inputs haven't changed.
+source/daemon/target/
+source/daemon/.target-linux/
+source/daemon/fuzz/target/
+source/daemon/fuzz/corpus/
+source/daemon/fuzz/artifacts/
+**/node_modules/
+**/.DS_Store
+.git/
+.target-linux/
