@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1
+#
+# wardnet-base — shared OS layer for the wardnetd production image and
+# the end-to-end test image.
+#
+# Contains the apt + systemd setup that is identical across both
+# downstream images:
+#   - debian:bookworm-slim (pinned by digest, watched by Dependabot)
+#   - apt: systemd, systemd-sysv, iproute2, nftables, wireguard-tools,
+#          ca-certificates, wget, curl, minisign
+#   - cleanup of default-enabled systemd units that don't run inside a
+#     container (hardware enumeration, real-disk remounts, ...)
+#   - container drop-in for wardnetd.service that disables
+#     ProtectSystem=strict + PrivateTmp=yes (those need CAP_SYS_ADMIN,
+#     which Docker strips from its default capset)
+#   - EXPOSE for wardnet's runtime ports + STOPSIGNAL + systemd as PID 1
+#
+# wardnetd itself is NOT installed here. install.sh runs in the
+# consuming image (source/daemon/Dockerfile or Dockerfile.test).
+#
+# Build:
+#   docker build -f source/daemon/Dockerfile.base -t wardnet-base:bookworm-1 .
+#
+# Publish: .github/workflows/release-base-image.yml pushes multi-arch
+# (linux/amd64 + linux/arm64) to ghcr.io/wardnet/wardnet-base. Tag the
+# bump commit `base-vN` (e.g. `base-v1`) and push to trigger.
+
+# Pinned by digest. Dependabot watches this via .github/dependabot.yml.
+FROM debian:bookworm-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
+
+# Single-layer apt setup so the package cache and lists don't persist
+# in intermediate layers.
+#
+# wget stays for HEALTHCHECK in the prod image; curl + minisign are
+# needed by install.sh's --from path (signature verification + the
+# release-tarball download in the prod image).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        systemd \
+        systemd-sysv \
+        iproute2 \
+        nftables \
+        wireguard-tools \
+        ca-certificates \
+        wget \
+        curl \
+        minisign \
+    && rm -rf /var/lib/apt/lists/* \
+    # Remove default-enabled systemd units that cannot work inside a
+    # container. wardnetd is enabled by install.sh in the consuming
+    # image (which runs after this base layer).
+    && rm -f \
+        /lib/systemd/system/multi-user.target.wants/* \
+        /etc/systemd/system/*.wants/* \
+        /lib/systemd/system/local-fs.target.wants/* \
+        /lib/systemd/system/sockets.target.wants/*udev* \
+        /lib/systemd/system/sockets.target.wants/*initctl* \
+        /lib/systemd/system/sysinit.target.wants/* \
+        /lib/systemd/system/systemd-remount-fs.service
+
+# Container drop-in for wardnetd.service. The directory
+# /etc/systemd/system/wardnetd.service.d/ is created and populated here
+# even though wardnetd.service itself is dropped later by install.sh —
+# systemd reads the drop-in at unit-load time.
+RUN mkdir -p /etc/systemd/system/wardnetd.service.d \
+    && printf '[Service]\nProtectSystem=no\nPrivateTmp=no\n' \
+        > /etc/systemd/system/wardnetd.service.d/container.conf \
+    && chmod 0644 /etc/systemd/system/wardnetd.service.d/container.conf
+
+# DNS (53/tcp+udp), DHCP (67/udp), daemon API + embedded web UI (7411).
+# The test image layers EXPOSE 3001/tcp on top for its probe API.
+EXPOSE 53/udp 53/tcp 67/udp 7411/tcp
+
+# systemd's graceful-shutdown signal when running as PID 1.
+STOPSIGNAL SIGRTMIN+3
+
+CMD ["/lib/systemd/systemd"]
