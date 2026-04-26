@@ -47,9 +47,13 @@ updates:
     cooldown:
       default-days: 3
 
-  # Production wardnetd image (source/daemon/Dockerfile) — pinned by
-  # digest for Scorecard / supply-chain integrity, so Dependabot is
-  # the channel that surfaces base-image updates.
+  # source/daemon/ Dockerfiles — all FROM lines are pinned by digest
+  # for Scorecard / supply-chain integrity, so Dependabot is the
+  # channel that surfaces upstream image updates.
+  #
+  #   Dockerfile        — production image (FROM wardnet-base)
+  #   Dockerfile.base   — shared OS layer (FROM debian:bookworm-slim)
+  #   Dockerfile.test   — end-to-end test image (FROM rust + wardnet-base)
   - package-ecosystem: "docker"
     directory: "/source/daemon"
     schedule:

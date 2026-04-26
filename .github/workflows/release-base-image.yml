@@ -1,0 +1,116 @@
+name: Release Base Image
+
+# Publishes wardnet-base to ghcr.io. Updates are infrequent — base
+# image bumps land only when Debian publishes a new digest, when we
+# add or remove a runtime apt package, or when the systemd container
+# quirks change. Each publish is followed by a digest-bump PR in the
+# consuming Dockerfiles (source/daemon/Dockerfile and
+# source/daemon/Dockerfile.test).
+#
+# Triggers
+#
+# 1) workflow_dispatch — manual button. Useful for first-time setup
+#    and for ad-hoc test publishes. The dispatcher chooses the tag
+#    (default `bookworm-1`) and whether to also push `:latest`.
+#
+# 2) Tag push matching `base-v*` — `git tag base-v2 && git push --tags`
+#    triggers a build that pushes `:bookworm-2` and `:latest`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g. bookworm-1).'
+        type: string
+        required: true
+        default: bookworm-1
+      latest:
+        description: 'Also push :latest.'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'base-v*'
+
+# Top-level read-only — `packages: write` is escalated only on the
+# job that pushes to ghcr.io. Keeps Scorecard's Token-Permissions
+# check happy.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}/wardnet-base
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          DISPATCH_LATEST: ${{ inputs.latest }}
+        run: |
+          set -euo pipefail
+          if [[ "${REF_TYPE}" == "tag" ]]; then
+            # base-v1 -> bookworm-1, also push :latest on tag pushes.
+            VERSION_NUM="${REF#refs/tags/base-v}"
+            BASE_TAG="bookworm-${VERSION_NUM}"
+            TAGS="${REGISTRY}:${BASE_TAG},${REGISTRY}:latest"
+          else
+            TAGS="${REGISTRY}:${DISPATCH_TAG}"
+            if [[ "${DISPATCH_LATEST}" == "true" ]]; then
+              TAGS="${TAGS},${REGISTRY}:latest"
+            fi
+          fi
+          echo "tags=${TAGS}" >> "${GITHUB_OUTPUT}"
+          echo "Computed tags: ${TAGS}"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: source/daemon/Dockerfile.base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # SBOM (SPDX) + SLSA provenance ride in the OCI manifest —
+          # no separate upload, no additional permissions needed.
+          sbom: true
+          provenance: mode=max
+
+      - name: Print digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "Image digest: ${DIGEST}"
+          echo ""
+          echo "Use in consuming Dockerfiles:"
+          echo "  FROM ghcr.io/${OWNER}/wardnet-base@${DIGEST}"

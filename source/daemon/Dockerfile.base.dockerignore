@@ -1,0 +1,7 @@
+# Scoped to source/daemon/Dockerfile.base only.
+#
+# The base image has no COPY directives — its contents are entirely
+# from apt + RUN. Excluding everything keeps the build context tiny so
+# `docker build` doesn't upload the whole repo to the daemon for
+# nothing.
+*

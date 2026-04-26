@@ -22,9 +22,10 @@ RUST_IMAGE   := docker.io/library/rust:1.95
 #   make image IMAGE_TAG=wardnetd:v0.2.0
 # Override IMAGE_VERSION to pin a specific release (no v-prefix):
 #   make image IMAGE_VERSION=0.2.0
-IMAGE_TAG     ?= wardnetd:dev
+IMAGE_TAG      ?= wardnetd:dev
 IMAGE_TEST_TAG ?= wardnetd:dev-test
-IMAGE_VERSION ?= latest
+IMAGE_BASE_TAG ?= wardnet-base:dev
+IMAGE_VERSION  ?= latest
 # Linux build artefacts live here (gitignored, persists on host for
 # incremental compilation). Separate from the macOS target/ directory.
 LINUX_TARGET := $(CURDIR)/.target-linux
@@ -43,7 +44,7 @@ COV_FMT    ?= --summary-only
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         openapi check-openapi \
         fmt clippy test \
-        image image-multiarch image-test \
+        image image-multiarch image-test image-base \
         run-dev run-dev-daemon run-dev-web \
         sync-version check-version \
         clean help
@@ -340,6 +341,18 @@ image-test:
 		-t $(IMAGE_TEST_TAG) \
 		.
 
+# Build the wardnet-base image locally. Published copies of this image
+# live on GHCR (see .github/workflows/release-base-image.yml); use this
+# target to validate Dockerfile.base changes before tagging a base-vN
+# release. The consuming Dockerfiles pin GHCR digests, not the local
+# tag, so this target is for inspection / iteration.
+image-base:
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	$(CONTAINER_RT) build \
+		-f source/daemon/Dockerfile.base \
+		-t $(IMAGE_BASE_TAG) \
+		.
+
 # ---------- Utilities ----------
 
 clean:
@@ -380,6 +393,8 @@ help:
 	@echo "  image-multiarch  Build multi-arch image via buildx (amd64 + arm64; no local load)"
 	@echo "  image-test     Build end-to-end test image (wardnet-test-agent on wardnetd:dev)"
 	@echo "                 Requires 'make image' to have produced wardnetd:dev first."
+	@echo "  image-base     Build wardnet-base locally (Dockerfile.base inspection)."
+	@echo "                 Released copies live on ghcr.io; consuming Dockerfiles pin digests."
 	@echo ""
 	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"
 	@echo "  check-version  Verify all versioned files match ./VERSION (CI gate)"
