@@ -1,37 +1,122 @@
 # syntax=docker/dockerfile:1
 #
-# wardnetd test image -- adds the wardnet-test-agent binary and a systemd unit
-# that starts it on boot. Built FROM wardnetd:dev so the daemon and test agent
-# share a single container; end-to-end tests query the agent over HTTP and
-# look at the same kernel state the daemon manipulates.
+# wardnetd test image — adds the wardnet-test-agent binary on top of a
+# self-contained wardnetd install. End-to-end tests query the agent
+# over HTTP and inspect the same kernel state the daemon manipulates.
+#
+# Self-contained build: this image does NOT pull a signed release from
+# GitHub. It compiles wardnetd + the test-agent from local sources,
+# packages wardnetd into the same release-tarball layout install.sh
+# consumes, signs it with an ephemeral minisign key generated during
+# the build, and runs the unmodified install.sh against that bundle.
+# That way the test image exercises the real install path end-to-end
+# (binary placement, user/group setup, systemd unit drop, signature
+# verification) while still being buildable from a PR branch where no
+# release tag exists.
 #
 # Build context: repo root
 #   docker build -f source/daemon/Dockerfile.test -t wardnetd:dev-test .
-#   make image-test            (after `make image`)
-#
-# The test agent listens on :3001 by default and is enabled at install time,
-# so it starts automatically when systemd comes up as PID 1.
+#   make image-test            (builds source/web-ui/dist first)
 
-# ---- Builder stage: compile wardnet-test-agent from source ----
+# ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
 # rust-version in source/daemon/rust-toolchain.toml.
 FROM rust:1.95-slim-bookworm@sha256:caaf9ca7acd474892186860307d6f28e51fdbc1a4eada459fcff81517cf46a36 AS builder
 
+# minisign is needed at build time to generate the ephemeral signing
+# key + sign the synthetic release tarball that install.sh consumes.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends minisign \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
+# Rust workspace lives at /build; the web-ui/dist tree must be at
+# /web-ui/dist so wardnetd-api's `#[folder = "../../../web-ui/dist"]`
+# rust-embed annotation resolves correctly from
+# /build/crates/wardnetd-api/. /deploy/keys/wardnet-release.pub is
+# baked into wardnetd-services via include_str! against a six-level
+# relative path that walks back to the repo root, so the deploy tree
+# must mirror its repo location too.
 COPY source/daemon/ /build/
+COPY source/web-ui/dist/ /web-ui/dist/
+# wardnetd-api also `include_bytes!`s web-ui/src/assets/logo.png (the
+# OpenAPI swagger logo). Same anchor reasoning as web-ui/dist.
+COPY source/web-ui/src/assets/ /web-ui/src/assets/
+COPY deploy/ /deploy/
 
-# Build only the test-agent crate (and its workspace deps). Release profile
-# matches the daemon image so binary size is comparable.
-RUN cargo build --release -p wardnet-test-agent \
-    && strip target/release/wardnet-test-agent
+# Default to a synthetic dev version when no release tag exists.
+# install.sh extracts the version from the tarball filename, so any
+# value that round-trips through `wardnetd-<version>-<arch>.tar.gz`
+# works.
+ARG WARDNET_VERSION=0.0.0-dev
 
-# ---- Final stage: layer onto the dev daemon image ----
-FROM wardnetd:dev
+RUN cargo build --release -p wardnetd -p wardnet-test-agent \
+    && strip target/release/wardnetd target/release/wardnet-test-agent
 
-# `dig` (DNS probe), `iputils-ping`, `isc-dhcp-client` are needed by the
-# `client` subcommands when this image is reused as a generic test client
-# (Stage 6 docker-compose). They are negligible in size and not in the
-# production image's surface.
+# Build the synthetic release bundle that install.sh --from consumes:
+# tarball + sha256 + minisig + the two systemd units. The signing key
+# is generated here, used to sign the tarball, then the private half
+# is dropped — only the public key leaves this stage so the runtime
+# stage can patch it into install.sh's embedded MINISIGN_PUBLIC_KEY.
+RUN <<"EOF" bash
+set -euo pipefail
+case "$(uname -m)" in
+    aarch64|arm64) ARCH=aarch64 ;;
+    x86_64|amd64)  ARCH=x86_64 ;;
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
+mkdir -p /tmp/local-bundle
+TARBALL="wardnetd-${WARDNET_VERSION}-${ARCH}.tar.gz"
+
+# Stage the tarball contents (only the wardnetd binary; install.sh
+# expects to find it at the root of the archive).
+STAGE=$(mktemp -d)
+cp target/release/wardnetd "$STAGE/wardnetd"
+tar -C "$STAGE" -czf "/tmp/local-bundle/${TARBALL}" wardnetd
+rm -rf "$STAGE"
+
+# SHA-256 sidecar. install.sh reads the hash with `awk '{print $1}'`,
+# so the standard `sha256sum` two-column format works as-is.
+( cd /tmp/local-bundle && sha256sum "${TARBALL}" > "${TARBALL}.sha256" )
+
+# Ephemeral minisign keypair. -W = no password (prompt-free); -f =
+# overwrite if a key file already exists. Kept under /tmp so the
+# private key cannot leak into a runtime layer even by accident.
+minisign -G -W -f \
+    -p /tmp/local-bundle/local-bundle.pub \
+    -s /tmp/local-bundle/local-bundle.key
+
+# Sign the tarball. -t pins the trusted comment so install.sh's
+# verification produces stable output across rebuilds.
+minisign -S -W \
+    -s /tmp/local-bundle/local-bundle.key \
+    -t "wardnet-test-image local build" \
+    -m "/tmp/local-bundle/${TARBALL}"
+
+# Bundle the systemd units alongside the tarball — install.sh's
+# --from path looks them up next to the archive.
+cp /deploy/wardnetd.service /deploy/wardnetd-rollback.service /tmp/local-bundle/
+
+# Drop the private key. The public key stays so the runtime stage
+# can patch install.sh's embedded MINISIGN_PUBLIC_KEY before invoking
+# the script.
+rm -f /tmp/local-bundle/local-bundle.key
+EOF
+
+# ---- Runtime stage: layer onto wardnet-base + run install.sh ----
+# wardnet-base provides debian:bookworm-slim + apt: systemd,
+# systemd-sysv, iproute2, nftables, wireguard-tools, ca-certificates,
+# wget, curl, minisign + the systemd unit cleanup + the wardnetd
+# container drop-in + EXPOSE 53/53/67/7411 + STOPSIGNAL +
+# CMD ["/lib/systemd/systemd"]. Pinned by the multi-arch index digest
+# so the per-arch manifest is selected at pull time.
+# Source: ghcr.io/wardnet/wardnet-base:bookworm-1
+FROM ghcr.io/wardnet/wardnet-base@sha256:ba478f4a8b6441af3ebe8b3b4918d44040905a4b92dcefaf0d150eede8aad53b
+
+# Test-only client tooling: dig (DNS probe), ping (reachability),
+# dhclient (lease renew). Not in wardnet-base because the prod image
+# doesn't need them; they only exist for the wardnet-test-agent client
+# subcommands that the end-to-end suite drives.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         dnsutils \
@@ -39,6 +124,50 @@ RUN apt-get update \
         isc-dhcp-client \
     && rm -rf /var/lib/apt/lists/*
 
+# install.sh + service units copied from the repo (online manifest
+# fetch is not used; --from overrides it). The bundle from the
+# builder stage carries the tarball + signatures.
+COPY deploy/ /tmp/wardnet-deploy/
+COPY --from=builder /tmp/local-bundle /tmp/local-bundle/
+
+# Run install.sh against the local bundle. Two pre-steps:
+#   1. Patch the embedded MINISIGN_PUBLIC_KEY with the ephemeral
+#      pubkey so signature verification accepts the locally-signed
+#      tarball. The pub file from `minisign -G` is the same two-line
+#      format install.sh expects (untrusted-comment + base64 body).
+#   2. LAN_INTERFACE=eth0 short-circuits the interactive prompt; the
+#      value is irrelevant inside the test container (the daemon's
+#      LAN attach is reconfigured by the e2e compose), but install.sh
+#      requires *something*.
+#
+# After the install, scrub the bundle + deploy dir + apt-purge
+# build-only deps. minisign stays purged in this image — the prod
+# Dockerfile keeps it for auto-update; the test image has no
+# auto-update path so it can be removed.
+RUN <<"EOF" bash
+set -euo pipefail
+awk -v pub="$(cat /tmp/local-bundle/local-bundle.pub)" '
+    /^MINISIGN_PUBLIC_KEY='\''/ { print "MINISIGN_PUBLIC_KEY='\''" pub "'\''"; skip=1; next }
+    skip && /'\''[[:space:]]*$/ { skip=0; next }
+    skip { next }
+    { print }
+' /tmp/wardnet-deploy/install.sh > /tmp/install.sh.new
+mv /tmp/install.sh.new /tmp/wardnet-deploy/install.sh
+chmod +x /tmp/wardnet-deploy/install.sh
+
+LAN_INTERFACE=eth0 bash /tmp/wardnet-deploy/install.sh \
+    --from /tmp/local-bundle \
+    --container-mode
+
+apt-get purge -y minisign
+apt-get autoremove -y
+rm -rf /tmp/local-bundle /tmp/wardnet-deploy /var/lib/apt/lists/*
+EOF
+
+# Drop in the test-agent binary + systemd unit. The unit is enabled
+# via a manual symlink because systemctl is not running during the
+# image build; systemd will start the service when it initialises as
+# PID 1 at container runtime, alongside wardnetd.service.
 COPY --from=builder /build/target/release/wardnet-test-agent /usr/local/bin/wardnet-test-agent
 COPY source/daemon/packaging/test-agent/wardnet-test-agent.service \
     /etc/systemd/system/wardnet-test-agent.service
@@ -48,4 +177,7 @@ RUN chmod 0755 /usr/local/bin/wardnet-test-agent \
     && ln -s /etc/systemd/system/wardnet-test-agent.service \
         /etc/systemd/system/multi-user.target.wants/wardnet-test-agent.service
 
+# wardnet-base already exposes 53/udp 53/tcp 67/udp 7411/tcp for the
+# daemon; the test-agent's HTTP probe API listens on 3001 (see
+# source/daemon/packaging/test-agent/wardnet-test-agent.service).
 EXPOSE 3001/tcp

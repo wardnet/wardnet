@@ -331,10 +331,17 @@ image-multiarch:
 		-f source/daemon/Dockerfile \
 		.
 
-# Build the end-to-end test image (wardnet-test-agent on top of wardnetd:dev).
-# Requires `make image` to have produced $(IMAGE_TAG) first; the Dockerfile
-# layers FROM wardnetd:dev so the daemon and the test agent share one container.
-image-test:
+# Build the end-to-end test image. Self-contained: compiles wardnetd
+# + wardnet-test-agent from local sources, signs a synthetic release
+# tarball with an ephemeral minisign key, and runs install.sh against
+# it on top of the published wardnet-base image (pinned by digest).
+# No dependency on `make image` — the prod and test images share an
+# OS layer (wardnet-base) but not a build chain.
+#
+# Depends on `build-web` so source/web-ui/dist/ exists; wardnetd's
+# rust-embed annotation pulls those static assets into the daemon
+# binary at compile time.
+image-test: build-web
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
 	$(CONTAINER_RT) build \
 		-f source/daemon/Dockerfile.test \
@@ -391,8 +398,9 @@ help:
 	@echo "                 make image IMAGE_VERSION=0.2.0          (specific version)"
 	@echo "                 make image IMAGE_TAG=wardnetd:v0.2.0"
 	@echo "  image-multiarch  Build multi-arch image via buildx (amd64 + arm64; no local load)"
-	@echo "  image-test     Build end-to-end test image (wardnet-test-agent on wardnetd:dev)"
-	@echo "                 Requires 'make image' to have produced wardnetd:dev first."
+	@echo "  image-test     Build end-to-end test image (self-contained: compiles wardnetd"
+	@echo "                 + wardnet-test-agent from sources, signs a synthetic release"
+	@echo "                 with an ephemeral key, runs install.sh on top of wardnet-base)."
 	@echo "  image-base     Build wardnet-base locally (Dockerfile.base inspection)."
 	@echo "                 Released copies live on ghcr.io; consuming Dockerfiles pin digests."
 	@echo ""
