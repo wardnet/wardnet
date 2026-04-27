@@ -30,8 +30,30 @@ services:
     # graceful-shutdown signal. STOPSIGNAL is set in wardnet-base; the
     # tmpfs mounts and capabilities are runtime concerns and live here.
     cap_add:
+      # NET_ADMIN + NET_RAW: kernel-level networking the daemon
+      # actually needs (WireGuard, ip rule, nft).
       - NET_ADMIN
       - NET_RAW
+      # SYS_ADMIN: required for systemd-as-PID-1 to remount the API
+      # filesystems (cgroup, /sys, mqueue) during early boot. Without
+      # it systemd exits ~300 ms into init with no log output and
+      # the container reports ExitCode=255. Privilege scope stays
+      # narrower than `privileged: true`; the plan explicitly forbids
+      # the latter for the prod image.
+      - SYS_ADMIN
+    security_opt:
+      # Docker's default AppArmor profile (docker-default) denies the
+      # mount/umount syscalls systemd issues during early init.
+      # `apparmor:unconfined` removes the profile for this container
+      # only — the runner host is unaffected.
+      - apparmor:unconfined
+    # cgroup v2 + cgroupns=host lets systemd see the host's cgroup
+    # hierarchy via /sys/fs/cgroup directly, instead of trying to
+    # remount it inside its own namespace (which is what trips most
+    # of the early-boot failures). Combined with the SYS_ADMIN +
+    # apparmor relaxation above, this is the documented non-
+    # privileged recipe for running systemd as PID 1 in Docker.
+    cgroup: host
     devices:
       - /dev/net/tun:/dev/net/tun
     sysctls:
