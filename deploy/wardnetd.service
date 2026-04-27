@@ -36,7 +36,7 @@ ProtectHome=yes
 # `/usr/local/bin` is writable so the auto-update runner can atomically
 # rename the staged binary into place. The daemon user owns the binary
 # (install.sh chowns it) so no root-only step is needed.
-ReadWritePaths=/var/lib/wardnet /etc/wardnet/keys /var/log/wardnet /usr/local/bin
+ReadWritePaths=/var/lib/wardnet /var/log/wardnet /usr/local/bin
 PrivateTmp=yes
 
 # Logging to journal
