@@ -76,6 +76,31 @@ jobs:
         # cleanly. Local devs on macOS keep the podman default.
         run: make end2end-daemon CONTAINER_RT=$(command -v docker)
 
+      - name: Surface captured logs
+        # Print the trap-captured compose logs + JUnit/JSON reports
+        # inline so a reviewer can diagnose a failure straight from the
+        # workflow log without downloading the artefact. Uses
+        # `::group::` markers so the output is collapsible in the GHA
+        # UI. Runs on success too — confirms logs were captured and
+        # surfaces any healthy-but-noisy output worth noticing.
+        if: always()
+        run: |
+          set +e
+          REPORTS=source/end2end-tests/daemon/reports
+          echo "::group::reports directory listing"
+          ls -la "${REPORTS}" 2>&1 || echo "(reports directory missing)"
+          echo "::endgroup::"
+          for f in compose-logs.txt junit.xml results.json; do
+            path="${REPORTS}/${f}"
+            if [ -s "${path}" ]; then
+              echo "::group::${f}"
+              cat "${path}"
+              echo "::endgroup::"
+            else
+              echo "::warning::${path} missing or empty"
+            fi
+          done
+
       - name: Upload Vitest reports
         # Always upload, even on failure — the JUnit XML + compose
         # logs the trap captured are the primary debug surface.
