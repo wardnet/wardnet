@@ -66,7 +66,15 @@ jobs:
         # build inside Docker) → compose up --wait wardnetd → vitest in
         # test_runner → trap dumps compose logs into reports/ and
         # tears the stack down. Reports are written even on failure.
-        run: make end2end-daemon
+        #
+        # CONTAINER_RT=docker forces Docker's BuildKit instead of the
+        # Makefile's default podman-first auto-detection. ubuntu-latest
+        # ships both binaries; podman's classic image builder rejects
+        # the BuildKit heredoc syntax used in source/daemon/Dockerfile.test
+        # ("Unknown instruction: SET"). Docker BuildKit honours the
+        # `# syntax=docker/dockerfile:1` directive and parses heredocs
+        # cleanly. Local devs on macOS keep the podman default.
+        run: make end2end-daemon CONTAINER_RT=$(command -v docker)
 
       - name: Upload Vitest reports
         # Always upload, even on failure — the JUnit XML + compose
