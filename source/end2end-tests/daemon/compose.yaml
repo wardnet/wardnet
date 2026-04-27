@@ -71,16 +71,36 @@ services:
       # boot. The drop-in flips ForwardToConsole=yes so every journal
       # entry mirrors to /dev/console.
       - ./fixtures/systemd/journald-forward.conf:/etc/systemd/journald.conf.d/forward-console.conf:ro
-    # Surface systemd's own boot messages on stdout (status output
-    # that journald-forward doesn't cover). --log-target=console
-    # routes systemd's logger to /dev/console; --show-status=yes
-    # prints "Starting/Started" lines so a failed service is obvious
-    # in the workflow log.
+      # systemd needs a writable /sys/fs/cgroup to manage its slice.
+      # Even with cgroupns=host, Docker's default mount of
+      # /sys/fs/cgroup inside the container is read-only — bind the
+      # host's cgroup v2 hierarchy explicitly so systemd can create
+      # its scope/slice tree there.
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    # Diagnostic prologue: prints image + cgroup state to stdout
+    # before exec'ing systemd. Without this, a systemd boot failure
+    # leaves zero output (its logs go to /dev/console which docker
+    # only captures once systemd actually starts writing to it; if
+    # systemd dies during early init, nothing is ever written). The
+    # `exec` swap keeps systemd as PID 1 in the same way the
+    # default CMD did, so STOPSIGNAL still works.
     command:
-      - /lib/systemd/systemd
-      - --log-target=console
-      - --log-level=debug
-      - --show-status=yes
+      - bash
+      - -c
+      - |
+        set +e
+        echo "=== os-release ==="
+        cat /etc/os-release
+        echo "=== systemd binary ==="
+        ls -la /lib/systemd/systemd /sbin/init 2>&1 || true
+        /lib/systemd/systemd --version 2>&1 || true
+        echo "=== cgroup mounts ==="
+        mount | grep -E 'cgroup|sysfs' || true
+        ls /sys/fs/cgroup/ 2>&1 | head -20 || true
+        echo "=== /etc/machine-id ==="
+        ls -la /etc/machine-id 2>&1 || true
+        echo "=== exec systemd ==="
+        exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
     networks:
