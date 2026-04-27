@@ -115,6 +115,15 @@ services:
         ls /sys/fs/cgroup/ 2>&1 | head -20 || true
         echo "=== /etc/machine-id ==="
         ls -la /etc/machine-id 2>&1 || true
+        echo "=== /var/lib/wardnet (pre-chown) ==="
+        ls -la /var/lib/wardnet 2>&1 || true
+        # Named-volume mount obscures the image's wardnet:wardnet
+        # ownership of /var/lib/wardnet. Re-chown so the daemon (which
+        # systemd starts as User=wardnet) can open wardnet.db.
+        chown -R wardnet:wardnet /var/lib/wardnet 2>&1 || true
+        chmod 750 /var/lib/wardnet 2>&1 || true
+        echo "=== /var/lib/wardnet (post-chown) ==="
+        ls -la /var/lib/wardnet 2>&1 || true
         echo "=== exec systemd ==="
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
