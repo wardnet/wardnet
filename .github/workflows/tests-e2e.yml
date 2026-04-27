@@ -90,7 +90,7 @@ jobs:
           echo "::group::reports directory listing"
           ls -la "${REPORTS}" 2>&1 || echo "(reports directory missing)"
           echo "::endgroup::"
-          for f in compose-logs.txt junit.xml results.json; do
+          for f in compose-ps.txt compose-logs.txt inspect.json junit.xml results.json; do
             path="${REPORTS}/${f}"
             if [ -s "${path}" ]; then
               echo "::group::${f}"

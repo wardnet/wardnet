@@ -379,7 +379,12 @@ end2end-daemon: image-test
 	@mkdir -p $(E2E_DAEMON_DIR)/reports
 	@set -euo pipefail; \
 	export WARDNETD_TEST_IMAGE=$(IMAGE_TEST_TAG); \
-	trap '$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) logs --no-color > $(E2E_DAEMON_DIR)/reports/compose-logs.txt 2>&1 || true; \
+	REPORTS=$(E2E_DAEMON_DIR)/reports; \
+	trap '$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -a > '"$$REPORTS"'/compose-ps.txt 2>&1 || true; \
+	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) logs --no-color > '"$$REPORTS"'/compose-logs.txt 2>&1 || true; \
+	      for cid in $$($(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -aq 2>/dev/null); do \
+	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
+	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) run --rm test_runner

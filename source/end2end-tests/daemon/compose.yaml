@@ -41,6 +41,24 @@ services:
       - /run/lock
     volumes:
       - wardnet_state:/var/lib/wardnet
+      # Make systemd + journald write to the container's stdout so
+      # `docker compose logs` captures wardnetd's startup output. By
+      # default journald keeps everything in its in-memory ring buffer
+      # and the container is silent until something explicitly writes
+      # to /dev/console — which doesn't happen on a clean systemd
+      # boot. The drop-in flips ForwardToConsole=yes so every journal
+      # entry mirrors to /dev/console.
+      - ./fixtures/systemd/journald-forward.conf:/etc/systemd/journald.conf.d/forward-console.conf:ro
+    # Surface systemd's own boot messages on stdout (status output
+    # that journald-forward doesn't cover). --log-target=console
+    # routes systemd's logger to /dev/console; --show-status=yes
+    # prints "Starting/Started" lines so a failed service is obvious
+    # in the workflow log.
+    command:
+      - /lib/systemd/systemd
+      - --log-target=console
+      - --log-level=debug
+      - --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
     networks:
