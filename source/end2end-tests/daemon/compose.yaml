@@ -54,6 +54,22 @@ services:
     # apparmor relaxation above, this is the documented non-
     # privileged recipe for running systemd as PID 1 in Docker.
     cgroup: host
+    # systemd 252 reads $container at startup to switch off the
+    # bare-metal init paths (fsck, kernel-module loading, console
+    # device probing). Without it, ConditionVirtualization checks fail
+    # and systemd exits during early init before logging is wired up
+    # — matching the symptom of an instant ExitCode=255 with zero
+    # stdout. Setting `container=docker` is the documented contract;
+    # systemd-nspawn / Podman / LXC each set their own value.
+    environment:
+      container: docker
+    # Allocate a TTY so /dev/console has a sink. Docker's default
+    # (no -t) creates /dev/console as a character device with no
+    # backing terminal, which systemd's --log-target=console treats
+    # as "writes succeed but nothing reaches stdout". With tty: true,
+    # /dev/console becomes the master side of a pty piped to the
+    # container's stdout, so systemd's logs flow through.
+    tty: true
     devices:
       - /dev/net/tun:/dev/net/tun
     sysctls:
