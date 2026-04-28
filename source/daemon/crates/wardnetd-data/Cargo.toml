@@ -32,7 +32,8 @@ argon2.workspace = true
 password-hash.workspace = true
 # https://crates.io/crates/anyhow
 anyhow.workspace = true
-# https://crates.io/crates/rand
+# https://crates.io/crates/rand — enables getrandom on rand_core so
+# password-hash re-exports OsRng for SaltString::generate.
 rand.workspace = true
 # https://crates.io/crates/toml
 toml.workspace = true

@@ -338,9 +338,10 @@ async fn init_services_bootstraps_admin_from_config() {
 }
 
 #[tokio::test]
-async fn init_services_without_admin_block_generates_default() {
-    // When no admin config is provided, `bootstrap_admin` generates a random
-    // admin; `init_services` should still succeed and produce every service.
+async fn init_services_without_admin_block_defers_to_setup_wizard() {
+    // When no admin config is provided, `bootstrap_admin` leaves the DB
+    // without an admin so the setup wizard owns first-admin creation;
+    // `init_services` should still succeed and produce every service.
     let mut config = ApplicationConfiguration::default();
     config.database.connection_string = ":memory:".to_owned();
     config.admin = None;

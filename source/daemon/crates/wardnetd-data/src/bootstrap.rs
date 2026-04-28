@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use argon2::PasswordHasher;
 use argon2::password_hash::rand_core::OsRng;
-use rand::RngExt;
 use uuid::Uuid;
 
 use crate::repository::AdminRepository;
@@ -12,8 +11,10 @@ use crate::repository::AdminRepository;
 /// Behaviour on startup:
 /// 1. If an admin already exists in the database, log and return.
 /// 2. If credentials are provided, create an admin with those credentials.
-/// 3. Otherwise, generate a random 16-character password for a default "admin"
-///    user and log the credentials so the operator can retrieve them.
+/// 3. Otherwise, leave the database without an admin and let the setup
+///    wizard (`POST /api/setup`) create the first admin from the
+///    operator's UI input. The wizard runs unauthenticated until an
+///    admin exists, then locks itself out.
 pub async fn bootstrap_admin(
     admin_repo: &Arc<dyn AdminRepository>,
     credentials: Option<(&str, &str)>,
@@ -23,27 +24,17 @@ pub async fn bootstrap_admin(
         return Ok(());
     }
 
-    let (username, password) = if let Some((u, p)) = credentials {
-        (u.to_owned(), p.to_owned())
-    } else {
-        let password = generate_random_password(16);
-        ("admin".to_owned(), password)
+    let Some((username, password)) = credentials else {
+        tracing::info!("no admin configured, deferring to setup wizard");
+        return Ok(());
     };
 
-    let password_hash = hash_password(&password)?;
+    let password_hash = hash_password(password)?;
     let id = Uuid::new_v4().to_string();
 
-    admin_repo.create(&id, &username, &password_hash).await?;
+    admin_repo.create(&id, username, &password_hash).await?;
 
-    if credentials.is_some() {
-        tracing::info!(username = %username, "created admin from config: username={username}");
-    } else {
-        tracing::warn!(
-            username = %username,
-            password = %password,
-            "no admin found, created default: username={username}, password={password}"
-        );
-    }
+    tracing::info!(username = %username, "created admin from config: username={username}");
 
     Ok(())
 }
@@ -58,16 +49,4 @@ fn hash_password(password: &str) -> anyhow::Result<String> {
         .hash_password(password.as_bytes(), &salt)
         .map_err(|e| anyhow::anyhow!("failed to hash password: {e}"))?;
     Ok(hash.to_string())
-}
-
-/// Generate a random alphanumeric password of the given length.
-fn generate_random_password(len: usize) -> String {
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::rng();
-    (0..len)
-        .map(|_| {
-            let idx = rng.random_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
 }
