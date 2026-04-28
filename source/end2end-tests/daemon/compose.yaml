@@ -87,6 +87,12 @@ services:
       # boot. The drop-in flips ForwardToConsole=yes so every journal
       # entry mirrors to /dev/console.
       - ./fixtures/systemd/journald-forward.conf:/etc/systemd/journald.conf.d/forward-console.conf:ro
+      # E2E debug-logging drop-in: forces wardnetd to run with --verbose
+      # (so its tracing layer attaches to stderr → journald → console)
+      # and bumps wardnet-crate filters to debug. Without this the
+      # daemon's only console output is the three-line println! banner
+      # and any 5xx the spec hits is invisible in `compose logs`.
+      - ./fixtures/systemd/wardnetd-debug-logging.conf:/etc/systemd/system/wardnetd.service.d/debug-logging.conf:ro
       # systemd needs a writable /sys/fs/cgroup to manage its slice.
       # Even with cgroupns=host, Docker's default mount of
       # /sys/fs/cgroup inside the container is read-only — bind the
@@ -154,11 +160,13 @@ services:
       WARDNET_API_BASE_URL: "http://wardnetd:7411/api"
     # Repo mounted read-only — keeps the runner image stable across
     # spec edits while preventing the test container from mutating
-    # workspace files. Reports go to a shared volume the host (or CI)
-    # uploads as an artefact.
+    # workspace files. Reports are bind-mounted (not a named volume)
+    # so the host directory the Makefile trap writes compose-logs.txt
+    # / compose-ps.txt / inspect.json into is the same place vitest
+    # writes junit.xml + results.json — both end up in the artefact.
     volumes:
       - ../../..:/repo:ro
-      - reports:/work/source/end2end-tests/daemon/reports
+      - ./reports:/work/source/end2end-tests/daemon/reports
     networks:
       wardnet_mgmt:
         ipv4_address: 10.90.0.10
@@ -170,7 +178,6 @@ services:
 
 volumes:
   wardnet_state:
-  reports:
 
 networks:
   wardnet_mgmt:
