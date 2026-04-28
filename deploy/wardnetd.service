@@ -29,6 +29,14 @@ StartLimitAction=none
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 
+# /run/wardnetd is created by systemd at service start, owned by
+# User=wardnet, mode 0755, and removed on clean stop. Without this
+# the unprivileged wardnet user can't write its pidfile to /run
+# (root:root tmpfs) and `kill -TERM $(cat …)` plus the test-agent's
+# /pid endpoint silently break.
+RuntimeDirectory=wardnetd
+RuntimeDirectoryMode=0755
+
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
