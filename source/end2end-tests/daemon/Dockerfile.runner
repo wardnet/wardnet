@@ -14,16 +14,21 @@ FROM node:22-bookworm-slim
 
 RUN corepack enable
 
-WORKDIR /work/daemon
+# Mirror the repo's source/ layout so the e2e package's
+# `portal:../../sdk/wardnet-js` dep resolves the same way it does on
+# a developer workstation. Going up two levels from
+# /work/source/end2end-tests/daemon/ lands at /work/source/, and
+# /work/source/sdk/wardnet-js/ exists. A flatter layout (e.g.
+# /work/daemon + /work/sdk) breaks this — `../../` from /work/daemon
+# walks past /work into /, and yarn fails the install with
+# "Manifest not found".
+WORKDIR /work/source/end2end-tests/daemon
 
-# The @wardnet/js dep is consumed via yarn's `portal:` protocol against
-# ../../sdk/wardnet-js, so the SDK source has to sit at the matching
-# path inside the image for `yarn install` to resolve it.
-COPY source/sdk/wardnet-js /work/sdk/wardnet-js
+COPY source/sdk/wardnet-js /work/source/sdk/wardnet-js
 COPY source/end2end-tests/daemon/package.json \
      source/end2end-tests/daemon/yarn.lock \
      source/end2end-tests/daemon/.yarnrc.yml \
-     /work/daemon/
+     ./
 
 RUN yarn install --immutable
 
@@ -31,7 +36,7 @@ RUN yarn install --immutable
 # yarn-install cache layer.
 COPY source/end2end-tests/daemon/tsconfig.json \
      source/end2end-tests/daemon/vitest.config.ts \
-     /work/daemon/
-COPY source/end2end-tests/daemon/tests /work/daemon/tests
+     ./
+COPY source/end2end-tests/daemon/tests ./tests
 
 CMD ["yarn", "test"]

@@ -158,7 +158,7 @@ services:
     # uploads as an artefact.
     volumes:
       - ../../..:/repo:ro
-      - reports:/work/daemon/reports
+      - reports:/work/source/end2end-tests/daemon/reports
     networks:
       wardnet_mgmt:
         ipv4_address: 10.90.0.10
