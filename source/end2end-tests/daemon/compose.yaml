@@ -99,38 +99,18 @@ services:
       # host's cgroup v2 hierarchy explicitly so systemd can create
       # its scope/slice tree there.
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    # Diagnostic prologue: prints image + cgroup state to stdout
-    # before exec'ing systemd. Without this, a systemd boot failure
-    # leaves zero output (its logs go to /dev/console which docker
-    # only captures once systemd actually starts writing to it; if
-    # systemd dies during early init, nothing is ever written). The
-    # `exec` swap keeps systemd as PID 1 in the same way the
-    # default CMD did, so STOPSIGNAL still works.
+    # The `exec` swap keeps systemd as PID 1 in the same way the
+    # default CMD did, so STOPSIGNAL still works. The named-volume
+    # mount obscures the image's wardnet:wardnet ownership of
+    # /var/lib/wardnet, so re-chown before handing off to systemd
+    # (which starts the daemon as User=wardnet).
     command:
       - bash
       - -c
       - |
         set +e
-        echo "=== os-release ==="
-        cat /etc/os-release
-        echo "=== systemd binary ==="
-        ls -la /lib/systemd/systemd /sbin/init 2>&1 || true
-        /lib/systemd/systemd --version 2>&1 || true
-        echo "=== cgroup mounts ==="
-        mount | grep -E 'cgroup|sysfs' || true
-        ls /sys/fs/cgroup/ 2>&1 | head -20 || true
-        echo "=== /etc/machine-id ==="
-        ls -la /etc/machine-id 2>&1 || true
-        echo "=== /var/lib/wardnet (pre-chown) ==="
-        ls -la /var/lib/wardnet 2>&1 || true
-        # Named-volume mount obscures the image's wardnet:wardnet
-        # ownership of /var/lib/wardnet. Re-chown so the daemon (which
-        # systemd starts as User=wardnet) can open wardnet.db.
         chown -R wardnet:wardnet /var/lib/wardnet 2>&1 || true
         chmod 750 /var/lib/wardnet 2>&1 || true
-        echo "=== /var/lib/wardnet (post-chown) ==="
-        ls -la /var/lib/wardnet 2>&1 || true
-        echo "=== exec systemd ==="
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
