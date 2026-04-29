@@ -1,0 +1,21 @@
+{
+  "name": "@wardnet/end2end-daemon",
+  "version": "0.2.0",
+  "description": "Docker-compose-driven end-to-end tests for the Wardnet daemon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wardnet/js": "portal:../../sdk/wardnet-js"
+  },
+  "devDependencies": {
+    "@types/node": "22.12.0",
+    "typescript": "6.0.3",
+    "vitest": "3.2.4"
+  },
+  "packageManager": "yarn@4.13.0"
+}

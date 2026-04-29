@@ -36,7 +36,8 @@ impl FromRequestParts<AppState> for ClientIp {
 
 /// Extractor that validates admin authentication.
 ///
-/// Tries session cookie first, then Bearer API key. Delegates all
+/// Tries session cookie first, then `Authorization: Bearer <token>`
+/// (interpreted as either a session token or an API key). Delegates all
 /// cryptographic verification to [`AuthService`](wardnetd_services::AuthService) —
 /// no SQL or hashing happens here.
 pub struct AdminAuth {
@@ -56,7 +57,7 @@ impl FromRequestParts<AppState> for AdminAuth {
             return Ok(Self { admin_id });
         }
 
-        if let Some(admin_id) = try_api_key(headers, state).await? {
+        if let Some(admin_id) = try_bearer(headers, state).await? {
             return Ok(Self { admin_id });
         }
 
@@ -95,8 +96,16 @@ async fn try_session_cookie(
     state.auth_service().validate_session(&token).await
 }
 
-/// Extract and validate the `Authorization: Bearer <key>` header via the auth service.
-async fn try_api_key(headers: &HeaderMap, state: &AppState) -> Result<Option<Uuid>, AppError> {
+/// Extract and validate an `Authorization: Bearer <token>` header.
+///
+/// The login endpoint documents bearer-replay of the same token it sets in
+/// the `wardnet_session` cookie (so non-browser callers — `wctl`, scripts,
+/// integration tests — can authenticate without a cookie jar), and admins
+/// can also mint long-lived API keys validated through a separate code path.
+/// Try the session-token interpretation first, fall back to the API-key
+/// path if that fails. Returns the authenticated admin's id, or `None` if
+/// neither validator accepts the bearer.
+async fn try_bearer(headers: &HeaderMap, state: &AppState) -> Result<Option<Uuid>, AppError> {
     let auth_header = match headers.get(axum::http::header::AUTHORIZATION) {
         Some(v) => v.to_str().unwrap_or_default(),
         None => return Ok(None),
@@ -106,6 +115,10 @@ async fn try_api_key(headers: &HeaderMap, state: &AppState) -> Result<Option<Uui
         Some(t) if !t.is_empty() => t,
         _ => return Ok(None),
     };
+
+    if let Some(id) = state.auth_service().validate_session(bearer_token).await? {
+        return Ok(Some(id));
+    }
 
     state.auth_service().validate_api_key(bearer_token).await
 }
@@ -132,7 +145,7 @@ pub async fn resolve_auth_context(
         .await
         .ok()
         .flatten()
-        .or(try_api_key(headers, &state).await.ok().flatten());
+        .or(try_bearer(headers, &state).await.ok().flatten());
 
     let ctx = if let Some(id) = admin_id {
         AuthContext::Admin { admin_id: id }

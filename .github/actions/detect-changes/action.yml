@@ -30,6 +30,7 @@ runs:
         filters: |
           daemon:
             - 'source/daemon/**'
+            - 'source/end2end-tests/**'
             - 'Makefile'
             - 'VERSION'
           site:

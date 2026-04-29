@@ -2,16 +2,23 @@ name: E2E Tests
 
 # Reusable leaf for end-to-end tests.
 #
-# STUB TODAY. Real tests will live in `source/end2end-tests/daemon/`
-# and exercise wardnetd in a privileged Linux container (needs root for
-# WireGuard + netlink). Deliberately runs against the real `wardnetd`
-# binary, not `wardnetd-mock` — the mock is a dev-loop tool for running
-# the HTTP API without elevated privileges; e2e wants the full kernel
-# path.
+# Stage 6a (PR4) wires up only the daemon scaffolding + a single smoke
+# spec — enough to prove the docker-compose harness boots end-to-end on
+# a Linux runner. Subsequent PRs (Stage 6b/c) layer in the LAN clients
+# (test_alpine, test_ubuntu) and the real scenarios (DHCP, DNS,
+# routing, etc.).
 #
-# Artifacts consumed (fixed names; see build-daemon.yml / build-site.yml):
-#   - wardnetd-x86_64-unsigned  (the tarball, inside is `wardnetd`)
-#   - site-dist                 (raw dist/ tree)
+# Job topology:
+#   end2end-tests-daemon — single ubuntu-latest job, builds the test
+#                          image (compiles wardnetd from source on top
+#                          of wardnet-base), brings up the compose
+#                          stack, runs `yarn vitest run` inside the
+#                          test_runner container, uploads the JUnit/
+#                          JSON reports + compose logs as artefacts.
+#
+# Triggered indirectly via pr.yml + ci.yml as a workflow_call leaf —
+# matches the rest of the build-* / coverage / placeholder pattern in
+# the repo.
 
 on:
   workflow_call:
@@ -22,40 +29,85 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
-  placeholder:
-    name: E2E placeholder
+  end2end-tests-daemon:
+    name: E2E Daemon Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Generous ceiling: image-test rebuilds wardnetd + wardnet-test-agent
+    # from scratch inside Docker (~7-10 min on a cold runner). A future
+    # optimisation will pre-feed the prebuilt binaries via a
+    # PREBUILT_BIN_DIR build arg, at which point this drops to ~3 min.
+    timeout-minutes: 40
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
-      - name: Download wardnetd x86_64
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # `make image-test` builds the web UI as a prerequisite (the
+      # daemon embeds source/web-ui/dist via rust-embed). Caching the
+      # web-ui yarn install is the biggest single win here; the e2e
+      # test_runner package's deps install inside Docker and are
+      # cached by the Docker layer cache instead.
+      - uses: ./.github/actions/setup-node-yarn
         with:
-          name: wardnetd-x86_64-unsigned
-          path: e2e/daemon/
+          cache-dependency-path: source/web-ui/yarn.lock
 
-      - name: Download site bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: ./.github/actions/setup-rust
+
+      - name: Run daemon e2e suite
+        # `make end2end-daemon` chains: build-web → image-test (cargo
+        # build inside Docker) → compose up --wait wardnetd → vitest in
+        # test_runner → trap dumps compose logs into reports/ and
+        # tears the stack down. Reports are written even on failure.
+        #
+        # CONTAINER_RT=docker forces Docker's BuildKit instead of the
+        # Makefile's default podman-first auto-detection. ubuntu-latest
+        # ships both binaries; podman's classic image builder rejects
+        # the BuildKit heredoc syntax used in source/daemon/Dockerfile.test
+        # ("Unknown instruction: SET"). Docker BuildKit honours the
+        # `# syntax=docker/dockerfile:1` directive and parses heredocs
+        # cleanly. Local devs on macOS keep the podman default.
+        run: make end2end-daemon CONTAINER_RT=$(command -v docker)
+
+      - name: Surface captured logs
+        # Print the trap-captured compose logs + JUnit/JSON reports
+        # inline so a reviewer can diagnose a failure straight from the
+        # workflow log without downloading the artefact. Uses
+        # `::group::` markers so the output is collapsible in the GHA
+        # UI. Runs on success too — confirms logs were captured and
+        # surfaces any healthy-but-noisy output worth noticing.
+        if: always()
+        run: |
+          set +e
+          REPORTS=source/end2end-tests/daemon/reports
+          echo "::group::reports directory listing"
+          ls -la "${REPORTS}" 2>&1 || echo "(reports directory missing)"
+          echo "::endgroup::"
+          for f in compose-ps.txt compose-logs.txt inspect.json junit.xml results.json; do
+            path="${REPORTS}/${f}"
+            if [ -s "${path}" ]; then
+              echo "::group::${f}"
+              cat "${path}"
+              echo "::endgroup::"
+            else
+              echo "::warning::${path} missing or empty"
+            fi
+          done
+
+      - name: Upload Vitest reports
+        # Always upload, even on failure — the JUnit XML + compose
+        # logs the trap captured are the primary debug surface.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: site-dist
-          path: e2e/site/
-
-      - name: Unpack wardnetd
-        run: |
-          set -euo pipefail
-          tar -C e2e/daemon -xzf e2e/daemon/wardnetd-x86_64.tar.gz
-          ls -l e2e/daemon/wardnetd
-
-      - name: Run placeholder e2e
-        # TODO: swap for `source/end2end-tests/daemon/` runner. Needs a
-        # privileged container so `wardnetd` can create wireguard
-        # interfaces and touch the routing table.
-        run: |
-          echo "TODO: real e2e suite against wardnetd (not the mock)."
-          echo "Daemon binary: $(file e2e/daemon/wardnetd)"
-          echo "Site bundle:   $(ls e2e/site | wc -l) files"
+          name: end2end-tests-daemon-reports
+          path: source/end2end-tests/daemon/reports/
+          retention-days: 7
+          if-no-files-found: warn

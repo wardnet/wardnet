@@ -94,10 +94,13 @@ jobs:
 
   tests-e2e:
     name: E2E Tests
-    needs: [build-daemon, build-site]
-    # tests-e2e consumes artifacts from both leaves, so it runs only
-    # when both produced output (i.e. both were invoked).
-    if: needs.build-daemon.result == 'success' && needs.build-site.result == 'success'
+    needs: preflight
+    # The e2e leaf rebuilds wardnetd from source inside Docker
+    # (Dockerfile.test), so it doesn't consume build-daemon/build-site
+    # artefacts and runs in parallel with them. Gated on the same
+    # `daemon || ci` filter as build-daemon: a daemon or CI change
+    # warrants the full e2e validation.
+    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 

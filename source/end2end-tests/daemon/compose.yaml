@@ -1,0 +1,206 @@
+# Daemon end-to-end test topology.
+#
+# Stage 6a (this file) ships only what the smoke spec needs: the
+# daemon container plus a node:22 test runner. Future stages will add
+# `test_alpine`, `test_ubuntu`, `wg_gateway_1`, `wg_gateway_2`,
+# `nordvpn_mock` — see source/end2end-tests/daemon/README or the plan
+# under .agents/ for the full topology.
+#
+# Networks (per the e2e plan, Deliverable 5):
+#   wardnet_mgmt 10.90.0.0/24 — test runner ↔ daemon API.
+#   wardnet_lan  10.91.0.0/24 — daemon's simulated LAN. Bridge
+#                              gateway parked at .254 so the daemon
+#                              can own .1. Docker IPAM .2/28 (only
+#                              .2–.15) leaves .100+ free for the
+#                              daemon's DHCP pool + reservations.
+#   wardnet_wan  10.92.0.0/24 — upstream WG-gateway side; unused by
+#                              the smoke but provisioned now so the
+#                              daemon attaches the same NICs in every
+#                              stage.
+
+name: wardnet-e2e-daemon
+
+services:
+  wardnetd:
+    build:
+      context: ../../..
+      dockerfile: source/daemon/Dockerfile.test
+    image: ${WARDNETD_TEST_IMAGE:-wardnetd:dev-test}
+    # systemd as PID 1 needs writable /run + /run/lock and the
+    # graceful-shutdown signal. STOPSIGNAL is set in wardnet-base; the
+    # tmpfs mounts and capabilities are runtime concerns and live here.
+    cap_add:
+      # NET_ADMIN + NET_RAW: kernel-level networking the daemon
+      # actually needs (WireGuard, ip rule, nft).
+      - NET_ADMIN
+      - NET_RAW
+      # SYS_ADMIN: required for systemd-as-PID-1 to remount the API
+      # filesystems (cgroup, /sys, mqueue) during early boot. Without
+      # it systemd exits ~300 ms into init with no log output and
+      # the container reports ExitCode=255. Privilege scope stays
+      # narrower than `privileged: true`; the plan explicitly forbids
+      # the latter for the prod image.
+      - SYS_ADMIN
+    security_opt:
+      # Docker's default AppArmor profile (docker-default) denies the
+      # mount/umount syscalls systemd issues during early init.
+      # `apparmor:unconfined` removes the profile for this container
+      # only — the runner host is unaffected.
+      - apparmor:unconfined
+    # cgroup v2 + cgroupns=host lets systemd see the host's cgroup
+    # hierarchy via /sys/fs/cgroup directly, instead of trying to
+    # remount it inside its own namespace (which is what trips most
+    # of the early-boot failures). Combined with the SYS_ADMIN +
+    # apparmor relaxation above, this is the documented non-
+    # privileged recipe for running systemd as PID 1 in Docker.
+    cgroup: host
+    # systemd 252 reads $container at startup to switch off the
+    # bare-metal init paths (fsck, kernel-module loading, console
+    # device probing). Without it, ConditionVirtualization checks fail
+    # and systemd exits during early init before logging is wired up
+    # — matching the symptom of an instant ExitCode=255 with zero
+    # stdout. Setting `container=docker` is the documented contract;
+    # systemd-nspawn / Podman / LXC each set their own value.
+    environment:
+      container: docker
+    # Allocate a TTY so /dev/console has a sink. Docker's default
+    # (no -t) creates /dev/console as a character device with no
+    # backing terminal, which systemd's --log-target=console treats
+    # as "writes succeed but nothing reaches stdout". With tty: true,
+    # /dev/console becomes the master side of a pty piped to the
+    # container's stdout, so systemd's logs flow through.
+    tty: true
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - wardnet_state:/var/lib/wardnet
+      # Make systemd + journald write to the container's stdout so
+      # `docker compose logs` captures wardnetd's startup output. By
+      # default journald keeps everything in its in-memory ring buffer
+      # and the container is silent until something explicitly writes
+      # to /dev/console — which doesn't happen on a clean systemd
+      # boot. The drop-in flips ForwardToConsole=yes so every journal
+      # entry mirrors to /dev/console.
+      - ./fixtures/systemd/journald-forward.conf:/etc/systemd/journald.conf.d/forward-console.conf:ro
+      # E2E debug-logging drop-in: forces wardnetd to run with --verbose
+      # (so its tracing layer attaches to stderr → journald → console)
+      # and bumps wardnet-crate filters to debug. Without this the
+      # daemon's only console output is the three-line println! banner
+      # and any 5xx the spec hits is invisible in `compose logs`.
+      - ./fixtures/systemd/wardnetd-debug-logging.conf:/etc/systemd/system/wardnetd.service.d/debug-logging.conf:ro
+      # systemd needs a writable /sys/fs/cgroup to manage its slice.
+      # Even with cgroupns=host, Docker's default mount of
+      # /sys/fs/cgroup inside the container is read-only — bind the
+      # host's cgroup v2 hierarchy explicitly so systemd can create
+      # its scope/slice tree there.
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    # Diagnostic prologue: prints image + cgroup state to stdout
+    # before exec'ing systemd. Without this, a systemd boot failure
+    # leaves zero output (its logs go to /dev/console which docker
+    # only captures once systemd actually starts writing to it; if
+    # systemd dies during early init, nothing is ever written). The
+    # `exec` swap keeps systemd as PID 1 in the same way the
+    # default CMD did, so STOPSIGNAL still works.
+    command:
+      - bash
+      - -c
+      - |
+        set +e
+        echo "=== os-release ==="
+        cat /etc/os-release
+        echo "=== systemd binary ==="
+        ls -la /lib/systemd/systemd /sbin/init 2>&1 || true
+        /lib/systemd/systemd --version 2>&1 || true
+        echo "=== cgroup mounts ==="
+        mount | grep -E 'cgroup|sysfs' || true
+        ls /sys/fs/cgroup/ 2>&1 | head -20 || true
+        echo "=== /etc/machine-id ==="
+        ls -la /etc/machine-id 2>&1 || true
+        echo "=== /var/lib/wardnet (pre-chown) ==="
+        ls -la /var/lib/wardnet 2>&1 || true
+        # Named-volume mount obscures the image's wardnet:wardnet
+        # ownership of /var/lib/wardnet. Re-chown so the daemon (which
+        # systemd starts as User=wardnet) can open wardnet.db.
+        chown -R wardnet:wardnet /var/lib/wardnet 2>&1 || true
+        chmod 750 /var/lib/wardnet 2>&1 || true
+        echo "=== /var/lib/wardnet (post-chown) ==="
+        ls -la /var/lib/wardnet 2>&1 || true
+        echo "=== exec systemd ==="
+        exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
+    # cgroup v2 is the default on modern Docker engines; systemd
+    # inside the container picks it up automatically.
+    networks:
+      wardnet_mgmt:
+        ipv4_address: 10.90.0.2
+      wardnet_lan:
+        ipv4_address: 10.91.0.1
+      wardnet_wan:
+        ipv4_address: 10.92.0.2
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7411/api/info || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  test_runner:
+    build:
+      context: ../../..
+      dockerfile: source/end2end-tests/daemon/Dockerfile.runner
+    image: wardnet-e2e-runner:dev
+    depends_on:
+      wardnetd:
+        condition: service_healthy
+    environment:
+      WARDNET_API_BASE_URL: "http://wardnetd:7411/api"
+    # Repo mounted read-only — keeps the runner image stable across
+    # spec edits while preventing the test container from mutating
+    # workspace files. Reports are bind-mounted (not a named volume)
+    # so the host directory the Makefile trap writes compose-logs.txt
+    # / compose-ps.txt / inspect.json into is the same place vitest
+    # writes junit.xml + results.json — both end up in the artefact.
+    volumes:
+      - ../../..:/repo:ro
+      - ./reports:/work/source/end2end-tests/daemon/reports
+    networks:
+      wardnet_mgmt:
+        ipv4_address: 10.90.0.10
+      # Stage 6a doesn't drive LAN-side traffic, but attaching the
+      # runner to wardnet_lan now keeps the topology stable for the
+      # specs landing in PR5. No static IP — Docker hands one out
+      # from the bridge's IPAM range (.2–.15).
+      wardnet_lan: {}
+
+volumes:
+  wardnet_state:
+
+networks:
+  wardnet_mgmt:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.90.0.0/24
+          gateway: 10.90.0.254
+  wardnet_lan:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.91.0.0/24
+          # Bridge gateway parked high so the daemon owns .1.
+          gateway: 10.91.0.254
+          # Docker hands out .2–.15 to attached containers; the
+          # daemon's DHCP pool starts at .100, so any LAN client
+          # holding a .100+ address unambiguously got it from the
+          # daemon (PR5 dhcp.spec.ts assertion).
+          ip_range: 10.91.0.0/28
+  wardnet_wan:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.92.0.0/24
+          gateway: 10.92.0.254

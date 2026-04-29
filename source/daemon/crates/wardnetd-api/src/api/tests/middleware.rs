@@ -191,6 +191,37 @@ async fn admin_auth_rejected_without_credentials() {
 }
 
 #[tokio::test]
+async fn admin_auth_from_bearer_session_token() {
+    // Documented contract on POST /api/auth/login: non-browser callers
+    // (wctl, scripts, integrations) replay the login token via
+    // `Authorization: Bearer <token>` instead of the cookie. The bearer
+    // path must therefore try `validate_session` before falling back to
+    // `validate_api_key` — otherwise this whole class of caller gets 401.
+    let admin_id = Uuid::new_v4();
+    let state = make_state(MockAuthService {
+        session_result: Some(admin_id),
+        api_key_result: None,
+    });
+
+    let app = admin_app(state);
+    let req = Request::builder()
+        .uri("/test")
+        .header("Authorization", "Bearer some-session-token")
+        .extension(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            1234,
+        )))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    assert_eq!(String::from_utf8_lossy(&body), admin_id.to_string());
+}
+
+#[tokio::test]
 async fn admin_auth_session_takes_precedence_over_api_key() {
     let session_id = Uuid::new_v4();
     let api_key_id = Uuid::new_v4();

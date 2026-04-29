@@ -74,3 +74,13 @@ jobs:
     if: needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/build-site.yml
     secrets: inherit
+
+  tests-e2e:
+    name: E2E Tests
+    needs: preflight
+    # Push-to-main parity with pr.yml — daemon or CI changes trigger
+    # the full e2e gauntlet. Coverage stays PR-only (Codecov's
+    # PR-comment flow has nothing to land on for push-to-main).
+    if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/tests-e2e.yml
+    secrets: inherit

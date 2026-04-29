@@ -293,7 +293,8 @@ install -d -o wardnet -g wardnet -m 750 /var/log/wardnet
 if [[ ! -f /etc/wardnet/wardnet.toml ]]; then
     cat > /etc/wardnet/wardnet.toml <<EOF
 [database]
-path = "/var/lib/wardnet/wardnet.db"
+provider = "sqlite"
+connection_string = "/var/lib/wardnet/wardnet.db"
 
 [logging]
 path = "/var/log/wardnet/wardnetd.log"
