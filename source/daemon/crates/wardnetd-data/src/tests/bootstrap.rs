@@ -87,28 +87,14 @@ async fn creates_admin_from_config() {
 }
 
 #[tokio::test]
-async fn generates_random_credentials_when_no_config() {
+async fn defers_to_setup_wizard_when_no_config() {
+    // Without `config.admin`, bootstrap leaves the database without an
+    // admin so the setup wizard owns first-admin creation. A random
+    // fallback would conflict with the wizard's INSERT and surface as
+    // a 500 on POST /api/setup.
     let (repo, dyn_repo) = mock_repo(false);
 
     bootstrap_admin(&dyn_repo, None).await.unwrap();
 
-    let created = repo.created_admins();
-    assert_eq!(created.len(), 1);
-    assert_eq!(created[0].1, "admin");
-    // Password hash should be a valid argon2 hash.
-    assert!(created[0].2.starts_with("$argon2"));
-}
-
-#[tokio::test]
-async fn generated_password_is_16_chars() {
-    // Run the bootstrap and verify that no panic occurs and an admin is created.
-    // We cannot directly inspect the plaintext password since it is only logged,
-    // but we can verify the hash is valid and the username is "admin".
-    let (repo, dyn_repo) = mock_repo(false);
-
-    bootstrap_admin(&dyn_repo, None).await.unwrap();
-
-    let created = repo.created_admins();
-    assert_eq!(created.len(), 1);
-    assert_eq!(created[0].1, "admin");
+    assert!(repo.created_admins().is_empty());
 }

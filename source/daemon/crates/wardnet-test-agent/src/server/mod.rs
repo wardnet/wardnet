@@ -39,7 +39,7 @@ pub struct ServerArgs {
     pub fixtures_dir: PathBuf,
 
     /// Path to the daemon's pidfile.
-    #[arg(long, default_value = "/run/wardnetd.pid")]
+    #[arg(long, default_value = "/run/wardnetd/wardnetd.pid")]
     pub pidfile: PathBuf,
 }
 

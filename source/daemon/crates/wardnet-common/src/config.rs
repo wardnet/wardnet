@@ -36,8 +36,12 @@ pub struct ApplicationConfiguration {
     ///
     /// The daemon writes its process ID to this file immediately after
     /// binding its listen socket. Operators and tooling can use
-    /// `kill -TERM $(cat /run/wardnetd.pid)` to trigger a graceful shutdown
-    /// without relying on service-manager process tracking.
+    /// `kill -TERM $(cat /run/wardnetd/wardnetd.pid)` to trigger a graceful
+    /// shutdown without relying on service-manager process tracking.
+    /// The default lives under `/run/wardnetd/` because the systemd unit
+    /// runs as User=wardnet and that directory is created (and owned) by
+    /// systemd's `RuntimeDirectory=wardnetd` setting; the bare `/run`
+    /// tmpfs is root-owned and not writable by the daemon.
     #[serde(default = "default_pidfile_path")]
     pub pidfile_path: PathBuf,
 }
@@ -64,7 +68,7 @@ impl Default for ApplicationConfiguration {
 }
 
 fn default_pidfile_path() -> PathBuf {
-    PathBuf::from("/run/wardnetd.pid")
+    PathBuf::from("/run/wardnetd/wardnetd.pid")
 }
 
 impl ApplicationConfiguration {

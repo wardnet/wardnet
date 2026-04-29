@@ -65,15 +65,44 @@ impl NetlinkPolicyRouter {
 #[async_trait]
 impl PolicyRouter for NetlinkPolicyRouter {
     async fn enable_ip_forwarding(&self) -> anyhow::Result<()> {
-        if let Ok(()) = tokio::fs::write("/proc/sys/net/ipv4/ip_forward", "1").await {
-            Ok(())
-        } else {
-            self.executor
-                .run("sysctl", &["-w", "net.ipv4.ip_forward=1"])
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to enable IP forwarding: {e}"))?;
-            Ok(())
+        const PATH: &str = "/proc/sys/net/ipv4/ip_forward";
+
+        // The daemon's systemd unit runs as User=wardnet with CAP_NET_ADMIN
+        // but no CAP_DAC_OVERRIDE, so it cannot open /proc/sys/net/ipv4/ip_forward
+        // (root:root 0644) for writing. Operators commonly pre-enable forwarding
+        // via the host kernel, sysctl.d, or `docker run --sysctl` — in those
+        // cases the daemon has nothing to do, so check before writing.
+        if let Ok(value) = tokio::fs::read_to_string(PATH).await
+            && value.trim() == "1"
+        {
+            return Ok(());
         }
+
+        let write_err = match tokio::fs::write(PATH, "1").await {
+            Ok(()) => return Ok(()),
+            Err(e) => e,
+        };
+
+        let output = self
+            .executor
+            .run("sysctl", &["-w", "net.ipv4.ip_forward=1"])
+            .await
+            .map_err(|spawn_err| {
+                anyhow::anyhow!(
+                    "failed to enable IP forwarding: writing {PATH} failed ({write_err}); \
+                     sysctl fallback failed to spawn ({spawn_err})"
+                )
+            })?;
+
+        if !output.success {
+            return Err(anyhow::anyhow!(
+                "failed to enable IP forwarding: writing {PATH} failed ({write_err}); \
+                 sysctl fallback exited unsuccessfully: {}",
+                output.stderr.trim()
+            ));
+        }
+
+        Ok(())
     }
 
     async fn add_route_table(&self, interface: &str, table: u32) -> anyhow::Result<()> {

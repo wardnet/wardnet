@@ -29,6 +29,14 @@ StartLimitAction=none
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 
+# /run/wardnetd is created by systemd at service start, owned by
+# User=wardnet, mode 0755, and removed on clean stop. Without this
+# the unprivileged wardnet user can't write its pidfile to /run
+# (root:root tmpfs) and `kill -TERM $(cat …)` plus the test-agent's
+# /pid endpoint silently break.
+RuntimeDirectory=wardnetd
+RuntimeDirectoryMode=0755
+
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -36,7 +44,7 @@ ProtectHome=yes
 # `/usr/local/bin` is writable so the auto-update runner can atomically
 # rename the staged binary into place. The daemon user owns the binary
 # (install.sh chowns it) so no root-only step is needed.
-ReadWritePaths=/var/lib/wardnet /etc/wardnet/keys /var/log/wardnet /usr/local/bin
+ReadWritePaths=/var/lib/wardnet /var/log/wardnet /usr/local/bin
 PrivateTmp=yes
 
 # Logging to journal

@@ -1,0 +1,21 @@
+# Scoped to source/end2end-tests/daemon/Dockerfile.runner only.
+# BuildKit picks up <dockerfile>.dockerignore alongside the Dockerfile
+# and uses it in preference to any context-root .dockerignore.
+#
+# The runner image only needs the daemon e2e package and its sole
+# workspace dep (@wardnet/js source). Everything else in the repo is
+# noise — keep the build context small to skip the multi-second send
+# step when the build is otherwise cache-hit.
+
+*
+
+!source/sdk/wardnet-js/
+!source/end2end-tests/daemon/
+
+**/node_modules/
+**/.yarn/cache/
+**/.yarn/install-state.gz
+**/dist/
+**/target/
+**/.DS_Store
+.git/

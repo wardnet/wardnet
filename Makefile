@@ -45,6 +45,7 @@ COV_FMT    ?= --summary-only
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
+        end2end-daemon \
         run-dev run-dev-daemon run-dev-web \
         sync-version check-version \
         clean help
@@ -360,6 +361,34 @@ image-base:
 		-t $(IMAGE_BASE_TAG) \
 		.
 
+# ---------- End-to-end tests ----------
+
+# Daemon e2e suite (Vitest + docker-compose). Stage 6a only ships the
+# smoke spec; full topology + scenarios land in PR5+. Depends on the
+# test image being available — image-test compiles wardnetd from source
+# on top of wardnet-base, so this target also rebuilds the test image
+# (compose's --build picks up source changes incrementally).
+#
+# Always tears the stack down via the EXIT trap, even if vitest fails,
+# so a failed CI run doesn't leave dangling containers/networks.
+E2E_DAEMON_DIR := source/end2end-tests/daemon
+E2E_DAEMON_COMPOSE := $(E2E_DAEMON_DIR)/compose.yaml
+
+end2end-daemon: image-test
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	@mkdir -p $(E2E_DAEMON_DIR)/reports
+	@set -euo pipefail; \
+	export WARDNETD_TEST_IMAGE=$(IMAGE_TEST_TAG); \
+	REPORTS=$(E2E_DAEMON_DIR)/reports; \
+	trap '$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -a > '"$$REPORTS"'/compose-ps.txt 2>&1 || true; \
+	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) logs --no-color > '"$$REPORTS"'/compose-logs.txt 2>&1 || true; \
+	      for cid in $$($(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -aq 2>/dev/null); do \
+	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
+	      done; \
+	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
+	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd; \
+	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) run --rm test_runner
+
 # ---------- Utilities ----------
 
 clean:
@@ -403,6 +432,9 @@ help:
 	@echo "                 with an ephemeral key, runs install.sh on top of wardnet-base)."
 	@echo "  image-base     Build wardnet-base locally (Dockerfile.base inspection)."
 	@echo "                 Released copies live on ghcr.io; consuming Dockerfiles pin digests."
+	@echo ""
+	@echo "  end2end-daemon Bring up the daemon e2e compose stack and run the Vitest suite"
+	@echo "                 (depends on image-test). Reports under $(E2E_DAEMON_DIR)/reports/."
 	@echo ""
 	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"
 	@echo "  check-version  Verify all versioned files match ./VERSION (CI gate)"
