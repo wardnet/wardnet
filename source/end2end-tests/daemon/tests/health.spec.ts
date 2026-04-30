@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { describe, it, expect, beforeAll } from "vitest";
 import {
   WardnetClient,
@@ -13,8 +15,12 @@ const API_BASE_URL = process.env.WARDNET_API_BASE_URL ?? "http://wardnetd:7411/a
 
 // Setup-wizard credentials. Generated per-run rather than checked in
 // so a leaked log line can't be replayed against a real instance.
+// `randomBytes` (vs `Math.random`) keeps CodeQL's
+// js/insecure-randomness rule happy -- the credential is test-only
+// and never leaves the compose stack, but the rule fires on shape,
+// not reachability.
 const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = `e2e-${Math.random().toString(36).slice(2, 10)}`;
+const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
 
 /**
  * WardnetClient that re-attaches the bearer token returned by the login

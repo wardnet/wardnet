@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import {
   AuthService,
   InfoService,
@@ -17,9 +19,12 @@ export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
 
 // Setup-wizard credentials. Generated per-process so a leaked log line
-// can't be replayed against a real instance.
+// can't be replayed against a real instance. `randomBytes` (vs
+// `Math.random`) keeps CodeQL's js/insecure-randomness rule happy --
+// the credential is test-only and never leaves the compose stack, but
+// the rule fires on shape, not reachability.
 export const ADMIN_USERNAME = "admin";
-export const ADMIN_PASSWORD = `e2e-${Math.random().toString(36).slice(2, 10)}`;
+export const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
 
 /**
  * `WardnetClient` that re-attaches the bearer token returned by login
