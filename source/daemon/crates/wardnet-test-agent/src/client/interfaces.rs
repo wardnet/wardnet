@@ -11,7 +11,7 @@ use super::models::{ClientError, Interface, InterfaceAddr, InterfacesResponse};
 pub struct InterfacesArgs {
     /// Limit output to a single interface name.
     #[arg(long)]
-    name: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

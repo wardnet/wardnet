@@ -386,7 +386,7 @@ end2end-daemon: image-test
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd; \
+	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd test_debian test_ubuntu; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) run --rm test_runner
 
 # ---------- Utilities ----------

@@ -6,7 +6,7 @@ use tokio::process::Command;
 use super::models::{ClientError, DhcpRenewResponse};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum DhcpClient {
+pub enum DhcpClient {
     Dhclient,
     Dhcpcd,
 }
@@ -37,11 +37,11 @@ impl DhcpClient {
 #[derive(Debug, Args)]
 pub struct DhcpRenewArgs {
     /// Interface to renew on.
-    interface: String,
+    pub interface: String,
 
     /// DHCP client implementation to invoke.
     #[arg(long, value_enum, default_value_t = DhcpClient::Dhclient)]
-    client: DhcpClient,
+    pub client: DhcpClient,
 }
 
 pub async fn run(args: DhcpRenewArgs) -> Result<DhcpRenewResponse, ClientError> {
@@ -74,7 +74,8 @@ pub async fn run(args: DhcpRenewArgs) -> Result<DhcpRenewResponse, ClientError> 
     Ok(DhcpRenewResponse {
         interface: args.interface,
         client: bin.to_owned(),
-        success: renew.status.success(),
+        release_success: release.status.success(),
+        renew_success: renew.status.success(),
         stdout,
         stderr,
     })

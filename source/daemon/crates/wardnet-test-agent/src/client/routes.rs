@@ -10,7 +10,7 @@ use super::models::{ClientError, Route, RoutesResponse};
 pub struct RoutesArgs {
     /// Optional table to query (e.g. `main`, `100`). Default: `main`.
     #[arg(long)]
-    table: Option<String>,
+    pub table: Option<String>,
 }
 
 /// Subset of `ip -j route` JSON output that we consume.

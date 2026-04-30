@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+#
+# LAN-client image for the daemon e2e suite. Two compose services
+# (test_debian, test_ubuntu) build from this same Dockerfile with
+# different BASE_IMAGE values -- one apt path covers both since
+# Ubuntu 24.04 and Debian bookworm share the same DHCP / iproute2 /
+# dnsutils package names. The diversity is in service of multi-client
+# scenarios (multi-tunnel.spec.ts in a later PR), not platform
+# coverage.
+#
+# The wardnet-test-agent binary is reused from wardnetd:dev-test (built
+# upstream by `make image-test`, the prerequisite of `make
+# end2end-daemon`). Re-compiling the binary here would mean three Rust
+# builds per CI run for no functional gain.
+#
+# Build context: repo root.
+#   docker build -f source/end2end-tests/daemon/Dockerfile.client \
+#       --build-arg BASE_IMAGE=debian:bookworm-slim \
+#       -t wardnet-test-client-debian:dev .
+
+ARG WARDNETD_TEST_IMAGE=wardnetd:dev-test
+ARG BASE_IMAGE=debian:bookworm-slim
+
+FROM ${WARDNETD_TEST_IMAGE} AS source
+
+FROM ${BASE_IMAGE}
+
+# iproute2:        `ip` for address flushing + routing inspection.
+# isc-dhcp-client: dhclient -- the test-agent's `dhcp-renew` default.
+# iputils-ping:    ICMP echo for the ping subcommand.
+# dnsutils:        dig, used by the dns-resolve subcommand.
+# curl:            HTTP healthcheck against the test-agent's /health.
+# ca-certificates: TLS roots in case future probes need outbound HTTPS.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        iproute2 \
+        isc-dhcp-client \
+        iputils-ping \
+        dnsutils \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=source /usr/local/bin/wardnet-test-agent /usr/local/bin/wardnet-test-agent
+RUN chmod 0755 /usr/local/bin/wardnet-test-agent
+
+COPY source/end2end-tests/daemon/fixtures/client-entrypoint.sh /usr/local/bin/client-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/client-entrypoint.sh
+
+EXPOSE 3001/tcp
+
+ENTRYPOINT ["/usr/local/bin/client-entrypoint.sh"]

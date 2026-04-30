@@ -11,19 +11,19 @@ use super::models::{ClientError, PingResponse};
 #[derive(Debug, Args)]
 pub struct PingArgs {
     /// Host or IP to ping.
-    target: String,
+    pub target: String,
 
     /// Number of echo requests to send.
     #[arg(short, long, default_value_t = 3)]
-    count: u32,
+    pub count: u32,
 
     /// Timeout per probe in seconds.
     #[arg(long, default_value_t = 2)]
-    timeout: u32,
+    pub timeout: u32,
 
     /// Source interface (`-I <iface>`).
     #[arg(short = 'I', long)]
-    interface: Option<String>,
+    pub interface: Option<String>,
 }
 
 /// `5 packets transmitted, 5 received, 0% packet loss, time 4006ms`
