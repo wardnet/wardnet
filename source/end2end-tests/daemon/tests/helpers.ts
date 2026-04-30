@@ -156,12 +156,81 @@ export function ipv4Of(
     ?.addrs.find((a) => a.family === "inet")?.local;
 }
 
+/**
+ * Returns the IPv4 on `name` whose value sits within `[start, end]`,
+ * or undefined if none. The e2e clients keep both their docker-IPAM
+ * address and the daemon-issued lease on eth0 simultaneously, so a
+ * "first inet wins" pick can return the wrong one.
+ */
+export function ipv4InRange(
+  ifaces: AgentInterfacesResponse,
+  name: string,
+  startInclusive: string,
+  endInclusive: string,
+): string | undefined {
+  const lo = ipToInt(startInclusive);
+  const hi = ipToInt(endInclusive);
+  return ifaces.interfaces
+    .find((i) => i.name === name)
+    ?.addrs.filter((a) => a.family === "inet")
+    .map((a) => a.local)
+    .find((ip) => {
+      const v = ipToInt(ip);
+      return v >= lo && v <= hi;
+    });
+}
+
 /** MAC of the named interface, or undefined. Lowercased for compares. */
 export function macOf(
   ifaces: AgentInterfacesResponse,
   name: string,
 ): string | undefined {
   return ifaces.interfaces.find((i) => i.name === name)?.mac?.toLowerCase();
+}
+
+/**
+ * Drives the test-agent's /dhcp/renew until an address in `[poolStart,
+ * poolEnd]` lands on `iface`, or fails after `attempts`. The daemon's
+ * DHCP server starts disabled, so beforeAll() must call dhcp.toggle()
+ * before this. Retries because dhclient races with the daemon's
+ * DHCP-runner spawn after toggle on a cold stack.
+ */
+export async function acquireLeaseInRange(
+  agent: string,
+  iface: string,
+  poolStart: string,
+  poolEnd: string,
+  attempts = 5,
+): Promise<string> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const renew = await agentPost<AgentDhcpRenewResponse>(
+        agent,
+        "/dhcp/renew",
+        { interface: iface },
+      );
+      if (renew.renew_success) {
+        const ifaces = await agentGet<AgentInterfacesResponse>(
+          agent,
+          `/interfaces?name=${iface}`,
+        );
+        const ip = ipv4InRange(ifaces, iface, poolStart, poolEnd);
+        if (ip) {
+          return ip;
+        }
+      }
+      lastErr = new Error(
+        `attempt ${i + 1}: renew_success=${renew.renew_success}, no in-pool IP yet — stderr: ${renew.stderr}`,
+      );
+    } catch (err) {
+      lastErr = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+  }
+  throw new Error(
+    `could not acquire lease in ${poolStart}-${poolEnd} on ${agent}/${iface}: ${String(lastErr)}`,
+  );
 }
 
 /**

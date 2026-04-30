@@ -45,7 +45,13 @@ COPY --from=source /usr/local/bin/wardnet-test-agent /usr/local/bin/wardnet-test
 RUN chmod 0755 /usr/local/bin/wardnet-test-agent
 
 COPY source/end2end-tests/daemon/fixtures/client-entrypoint.sh /usr/local/bin/client-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/client-entrypoint.sh
+COPY source/end2end-tests/daemon/fixtures/dhclient-add.sh /usr/local/bin/dhclient-add.sh
+RUN chmod 0755 /usr/local/bin/client-entrypoint.sh /usr/local/bin/dhclient-add.sh
+
+# Steers the test-agent's `dhcp-renew` handler at our custom dhclient
+# script so the leased address lands as a secondary IPv4 (preserving
+# the docker-IPAM IP that compose's service DNS depends on).
+ENV WARDNET_TEST_DHCLIENT_SCRIPT=/usr/local/bin/dhclient-add.sh
 
 EXPOSE 3001/tcp
 
