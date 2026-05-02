@@ -244,6 +244,81 @@ impl DhcpServiceImpl {
             "DHCP pool exhausted — no available IP addresses".to_owned(),
         ))
     }
+
+    /// Whether `ip` falls within the configured dynamic pool range.
+    fn ip_in_pool(ip: Ipv4Addr, config: &DhcpConfig) -> bool {
+        let n = u32::from(ip);
+        n >= u32::from(config.pool_start) && n <= u32::from(config.pool_end)
+    }
+
+    /// Look up the active lease for `mac` and confirm it still reflects
+    /// the current configuration. A lease is valid when either a reservation
+    /// for the same MAC points to its IP, or no reservation exists for the
+    /// MAC and the IP sits inside the dynamic pool.
+    ///
+    /// An invalid lease is "orphaned" — typically because its reservation
+    /// was deleted or changed, or the pool was narrowed away from it. The
+    /// helper marks it expired so the caller can fall through to a fresh
+    /// allocation; returning the stale lease as-is would pin the device to
+    /// an IP the configuration no longer justifies.
+    ///
+    /// Returns `Some(lease)` when the existing lease is valid, `None` when
+    /// there's no active lease or it was just expired.
+    async fn lease_if_still_valid(
+        &self,
+        mac: &str,
+        config: &DhcpConfig,
+    ) -> Result<Option<DhcpLease>, AppError> {
+        let Some(existing) = self
+            .dhcp
+            .find_active_lease_by_mac(mac)
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(None);
+        };
+
+        let reservation = self
+            .dhcp
+            .find_reservation_by_mac(mac)
+            .await
+            .map_err(AppError::Internal)?;
+
+        let still_valid = match &reservation {
+            Some(r) => r.ip_address == existing.ip_address,
+            None => Self::ip_in_pool(existing.ip_address, config),
+        };
+
+        if still_valid {
+            return Ok(Some(existing));
+        }
+
+        let detail = match &reservation {
+            Some(r) => format!("superseded by reservation for {}", r.ip_address),
+            None => format!(
+                "orphaned: ip {} has no reservation and is outside pool {}-{}",
+                existing.ip_address, config.pool_start, config.pool_end
+            ),
+        };
+        tracing::info!(
+            mac,
+            old_ip = %existing.ip_address,
+            "expiring stale lease so a fresh allocation can run"
+        );
+        self.dhcp
+            .update_lease_status(&existing.id.to_string(), "expired")
+            .await
+            .map_err(AppError::Internal)?;
+        self.dhcp
+            .insert_lease_log(&DhcpLeaseLogRow {
+                lease_id: existing.id.to_string(),
+                event_type: "expired".to_owned(),
+                details: Some(detail),
+            })
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -528,18 +603,16 @@ impl DhcpService for DhcpServiceImpl {
         let mac = mac.to_lowercase();
         let mac = mac.as_str();
 
-        // If there's already an active lease for this MAC, return it.
-        if let Some(existing) = self
-            .dhcp
-            .find_active_lease_by_mac(mac)
-            .await
-            .map_err(AppError::Internal)?
-        {
+        let config = self.load_config().await?;
+
+        // Reuse an existing active lease when it still reflects the current
+        // configuration. An orphaned lease (reservation removed or pool
+        // narrowed away from the IP) is expired inside the helper so the
+        // fall-through allocates a fresh IP instead of pinning the device.
+        if let Some(existing) = self.lease_if_still_valid(mac, &config).await? {
             tracing::debug!(mac, ip = %existing.ip_address, "reusing existing active lease");
             return Ok(existing);
         }
-
-        let config = self.load_config().await?;
 
         // Check for a static reservation first.
         let ip = if let Some(reservation) = self
@@ -599,49 +672,16 @@ impl DhcpService for DhcpServiceImpl {
         let mac = mac.to_lowercase();
         let mac = mac.as_str();
 
-        if let Some(existing) = self
-            .dhcp
-            .find_active_lease_by_mac(mac)
-            .await
-            .map_err(AppError::Internal)?
-        {
-            // If a reservation now points this MAC to a different IP, the device
-            // needs to migrate. Expire the current lease so the old IP is freed
-            // and fall through to assign_lease, which will allocate the reserved IP.
-            // This closes the window where the old IP could be handed to a new
-            // device while the original device still holds it.
-            if let Some(reservation) = self
-                .dhcp
-                .find_reservation_by_mac(mac)
-                .await
-                .map_err(AppError::Internal)?
-            {
-                let reserved_ip: Ipv4Addr = reservation.ip_address;
+        let config = self.load_config().await?;
 
-                if reserved_ip != existing.ip_address {
-                    tracing::info!(
-                        mac,
-                        old_ip = %existing.ip_address,
-                        new_ip = %reserved_ip,
-                        "reservation changed: expiring old lease to migrate device to reserved IP"
-                    );
-                    self.dhcp
-                        .update_lease_status(&existing.id.to_string(), "expired")
-                        .await
-                        .map_err(AppError::Internal)?;
-                    self.dhcp
-                        .insert_lease_log(&DhcpLeaseLogRow {
-                            lease_id: existing.id.to_string(),
-                            event_type: "expired".to_owned(),
-                            details: Some(format!("superseded by reservation for {reserved_ip}")),
-                        })
-                        .await
-                        .map_err(AppError::Internal)?;
-                    return self.assign_lease(mac, None).await;
-                }
-            }
-
-            let config = self.load_config().await?;
+        // `lease_if_still_valid` collapses two migration cases into one path:
+        // a reservation that no longer matches the lease's IP, and a lease
+        // whose IP is no longer in any pool/reservation (orphaned by a
+        // reservation deletion or pool change). Either way the stale lease
+        // is expired in-place and we fall through to assign_lease, which
+        // closes the window where the old IP could be re-handed while the
+        // original device still holds it.
+        if let Some(existing) = self.lease_if_still_valid(mac, &config).await? {
             let new_end = chrono::Utc::now()
                 + chrono::Duration::seconds(i64::from(config.lease_duration_secs));
 
@@ -667,7 +707,7 @@ impl DhcpService for DhcpServiceImpl {
                 .map_err(AppError::Internal)?
                 .ok_or_else(|| AppError::Internal(anyhow::anyhow!("lease not found after renew")))
         } else {
-            // No active lease — assign a new one.
+            // No valid active lease (none, or just expired as orphan) — assign fresh.
             tracing::info!(mac, "no active lease for renewal, assigning new lease");
             self.assign_lease(mac, None).await
         }
