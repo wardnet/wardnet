@@ -53,12 +53,6 @@ jobs:
         with:
           workspaces: source/daemon
 
-      # taiki-e/install-action 2.75.21 made `tool` a required input;
-      # earlier per-tool tags (e.g. @cargo-llvm-cov) baked the tool
-      # name into the action.yml at publish time, so SHA-pinning to a
-      # per-tool tag's head used to work without `with: tool:`. After
-      # the bump in #204 the SHA points at the generic action and
-      # the tool must be passed explicitly.
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # v2.75.21
         with:
