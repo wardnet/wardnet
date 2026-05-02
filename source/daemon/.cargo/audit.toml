@@ -20,8 +20,26 @@
 # don't install a custom logger that touches rand internals, so the
 # unsoundness is unreachable in our usage. Re-evaluate when sqlx
 # bumps rand.
+#
+# RUSTSEC-2026-0118: hickory-proto NSEC3 closest-encloser proof
+# validation enters an unbounded loop on cross-zone responses.
+# Transitive via dhcproto 0.14.0, which pins hickory-proto ^0.25.2
+# with `default-features = false`. The vulnerability is in the
+# DNSSEC validation code, which isn't compiled without the dnssec
+# features. No 0.25.x backport exists; the fix is only in the
+# 0.26.x line, and dhcproto hasn't bumped yet. Re-evaluate when
+# dhcproto upgrades to hickory-proto 0.26.
+#
+# RUSTSEC-2026-0119: hickory-proto O(n²) name compression during
+# message encoding. Transitive via dhcproto 0.14.0 (same pin as
+# above). Triggered by DNS messages with many compressible names;
+# wardnetd only uses dhcproto to encode DHCPv4 packets, which carry
+# at most a single FQDN (option 81), so the quadratic blow-up isn't
+# reachable. No 0.25.x backport. Re-evaluate when dhcproto upgrades.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2024-0436",
     "RUSTSEC-2026-0097",
+    "RUSTSEC-2026-0118",
+    "RUSTSEC-2026-0119",
 ]
