@@ -1,0 +1,8 @@
+# Blocklist consumed by `dns-allowlist.spec.ts`. example.com is real
+# (RFC 2606), which is essential here: the spec needs the domain to
+# resolve via upstream once an allowlist entry overrides the block.
+# A fictitious .test domain returns NXDOMAIN from upstream too, so
+# allowlist-vs-block could not be distinguished from the resolver
+# answer alone. The spec deletes both the blocklist and the
+# allowlist entry in afterAll so global DNS state is restored.
+0.0.0.0 example.com

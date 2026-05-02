@@ -3,8 +3,11 @@ import { randomBytes } from "node:crypto";
 import {
   AuthService,
   InfoService,
+  JobsService,
   SetupService,
   WardnetClient,
+  isJobTerminal,
+  type Job,
 } from "@wardnet/js";
 
 // Compose service names resolve to the corresponding container's IP on
@@ -243,4 +246,57 @@ export function ipToInt(ip: string): number {
     .split(".")
     .map(Number)
     .reduce((acc, n) => acc * 256 + n, 0);
+}
+
+export interface DnsResolveResponse {
+  name: string;
+  server?: string;
+  addrs: string[];
+}
+
+export interface ResolveOptions {
+  server?: string;
+  record?: "A" | "AAAA" | "TXT" | "CNAME";
+  timeout?: number;
+}
+
+/**
+ * Drive a LAN-client agent's `/dns/resolve` probe. Defaults to
+ * querying the wardnetd LAN-side DNS at 10.91.0.1 over A records.
+ */
+export async function resolveViaAgent(
+  agent: string,
+  name: string,
+  opts: ResolveOptions = {},
+): Promise<DnsResolveResponse> {
+  const params = new URLSearchParams({ name });
+  params.set("server", opts.server ?? "10.91.0.1");
+  if (opts.record) params.set("record", opts.record);
+  if (opts.timeout !== undefined) params.set("timeout", String(opts.timeout));
+  return agentGet<DnsResolveResponse>(agent, `/dns/resolve?${params}`);
+}
+
+/**
+ * Poll `JobsService.get` until the job reaches a terminal state, or
+ * throw on timeout. Returns the final `Job` so callers can assert on
+ * `status === "SUCCEED"` and surface `error` on failure paths.
+ */
+export async function waitForJob(
+  jobs: JobsService,
+  id: string,
+  timeoutMs = 30_000,
+  pollIntervalMs = 500,
+): Promise<Job> {
+  const deadline = Date.now() + timeoutMs;
+  let last: Job | undefined;
+  while (Date.now() < deadline) {
+    last = await jobs.get(id);
+    if (isJobTerminal(last.status)) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  throw new Error(
+    `job ${id} did not reach a terminal state within ${timeoutMs}ms (last status=${last?.status})`,
+  );
 }

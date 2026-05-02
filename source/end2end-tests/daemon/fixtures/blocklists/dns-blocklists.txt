@@ -1,0 +1,15 @@
+# Static blocklist served by the e2e blocklist_server fixture and
+# pulled by `dns-blocklists.spec.ts` via createBlocklist +
+# updateBlocklistNow. Hosts-file format; the daemon's
+# blocklist_downloader.parse_blocklist_body recognises the leading
+# 0.0.0.0 sentinel and drops the rest.
+#
+# www.iana.org is real (RFC 7042 example domain) and is the canary
+# the spec uses to distinguish "blocklist active" from
+# "filter passthrough" — block path returns NXDOMAIN, post-delete
+# returns the real upstream answer. The .test entries are present
+# to verify entry_count > 1 without coupling more public domains
+# than necessary.
+0.0.0.0 www.iana.org
+0.0.0.0 ads.fixture.test
+0.0.0.0 banner.fixture.test
