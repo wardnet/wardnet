@@ -31,3 +31,26 @@ transitives still pin the older 0.8 / 0.9.2 lines. We don't install a
 custom logger that touches rand internals, so the unsoundness is
 unreachable in our usage. Re-evaluate when sqlx bumps rand.
 """
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0118"
+reason = """
+hickory-proto NSEC3 closest-encloser proof validation enters an
+unbounded loop on cross-zone responses. Transitive via dhcproto 0.14.0,
+which pins hickory-proto ^0.25.2 with `default-features = false`. The
+vulnerable code path is gated behind hickory-proto's DNSSEC features,
+which dhcproto disables, so it isn't compiled into wardnetd. No
+0.25.x backport exists; the fix is only in the 0.26.x line and
+dhcproto hasn't bumped. Re-evaluate when dhcproto upgrades.
+"""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0119"
+reason = """
+hickory-proto O(n²) name compression during message encoding. Same
+transitive path (dhcproto 0.14.0 → hickory-proto 0.25.2). Triggered by
+DNS messages with many compressible names; wardnetd only uses dhcproto
+to encode DHCPv4 packets, which carry at most a single FQDN (option
+81), so the quadratic blow-up isn't reachable. No 0.25.x backport.
+Re-evaluate when dhcproto upgrades.
+"""
