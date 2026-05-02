@@ -27,6 +27,12 @@ const OVERRIDE_DOMAIN = "iana.org";
 const REWRITE_DOMAIN = "rewrite-target.fixture.test";
 const REWRITE_IP = "198.51.100.99";
 
+// Exact rule_text values created by this spec. Used (not substring-
+// matched) for prior-run cleanup so a user-authored rule that happens
+// to mention iana.org or rewrite-target.fixture.test isn't deleted.
+const REWRITE_RULE_TEXT = `||${REWRITE_DOMAIN}^$dnsrewrite=${REWRITE_IP}`;
+const ALLOW_RULE_TEXT = `@@||${OVERRIDE_DOMAIN}^`;
+
 describe("dns custom filter rules", () => {
   let authed: AuthedClient;
   let dns: DnsService;
@@ -56,10 +62,7 @@ describe("dns custom filter rules", () => {
     }
     const existingRules = await dns.listFilterRules();
     for (const r of existingRules.rules) {
-      if (
-        r.rule_text.includes(REWRITE_DOMAIN) ||
-        r.rule_text.includes(OVERRIDE_DOMAIN)
-      ) {
+      if (r.rule_text === REWRITE_RULE_TEXT || r.rule_text === ALLOW_RULE_TEXT) {
         await dns.deleteFilterRule(r.id);
       }
     }
@@ -91,7 +94,7 @@ describe("dns custom filter rules", () => {
 
   it("applies a $dnsrewrite custom rule", async () => {
     const created = await dns.createFilterRule({
-      rule_text: `||${REWRITE_DOMAIN}^$dnsrewrite=${REWRITE_IP}`,
+      rule_text: REWRITE_RULE_TEXT,
       enabled: true,
       comment: "e2e dns-rules: rewrite",
     });
@@ -137,7 +140,7 @@ describe("dns custom filter rules", () => {
       .toBe(0);
 
     const allow = await dns.createFilterRule({
-      rule_text: `@@||${OVERRIDE_DOMAIN}^`,
+      rule_text: ALLOW_RULE_TEXT,
       enabled: true,
       comment: "e2e dns-rules: allow override",
     });
