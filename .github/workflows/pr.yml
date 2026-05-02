@@ -77,14 +77,20 @@ jobs:
   coverage:
     name: Coverage
     needs: preflight
-    # Skip for any bot-authored PR (actor ends with '[bot]'): bots push to
-    # same-repo branches, which GitHub denies access to repo secrets for, and
-    # Codecov requires a token for same-repo branches on public repos. Bots
-    # here (Dependabot, step-security-bot) don't change source code anyway.
-    # Fork PRs from community members keep running — they use Codecov's
-    # tokenless upload (unprotected branch ref with colon prefix).
+    # Skip for any bot-authored PR: bots push to same-repo branches, which
+    # GitHub denies access to repo secrets for, and Codecov requires a token
+    # for same-repo branches on public repos. Bots here (Dependabot,
+    # step-security-bot) don't change source code anyway. Fork PRs from
+    # community members keep running — they use Codecov's tokenless upload
+    # (unprotected branch ref with colon prefix).
+    #
+    # Gate on the PR author, not `github.actor`: re-running a workflow flips
+    # `github.actor` to whoever clicked re-run, which would let coverage run
+    # on a Dependabot PR and then fail at the Codecov upload. For
+    # `workflow_call` from release.yml there's no pull_request context, so
+    # `user.type` is empty and coverage runs as intended.
     if: |
-      !endsWith(github.actor, '[bot]') && (
+      github.event.pull_request.user.type != 'Bot' && (
         needs.preflight.outputs.daemon == 'true' ||
         needs.preflight.outputs.site == 'true' ||
         needs.preflight.outputs.ci == 'true'
