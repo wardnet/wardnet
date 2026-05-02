@@ -12,14 +12,17 @@ export default defineConfig({
     // All specs run against one shared daemon container, so file-level
     // parallelism is hostile (race on setup wizard, race on DHCP
     // toggle, race on lease state). singleFork keeps every file in one
-    // process — module-level state in helpers.ts (ADMIN_PASSWORD) is
-    // shared across files, and tests execute serially.
+    // process and `isolate: false` shares the module graph across
+    // files — without the latter, vitest reloads helpers.ts per file
+    // and ADMIN_PASSWORD's randomBytes() generates a fresh value each
+    // time, breaking login on every spec after the first.
     pool: "forks",
     poolOptions: {
       forks: {
         singleFork: true,
       },
     },
+    isolate: false,
     reporters: [
       "default",
       ["junit", { outputFile: "./reports/junit.xml" }],
