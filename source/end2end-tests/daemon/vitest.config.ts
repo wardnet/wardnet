@@ -9,6 +9,17 @@ export default defineConfig({
     // GitHub runner from masking real failures.
     testTimeout: 60_000,
     hookTimeout: 120_000,
+    // All specs run against one shared daemon container, so file-level
+    // parallelism is hostile (race on setup wizard, race on DHCP
+    // toggle, race on lease state). singleFork keeps every file in one
+    // process — module-level state in helpers.ts (ADMIN_PASSWORD) is
+    // shared across files, and tests execute serially.
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     reporters: [
       "default",
       ["junit", { outputFile: "./reports/junit.xml" }],
