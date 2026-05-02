@@ -8,19 +8,19 @@ use super::models::{ClientError, DnsResolveResponse};
 #[derive(Debug, Args)]
 pub struct DnsResolveArgs {
     /// Name to resolve.
-    name: String,
+    pub name: String,
 
     /// DNS server to query (e.g. `127.0.0.1`). Default: system resolver.
     #[arg(long)]
-    server: Option<String>,
+    pub server: Option<String>,
 
     /// Record type (`A`, `AAAA`, `TXT`, ...). Default: `A`.
     #[arg(long, default_value = "A")]
-    record: String,
+    pub record: String,
 
     /// Query timeout in seconds.
     #[arg(long, default_value_t = 3)]
-    timeout: u32,
+    pub timeout: u32,
 }
 
 pub async fn run(args: DnsResolveArgs) -> Result<DnsResolveResponse, ClientError> {

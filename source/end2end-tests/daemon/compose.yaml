@@ -1,8 +1,8 @@
 # Daemon end-to-end test topology.
 #
-# Stage 6a (this file) ships only what the smoke spec needs: the
-# daemon container plus a node:22 test runner. Future stages will add
-# `test_alpine`, `test_ubuntu`, `wg_gateway_1`, `wg_gateway_2`,
+# Stage 6a/6b (this file) ships the daemon container, a node:22 test
+# runner, and two LAN clients (`test_debian`, `test_ubuntu`) for the
+# DHCP scenarios. Future stages add `wg_gateway_1`, `wg_gateway_2`,
 # `nordvpn_mock` — see source/end2end-tests/daemon/README or the plan
 # under .agents/ for the full topology.
 #
@@ -128,6 +128,60 @@ services:
       retries: 30
       start_period: 30s
 
+  # LAN-client containers used by the DHCP and (later) routing /
+  # multi-client scenarios. Both run `wardnet-test-agent client serve`
+  # on :3001 after acquiring a lease from the daemon's DHCP server.
+  # NET_ADMIN is required so the entrypoint can flush eth0 before
+  # dhclient runs; without it Docker's IPAM-assigned address sticks
+  # and the daemon never sees a DISCOVER. NET_RAW is the default
+  # capability for raw sockets; called out explicitly so a hardened
+  # base profile that drops it doesn't break dhclient.
+  test_debian:
+    build:
+      context: ../../..
+      dockerfile: source/end2end-tests/daemon/Dockerfile.client
+      args:
+        BASE_IMAGE: debian:bookworm-slim
+        WARDNETD_TEST_IMAGE: ${WARDNETD_TEST_IMAGE:-wardnetd:dev-test}
+    image: wardnet-test-client-debian:dev
+    depends_on:
+      wardnetd:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      wardnet_lan: {}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
+
+  test_ubuntu:
+    build:
+      context: ../../..
+      dockerfile: source/end2end-tests/daemon/Dockerfile.client
+      args:
+        BASE_IMAGE: ubuntu:24.04
+        WARDNETD_TEST_IMAGE: ${WARDNETD_TEST_IMAGE:-wardnetd:dev-test}
+    image: wardnet-test-client-ubuntu:dev
+    depends_on:
+      wardnetd:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      wardnet_lan: {}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
+
   test_runner:
     build:
       context: ../../..
@@ -135,6 +189,10 @@ services:
     image: wardnet-e2e-runner:dev
     depends_on:
       wardnetd:
+        condition: service_healthy
+      test_debian:
+        condition: service_healthy
+      test_ubuntu:
         condition: service_healthy
     environment:
       WARDNET_API_BASE_URL: "http://wardnetd:7411/api"

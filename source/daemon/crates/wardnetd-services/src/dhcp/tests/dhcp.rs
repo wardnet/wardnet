@@ -867,6 +867,80 @@ async fn renew_lease_does_not_migrate_when_reservation_matches_current_ip() {
     assert_eq!(logs[0].event_type, "renewed");
 }
 
+// Renewal where a reservation that previously pinned the device to an
+// out-of-pool IP has been deleted. The old lease is now an orphan: no
+// reservation backs it and its IP isn't in the dynamic pool, so honoring
+// it would keep the device pinned forever. The daemon must expire it and
+// hand back a fresh pool address on the same REQUEST cycle.
+#[tokio::test]
+async fn renew_lease_migrates_orphaned_lease_when_reservation_deleted() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    // .50 is below the default 192.168.1.100-.200 pool; with no reservation
+    // backing it, this lease is orphaned.
+    let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:32", "192.168.1.50");
+
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:32"))
+        .await
+        .unwrap();
+
+    // Device migrates to a fresh pool IP, not the old .50.
+    assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 100));
+    assert_eq!(lease.status, DhcpLeaseStatus::Active);
+    assert_ne!(lease.id.to_string(), old_id);
+
+    // Old lease expired — keeping it active would re-offer .50 next DISCOVER.
+    let old_row = dhcp
+        .leases
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.id == old_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(old_row.status, "expired");
+
+    let logs = dhcp.logs.lock().unwrap();
+    assert!(
+        logs.iter().any(|l| l.event_type == "expired"
+            && l.details.as_deref().unwrap_or("").contains("orphaned")),
+        "expected expired log marking the lease as orphaned"
+    );
+    assert!(
+        logs.iter().any(|l| l.event_type == "assigned"),
+        "expected assigned log for the new pool lease"
+    );
+}
+
+// DISCOVER counterpart of the renew migration above. A device with a
+// stale active lease at an out-of-pool IP (its reservation was deleted)
+// re-DISCOVERs; the daemon must not short-circuit on the orphan and must
+// allocate fresh from the pool.
+#[tokio::test]
+async fn assign_lease_migrates_orphaned_lease_when_outside_pool() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:33", "192.168.1.50");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:33", None))
+            .await
+            .unwrap();
+
+    assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 100));
+    assert_ne!(lease.id.to_string(), old_id);
+
+    let old_row = dhcp
+        .leases
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.id == old_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(old_row.status, "expired");
+}
+
 // =========================================================================
 // release_lease tests
 // =========================================================================

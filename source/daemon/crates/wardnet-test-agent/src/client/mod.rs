@@ -1,9 +1,14 @@
-//! Client mode: performs a single probe operation and prints typed JSON to
-//! stdout. Designed for test runners (Vitest) that drive client containers
-//! through `docker exec wardnet-test-agent client <subcommand> ...`.
+//! Client mode: probe operations the test runner drives against
+//! containers attached to the daemon's simulated LAN. Two transports
+//! over the same handlers:
 //!
-//! All subcommands write JSON to stdout. On error, a `{ "error": "..." }`
-//! object is printed and the process exits with code 1. Logs go to stderr.
+//! * One-shot CLI subcommands (`routes`, `interfaces`, `dns-resolve`,
+//!   `ping`, `dhcp-renew`) print typed JSON to stdout and exit. Useful
+//!   for ad-hoc probes via `docker exec` and as a debugging entrypoint.
+//! * `serve` keeps the same handlers behind a long-running HTTP server.
+//!   Test client containers run `client serve --port 3001` as their
+//!   entrypoint so specs can `fetch("http://test_debian:3001/...")`
+//!   without mounting the container-runtime socket into the runner.
 
 mod dhcp;
 mod dns;
@@ -11,6 +16,7 @@ mod interfaces;
 mod models;
 mod ping;
 mod routes;
+mod serve;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -40,19 +46,28 @@ enum ClientCommand {
     Ping(ping::PingArgs),
     /// Renew the DHCP lease on an interface.
     DhcpRenew(dhcp::DhcpRenewArgs),
+    /// Run the probe handlers behind an HTTP server (long-running).
+    Serve(serve::ServeArgs),
 }
 
-/// Runs the requested client subcommand and exits the process.
+/// Runs the requested client subcommand. One-shot subcommands print
+/// JSON to stdout and exit; `serve` blocks indefinitely on the HTTP
+/// listener and returns only on a fatal error.
 pub async fn run(args: ClientArgs) -> ! {
+    let pretty = args.pretty;
     let result: Result<Box<dyn ErasedSerialize>, ClientError> = match args.command {
         ClientCommand::Routes(a) => routes::run(a).await.map(boxed),
         ClientCommand::Interfaces(a) => interfaces::run(a).await.map(boxed),
         ClientCommand::DnsResolve(a) => dns::run(a).await.map(boxed),
         ClientCommand::Ping(a) => ping::run(a).await.map(boxed),
         ClientCommand::DhcpRenew(a) => dhcp::run(a).await.map(boxed),
+        ClientCommand::Serve(a) => {
+            serve::run(a).await;
+            std::process::exit(0);
+        }
     };
 
-    let code = emit(result.as_deref(), args.pretty);
+    let code = emit(result.as_deref(), pretty);
     std::process::exit(code);
 }
 

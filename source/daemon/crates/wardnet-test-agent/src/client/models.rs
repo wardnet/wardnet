@@ -109,7 +109,17 @@ pub struct PingResponse {
 pub struct DhcpRenewResponse {
     pub interface: String,
     pub client: String,
-    pub success: bool,
+    /// Exit status of the release step (`dhclient -r`, `dhcpcd -k`).
+    /// On a fresh interface with no prior lease this can be non-zero
+    /// without indicating a real failure — callers that want strict
+    /// behavior should check both this and `renew_success`.
+    pub release_success: bool,
+    /// Exit status of the renew step (`dhclient`, `dhcpcd -n`). The
+    /// previous shape exposed only this as a single `success` field;
+    /// dropping `release_success` masked release failures that
+    /// silently caused dhclient to re-use a cached lease instead of
+    /// issuing a fresh DISCOVER.
+    pub renew_success: bool,
     pub stdout: String,
     pub stderr: String,
 }
