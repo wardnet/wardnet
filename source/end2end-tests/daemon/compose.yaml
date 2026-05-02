@@ -1,10 +1,11 @@
 # Daemon end-to-end test topology.
 #
-# Stage 6a/6b (this file) ships the daemon container, a node:22 test
-# runner, and two LAN clients (`test_debian`, `test_ubuntu`) for the
-# DHCP scenarios. Future stages add `wg_gateway_1`, `wg_gateway_2`,
-# `nordvpn_mock` — see source/end2end-tests/daemon/README or the plan
-# under .agents/ for the full topology.
+# Stage 6 ships the daemon container, a node:22 test runner, and two
+# LAN clients (`test_debian`, `test_ubuntu`) for the DHCP scenarios.
+# Stage 7 adds `blocklist_server` (busybox httpd) on wardnet_lan to
+# serve the blocklist fixtures consumed by the DNS specs. Future
+# stages add `wg_gateway_1`, `wg_gateway_2`, `nordvpn_mock` — see
+# source/end2end-tests/PLAN.md for the full topology and roadmap.
 #
 # Networks (per the e2e plan, Deliverable 5):
 #   wardnet_mgmt 10.90.0.0/24 — test runner ↔ daemon API.
@@ -182,6 +183,31 @@ services:
       retries: 20
       start_period: 10s
 
+  # Static-file HTTP server for blocklist fixtures consumed by the
+  # Stage 7 DNS specs. busybox httpd keeps the image tiny and avoids
+  # nginx's directory-listing / CRLF normalisation on text bodies that
+  # the daemon's blocklist parser would have to tolerate. Pinned to
+  # 10.91.0.200 (outside wardnet_lan's IPAM range .2-.15) so specs
+  # reference a stable URL even if container restart order shifts.
+  blocklist_server:
+    image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    command: ["httpd", "-f", "-v", "-p", "80", "-h", "/srv"]
+    volumes:
+      - ./fixtures/blocklists:/srv:ro
+    networks:
+      wardnet_lan:
+        ipv4_address: 10.91.0.200
+    healthcheck:
+      # busybox httpd has no built-in healthcheck endpoint; a HEAD
+      # against a known fixture file is the cheapest liveness signal.
+      # wget --spider returns 0 on 2xx and is part of the busybox
+      # image already.
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1/dns-blocklists.txt"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
   test_runner:
     build:
       context: ../../..
@@ -193,6 +219,8 @@ services:
       test_debian:
         condition: service_healthy
       test_ubuntu:
+        condition: service_healthy
+      blocklist_server:
         condition: service_healthy
     environment:
       WARDNET_API_BASE_URL: "http://wardnetd:7411/api"

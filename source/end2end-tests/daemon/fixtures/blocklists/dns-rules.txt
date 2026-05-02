@@ -1,0 +1,7 @@
+# Blocklist consumed by `dns-rules.spec.ts`. iana.org is the
+# allowlist target — see the spec's afterAll for cleanup. We pin a
+# real domain in the blocklist (rather than a .test domain) for the
+# same reason as dns-allowlist.txt: the @@-rule precedence test
+# needs the override path to forward upstream and return real
+# answers, which only works if the domain actually exists.
+0.0.0.0 iana.org
