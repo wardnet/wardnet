@@ -54,10 +54,10 @@ jobs:
           workspaces: source/daemon
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@87d97b95c884523e049410b5322ea91b2acdbc89 # cargo-llvm-cov
+        uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # cargo-llvm-cov
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@024e8cba30d328c34bf69b86cfaaaad61ad5c4cb # cargo-nextest
+        uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # cargo-nextest
 
       - name: Generate daemon coverage + test results
         run: |
