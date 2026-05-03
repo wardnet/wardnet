@@ -81,7 +81,7 @@ pub struct SetMyRuleResponse {
 pub struct SystemStatusResponse {
     /// Diagnostic git-derived version. See `InfoResponse.version`.
     pub version: String,
-    /// Public-facing CalVer. See `InfoResponse.release_version`.
+    /// Public-facing `CalVer`. See `InfoResponse.release_version`.
     pub release_version: String,
     pub uptime_seconds: u64,
     pub device_count: u64,
@@ -104,10 +104,10 @@ pub struct InfoResponse {
     /// non-tag builds so logs and `--version` output identify the
     /// exact commit. Use `release_version` for anything user-facing.
     pub version: String,
-    /// Public-facing CalVer (`YYYY.MM.DD`) read from the workspace-
+    /// Public-facing `CalVer` (`YYYY.MM.DD`) read from the workspace-
     /// root `CALVER` file at compile time. Stable across dev rebuilds
     /// and is the string the web UI displays, the auto-update runner
-    /// compares against the published manifest, and the OpenAPI spec
+    /// compares against the published manifest, and the `OpenAPI` spec
     /// declares as `info.version`.
     pub release_version: String,
     pub uptime_seconds: u64,

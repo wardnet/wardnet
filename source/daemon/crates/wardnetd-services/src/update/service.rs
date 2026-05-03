@@ -385,17 +385,17 @@ impl UpdateServiceImpl {
     }
 }
 
-/// Compare CalVer / dotted-numeric version strings. Returns `true` if
-/// `candidate` is strictly greater than `current`.
+/// Compare `CalVer` / dotted-numeric version strings. Returns `true`
+/// if `candidate` is strictly greater than `current`.
 ///
 /// Both versions use the `YYYY.MM.DD` shape published by the release
-/// pipeline (see the workspace-root `CALVER` file). Padded month / day
-/// components like `2026.05.03` are not valid SemVer (leading zeros are
-/// rejected), so we can't reuse `semver::Version::parse` here. Instead,
-/// split on `.`, parse each component as `u64`, and compare the
-/// resulting tuples lexicographically — that gives the right ordering
-/// for both padded (`05`) and unpadded (`5`) components, and for any
-/// pre-release suffix we strip first.
+/// pipeline (see the workspace-root `CALVER` file). Padded month /
+/// day components like `2026.05.03` are not valid `SemVer` (leading
+/// zeros are rejected), so we can't reuse `semver::Version::parse`
+/// here. Instead, split on `.`, parse each component as `u64`, and
+/// compare the resulting tuples lexicographically — that gives the
+/// right ordering for both padded (`05`) and unpadded (`5`)
+/// components, and for any pre-release suffix we strip first.
 ///
 /// Returns `false` on any parse failure rather than panicking, so a
 /// malformed manifest entry can never trigger an install.

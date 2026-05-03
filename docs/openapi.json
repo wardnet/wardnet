@@ -9666,7 +9666,7 @@
         "properties": {
           "release_version": {
             "type": "string",
-            "description": "Public-facing CalVer (`YYYY.MM.DD`) read from the workspace-\nroot `CALVER` file at compile time. Stable across dev rebuilds\nand is the string the web UI displays, the auto-update runner\ncompares against the published manifest, and the OpenAPI spec\ndeclares as `info.version`."
+            "description": "Public-facing `CalVer` (`YYYY.MM.DD`) read from the workspace-\nroot `CALVER` file at compile time. Stable across dev rebuilds\nand is the string the web UI displays, the auto-update runner\ncompares against the published manifest, and the `OpenAPI` spec\ndeclares as `info.version`."
           },
           "uptime_seconds": {
             "type": "integer",
@@ -10797,7 +10797,7 @@
           },
           "release_version": {
             "type": "string",
-            "description": "Public-facing CalVer. See `InfoResponse.release_version`."
+            "description": "Public-facing `CalVer`. See `InfoResponse.release_version`."
           },
           "tunnel_active_count": {
             "type": "integer",

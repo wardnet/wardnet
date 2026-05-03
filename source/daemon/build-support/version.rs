@@ -141,8 +141,10 @@ pub(crate) fn read_calver() -> String {
         )
     });
     let trimmed = contents.trim().to_owned();
-    if trimmed.is_empty() {
-        panic!("CALVER file at {} is empty", path.display());
-    }
+    assert!(
+        !trimmed.is_empty(),
+        "CALVER file at {} is empty",
+        path.display()
+    );
     trimmed
 }
