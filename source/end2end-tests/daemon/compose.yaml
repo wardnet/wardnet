@@ -4,8 +4,9 @@
 # LAN clients (`test_debian`, `test_ubuntu`) for the DHCP scenarios.
 # Stage 7 adds `blocklist_server` (busybox httpd) on wardnet_lan to
 # serve the blocklist fixtures consumed by the DNS specs. Future
-# stages add `wg_gateway_1`, `wg_gateway_2`, `nordvpn_mock` — see
-# source/end2end-tests/PLAN.md for the full topology and roadmap.
+# stages add `wg_gateway_1`, `wg_gateway_2`, `nordvpn_mock` — see the
+# e2e umbrella issue for the full topology, stage list, and conventions:
+# https://github.com/wardnet/wardnet/issues/273
 #
 # Networks (per the e2e plan, Deliverable 5):
 #   wardnet_mgmt 10.90.0.0/24 — test runner ↔ daemon API.

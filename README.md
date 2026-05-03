@@ -78,7 +78,9 @@ Full walkthrough, configuration reference, and guides in the [**user documentati
 
 ## Project status
 
-Wardnet is in active development. It's daily-driven on a single Pi at home, but expect rough edges — read the [development guide](docs/DEVELOPMENT.md#project-status) for a full picture of what works today, what's missing, and known caveats.
+Wardnet is in active development. It's daily-driven on a single Pi at home, but expect rough edges — read the [development guide](docs/DEVELOPMENT.md#project-status) for a full picture of what works today, what's missing, and known caveats. Roadmap and known work-in-flight live in [GitHub issues](https://github.com/wardnet/wardnet/issues), grouped by [milestones](https://github.com/wardnet/wardnet/milestones).
+
+![Repobeats analytics image](https://repobeats.axiom.co/api/embed/542b52b1295b4c6d2f98aee099989eded7862c46.svg "Repobeats analytics image")
 
 ## Contributing
 
