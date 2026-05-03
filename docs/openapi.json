@@ -6,7 +6,7 @@
     "license": {
       "name": "MIT"
     },
-    "version": "2026.05.03"
+    "version": "2026.05.00"
   },
   "paths": {
     "/api/auth/login": {
