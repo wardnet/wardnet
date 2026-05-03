@@ -40,7 +40,10 @@ fn api_doc_version_matches_release_version() {
     // file). If this fails after bumping CALVER, the wiring in
     // `openapi.rs` has drifted from `wardnetd_services::version::RELEASE_VERSION`.
     let doc = crate::api_doc();
-    assert_eq!(doc.info.version, wardnetd_services::version::RELEASE_VERSION);
+    assert_eq!(
+        doc.info.version,
+        wardnetd_services::version::RELEASE_VERSION
+    );
 }
 
 #[test]
