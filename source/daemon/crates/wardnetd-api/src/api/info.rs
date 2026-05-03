@@ -28,6 +28,7 @@ pub async fn info(State(state): State<AppState>) -> Json<InfoResponse> {
     let uptime = state.system_service().uptime();
     Json(InfoResponse {
         version: state.system_service().version().to_owned(),
+        release_version: wardnetd_services::version::RELEASE_VERSION.to_owned(),
         uptime_seconds: uptime.as_secs(),
     })
 }

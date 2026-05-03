@@ -14,6 +14,7 @@
 
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
+use wardnetd_services::version::RELEASE_VERSION;
 
 /// Root `OpenAPI` document for the Wardnet daemon.
 ///
@@ -25,12 +26,13 @@ use utoipa::{Modify, OpenApi};
 #[openapi(
     info(
         title = "Wardnet API",
-        // Pin the spec version to the crate's `CARGO_PKG_VERSION`, which
-        // `make sync-version` propagates from `./VERSION` at release time.
-        // So a tagged v0.2.1 binary serves a spec that also declares
-        // `info.version = 0.2.1`, and the docs site can surface the two in
-        // lockstep without needing a build.rs.
-        version = env!("CARGO_PKG_VERSION"),
+        // Pin the spec version to the public-facing CalVer that
+        // wardnetd-services::version::RELEASE_VERSION exposes (read from
+        // the workspace-root CALVER file at compile time). Using the
+        // CalVer here matches what the daemon serves via /api/info and
+        // what the user sees in the web UI, so the spec, the API
+        // response, and the UI all surface the same release identifier.
+        version = RELEASE_VERSION,
         description = "Self-hosted network privacy gateway — REST API for device, \
                        tunnel, routing, DHCP, DNS, and update management.",
         license(name = "MIT")

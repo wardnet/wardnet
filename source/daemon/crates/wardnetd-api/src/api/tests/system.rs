@@ -90,6 +90,7 @@ impl SystemService for MockSystemService {
         match &self.response {
             Ok(r) => Ok(SystemStatusResponse {
                 version: r.version.clone(),
+                release_version: r.release_version.clone(),
                 uptime_seconds: r.uptime_seconds,
                 device_count: r.device_count,
                 tunnel_count: r.tunnel_count,
@@ -156,6 +157,7 @@ fn system_app_full(state: AppState) -> Router {
 fn default_status() -> SystemStatusResponse {
     SystemStatusResponse {
         version: "0.0.1".to_owned(),
+        release_version: "0.0.1".to_owned(),
         uptime_seconds: 0,
         device_count: 0,
         tunnel_count: 0,
@@ -183,6 +185,7 @@ async fn status_returns_200_with_correct_json() {
         MockSystemService {
             response: Ok(SystemStatusResponse {
                 version: "1.2.3".to_owned(),
+                release_version: "1.2.3".to_owned(),
                 uptime_seconds: 3600,
                 device_count: 10,
                 tunnel_count: 3,
@@ -226,6 +229,7 @@ async fn status_requires_authentication() {
         MockSystemService {
             response: Ok(SystemStatusResponse {
                 version: "1.0.0".to_owned(),
+                release_version: "1.0.0".to_owned(),
                 uptime_seconds: 0,
                 device_count: 0,
                 tunnel_count: 0,
@@ -833,6 +837,7 @@ async fn status_authenticates_via_bearer_token() {
         MockSystemService {
             response: Ok(SystemStatusResponse {
                 version: "0.0.1".to_owned(),
+                release_version: "0.0.1".to_owned(),
                 uptime_seconds: 1,
                 device_count: 0,
                 tunnel_count: 0,

@@ -3,7 +3,13 @@ import { infoService } from "@/lib/sdk";
 
 interface DaemonStatus {
   reachable: boolean;
+  /** Public CalVer (`YYYY.MM.DD`) — this is what the UI shows users. */
   version: string | null;
+  /**
+   * Diagnostic git-derived version (`X.Y.Z[-dev.N+gHASH]`). Useful for
+   * support flows / bug reports; not displayed by default.
+   */
+  buildVersion: string | null;
   uptimeSeconds: number | null;
 }
 
@@ -19,11 +25,17 @@ export function useDaemonStatus() {
         const info = await infoService.getInfo();
         return {
           reachable: true,
-          version: info.version,
+          version: info.release_version,
+          buildVersion: info.version,
           uptimeSeconds: info.uptime_seconds,
         };
       } catch {
-        return { reachable: false, version: null, uptimeSeconds: null };
+        return {
+          reachable: false,
+          version: null,
+          buildVersion: null,
+          uptimeSeconds: null,
+        };
       }
     },
     refetchInterval: 30_000,

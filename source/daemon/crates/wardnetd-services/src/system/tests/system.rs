@@ -123,6 +123,7 @@ async fn status_returns_correct_values() {
         .await
         .unwrap();
     assert_eq!(resp.version, env!("WARDNET_VERSION"));
+    assert_eq!(resp.release_version, env!("WARDNET_RELEASE_VERSION"));
     assert_eq!(resp.device_count, 5);
     assert_eq!(resp.tunnel_count, 2);
     assert_eq!(resp.tunnel_active_count, 1);
@@ -140,8 +141,9 @@ async fn status_version_comes_from_compile_time_env() {
     let resp = auth_context::with_context(admin_ctx(), svc.status())
         .await
         .unwrap();
-    // Version is always the compile-time constant, never "unknown".
+    // Both versions are compile-time constants, never "unknown".
     assert_eq!(resp.version, env!("WARDNET_VERSION"));
+    assert_eq!(resp.release_version, env!("WARDNET_RELEASE_VERSION"));
 }
 
 #[tokio::test]

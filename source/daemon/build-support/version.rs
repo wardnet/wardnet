@@ -3,6 +3,23 @@
 // This file is `include!`d from `build.rs` and from `src/version.rs` so the
 // logic exists in exactly one place. Functions use `pub(crate)` visibility so
 // they are accessible from test modules when included in the library.
+//
+// Two compile-time env vars are emitted from build scripts that include this
+// file:
+//
+// - `WARDNET_VERSION` — git-derived (`git describe --tags --always --dirty`),
+//   used for the wardnetd / wctl `--version` strings, the OTLP/profiling
+//   resource attributes, and tracing-span fields. Carries dev-suffixes
+//   (`-dev.N+gHASH`) on non-tag builds so journal output identifies the
+//   exact commit a daemon was built from.
+//
+// - `WARDNET_RELEASE_VERSION` — pure CalVer read from the workspace-root
+//   `CALVER` file, with no git involvement. Stable across dev rebuilds and
+//   across CI runs of the same commit, which keeps `docs/openapi.json`
+//   from drifting between commits and gives the auto-update runner a
+//   clean string to compare against the published manifest. Surfaced to
+//   users via /api/info `release_version`, the OpenAPI `info.version`,
+//   and the web UI version line.
 
 /// Parse the output of `git describe --tags --always --dirty` into a `SemVer`
 /// version string.
@@ -99,4 +116,40 @@ pub(crate) fn bump_patch(version: &str) -> String {
         return format!("{}.{}.{}", parts[0], parts[1], patch + 1);
     }
     version.to_owned()
+}
+
+/// Read the workspace-root `CALVER` file and return its contents as a
+/// `YYYY.MM.DD` string with surrounding whitespace stripped.
+///
+/// Build scripts call this and expose the value as the
+/// `WARDNET_RELEASE_VERSION` compile-time env var. The path
+/// (`../../../../CALVER`) is relative to a build script in
+/// `source/daemon/crates/<crate>/`, so call sites should also emit
+/// `cargo:rerun-if-changed=../../../../CALVER` to invalidate the build
+/// cache when the file is bumped.
+// `#[allow(dead_code)]` because this file is `include!`d into both
+// build scripts (where this function IS called) and `#[cfg(test)]`
+// modules (where the dispatch wrapper isn't reached — tests target
+// `read_calver_at` directly so the path can be controlled).
+#[allow(dead_code)]
+pub(crate) fn read_calver() -> String {
+    read_calver_at(std::path::Path::new("../../../../CALVER"))
+}
+
+/// Path-injectable core of [`read_calver`]. Split out so tests can
+/// exercise the read / trim / non-empty-assert branches against a
+/// `tempfile`-backed file without needing to manipulate the workspace
+/// `CALVER`.
+#[allow(dead_code)]
+pub(crate) fn read_calver_at(path: &std::path::Path) -> String {
+    let contents = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        panic!("failed to read CALVER file at {}: {e}", path.display())
+    });
+    let trimmed = contents.trim().to_owned();
+    assert!(
+        !trimmed.is_empty(),
+        "CALVER file at {} is empty",
+        path.display()
+    );
+    trimmed
 }

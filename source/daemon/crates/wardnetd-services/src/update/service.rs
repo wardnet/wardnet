@@ -385,14 +385,36 @@ impl UpdateServiceImpl {
     }
 }
 
-/// Compare semver versions. Returns `true` if `candidate` is strictly greater
-/// than `current`, using the `semver` crate for correct pre-release handling.
+/// Compare `CalVer` / dotted-numeric version strings. Returns `true`
+/// if `candidate` is strictly greater than `current`.
+///
+/// Both versions use the `YYYY.MM.DD` shape published by the release
+/// pipeline (see the workspace-root `CALVER` file). Padded month /
+/// day components like `2026.05.03` are not valid `SemVer` (leading
+/// zeros are rejected), so we can't reuse `semver::Version::parse`
+/// here. Instead, split on `.`, parse each component as `u64`, and
+/// compare the resulting tuples lexicographically — that gives the
+/// right ordering for both padded (`05`) and unpadded (`5`)
+/// components, and for any pre-release suffix we strip first.
+///
+/// Returns `false` on any parse failure rather than panicking, so a
+/// malformed manifest entry can never trigger an install.
 fn is_newer(candidate: &str, current: &str) -> bool {
-    match (
-        semver::Version::parse(candidate),
-        semver::Version::parse(current),
-    ) {
-        (Ok(c), Ok(r)) => c > r,
+    fn parts(v: &str) -> Option<Vec<u64>> {
+        // Drop a SemVer-style pre-release / build suffix (`-beta.1`,
+        // `+gabc1234`) before parsing; we don't currently use those for
+        // CalVer releases, but tolerating them future-proofs the
+        // comparator and avoids spurious "not newer" verdicts when
+        // upstream injects a build tag.
+        let head = v.split(['-', '+']).next().unwrap_or(v);
+        let parts: Vec<u64> = head
+            .split('.')
+            .map(|p| p.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        if parts.is_empty() { None } else { Some(parts) }
+    }
+    match (parts(candidate), parts(current)) {
+        (Some(c), Some(r)) => c > r,
         _ => false,
     }
 }
@@ -680,5 +702,56 @@ impl UpdateServiceImpl {
             current_version: self.current_version.clone(),
             inflight: self.inflight.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod is_newer_tests {
+    use super::is_newer;
+
+    #[test]
+    fn calver_padded_components() {
+        // The padded canonical CalVer form — leading zeros in month / day
+        // were the reason we couldn't keep `semver::Version::parse`.
+        assert!(is_newer("2026.05.10", "2026.05.03"));
+        assert!(is_newer("2026.06.01", "2026.05.31"));
+        assert!(!is_newer("2026.05.03", "2026.05.10"));
+        assert!(!is_newer("2026.05.03", "2026.05.03"));
+    }
+
+    #[test]
+    fn calver_unpadded_compares_numerically() {
+        // `2026.5.3` < `2026.10.3` — the comparator parses each component
+        // as `u64` so the lexically-smaller `10` correctly outranks `5`.
+        assert!(is_newer("2026.10.3", "2026.5.3"));
+        assert!(!is_newer("2026.5.3", "2026.10.3"));
+    }
+
+    #[test]
+    fn semver_legacy_strings_still_compare() {
+        // Pre-CalVer release tooling would have used these. Still works
+        // because the comparator is tuple-of-ints, not CalVer-specific.
+        assert!(is_newer("0.2.0", "0.1.0"));
+        assert!(!is_newer("0.1.0", "0.2.0"));
+    }
+
+    #[test]
+    fn suffixes_are_stripped_before_comparison() {
+        // A `+gabc1234` build tag or `-beta.1` pre-release suffix on
+        // either side must not mask the underlying ordering. We don't
+        // currently publish pre-releases for CalVer, but tolerating them
+        // keeps the gate from misfiring on a manifest that introduces
+        // them later.
+        assert!(is_newer("2026.05.10+gabc", "2026.05.03+gdef"));
+        assert!(is_newer("2026.05.10-beta.1", "2026.05.03"));
+    }
+
+    #[test]
+    fn malformed_returns_false() {
+        // A malformed candidate must never report "newer" — that would
+        // let a bad manifest entry trigger an install.
+        assert!(!is_newer("not-a-version", "2026.05.03"));
+        assert!(!is_newer("2026.05.03", "also-bad"));
+        assert!(!is_newer("", "2026.05.03"));
     }
 }

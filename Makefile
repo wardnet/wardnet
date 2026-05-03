@@ -52,12 +52,44 @@ COV_FMT    ?= --summary-only
 
 # ---------- Version ----------
 
-# Single source of truth for the project version (daemon Cargo workspace +
-# all three package.json files). Edit ./VERSION and then:
-#   make sync-version   # propagate to daemon Cargo.toml + web-ui/sdk/site package.json
-#   make check-version  # verify everything agrees with ./VERSION (used in CI)
-VERSION_FILE := VERSION
-VERSION      := $(shell cat $(VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
+# Three version tracks, reflecting three independent concerns:
+#
+#   ./VERSION                       — Internal SemVer for the daemon Cargo
+#                                     workspace, web-ui, and public site
+#                                     package.json files. Required because
+#                                     Cargo / npm both reject CalVer with
+#                                     leading-zero date components (`2026.05.03`
+#                                     fails SemVer parsing). Bump it for any
+#                                     change that affects build/test plumbing
+#                                     dependent on Cargo's version graph.
+#   ./CALVER                        — User-facing release version, published
+#                                     to: the git tag (`v$(CALVER)`), the
+#                                     release tarball / GHCR image tags, the
+#                                     /api/info `release_version` field, the
+#                                     web UI version line, and the OpenAPI
+#                                     spec's `info.version`. CalVer is
+#                                     human-shaped (YYYY.MM.DD), so it stays
+#                                     out of Cargo and lives behind a
+#                                     compile-time env var instead.
+#   ./source/sdk/wardnet-js/VERSION — SemVer for the @wardnet/js TypeScript
+#                                     SDK. Decoupled from the daemon so we
+#                                     can publish API-compatible client
+#                                     fixes without retagging the daemon, and
+#                                     so the npm version graph follows
+#                                     SemVer expectations.
+#
+# Edit any of these files and run:
+#   make sync-version   # propagate VERSION + SDK VERSION into Cargo.toml +
+#                       # package.json files. CALVER doesn't propagate via
+#                       # sync-version — build.rs reads it directly at
+#                       # compile time.
+#   make check-version  # verify all files agree (used in CI)
+VERSION_FILE     := VERSION
+VERSION          := $(shell cat $(VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
+CALVER_FILE      := CALVER
+CALVER           := $(shell cat $(CALVER_FILE) 2>/dev/null | tr -d '[:space:]')
+SDK_VERSION_FILE := $(SDK_DIR)/VERSION
+SDK_VERSION      := $(shell cat $(SDK_VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
 
 all: build
 
@@ -68,28 +100,38 @@ all: build
 # avoid BSD/GNU flag differences.
 sync-version:
 	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
-	@echo "Syncing version -> $(VERSION)"
+	@test -n "$(SDK_VERSION)" || { echo "Error: $(SDK_VERSION_FILE) is empty or missing"; exit 1; }
+	@echo "Syncing daemon/web/site version -> $(VERSION)"
+	@echo "Syncing SDK version            -> $(SDK_VERSION)"
 	@perl -pi -e 's/^(version = )"[^"]+"/$$1"$(VERSION)"/ if $$. < 25 && !$$done; $$done=1 if s/^(version = )"[^"]+"/$$1"$(VERSION)"/' $(DAEMON_DIR)/Cargo.toml
-	@for f in $(SDK_DIR)/package.json $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
+	@for f in $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
 		perl -pi -e 'if (!$$done && /"version":\s*"[^"]*"/) { s/"version":\s*"[^"]*"/"version": "$(VERSION)"/; $$done=1 }' $$f; \
 	done
+	@perl -pi -e 'if (!$$done && /"version":\s*"[^"]*"/) { s/"version":\s*"[^"]*"/"version": "$(SDK_VERSION)"/; $$done=1 }' $(SDK_DIR)/package.json
 	@echo "  updated: $(DAEMON_DIR)/Cargo.toml"
-	@echo "  updated: $(SDK_DIR)/package.json"
 	@echo "  updated: $(WEBUI_DIR)/package.json"
 	@echo "  updated: $(SITE_DIR)/package.json"
-	@echo "Tip: regenerate lockfiles via 'cargo check' and 'yarn install' before committing."
+	@echo "  updated: $(SDK_DIR)/package.json"
+	@echo "Tip: regenerate lockfiles via 'cargo check' and 'yarn install', and run 'make openapi' to refresh docs/openapi.json."
 
-# Verify every versioned file agrees with ./VERSION. Intended for CI.
+# Verify every versioned file agrees with its source-of-truth file.
+# Intended for CI.
 check-version:
 	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
+	@test -n "$(SDK_VERSION)" || { echo "Error: $(SDK_VERSION_FILE) is empty or missing"; exit 1; }
+	@test -n "$(CALVER)" || { echo "Error: $(CALVER_FILE) is empty or missing"; exit 1; }
+	@echo "$(CALVER)" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}([-.+].+)?$$' || { \
+		echo "Error: $(CALVER_FILE)='$(CALVER)' does not match YYYY.MM.DD"; exit 1; }
 	@ok=true; \
 	v=$$(awk '/^\[workspace\.package\]/{p=1; next} p && /^\[/{exit} p && /^version[[:space:]]*=/{gsub(/[" ]/, "", $$3); print $$3; exit}' $(DAEMON_DIR)/Cargo.toml); \
 	if [ "$$v" != "$(VERSION)" ]; then echo "MISMATCH $(DAEMON_DIR)/Cargo.toml: $$v != $(VERSION)"; ok=false; fi; \
-	for f in $(SDK_DIR)/package.json $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
+	for f in $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
 		v=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $$f | head -1); \
 		if [ "$$v" != "$(VERSION)" ]; then echo "MISMATCH $$f: $$v != $(VERSION)"; ok=false; fi; \
 	done; \
-	if [ "$$ok" = "true" ]; then echo "All files match $(VERSION_FILE)=$(VERSION)"; else exit 1; fi
+	v=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(SDK_DIR)/package.json | head -1); \
+	if [ "$$v" != "$(SDK_VERSION)" ]; then echo "MISMATCH $(SDK_DIR)/package.json: $$v != $(SDK_VERSION)"; ok=false; fi; \
+	if [ "$$ok" = "true" ]; then echo "All files match: $(VERSION_FILE)=$(VERSION), $(CALVER_FILE)=$(CALVER), $(SDK_VERSION_FILE)=$(SDK_VERSION)"; else exit 1; fi
 
 # ---------- Dev environment setup ----------
 

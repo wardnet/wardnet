@@ -19,15 +19,29 @@ fn main() {
     // Rerun when the git HEAD or any ref changes.
     println!("cargo:rerun-if-changed=../../../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../../../.git/refs/");
-    // Rebuild when the dev override env var flips; this lets local auto-update
-    // testing pin the daemon to an older version without touching git tags.
+    // Rebuild when CALVER is bumped — read_calver() consumes it.
+    println!("cargo:rerun-if-changed=../../../../CALVER");
+    // Rebuild when the dev overrides flip — local auto-update testing
+    // pins the daemon to an older version without touching git tags or
+    // CALVER.
     println!("cargo:rerun-if-env-changed=WARDNET_VERSION_OVERRIDE");
+    println!("cargo:rerun-if-env-changed=WARDNET_RELEASE_VERSION_OVERRIDE");
 
     let version = env::var("WARDNET_VERSION_OVERRIDE")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| git_version().unwrap_or_else(cargo_pkg_version));
     println!("cargo:rustc-env=WARDNET_VERSION={version}");
+
+    // Public-facing CalVer. Read straight from CALVER so it stays stable
+    // across dev rebuilds (and so docs/openapi.json can't drift commit-by-
+    // commit). Override exists for the same "pretend to be an older
+    // release" use case as WARDNET_VERSION_OVERRIDE.
+    let release_version = env::var("WARDNET_RELEASE_VERSION_OVERRIDE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(read_calver);
+    println!("cargo:rustc-env=WARDNET_RELEASE_VERSION={release_version}");
 
     // Expose the compile-time target triple so the auto-update runner can
     // map it to the release asset's short arch name (aarch64 / x86_64).

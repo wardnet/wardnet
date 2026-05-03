@@ -127,6 +127,7 @@ impl SystemService for SystemServiceImpl {
 
         Ok(SystemStatusResponse {
             version,
+            release_version: crate::version::RELEASE_VERSION.to_owned(),
             uptime_seconds: self.started_at.elapsed().as_secs(),
             device_count: u64::try_from(device_count).unwrap_or(0),
             tunnel_count: u64::try_from(tunnel_count).unwrap_or(0),
