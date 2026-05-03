@@ -115,9 +115,76 @@ jobs:
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
+  # Refresh /releases/stable.json + /releases/beta.json after release-
+  # daemon publishes the GitHub release. build-site runs in parallel
+  # with release-daemon, so its bundled manifest predates the release —
+  # leaving it deployed would ship a stable.json that doesn't list the
+  # tag we just cut, breaking install.sh and the daemon's auto-update
+  # runner. This job re-runs the manifest generator (which queries the
+  # GitHub Releases API), patches the resulting JSON into the existing
+  # site bundle, and re-uploads under a different artefact name so
+  # deploy-site picks up the fresh copy.
+  refresh-manifest:
+    name: Refresh release manifest in site bundle
+    needs: [build-site, release-daemon]
+    # On non-tag dispatch, release-daemon is skipped — fall through and
+    # ship the bundle as-is. `if: always()` is needed because skipped
+    # ancestors set `needs.release-daemon.result` to "skipped", which by
+    # default would skip this job too.
+    if: |
+      always() &&
+      needs.build-site.result == 'success' &&
+      (needs.release-daemon.result == 'success' ||
+       needs.release-daemon.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download original site bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: site-dist
+          path: site/
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/site/yarn.lock
+
+      - name: Install site dependencies
+        run: cd source/site && yarn install --immutable
+
+      - name: Regenerate release manifests
+        env:
+          # Authenticated token lifts the manifest generator's GitHub
+          # API rate limit (60/hr → 1000/hr) so the API call won't fail
+          # silently and ship an empty manifest.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cd source/site && yarn generate:release-manifests
+
+      - name: Patch refreshed manifests into bundle
+        run: |
+          set -euo pipefail
+          cp source/site/public/releases/stable.json site/releases/stable.json
+          cp source/site/public/releases/beta.json   site/releases/beta.json
+          echo "Refreshed stable.json:"
+          cat site/releases/stable.json
+
+      - name: Upload refreshed bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: site-dist-refreshed
+          path: site/
+          retention-days: 1
+
   deploy-site:
     name: Deploy Site
-    needs: [build-site, tests-e2e]
+    needs: [refresh-manifest, tests-e2e]
     # Dry-run (workflow_dispatch on non-tag) still deploys the site —
     # harmless, idempotent, and confirms the Pages path works.
     permissions:
@@ -126,7 +193,7 @@ jobs:
       id-token: write
     uses: ./.github/workflows/deploy-site.yml
     with:
-      bundle-artifact: site-dist
+      bundle-artifact: site-dist-refreshed
     secrets: inherit
 
   release-daemon:
