@@ -4,7 +4,7 @@ This guide covers everything you need to build, run, and contribute to Wardnet. 
 
 ## Project status
 
-Wardnet is in active development (Phase 1 MVP). It is being daily-driven on a Raspberry Pi at home but is not yet a finished product — expect to read the source occasionally if you hit rough edges. Milestone progress lives in [`implementation-docs/plans/phase-1-mvp-implementation-plan.md`](../implementation-docs/plans/phase-1-mvp-implementation-plan.md); known bugs and feature ideas in [`implementation-docs/follow-ups.md`](../implementation-docs/follow-ups.md).
+Wardnet is in active development (Phase 1 MVP). It is being daily-driven on a Raspberry Pi at home but is not yet a finished product — expect to read the source occasionally if you hit rough edges. Roadmap, known bugs, and feature ideas are tracked as [GitHub issues](https://github.com/wardnet/wardnet/issues) and grouped by [milestones](https://github.com/wardnet/wardnet/milestones); cross-cutting work (DNS milestone, e2e test rollout) lives in pinned umbrella issues.
 
 ### What works today
 
