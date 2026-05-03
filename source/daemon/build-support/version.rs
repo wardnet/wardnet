@@ -129,16 +129,21 @@ pub(crate) fn bump_patch(version: &str) -> String {
 /// cache when the file is bumped.
 // `#[allow(dead_code)]` because this file is `include!`d into both
 // build scripts (where this function IS called) and `#[cfg(test)]`
-// modules (where it isn't). The test-context inclusion would otherwise
-// trip `dead_code`.
+// modules (where the dispatch wrapper isn't reached — tests target
+// `read_calver_at` directly so the path can be controlled).
 #[allow(dead_code)]
 pub(crate) fn read_calver() -> String {
-    let path = std::path::Path::new("../../../../CALVER");
+    read_calver_at(std::path::Path::new("../../../../CALVER"))
+}
+
+/// Path-injectable core of [`read_calver`]. Split out so tests can
+/// exercise the read / trim / non-empty-assert branches against a
+/// `tempfile`-backed file without needing to manipulate the workspace
+/// `CALVER`.
+#[allow(dead_code)]
+pub(crate) fn read_calver_at(path: &std::path::Path) -> String {
     let contents = std::fs::read_to_string(path).unwrap_or_else(|e| {
-        panic!(
-            "failed to read CALVER file at {}: {e}",
-            path.display()
-        )
+        panic!("failed to read CALVER file at {}: {e}", path.display())
     });
     let trimmed = contents.trim().to_owned();
     assert!(
