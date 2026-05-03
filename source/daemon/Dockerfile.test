@@ -43,6 +43,11 @@ COPY source/web-ui/dist/ /web-ui/dist/
 # OpenAPI swagger logo). Same anchor reasoning as web-ui/dist.
 COPY source/web-ui/src/assets/ /web-ui/src/assets/
 COPY deploy/ /deploy/
+# CALVER is read by the daemon build scripts (build-support/version.rs)
+# and resolved as `../../../../CALVER` from each crate's build.rs cwd
+# inside /build/crates/<crate>/, which lands at /CALVER. Copy it here
+# so the build doesn't panic with "No such file or directory".
+COPY CALVER /CALVER
 
 # Default to a synthetic dev version when no release tag exists.
 # install.sh extracts the version from the tarball filename, so any

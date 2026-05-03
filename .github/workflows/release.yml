@@ -60,11 +60,15 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
             VERSION="${TAG#v}"
 
-            # Verify the VERSION file agrees with the tag. Prevents "tag says
-            # v0.2.1 but the binary reports 0.2.0" mismatches.
-            FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+            # The tag must match ./CALVER, the public-facing release
+            # version. The Cargo workspace version (./VERSION) is on a
+            # separate SemVer track and intentionally not tied to tags —
+            # comparing the tag against ./VERSION here would reject
+            # legitimate CalVer tags like `v2026.05.03` against a Cargo
+            # version like `0.1.0`.
+            FILE_VERSION="$(tr -d '[:space:]' < CALVER)"
             if [[ "${VERSION%%-*}" != "${FILE_VERSION%%-*}" ]]; then
-              echo "::error::tag v${VERSION} does not agree with ./VERSION (${FILE_VERSION}). Run 'make sync-version' and re-tag."
+              echo "::error::tag v${VERSION} does not agree with ./CALVER (${FILE_VERSION}). Bump CALVER and re-tag."
               exit 1
             fi
           else
@@ -73,7 +77,8 @@ jobs:
             VERSION="$(git describe --tags --always --dirty | sed 's/^v//')"
           fi
 
-          # SemVer pre-release suffix → beta channel.
+          # CalVer pre-release suffix (e.g. `2026.05.03-beta.1`) → beta
+          # channel. Stable CalVer tags never carry a `-` segment.
           if [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+- ]]; then
             PRERELEASE="true"
           else

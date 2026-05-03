@@ -23,6 +23,7 @@ impl SystemService for MockSystemService {
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         Ok(SystemStatusResponse {
             version: "0.0.0-test".to_owned(),
+            release_version: "0.0.0-test".to_owned(),
             uptime_seconds: 42,
             device_count: 5,
             tunnel_count: 2,

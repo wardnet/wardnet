@@ -16,6 +16,9 @@
 !source/web-ui/dist/
 !source/web-ui/src/assets/
 !deploy/
+# Public-facing release version. The daemon's build scripts read it
+# at compile time via build-support/version.rs::read_calver.
+!CALVER
 
 # Re-deny build artefacts inside the allowed trees. These are large
 # (Rust target/, node_modules/) and bust the build cache on every
