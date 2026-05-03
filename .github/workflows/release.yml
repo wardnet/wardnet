@@ -185,8 +185,19 @@ jobs:
   deploy-site:
     name: Deploy Site
     needs: [refresh-manifest, tests-e2e]
-    # Dry-run (workflow_dispatch on non-tag) still deploys the site —
-    # harmless, idempotent, and confirms the Pages path works.
+    # The default `success()` predicate walks the transitive needs
+    # graph: release-daemon is in deploy-site's ancestors via
+    # refresh-manifest, and release-daemon is skipped on every
+    # workflow_dispatch (gated to tag pushes). With the default `if`
+    # that propagates as a skip onto deploy-site, even though both
+    # immediate needs ran cleanly. Pin the predicate to the immediate
+    # needs so dispatch runs (which are the only path that refreshes
+    # the manifest without re-publishing the GitHub release) actually
+    # ship to Pages.
+    if: |
+      always() &&
+      needs.refresh-manifest.result == 'success' &&
+      needs.tests-e2e.result == 'success'
     permissions:
       contents: read
       pages: write
