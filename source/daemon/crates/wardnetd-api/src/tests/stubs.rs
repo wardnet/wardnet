@@ -363,6 +363,7 @@ impl SystemService for StubSystemService {
     async fn status(&self) -> Result<SystemStatusResponse, AppError> {
         Ok(SystemStatusResponse {
             version: self.version().to_owned(),
+            release_version: "0.0.0-test".to_owned(),
             uptime_seconds: 42,
             device_count: 0,
             tunnel_count: 0,

@@ -34,14 +34,13 @@ fn api_doc_has_title_and_license() {
 }
 
 #[test]
-fn api_doc_version_matches_crate_version() {
-    // `CARGO_PKG_VERSION` is kept in lockstep with `./VERSION` via
-    // `make sync-version`, so a tagged daemon binary and the spec it
-    // serves always agree on the version string. If this test fails
-    // after a release, the `info.version` wiring in `openapi.rs` has
-    // drifted from `env!("CARGO_PKG_VERSION")`.
+fn api_doc_version_matches_release_version() {
+    // The spec's `info.version` is pinned to wardnetd-services' compile-
+    // time `RELEASE_VERSION` const (read from the workspace-root CALVER
+    // file). If this fails after bumping CALVER, the wiring in
+    // `openapi.rs` has drifted from `wardnetd_services::version::RELEASE_VERSION`.
     let doc = crate::api_doc();
-    assert_eq!(doc.info.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(doc.info.version, wardnetd_services::version::RELEASE_VERSION);
 }
 
 #[test]

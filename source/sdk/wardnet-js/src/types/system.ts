@@ -1,6 +1,9 @@
 /** Response for GET /api/system/status. */
 export interface SystemStatusResponse {
+  /** Diagnostic git-derived version. See `InfoResponse.version`. */
   version: string;
+  /** Public-facing CalVer. See `InfoResponse.release_version`. */
+  release_version: string;
   uptime_seconds: number;
   device_count: number;
   tunnel_count: number;

@@ -50,7 +50,7 @@ export default function Dashboard() {
               <DashboardStatCard
                 title="Uptime"
                 value={formatUptime(status.uptime_seconds)}
-                subtitle={`v${status.version}`}
+                subtitle={`v${status.release_version}`}
               />
               <DashboardStatCard
                 title="CPU"

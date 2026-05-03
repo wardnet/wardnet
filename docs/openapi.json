@@ -6,7 +6,7 @@
     "license": {
       "name": "MIT"
     },
-    "version": "0.2.0"
+    "version": "2026.05.03"
   },
   "paths": {
     "/api/auth/login": {
@@ -9660,16 +9660,22 @@
         "description": "Response from the public info endpoint.\n\nReturns basic server information without requiring authentication.\nUsed by the web UI's connection status widget.",
         "required": [
           "version",
+          "release_version",
           "uptime_seconds"
         ],
         "properties": {
+          "release_version": {
+            "type": "string",
+            "description": "Public-facing CalVer (`YYYY.MM.DD`) read from the workspace-\nroot `CALVER` file at compile time. Stable across dev rebuilds\nand is the string the web UI displays, the auto-update runner\ncompares against the published manifest, and the OpenAPI spec\ndeclares as `info.version`."
+          },
           "uptime_seconds": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "Diagnostic version string — git-derived\n`MAJOR.MINOR.PATCH[-dev.N+gHASH]`. Carries dev-suffix on\nnon-tag builds so logs and `--version` output identify the\nexact commit. Use `release_version` for anything user-facing."
           }
         }
       },
@@ -10754,6 +10760,7 @@
         "description": "Response for GET /api/system/status.",
         "required": [
           "version",
+          "release_version",
           "uptime_seconds",
           "device_count",
           "tunnel_count",
@@ -10788,6 +10795,10 @@
             "format": "int64",
             "minimum": 0
           },
+          "release_version": {
+            "type": "string",
+            "description": "Public-facing CalVer. See `InfoResponse.release_version`."
+          },
           "tunnel_active_count": {
             "type": "integer",
             "format": "int64",
@@ -10804,7 +10815,8 @@
             "minimum": 0
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "Diagnostic git-derived version. See `InfoResponse.version`."
           }
         }
       },
