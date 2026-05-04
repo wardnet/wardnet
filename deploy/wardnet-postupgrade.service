@@ -1,0 +1,30 @@
+[Unit]
+Description=Wardnet privileged post-upgrade migrations
+DefaultDependencies=yes
+# Runs before wardnetd so any privileged install steps required by the
+# new daemon binary land first. The Required= side of this relationship
+# is declared in [Install] (see RequiredBy= below) so `systemctl enable`
+# materialises a symlink in wardnetd.service.requires/.
+Before=wardnetd.service
+
+[Service]
+# Type=oneshot so systemd treats a clean exit as success rather than
+# restarting the unit. RemainAfterExit=no — there is no service state
+# to keep alive after migrations apply.
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/wardnet/runner/wardnet-postupgrade-runner
+RemainAfterExit=no
+
+# Output goes to journald with a stable identifier so log queries can
+# scope to the runner without grepping wardnetd.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wardnet-postupgrade
+
+[Install]
+# `systemctl enable` creates wardnetd.service.requires/wardnet-postupgrade.service.
+# That makes wardnetd's start a hard dependency on a successful runner exit:
+# if the runner exits non-zero (signature failure or a Required migration
+# fails), systemd refuses to start wardnetd until the failure is cleared.
+RequiredBy=wardnetd.service

@@ -160,10 +160,15 @@ async fn run(
             .expect("failed to build mock release source"),
         ),
         verifier: Arc::new(Sha256MinisignVerifier::new(EMBEDDED_PUBLIC_KEY)),
-        applier: Arc::new(FsBinaryApplier::new(
-            mock_update_dir.join("wardnetd"),
-            mock_update_dir.join("staging"),
-        )),
+        applier: Arc::new(
+            FsBinaryApplier::new(
+                mock_update_dir.join("wardnetd"),
+                mock_update_dir.join("staging"),
+            )
+            // Mock postupgrade dir lives under the same temp tree so
+            // tearing down the mock leaves no /var/lib state behind.
+            .with_postupgrade(mock_update_dir.join("postupgrade"), EMBEDDED_PUBLIC_KEY),
+        ),
     };
     // Real file-backed secret store rooted under the OS temp directory so
     // the mock exercises the exact same save/load code path as production.

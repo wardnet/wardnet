@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "crates/wardnet-postupgrade",
+    "crates/wardnet-postupgrade-runner",
     "crates/wardnet-test-agent",
     "crates/wardnet-common",
     "crates/wardnetd",
@@ -123,6 +125,10 @@ flate2 = "1"
 tar = "0.4"
 # https://crates.io/crates/minisign-verify — verify minisign signatures on release artefacts
 minisign-verify = "0.2"
+# https://crates.io/crates/minisign — sign + keygen, used only by tests that need to forge signatures over synthetic payloads
+minisign = { version = "0.7", default-features = false }
+# https://crates.io/crates/libc — used by wardnet-postupgrade-runner for memfd_create + fexecve syscalls
+libc = "0.2"
 # https://crates.io/crates/age — symmetric passphrase encryption for backup bundles (scrypt KDF + ChaCha20-Poly1305)
 age = { version = "0.11", default-features = false }
 # https://crates.io/crates/futures
