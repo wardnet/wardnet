@@ -51,7 +51,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
       </div>
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-2">
-          <Label htmlFor="tunnel-country">Country Code</Label>
+          <Label htmlFor="tunnel-country">Country code</Label>
           <Input
             id="tunnel-country"
             value={countryCode}
@@ -72,7 +72,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="tunnel-config">WireGuard Config</Label>
+        <Label htmlFor="tunnel-config">WireGuard config</Label>
         <Textarea
           id="tunnel-config"
           value={config}
@@ -87,7 +87,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         <ApiErrorAlert error={createTunnel.error} fallback="Failed to create tunnel" />
       )}
       <Button type="submit" disabled={createTunnel.isPending} className="w-full">
-        {createTunnel.isPending ? "Creating..." : "Create Tunnel"}
+        {createTunnel.isPending ? "Creating..." : "Create tunnel"}
       </Button>
     </form>
   );

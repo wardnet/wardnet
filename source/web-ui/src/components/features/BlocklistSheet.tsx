@@ -48,7 +48,7 @@ export function BlocklistSheet({ open, onOpenChange, blocklist }: BlocklistSheet
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>{isEdit ? "Edit Blocklist" : "Add Blocklist"}</SheetTitle>
+        <SheetTitle>{isEdit ? "Edit blocklist" : "Add blocklist"}</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <Label htmlFor="bl-name">Name</Label>
@@ -73,7 +73,7 @@ export function BlocklistSheet({ open, onOpenChange, blocklist }: BlocklistSheet
             </p>
           </div>
 
-          <CronSchedulePicker label="Update Schedule" value={schedule} onChange={setSchedule} />
+          <CronSchedulePicker label="Update schedule" value={schedule} onChange={setSchedule} />
 
           <div className="flex items-center justify-between">
             <Label htmlFor="bl-enabled">{isEdit ? "Enabled" : "Enable immediately"}</Label>
@@ -93,8 +93,8 @@ export function BlocklistSheet({ open, onOpenChange, blocklist }: BlocklistSheet
                 ? "Saving..."
                 : "Adding..."
               : isEdit
-                ? "Save Changes"
-                : "Add Blocklist"}
+                ? "Save changes"
+                : "Add blocklist"}
           </Button>
         </div>
       </SheetContent>

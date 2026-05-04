@@ -43,11 +43,11 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>Edit DHCP Configuration</SheetTitle>
+        <SheetTitle>Edit DHCP configuration</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex gap-3">
             <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="dhcp-pool-start">Pool Start</Label>
+              <Label htmlFor="dhcp-pool-start">Pool start</Label>
               <Ipv4Input
                 id="dhcp-pool-start"
                 value={poolStart}
@@ -56,7 +56,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
               />
             </div>
             <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="dhcp-pool-end">Pool End</Label>
+              <Label htmlFor="dhcp-pool-end">Pool end</Label>
               <Ipv4Input
                 id="dhcp-pool-end"
                 value={poolEnd}
@@ -67,7 +67,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-subnet">Subnet Mask</Label>
+            <Label htmlFor="dhcp-subnet">Subnet mask</Label>
             <Ipv4Input
               id="dhcp-subnet"
               value={subnetMask}
@@ -77,7 +77,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-lease">Lease Duration (seconds)</Label>
+            <Label htmlFor="dhcp-lease">Lease duration (seconds)</Label>
             <Input
               id="dhcp-lease"
               type="number"
@@ -88,7 +88,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-router">Fallback Router</Label>
+            <Label htmlFor="dhcp-router">Fallback router</Label>
             <Ipv4Input
               id="dhcp-router"
               value={routerIp}
@@ -120,7 +120,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
           )}
 
           <Button onClick={handleSave} disabled={updateConfig.isPending} className="w-full">
-            {updateConfig.isPending ? "Saving..." : "Save Configuration"}
+            {updateConfig.isPending ? "Saving..." : "Save configuration"}
           </Button>
         </div>
       </SheetContent>
