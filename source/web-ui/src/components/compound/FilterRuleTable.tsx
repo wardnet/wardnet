@@ -1,8 +1,8 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import type { CustomFilterRule } from "@wardnet/js";
 
 function createColumns(
@@ -26,9 +26,9 @@ function createColumns(
       accessorKey: "enabled",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={row.original.enabled ? "default" : "secondary"}>
+        <StatusBadge tone={row.original.enabled ? "success" : "neutral"}>
           {row.original.enabled ? "Enabled" : "Disabled"}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
@@ -36,15 +36,18 @@ function createColumns(
       header: "",
       meta: { className: "text-right" },
       cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex justify-end gap-4">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="tertiary"
             onClick={() => onToggle(row.original.id, !row.original.enabled)}
           >
             {row.original.enabled ? "Disable" : "Enable"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
+          <Button
+            variant="tertiary"
+            className="text-destructive hover:text-destructive"
+            onClick={() => onDelete(row.original.id)}
+          >
             Delete
           </Button>
         </div>
@@ -69,7 +72,7 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
       <EmptyStatePlaceholder
         message="No custom filter rules"
         hint="Add AdGuard-syntax rules for fine-grained control over what gets blocked or allowed."
-        actionLabel="Add Rule"
+        actionLabel="Add rule"
         onAction={onAdd}
       />
     );
@@ -78,9 +81,7 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add Rule
-        </Button>
+        <Button onClick={onAdd}>Add rule</Button>
       </div>
 
       <DataTable columns={columns} data={rules} />

@@ -6,7 +6,7 @@ export function ConnectionStatus() {
 
   const reachable = data?.reachable ?? false;
   const color = isLoading ? "bg-yellow-400" : reachable ? "bg-emerald-400" : "bg-red-400";
-  const label = isLoading ? "Connecting..." : reachable ? "Connected" : "Disconnected";
+  const label = isLoading ? "Connecting…" : reachable ? "Connected" : "Disconnected";
 
   return (
     <div className="flex items-center gap-2">

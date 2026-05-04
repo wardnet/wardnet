@@ -9,7 +9,7 @@ interface TunnelGridProps {
   isLoading: boolean;
   isError: boolean;
   onDelete: (id: string) => void;
-  /** Called when the user clicks the "Add Tunnel" button in the empty state. */
+  /** Called when the user clicks the "Add tunnel" button in the empty state. */
   onAdd?: () => void;
 }
 
@@ -37,7 +37,7 @@ export function TunnelGrid({
       <EmptyStatePlaceholder
         message="No tunnels configured"
         hint="Add a WireGuard tunnel to route device traffic through a VPN provider."
-        actionLabel={onAdd ? "Add Tunnel" : undefined}
+        actionLabel={onAdd ? "Add tunnel" : undefined}
         onAction={onAdd}
       />
     );

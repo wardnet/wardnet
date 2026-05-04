@@ -13,7 +13,7 @@ export function CreateTunnelSheet({ open, onOpenChange }: CreateTunnelSheetProps
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>Add WireGuard Tunnel</SheetTitle>
+        <SheetTitle>Add WireGuard tunnel</SheetTitle>
         <Tabs defaultValue="manual" className="mt-6">
           <TabsList className="w-full">
             <TabsTrigger value="manual" className="flex-1">

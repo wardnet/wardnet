@@ -19,7 +19,7 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-semibold">Recent Errors</CardTitle>
+        <CardTitle className="text-sm font-semibold">Recent errors</CardTitle>
       </CardHeader>
       <CardContent>
         {errors.length === 0 ? (

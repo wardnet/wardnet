@@ -54,7 +54,7 @@ export default function AdBlocking() {
 
   return (
     <>
-      <PageHeader title="Ad Blocking" />
+      <PageHeader title="Ad blocking" />
 
       {blocklistsLoading && (
         <Card>
@@ -84,7 +84,7 @@ export default function AdBlocking() {
               )}
             </TabsTrigger>
             <TabsTrigger value="rules">
-              Custom Rules
+              Custom rules
               {filterRules.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs tabular-nums">
                   {filterRules.length}

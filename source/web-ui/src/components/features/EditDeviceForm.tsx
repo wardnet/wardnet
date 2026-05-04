@@ -23,10 +23,10 @@ const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
   { value: "laptop", label: "Laptop" },
   { value: "tablet", label: "Tablet" },
   { value: "game_console", label: "Console" },
-  { value: "settop_box", label: "Set-top Box" },
+  { value: "settop_box", label: "Set-top box" },
   { value: "iot", label: "IoT" },
   { value: "router", label: "Router" },
-  { value: "managed_switch", label: "Managed Switch" },
+  { value: "managed_switch", label: "Managed switch" },
   { value: "server", label: "Server" },
   { value: "unknown", label: "Unknown" },
 ];
@@ -78,7 +78,7 @@ export function EditDeviceForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="edit-name">Friendly Name</Label>
+        <Label htmlFor="edit-name">Friendly name</Label>
         <Input
           id="edit-name"
           value={name}
@@ -88,7 +88,7 @@ export function EditDeviceForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Device Type</Label>
+        <Label>Device type</Label>
         <Select value={deviceType} onValueChange={(v) => setDeviceType(v as DeviceType)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -130,7 +130,7 @@ export function EditDeviceForm({
             )
           }
         >
-          Reserve DHCP Address
+          Reserve DHCP address
         </Button>
       )}
 
@@ -139,7 +139,7 @@ export function EditDeviceForm({
       )}
 
       <Button onClick={handleSave} disabled={updateDevice.isPending} className="w-full">
-        {updateDevice.isPending ? "Saving..." : "Save Changes"}
+        {updateDevice.isPending ? "Saving…" : "Save changes"}
       </Button>
     </div>
   );

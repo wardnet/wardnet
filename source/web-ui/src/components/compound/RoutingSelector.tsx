@@ -79,7 +79,7 @@ export function RoutingSelector({
         <div className="flex items-center gap-2">
           <RadioGroupItem value="tunnel" id="route-tunnel" />
           <Label htmlFor="route-tunnel" className="cursor-pointer font-normal">
-            Via Tunnel
+            Via tunnel
           </Label>
         </div>
       </RadioGroup>
