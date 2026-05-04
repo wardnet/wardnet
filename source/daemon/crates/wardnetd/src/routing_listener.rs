@@ -179,8 +179,13 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             }
         }
 
-        // Events that do not affect routing.
-        WardnetEvent::TunnelStatsUpdated { .. }
+        // Events that do not affect routing. `TunnelConnecting` /
+        // `TunnelReconnecting` are status signals only — the kernel iface
+        // is still configured in both states, so existing routing rules
+        // continue to apply and no rebuild is needed.
+        WardnetEvent::TunnelConnecting { .. }
+        | WardnetEvent::TunnelReconnecting { .. }
+        | WardnetEvent::TunnelStatsUpdated { .. }
         | WardnetEvent::DhcpLeaseAssigned { .. }
         | WardnetEvent::DhcpLeaseRenewed { .. }
         | WardnetEvent::DhcpLeaseExpired { .. }

@@ -30,12 +30,34 @@ pub enum WardnetEvent {
         last_ip: String,
         timestamp: DateTime<Utc>,
     },
+    /// Bring-up succeeded; kernel interface is configured. No handshake has
+    /// been observed yet — the tunnel is awaiting its first peer reply.
+    TunnelConnecting {
+        tunnel_id: Uuid,
+        interface_name: String,
+        endpoint: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// First handshake observed for a `Connecting` tunnel, or recovery from
+    /// `Reconnecting` after the peer started replying again.
     TunnelUp {
         tunnel_id: Uuid,
         interface_name: String,
         endpoint: String,
         timestamp: DateTime<Utc>,
     },
+    /// Previously `Up` tunnel has not seen a handshake in over 3 minutes.
+    /// The kernel interface remains configured; `WireGuard` keepalive is
+    /// retrying. Status will flip back to `Up` automatically when the peer
+    /// replies, or the operator can intervene.
+    TunnelReconnecting {
+        tunnel_id: Uuid,
+        interface_name: String,
+        last_handshake: Option<DateTime<Utc>>,
+        timestamp: DateTime<Utc>,
+    },
+    /// Kernel interface torn down by user/admin action (manual tear-down or
+    /// tunnel deletion).
     TunnelDown {
         tunnel_id: Uuid,
         interface_name: String,

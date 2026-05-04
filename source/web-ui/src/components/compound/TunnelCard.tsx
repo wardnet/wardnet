@@ -11,6 +11,7 @@ function statusColor(status: TunnelStatus) {
     up: "default",
     down: "secondary",
     connecting: "outline",
+    reconnecting: "destructive",
   } as const;
   return map[status];
 }
@@ -23,6 +24,27 @@ function statusLabel(status: TunnelStatus): string {
       return "Down";
     case "connecting":
       return "Connecting";
+    case "reconnecting":
+      return "Reconnecting";
+  }
+}
+
+/**
+ * Hover text explaining a non-`up` tunnel status. `connecting` means the
+ * iface is configured but the peer hasn't replied yet; `reconnecting`
+ * means we previously had a handshake and it's gone stale (>3 min).
+ */
+function statusTooltip(tunnel: Tunnel): string | undefined {
+  switch (tunnel.status) {
+    case "connecting":
+      return "Waiting for first handshake from peer.";
+    case "reconnecting":
+      return tunnel.last_handshake
+        ? `Last handshake ${timeAgo(tunnel.last_handshake)} — peer not responding.`
+        : "Lost handshake — peer not responding.";
+    case "up":
+    case "down":
+      return undefined;
   }
 }
 
@@ -67,7 +89,9 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             </p>
           </div>
         </div>
-        <Badge variant={statusColor(tunnel.status)}>{statusLabel(tunnel.status)}</Badge>
+        <Badge variant={statusColor(tunnel.status)} title={statusTooltip(tunnel)}>
+          {statusLabel(tunnel.status)}
+        </Badge>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-y-2 text-sm">

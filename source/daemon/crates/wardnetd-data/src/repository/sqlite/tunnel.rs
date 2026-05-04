@@ -41,6 +41,7 @@ impl DbTunnelRow {
         let status = match self.status.as_str() {
             "up" => TunnelStatus::Up,
             "connecting" => TunnelStatus::Connecting,
+            "reconnecting" => TunnelStatus::Reconnecting,
             _ => TunnelStatus::Down,
         };
 

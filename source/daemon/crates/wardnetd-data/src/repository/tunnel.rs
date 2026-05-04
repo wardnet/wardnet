@@ -19,7 +19,7 @@ pub struct TunnelRow {
     pub interface_name: String,
     /// Peer endpoint in `host:port` form.
     pub endpoint: String,
-    /// Tunnel status string (`"up"`, `"down"`, `"connecting"`).
+    /// Tunnel status string (`"up"`, `"down"`, `"connecting"`, `"reconnecting"`).
     pub status: String,
     /// JSON-encoded list of local addresses.
     pub address: String,

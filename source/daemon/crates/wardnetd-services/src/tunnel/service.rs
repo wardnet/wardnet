@@ -157,8 +157,10 @@ impl TunnelServiceImpl {
     async fn bring_up_core(&self, id: Uuid) -> Result<(), AppError> {
         let tunnel = self.require_tunnel(id).await?;
 
-        // No-op if already up.
-        if tunnel.status == TunnelStatus::Up {
+        // No-op if the kernel interface is already configured. `Up`,
+        // `Connecting`, and `Reconnecting` all mean "iface exists" — only
+        // `Down` requires (re)creation.
+        if tunnel.status != TunnelStatus::Down {
             return Ok(());
         }
 
@@ -254,14 +256,17 @@ impl TunnelServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        // Update status in the database.
+        // Update status in the database. Stays `connecting` until the
+        // health-check loop observes the first handshake — see
+        // `run_health_check`.
         self.tunnels
-            .update_status(&id.to_string(), "up")
+            .update_status(&id.to_string(), "connecting")
             .await
             .map_err(AppError::Internal)?;
 
-        // Publish domain event.
-        self.events.publish(WardnetEvent::TunnelUp {
+        // Publish domain event. `TunnelUp` is reserved for the moment a
+        // handshake is actually observed.
+        self.events.publish(WardnetEvent::TunnelConnecting {
             tunnel_id: id,
             interface_name: tunnel.interface_name,
             endpoint: tunnel.endpoint,
@@ -461,8 +466,8 @@ impl TunnelService for TunnelServiceImpl {
             }
         }
 
-        // If the tunnel is up, tear it down first.
-        if tunnel.status == TunnelStatus::Up {
+        // If the kernel interface is configured, tear it down first.
+        if tunnel.status != TunnelStatus::Down {
             self.tear_down_core(id, "tunnel deleted").await?;
         }
 
@@ -495,12 +500,15 @@ impl TunnelService for TunnelServiceImpl {
 
     async fn collect_stats(&self) -> Result<(), AppError> {
         let all_tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
-        let up_tunnels: Vec<_> = all_tunnels
+        // Stats apply to any tunnel whose kernel iface is configured —
+        // `Up`, `Connecting`, and `Reconnecting` all qualify. `Down`
+        // tunnels have no iface to read.
+        let active_tunnels: Vec<_> = all_tunnels
             .into_iter()
-            .filter(|t| t.status == wardnet_common::tunnel::TunnelStatus::Up)
+            .filter(|t| t.status != wardnet_common::tunnel::TunnelStatus::Down)
             .collect();
 
-        for tunnel in up_tunnels {
+        for tunnel in active_tunnels {
             let stats = match self
                 .tunnel_interface
                 .get_stats(&tunnel.interface_name)
@@ -541,7 +549,7 @@ impl TunnelService for TunnelServiceImpl {
             self.events
                 .publish(wardnet_common::event::WardnetEvent::TunnelStatsUpdated {
                     tunnel_id: tunnel.id,
-                    status: wardnet_common::tunnel::TunnelStatus::Up,
+                    status: tunnel.status,
                     bytes_tx: stats.bytes_tx,
                     bytes_rx: stats.bytes_rx,
                     last_handshake: stats.last_handshake,
@@ -553,50 +561,87 @@ impl TunnelService for TunnelServiceImpl {
 
     async fn run_health_check(&self) -> Result<(), AppError> {
         let stale_threshold = chrono::Duration::minutes(3);
+        let now = chrono::Utc::now();
         let all_tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
-        let up_tunnels: Vec<_> = all_tunnels
+        // Health judgement applies to every tunnel whose iface is up.
+        // `collect_stats` has just refreshed `last_handshake` for these.
+        let active_tunnels: Vec<_> = all_tunnels
             .into_iter()
-            .filter(|t| t.status == wardnet_common::tunnel::TunnelStatus::Up)
+            .filter(|t| t.status != wardnet_common::tunnel::TunnelStatus::Down)
             .collect();
 
-        for tunnel in up_tunnels {
-            match self
-                .tunnel_interface
-                .get_stats(&tunnel.interface_name)
-                .await
-            {
-                Ok(Some(stats)) => {
-                    if let Some(last_handshake) = stats.last_handshake {
-                        let age = chrono::Utc::now() - last_handshake;
-                        if age > stale_threshold {
-                            tracing::warn!(
-                                tunnel_id = %tunnel.id,
-                                interface = %tunnel.interface_name,
-                                last_handshake = %last_handshake,
-                                age_secs = age.num_seconds(),
-                                "health check: last handshake is stale (>3 minutes) for {}: age={}s",
-                                tunnel.interface_name,
-                                age.num_seconds()
-                            );
-                        }
+        for tunnel in active_tunnels {
+            // A handshake is "fresh" if we have one and it's within the
+            // stale threshold. `None` is treated as stale.
+            let fresh_handshake = tunnel
+                .last_handshake
+                .is_some_and(|ts| (now - ts) <= stale_threshold);
+
+            match (tunnel.status, fresh_handshake) {
+                // Connecting → Up: first handshake observed.
+                // Reconnecting → Up: peer started replying again.
+                (
+                    wardnet_common::tunnel::TunnelStatus::Connecting
+                    | wardnet_common::tunnel::TunnelStatus::Reconnecting,
+                    true,
+                ) => {
+                    if let Err(e) = self
+                        .tunnels
+                        .update_status(&tunnel.id.to_string(), "up")
+                        .await
+                    {
+                        tracing::error!(
+                            tunnel_id = %tunnel.id,
+                            error = %e,
+                            "health check: failed to mark tunnel up for {}: {e}",
+                            tunnel.interface_name
+                        );
+                        continue;
                     }
-                }
-                Ok(None) => {
-                    tracing::error!(
+                    tracing::info!(
                         tunnel_id = %tunnel.id,
                         interface = %tunnel.interface_name,
-                        "health check: interface {} not found (may have been removed externally)",
-                        tunnel.interface_name
+                        previous_status = ?tunnel.status,
+                        "health check: tunnel is now up (handshake observed)"
                     );
+                    self.events.publish(WardnetEvent::TunnelUp {
+                        tunnel_id: tunnel.id,
+                        interface_name: tunnel.interface_name,
+                        endpoint: tunnel.endpoint,
+                        timestamp: now,
+                    });
                 }
-                Err(e) => {
-                    tracing::error!(
+                // Up → Reconnecting: handshake gone stale or absent.
+                (wardnet_common::tunnel::TunnelStatus::Up, false) => {
+                    if let Err(e) = self
+                        .tunnels
+                        .update_status(&tunnel.id.to_string(), "reconnecting")
+                        .await
+                    {
+                        tracing::error!(
+                            tunnel_id = %tunnel.id,
+                            error = %e,
+                            "health check: failed to mark tunnel reconnecting for {}: {e}",
+                            tunnel.interface_name
+                        );
+                        continue;
+                    }
+                    tracing::warn!(
                         tunnel_id = %tunnel.id,
                         interface = %tunnel.interface_name,
-                        error = %e,
-                        "health check: failed to get stats for {}: {e}", tunnel.interface_name
+                        last_handshake = ?tunnel.last_handshake,
+                        "health check: tunnel is reconnecting (handshake stale or absent)"
                     );
+                    self.events.publish(WardnetEvent::TunnelReconnecting {
+                        tunnel_id: tunnel.id,
+                        interface_name: tunnel.interface_name,
+                        last_handshake: tunnel.last_handshake,
+                        timestamp: now,
+                    });
                 }
+                // No-op: Up + fresh, Connecting + still no handshake,
+                // Reconnecting + still no handshake.
+                _ => {}
             }
         }
         Ok(())
