@@ -3,5 +3,8 @@ extends:
   - github.com/pedromvgomes/agentic-toolkit/stacks/default.yaml
 skills:
   - github.com/pedromvgomes/gt/agentic/skills/use-gt
+  - .agents/skills/bump-rust
+agents:
+  - .agents/agents/rust-engineer
 rules:
   - github.com/pedromvgomes/gt/agentic/rules/worktree-per-session.md
