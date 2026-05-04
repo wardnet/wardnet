@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
@@ -72,6 +73,60 @@ pub fn get_interface_ipv4(name: &str) -> anyhow::Result<std::net::Ipv4Addr> {
     }
 
     anyhow::bail!("no IPv4 address found on interface '{name}'")
+}
+
+/// Like [`get_interface_ipv4`], but polls until the interface has an IPv4
+/// address or the deadline is reached.
+///
+/// On a freshly-booted Pi, `network-online.target` (via
+/// `nm-online -s -q`) can fire before `NetworkManager` has finished
+/// applying the static IPv4 to the LAN interface. wardnetd then loses the
+/// race and would otherwise advertise `0.0.0.0` as its DHCP `siaddr`,
+/// `ServerIdentifier`, and router option for the rest of the process'
+/// lifetime — clients reject the lease or accept a useless gateway.
+pub async fn wait_for_interface_ipv4(
+    name: &str,
+    deadline: Duration,
+    interval: Duration,
+) -> Option<Ipv4Addr> {
+    let started = Instant::now();
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        match get_interface_ipv4(name) {
+            Ok(ip) => {
+                if attempt > 1 {
+                    tracing::info!(
+                        interface = %name,
+                        attempts = attempt,
+                        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        "LAN IP became available after polling",
+                    );
+                }
+                return Some(ip);
+            }
+            Err(e) => {
+                if started.elapsed() >= deadline {
+                    tracing::warn!(
+                        error = %e,
+                        interface = %name,
+                        attempts = attempt,
+                        deadline_ms = u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
+                        "LAN IP detection deadline expired",
+                    );
+                    return None;
+                }
+                if attempt == 1 {
+                    tracing::info!(
+                        error = %e,
+                        interface = %name,
+                        "LAN interface has no IPv4 yet, polling until ready",
+                    );
+                }
+            }
+        }
+        tokio::time::sleep(interval).await;
+    }
 }
 
 /// Format a `pnet` `MacAddr` as uppercase colon-separated "AA:BB:CC:DD:EE:FF".
