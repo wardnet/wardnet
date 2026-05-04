@@ -1,0 +1,31 @@
+[package]
+name = "wardnet-postupgrade"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "wardnet-postupgrade"
+path = "src/main.rs"
+
+[dependencies]
+# https://crates.io/crates/anyhow
+anyhow.workspace = true
+# https://crates.io/crates/chrono
+chrono.workspace = true
+# https://crates.io/crates/serde
+serde.workspace = true
+# https://crates.io/crates/serde_json
+serde_json.workspace = true
+# https://crates.io/crates/tracing
+tracing.workspace = true
+# https://crates.io/crates/tracing-subscriber
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+# https://crates.io/crates/tempfile
+tempfile.workspace = true

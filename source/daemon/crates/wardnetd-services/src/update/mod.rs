@@ -39,6 +39,14 @@ pub use verifier::ReleaseVerifier;
 pub const EMBEDDED_PUBLIC_KEY: &str =
     include_str!("../../../../../../deploy/keys/wardnet-release.pub");
 
+/// Default directory for the wardnet-writable post-upgrade payload
+/// (`wardnet-postupgrade.bin` + `.minisig`). `FsBinaryApplier` writes
+/// freshly-extracted artifacts here on every successful auto-update;
+/// `wardnet-postupgrade-runner` reads them at boot to verify and exec.
+/// Wardnet-owned because auto-update runs as the wardnet user; the
+/// signature-verification check at boot is what makes that safe.
+pub const POSTUPGRADE_DIR: &str = "/var/lib/wardnet/postupgrade";
+
 /// Map a cargo target triple to the short arch name used in release asset
 /// filenames. Returns `None` for targets that aren't part of the release
 /// matrix.
