@@ -57,7 +57,7 @@ jobs:
           name: wardnetd-aarch64-unsigned
           path: release-staging/
 
-      - name: Rename, sha256, sign
+      - name: Sign post-upgrade payload, repack, rename, sha256, sign tarball
         env:
           VERSION: ${{ inputs.version }}
           MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
@@ -81,11 +81,46 @@ jobs:
           trap 'shred -u minisign.key || true' EXIT
 
           for ARCH in x86_64 aarch64; do
-            # build-daemon.yml names the tarball wardnetd-<arch>.tar.gz;
-            # release assets carry the version for end-user clarity and
-            # for the daemon's auto-updater, which builds the URL as
-            # `wardnetd-<version>-<arch>.tar.gz`.
+            # build-daemon.yml ships the tarball with `wardnet-postupgrade`
+            # unsigned alongside `wardnetd` + `wardnet-postupgrade-runner`
+            # + `wardnet-postupgrade.service`. Two-step signing here:
+            #   1. Sign the postupgrade binary with the same release key
+            #      and rename it to `.bin` so the runtime trust anchor
+            #      finds it under the expected name.
+            #   2. Re-sign the outer tarball with the signed pair in
+            #      place. install.sh + the auto-updater verify the
+            #      tarball signature; the runner verifies the inner
+            #      .bin/.minisig pair. Defence in depth.
             SRC="wardnetd-${ARCH}.tar.gz"
+            WORK="staged-${ARCH}"
+            mkdir -p "${WORK}"
+            tar -C "${WORK}" -xzf "${SRC}"
+            rm "${SRC}"
+
+            mv "${WORK}/wardnet-postupgrade" "${WORK}/wardnet-postupgrade.bin"
+
+            printf '%s\n' "${MINISIGN_PASSWORD}" | \
+              MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${WORK}/wardnet-postupgrade.bin" \
+                -s minisign.key \
+                -t "wardnet-postupgrade ${VERSION} (${ARCH})" \
+                -c "Wardnet release signing key" \
+                -x "${WORK}/wardnet-postupgrade.minisig"
+
+            minisign -Vm "${WORK}/wardnet-postupgrade.bin" \
+              -p "../deploy/keys/wardnet-release.pub" \
+              -x "${WORK}/wardnet-postupgrade.minisig"
+
+            tar -C "${WORK}" -czf "${SRC}" \
+              wardnetd \
+              wardnet-postupgrade-runner \
+              wardnet-postupgrade.bin \
+              wardnet-postupgrade.minisig \
+              wardnet-postupgrade.service
+            rm -rf "${WORK}"
+
+            # Versioned filename for end-user clarity and the daemon's
+            # auto-updater, which builds the URL as
+            # `wardnetd-<version>-<arch>.tar.gz`.
             DST="wardnetd-${VERSION}-${ARCH}.tar.gz"
             mv "${SRC}" "${DST}"
 

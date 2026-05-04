@@ -1,0 +1,64 @@
+//! Tests for `state.rs`.
+
+use chrono::TimeZone;
+use tempfile::TempDir;
+
+use crate::state::{AppliedEntry, FailedEntry, State};
+
+#[test]
+fn load_returns_default_when_file_missing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("missing.json");
+    let state = State::load(&path).expect("load missing file");
+    assert!(state.applied.is_empty());
+    assert!(state.failed.is_empty());
+    assert!(state.last_verification_failure.is_none());
+}
+
+#[test]
+fn save_then_load_roundtrip() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    let now = chrono::Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap();
+    let state = State {
+        applied: vec![AppliedEntry {
+            id: "0001".into(),
+            applied_at: now,
+        }],
+        failed: vec![FailedEntry {
+            id: "0002".into(),
+            error: "oops".into(),
+            at: now,
+        }],
+        last_verification_failure: None,
+    };
+    state.save(&path).unwrap();
+
+    let loaded = State::load(&path).unwrap();
+    assert_eq!(loaded.applied.len(), 1);
+    assert_eq!(loaded.applied[0].id, "0001");
+    assert_eq!(loaded.failed.len(), 1);
+    assert_eq!(loaded.failed[0].id, "0002");
+}
+
+#[test]
+fn save_creates_parent_directories() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("a/b/state.json");
+    State::default().save(&path).unwrap();
+    assert!(path.exists());
+}
+
+#[test]
+fn is_applied_matches_by_id() {
+    let now = chrono::Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap();
+    let state = State {
+        applied: vec![AppliedEntry {
+            id: "0001".into(),
+            applied_at: now,
+        }],
+        ..Default::default()
+    };
+    assert!(state.is_applied("0001"));
+    assert!(!state.is_applied("0002"));
+}
