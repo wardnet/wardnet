@@ -3314,9 +3314,9 @@ dependencies = [
 
 [[package]]
 name = "pyroscope"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ef335beaacecb830dc21ab54c8b4a75677874bb78a375ad880715ce385ccb35"
+checksum = "fc050356140f6c47dcaab95b6554ce12d461e4902c0a5baf4e888fcc86dcfaf4"
 dependencies = [
  "lazy_static",
  "libc",
@@ -5591,7 +5591,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
