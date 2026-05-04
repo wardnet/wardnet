@@ -137,26 +137,6 @@ export function UpdateCard({
           <p className="text-sm text-muted-foreground">Loading...</p>
         ) : (
           <>
-            {/* Channel row — the admin's primary choice sits first on its own
-                row so the rest of the card (state + actions) reads as
-                "consequences of this choice". */}
-            <div className="flex items-center gap-3">
-              <Label htmlFor="update-channel">Channel</Label>
-              <Select
-                value={status.channel}
-                onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
-                disabled={phaseActive}
-              >
-                <SelectTrigger id="update-channel" className="w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stable">Stable</SelectItem>
-                  <SelectItem value="beta">Beta</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
               <div>
                 <dt className="text-muted-foreground">Current version</dt>
@@ -194,29 +174,55 @@ export function UpdateCard({
               </div>
             )}
 
-            <div className="flex items-center gap-3">
-              <Switch
-                id="auto-update-toggle"
-                checked={status.auto_update_enabled}
-                onCheckedChange={onToggleAutoUpdate}
-              />
-              <Label htmlFor="auto-update-toggle">Automatically install when available</Label>
+            {/* Channel + auto-install share one row: the channel is the
+                admin's primary choice, the toggle controls whether updates
+                land automatically once a new release matches it. */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Label htmlFor="update-channel">Channel</Label>
+                <Select
+                  value={status.channel}
+                  onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
+                  disabled={phaseActive}
+                >
+                  <SelectTrigger id="update-channel" className="w-[160px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stable">Stable</SelectItem>
+                    <SelectItem value="beta">Beta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="auto-update-toggle"
+                  checked={status.auto_update_enabled}
+                  onCheckedChange={onToggleAutoUpdate}
+                />
+                <Label htmlFor="auto-update-toggle">Automatically install when available</Label>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
-                <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
-                {isChecking ? "Checking..." : "Check for updates"}
-              </Button>
-              {status.rollback_available && (
-                <Button
-                  variant="destructive"
-                  onClick={onRollback}
-                  disabled={isRollingBack || phaseActive}
-                >
-                  {isRollingBack ? "Rolling back..." : "Rollback to previous"}
+            {/* Footer action row: helper context on the left, utility
+                actions on the right (per WEBUI-DESIGN-GUIDELINES §3.6). */}
+            <div className="flex items-center justify-between gap-2 border-t pt-4">
+              <p className="text-sm text-muted-foreground">Updates are checked hourly.</p>
+              <div className="flex flex-wrap justify-end gap-2">
+                {status.rollback_available && (
+                  <Button
+                    variant="destructive"
+                    onClick={onRollback}
+                    disabled={isRollingBack || phaseActive}
+                  >
+                    {isRollingBack ? "Rolling back..." : "Rollback to previous"}
+                  </Button>
+                )}
+                <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
+                  <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
+                  {isChecking ? "Checking..." : "Check now"}
                 </Button>
-              )}
+              </div>
             </div>
           </>
         )}
