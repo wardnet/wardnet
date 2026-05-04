@@ -3,12 +3,24 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The current status of a `WireGuard` tunnel.
+///
+/// State machine driven by user/admin actions and the tunnel monitor's
+/// health-check loop:
+///
+/// - `Down` — kernel interface not configured (initial state, after
+///   tear-down, or after delete).
+/// - `Connecting` — `bring_up` succeeded; kernel interface is configured;
+///   no handshake observed yet.
+/// - `Up` — recent (≤ 3 min) handshake observed.
+/// - `Reconnecting` — was `Up`, last handshake stale (> 3 min) or absent;
+///   the iface is still configured and `WireGuard` keepalive is retrying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TunnelStatus {
     Up,
     Down,
     Connecting,
+    Reconnecting,
 }
 
 /// A `WireGuard` tunnel configuration and its live state.
