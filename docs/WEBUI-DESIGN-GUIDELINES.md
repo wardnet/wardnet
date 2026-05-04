@@ -287,6 +287,34 @@ The default surface for grouping related content.
 
 **Internal sections** are separated by a horizontal `0.5px` divider with `var(--gap-section)` spacing above and below.
 
+**Footer action row** — a card may end with a single action row anchored to its bottom edge. Use this for utility actions that operate on the whole card's state (Restart, Check for updates, Flush cache), distinct from body-level CTAs.
+
+```
+┌─ Auto-update ───────────────────────────── ✓ Up to date ─┐
+│  [body content: stats, toggles, fields]                  │
+│                                                          │
+│  ─────────────────────────────────────────────────────── │ ← 0.5px divider
+│  Updates are checked hourly.            [ ↻ Check now ]  │ ← helper left, action right
+└──────────────────────────────────────────────────────────┘
+```
+
+**Anatomy**:
+- Top edge: `0.5px solid --color-border-subtle` divider, with `var(--gap-section)` above
+- Layout: flex row, `space-between`, vertically centered
+- Left slot (optional): 13px secondary helper text — explains scope, last-run timestamp, or context. One line.
+- Right slot: 1–2 buttons, separated by 8px when paired. Use the destructive variant for risk-bearing utilities (Restart) and `outline`/`secondary` for the rest. Never put a filled-primary button here — primary belongs in the card head, the body, or the danger zone, not the footer row.
+
+**Rules for placing card-level actions** — pick one slot per concept:
+
+| Slot | Use for |
+|---|---|
+| **Card head (top-right)** | The card's *primary* affordance: a status badge that may transform into the install button (state-as-button), an Edit-config button on read-mostly cards, or an overflow menu. |
+| **Body** | A primary CTA inherent to the card's purpose (Download backup is the point of the Backup card; the button sits in the body, not the footer). |
+| **Inset danger-zone block** | A destructive action sharing a card with safe ones (Restore from backup, Reset filters). |
+| **Footer action row** | Utility actions that operate on the card's state but aren't the card's reason for existing (Restart daemon, Check for updates, Flush cache). |
+
+Mixing slots inside one card is fine, but a single concept never lives in two slots. Don't add a "Save" button to both the card head and the footer.
+
 **Rules**
 - Never nest cards inside cards. If you need internal grouping, use the inset pattern: `--color-bg-subtle` block with `--radius-md` (used for danger zones, metric tiles).
 - Cards stack vertically with `var(--gap-card-stack)` between them.
@@ -539,7 +567,7 @@ The location of an action signals its scope.
 | Scope | Location | Style |
 |---|---|---|
 | Page-level | Top-right of page header | Primary, filled |
-| Card-level (single action) | Bottom-right of card OR top-right of card head | Primary, filled — or secondary if it's not the main thing |
+| Card-level (single action) | Top-right of card head, body, or footer action row — pick one per [3.6](#36-card) | Head: primary or status-as-button. Body: primary, filled. Footer: secondary/destructive utility, never filled-primary. |
 | Action on a setting row | Right end of the row | Sized to match the row (sm or md) |
 | Row-level inside a table | Right end of the row, in a dedicated actions column | Tertiary inline |
 | Destructive | Bottom of card, in a danger-zone sub-block | Destructive variant |
