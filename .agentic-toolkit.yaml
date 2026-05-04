@@ -1,6 +1,7 @@
 root: agentic
 extends:
   - github.com/pedromvgomes/agentic-toolkit/stacks/default.yaml
+  - github.com/pedromvgomes/agentic-toolkit/stacks/plannotator.yaml
 skills:
   - github.com/pedromvgomes/gt/agentic/skills/use-gt
 rules:
