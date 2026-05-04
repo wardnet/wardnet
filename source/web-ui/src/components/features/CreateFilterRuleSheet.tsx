@@ -31,7 +31,7 @@ export function CreateFilterRuleSheet({ open, onOpenChange }: CreateFilterRuleSh
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>Add Filter Rule</SheetTitle>
+        <SheetTitle>Add filter rule</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <Label htmlFor="fr-rule">Rule</Label>
@@ -72,7 +72,7 @@ export function CreateFilterRuleSheet({ open, onOpenChange }: CreateFilterRuleSh
             disabled={createRule.isPending || ruleText.trim() === ""}
             className="w-full"
           >
-            {createRule.isPending ? "Adding..." : "Add Rule"}
+            {createRule.isPending ? "Adding…" : "Add rule"}
           </Button>
         </div>
       </SheetContent>

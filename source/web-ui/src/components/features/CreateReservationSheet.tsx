@@ -54,10 +54,10 @@ export function CreateReservationSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>{defaults?.mac ? "Reserve Address" : "Add Reservation"}</SheetTitle>
+        <SheetTitle>{defaults?.mac ? "Reserve address" : "Add reservation"}</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="res-mac">MAC Address</Label>
+            <Label htmlFor="res-mac">MAC address</Label>
             <MacInput
               id="res-mac"
               value={macAddress}
@@ -67,7 +67,7 @@ export function CreateReservationSheet({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="res-ip">IP Address</Label>
+            <Label htmlFor="res-ip">IP address</Label>
             <Ipv4Input
               id="res-ip"
               value={ipAddress}
@@ -104,7 +104,7 @@ export function CreateReservationSheet({
           )}
 
           <Button onClick={handleSave} disabled={createReservation.isPending} className="w-full">
-            {createReservation.isPending ? "Creating..." : "Create Reservation"}
+            {createReservation.isPending ? "Creating…" : "Create reservation"}
           </Button>
         </div>
       </SheetContent>

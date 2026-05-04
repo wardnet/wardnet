@@ -5,6 +5,7 @@ import { Label } from "@/components/core/ui/label";
 import { Button } from "@/components/core/ui/button";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { useDnsStatus, useDnsConfig, useToggleDns, useFlushDnsCache } from "@/hooks/useDns";
 
 /** DNS server configuration page (admin only). */
@@ -41,11 +42,14 @@ export default function Dns() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  DNS Server
+                  DNS server
                 </CardTitle>
-                <Badge variant={status.running ? "default" : "secondary"}>
+                <StatusBadge
+                  tone={status.running ? "success" : "neutral"}
+                  withIcon={status.running}
+                >
                   {status.running ? "Running" : "Stopped"}
-                </Badge>
+                </StatusBadge>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
@@ -60,7 +64,7 @@ export default function Dns() {
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-muted-foreground">Resolution Mode</p>
+                      <p className="text-muted-foreground">Resolution mode</p>
                       <p className="text-lg font-semibold capitalize">{config.resolution_mode}</p>
                     </div>
                     <div>
@@ -84,7 +88,7 @@ export default function Dns() {
                   onClick={() => flushCache.mutate()}
                   disabled={flushCache.isPending}
                 >
-                  {flushCache.isPending ? "Flushing..." : "Flush Cache"}
+                  {flushCache.isPending ? "Flushing…" : "Flush cache"}
                 </Button>
               </CardHeader>
               <CardContent>
@@ -95,13 +99,13 @@ export default function Dns() {
                       <p className="text-2xl font-bold">{status.cache_size}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Hit Rate</p>
+                      <p className="text-muted-foreground">Hit rate</p>
                       <p className="text-2xl font-bold">{status.cache_hit_rate.toFixed(1)}%</p>
                     </div>
                   </div>
                   <div>
                     <p className="mb-1 text-xs text-muted-foreground">
-                      Cache Usage ({status.cache_size} / {status.cache_capacity})
+                      Cache usage ({status.cache_size} / {status.cache_capacity})
                     </p>
                     <DashboardUsageBar value={cacheUsagePercent} />
                   </div>
@@ -114,7 +118,7 @@ export default function Dns() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Upstream Servers
+                Upstream servers
               </CardTitle>
             </CardHeader>
             <CardContent>

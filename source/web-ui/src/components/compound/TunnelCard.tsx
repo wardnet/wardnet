@@ -1,19 +1,21 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
+import { StatusBadge } from "./StatusBadge";
 import { formatBytes, timeAgo } from "@/lib/utils";
 import { countryFlag } from "@/lib/country";
 import type { Tunnel, TunnelStatus, ProviderInfo } from "@wardnet/js";
 
-function statusColor(status: TunnelStatus) {
-  const map = {
-    up: "default",
-    down: "secondary",
-    connecting: "outline",
-    reconnecting: "destructive",
-  } as const;
-  return map[status];
+function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
+  switch (status) {
+    case "up":
+      return "success";
+    case "reconnecting":
+      return "danger";
+    case "down":
+    case "connecting":
+      return "neutral";
+  }
 }
 
 function statusLabel(status: TunnelStatus): string {
@@ -89,9 +91,9 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             </p>
           </div>
         </div>
-        <Badge variant={statusColor(tunnel.status)} title={statusTooltip(tunnel)}>
+        <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
           {statusLabel(tunnel.status)}
-        </Badge>
+        </StatusBadge>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-y-2 text-sm">
@@ -124,7 +126,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button variant="destructive" size="sm" onClick={() => onDelete(tunnel.id)}>
+          <Button variant="destructive" onClick={() => onDelete(tunnel.id)}>
             Delete
           </Button>
         </div>

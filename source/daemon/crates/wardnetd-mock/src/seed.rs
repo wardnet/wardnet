@@ -11,7 +11,9 @@
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
-use wardnetd_data::repository::{AllowlistRow, CustomRuleRow, DeviceRow, TunnelRow};
+use wardnetd_data::repository::{
+    AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, TunnelRow,
+};
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
 /// refer to them.
@@ -30,6 +32,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     let device_repo = factory.device();
     let tunnel_repo = factory.tunnel();
     let dns_repo = factory.dns();
+    let dhcp_repo = factory.dhcp();
 
     let now = Utc::now();
     let now_iso = now.to_rfc3339();
@@ -81,6 +84,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     ];
 
     let mut device_ids = Vec::with_capacity(devices.len());
+    let mut device_lease_inputs = Vec::with_capacity(devices.len());
     for (mac, hostname, manufacturer, device_type, ip, last_seen_ago) in devices {
         let id = Uuid::new_v4();
         let first_seen = (now - Duration::days(7)).to_rfc3339();
@@ -98,12 +102,52 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         };
         device_repo.insert(&row).await?;
         device_ids.push(id);
+        device_lease_inputs.push((
+            id,
+            mac.to_owned(),
+            hostname.map(str::to_owned),
+            ip.to_owned(),
+        ));
         tracing::debug!(
             device_id = %id,
             mac,
             ip,
             "seeded device: device_id={id}, mac={mac}, ip={ip}",
         );
+    }
+
+    // ------------------------------------------------------------------
+    // DHCP leases — one active lease per seeded device so the Leases tab
+    // and the dashboard "Active leases" stat have something to render.
+    // The smart plug additionally gets a reservation so the Reservations
+    // tab is also non-empty.
+    // ------------------------------------------------------------------
+    let lease_start = (now - Duration::hours(6)).to_rfc3339();
+    let lease_end = (now + Duration::hours(18)).to_rfc3339();
+    for (device_id, mac, hostname, ip) in &device_lease_inputs {
+        let lease_id = Uuid::new_v4();
+        let lease = DhcpLeaseRow {
+            id: lease_id.to_string(),
+            mac_address: mac.clone(),
+            ip_address: ip.clone(),
+            hostname: hostname.clone(),
+            lease_start: lease_start.clone(),
+            lease_end: lease_end.clone(),
+            status: "active".to_owned(),
+            device_id: Some(device_id.to_string()),
+        };
+        dhcp_repo.insert_lease(&lease).await?;
+    }
+
+    if let Some((_, mac, hostname, ip)) = device_lease_inputs.last() {
+        let reservation = DhcpReservationRow {
+            id: Uuid::new_v4().to_string(),
+            mac_address: mac.clone(),
+            ip_address: ip.clone(),
+            hostname: hostname.clone(),
+            description: Some("Smart plug — kitchen".to_owned()),
+        };
+        dhcp_repo.insert_reservation(&reservation).await?;
     }
 
     // ------------------------------------------------------------------

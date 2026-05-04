@@ -28,7 +28,7 @@ export function CreateAllowlistSheet({ open, onOpenChange }: CreateAllowlistShee
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto p-6">
-        <SheetTitle>Allow Domain</SheetTitle>
+        <SheetTitle>Allow domain</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <Label htmlFor="al-domain">Domain</Label>
@@ -62,7 +62,7 @@ export function CreateAllowlistSheet({ open, onOpenChange }: CreateAllowlistShee
             disabled={createEntry.isPending || domain.trim() === ""}
             className="w-full"
           >
-            {createEntry.isPending ? "Adding..." : "Allow Domain"}
+            {createEntry.isPending ? "Adding…" : "Allow domain"}
           </Button>
         </div>
       </SheetContent>

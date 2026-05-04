@@ -19,7 +19,7 @@ import {
 } from "@/hooks/useUpdate";
 import { useAuthStore } from "@/stores/authStore";
 import { formatBytes, formatUptime } from "@/lib/utils";
-import { RotateCwIcon } from "lucide-react";
+import { RotateCcwIcon } from "lucide-react";
 
 /** Settings page for system configuration (admin only). */
 export default function Settings() {
@@ -63,11 +63,11 @@ export default function Settings() {
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
-            <CardTitle>System Information</CardTitle>
+            <CardTitle>System information</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <p className="text-sm text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">Loading…</p>
             ) : status ? (
               <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
                 <div>
@@ -89,7 +89,7 @@ export default function Settings() {
                   <dd className="font-medium">{status.tunnel_count}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Database Size</dt>
+                  <dt className="text-muted-foreground">Database size</dt>
                   <dd className="font-medium">{formatBytes(status.db_size_bytes)}</dd>
                 </div>
               </dl>
@@ -104,8 +104,12 @@ export default function Settings() {
                   The daemon will be unreachable for a few seconds while it restarts.
                 </div>
               </div>
-              <Button variant="outline" onClick={() => restart.start()} disabled={restart.isOpen}>
-                <RotateCwIcon className="mr-2 h-4 w-4" />
+              <Button
+                variant="destructive"
+                onClick={() => restart.start()}
+                disabled={restart.isOpen}
+              >
+                <RotateCcwIcon />
                 Restart
               </Button>
             </div>

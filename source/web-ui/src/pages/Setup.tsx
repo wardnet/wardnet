@@ -111,7 +111,7 @@ export default function Setup() {
           disabled={setup.isPending}
           className="h-12 w-full bg-[oklch(0.22_0.12_275)] text-base font-semibold tracking-wide text-white uppercase hover:bg-[oklch(0.28_0.12_275)] dark:bg-primary dark:hover:bg-primary/90"
         >
-          {setup.isPending ? "Creating account..." : "Create Account"}
+          {setup.isPending ? "Creating account…" : "Create account"}
         </Button>
       </form>
     </div>

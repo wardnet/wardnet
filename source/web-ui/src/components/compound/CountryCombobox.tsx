@@ -56,7 +56,7 @@ export function CountryCombobox({
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search country..." />
+          <CommandInput placeholder="Search country…" />
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>

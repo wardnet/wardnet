@@ -25,7 +25,7 @@ export default function Tunnels() {
       <PageHeader
         title="Tunnels"
         actions={
-          hasTunnels ? <Button onClick={() => setCreateOpen(true)}>Add Tunnel</Button> : undefined
+          hasTunnels ? <Button onClick={() => setCreateOpen(true)}>Add tunnel</Button> : undefined
         }
       />
 

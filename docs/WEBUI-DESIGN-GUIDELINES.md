@@ -2,7 +2,7 @@
 
 > Single source of truth for the visual design and interaction patterns of the Wardnet admin UI. Both humans and AI coding agents should treat this as authoritative when building or refactoring UI. When the existing codebase conflicts with this document, the document wins — file an issue and migrate.
 
-Version 1.0 · Last updated 2026-05-04
+Version 1.1 · Last updated 2026-05-04
 
 ---
 
@@ -287,6 +287,34 @@ The default surface for grouping related content.
 
 **Internal sections** are separated by a horizontal `0.5px` divider with `var(--gap-section)` spacing above and below.
 
+**Footer action row** — a card may end with a single action row anchored to its bottom edge. Use this for utility actions that operate on the whole card's state (Restart, Check for updates, Flush cache), distinct from body-level CTAs.
+
+```
+┌─ Auto-update ───────────────────────────── ✓ Up to date ─┐
+│  [body content: stats, toggles, fields]                  │
+│                                                          │
+│  ─────────────────────────────────────────────────────── │ ← 0.5px divider
+│  Updates are checked hourly.            [ ↻ Check now ]  │ ← helper left, action right
+└──────────────────────────────────────────────────────────┘
+```
+
+**Anatomy**:
+- Top edge: `0.5px solid --color-border-subtle` divider, with `var(--gap-section)` above
+- Layout: flex row, `space-between`, vertically centered
+- Left slot (optional): 13px secondary helper text — explains scope, last-run timestamp, or context. One line.
+- Right slot: 1–2 buttons, separated by 8px when paired. Use the destructive variant for risk-bearing utilities (Restart) and `outline`/`secondary` for the rest. Never put a filled-primary button here — primary belongs in the card head, the body, or the danger zone, not the footer row.
+
+**Rules for placing card-level actions** — pick one slot per concept:
+
+| Slot | Use for |
+|---|---|
+| **Card head (top-right)** | The card's *primary* affordance: a status badge that may transform into the install button (state-as-button), an Edit-config button on read-mostly cards, or an overflow menu. |
+| **Body** | A CTA inherent to the card's purpose, right-aligned at the bottom of the body. Use `primary` only when one action genuinely dominates the card; default to `secondary` when actions are utility-grade (Download backup, Export logs) so the page doesn't end up with one filled-primary per card. |
+| **Inset danger-zone block** | A destructive action sharing a card with safe ones (Restore from backup, Reset filters). |
+| **Footer action row** | Utility actions that operate on the card's state but aren't the card's reason for existing (Restart daemon, Check for updates, Flush cache). |
+
+Mixing slots inside one card is fine, but a single concept never lives in two slots. Don't add a "Save" button to both the card head and the footer.
+
 **Rules**
 - Never nest cards inside cards. If you need internal grouping, use the inset pattern: `--color-bg-subtle` block with `--radius-md` (used for danger zones, metric tiles).
 - Cards stack vertically with `var(--gap-card-stack)` between them.
@@ -320,12 +348,16 @@ Used for listing many records with the same shape (Devices, DHCP leases, Reserva
 - Right-aligned in their own column
 - Destructive verbs ("Revoke", "Delete") get `--color-danger-fg` color but no background or border
 - Hover: underline
+- **0 actions**: omit the actions column entirely.
+- **1–2 actions**: render inline, separated by 16px.
+- **3+ actions**: collapse into an overflow menu (see [3.12](#312-dropdown-menu-overflow-actions)). Inline rows of three or more buttons overflow narrow viewports and read as a toolbar rather than per-row affordances.
 
 **Rules**
 - Sort indicators on column headers when sortable. Default sort is most-recent-first for time columns.
 - Never put a primary button inside a row. Row actions are always tertiary inline.
 - Empty cells use an em-dash `—`, never blank.
 - Long values truncate with ellipsis and reveal full value on hover (title attribute).
+- The actions column is the only column that may collapse to an overflow trigger; data columns hide via `meta.className: "hidden sm:table-cell"` instead.
 
 ### 3.8 Alert / callout
 
@@ -371,6 +403,43 @@ Used for utilization indicators (DHCP pool usage).
 
 **Rules**
 - Switch fill color to `--color-warning-fg` above 80% utilization, `--color-danger-fg` above 95%.
+
+### 3.11 Sheet (side drawer)
+
+Right-side panel for creating or editing a single record. Used in place of a full-page form when the surrounding context still matters (e.g., editing a device while the device list stays visible behind the sheet).
+
+**Anatomy**:
+- Slides in from the right, full viewport height
+- Width: 100% on mobile (`w-full`), capped to a comfortable column on wider viewports — content drives width, not the other way around
+- Padding: `var(--gap-card-inline)` (24px) horizontal, matching cards
+- Sections, top to bottom:
+  1. **Title** — sentence case, 16px/500, primary text. No subtitle unless the record needs context the title can't carry.
+  2. **Body** — form fields stacked vertically with `var(--gap-section)` (16px) between groups (see [4.7](#47-form-fields-anatomy))
+  3. **Footer action** — single full-width primary button at the bottom of the body, label is the verb that completes the task ("Create tunnel", "Save changes", "Allow domain")
+- Dismissal: Escape key, backdrop click, or the `×` close button rendered by the sheet primitive
+
+**Rules**
+- One sheet at a time. Sheets do not stack (this is the difference from modals; opening a child workflow from inside a sheet — e.g. "Reserve DHCP address" from the device editor — should close the parent sheet first or open the child as a separate top-level sheet).
+- No explicit Cancel button. Dismissal is always available via X / Escape / backdrop, and a Cancel button next to a full-width Save creates layout asymmetry.
+- For multi-step workflows (preview → apply, validate → submit), use a modal **dialog**, not a sheet. The dialog can morph its body and footer between steps; a sheet's full-height layout makes step transitions feel unanchored.
+- Save button stays disabled while the form is invalid or the mutation is pending. Pending state uses gerund copy ("Saving…") with the Unicode ellipsis (see [6.6](#66-loading-copy)).
+- Error states render via the `<ApiErrorAlert>` component above the save button, not as a toast — the sheet has visible space for the message.
+
+### 3.12 Dropdown menu (overflow actions)
+
+Used to collapse a list of row-level actions when there are too many to display inline.
+
+**Anatomy**:
+- Trigger: icon-only button, `more-horizontal` Lucide icon (the canonical "more actions" icon), 28px square, `tertiary` styling, `aria-label="More actions"`
+- Menu: anchored to the trigger, opens below-right by default, snaps above-right if there's no room below. Background `--color-bg-surface`, `0.5px solid --color-border-default`, `--radius-md`, no shadow heavier than a 1px halo
+- Menu items: 32px tall, 13px text, sentence case, left-aligned, optional 14px leading icon
+- Destructive items: `--color-danger-fg` text. Group them at the bottom with a `--color-border-subtle` separator above; never interleave destructive items with safe ones.
+
+**Rules**
+- Use only when a row has 3 or more actions, or when 2 actions don't fit in the available width on the smallest supported viewport. Never collapse a single action into a menu.
+- The overflow trigger lives in the rightmost column, replacing the inline-button strip — do not show both inline buttons and an overflow trigger in the same row.
+- Menu item labels are imperative verbs ("Edit", "Disable", "Delete"). Don't restate the row identity ("Delete this blocklist") — the row context is already established.
+- Keep menu items short — at most 5 items per row. If you have more, the row's data model is too overloaded for a table.
 
 ---
 
@@ -498,7 +567,7 @@ The location of an action signals its scope.
 | Scope | Location | Style |
 |---|---|---|
 | Page-level | Top-right of page header | Primary, filled |
-| Card-level (single action) | Bottom-right of card OR top-right of card head | Primary, filled — or secondary if it's not the main thing |
+| Card-level (single action) | Top-right of card head, body, or footer action row — pick one per [3.6](#36-card) | Head: primary or status-as-button. Body: primary, filled. Footer: secondary/destructive utility, never filled-primary. |
 | Action on a setting row | Right end of the row | Sized to match the row (sm or md) |
 | Row-level inside a table | Right end of the row, in a dedicated actions column | Tertiary inline |
 | Destructive | Bottom of card, in a danger-zone sub-block | Destructive variant |
@@ -554,6 +623,24 @@ When showing multiple metrics together (System info card, DHCP overview).
 - 3–6 stats per cluster. More than 6 → split into multiple cards or use a chart.
 - All stats in a cluster use the same tile size. Don't make one bigger because it "feels more important".
 - Pair related stats: usage + capacity ("Active leases 16" / "Pool size 201") sit adjacent, not on opposite ends.
+
+### 4.7 Form fields anatomy
+
+The same field rules apply inside sheets, modals, settings rows, and inline edit forms.
+
+**Anatomy** (top to bottom):
+- **Label** — 13px medium, primary text, sentence case, sits above the field. Mark optional fields explicitly: `Hostname (optional)`. Required fields don't need an asterisk; the form's submit button gates the requirement.
+- **Field** — full width of the form column. Fields paired side-by-side (e.g. Pool start / Pool end) use `flex gap-3` and split evenly.
+- **Helper text** — optional, 12px secondary, max 2 lines. Sits below the field. Use it for context the label can't carry ("DNS servers advertised to clients") — never to repeat the label.
+- **Validation message** — 12px `--color-danger-fg`, replaces the helper slot when the field is invalid.
+
+**Rules**
+- One field per row unless two fields are conceptually paired (start/end, gateway/netmask). Don't grid for grid's sake.
+- Inputs use the same height (32px / `h-8`) as `secondary` buttons so save buttons align with the last field.
+- Toggles inside a form follow the [3.4](#34-toggle) rules: label on the left, switch on the right, full row is the click target.
+- Code-like inputs (WireGuard config, AdGuard rules) use `font-mono` and switch to a multi-line `<Textarea>` if more than ~100 characters are likely.
+- Don't use placeholder text as a label. Placeholders show example values, never field names.
+- Group related fields with a small heading or a `--color-border-subtle` divider rather than nesting them in a sub-card. Sheets and modals are already a contained surface — don't double-frame.
 
 ---
 
@@ -624,6 +711,37 @@ Page title + stat cards row + tabs + table.
 - The `Edit` button on a config card sits in the card head (top-right), not bottom — these cards are read-mostly with occasional edits.
 - Tabs and table follow the [table page](#52-table-page-devices-reservations) rules.
 
+### 5.5 Detail page (My device)
+
+Single-record drill-down, always for the caller's own context (self-service routing, account preferences). Distinct from edit sheets — a detail page is the destination, not a workflow that closes back to a list.
+
+```
+┌───────────────────────────────────────────────┐
+│  My device                                    │  ← eyebrow, 12px secondary
+│  [icon]  Galaxy S21 Leilah                    │  ← h1, 24px/500, with type icon
+│                                               │
+│  ┌─ Internet access ───────────────────────┐  │
+│  │  ◉ Direct (no VPN)                       │  │
+│  │  ○ VPN: 🇸🇪 Sweden – Mullvad             │  │
+│  │                                          │  │
+│  │                          [   Save   ]    │  │
+│  └─────────────────────────────────────────┘  │
+└───────────────────────────────────────────────┘
+```
+
+**Anatomy**:
+- Container: centered, `max-width: 32rem`, top padding `var(--space-8)`. Detail pages are deliberately narrow — they hold a single record, not a list.
+- **Eyebrow**: 12px secondary text, sentence case, identifies the kind of record ("My device", "My account").
+- **h1**: 24px/500 (per [2.2](#22-typography)), with the record's type icon (24–28px, `--color-text-secondary`) rendered before the title.
+- **Cards** stacked vertically. Each card has its own h2 title (16px/500, sentence case) and one primary action.
+- **Locked state**: when an admin restricts the user from editing, render the current value as plain text, then a 14px lock icon + 13px secondary explanation in `--color-text-secondary`. No disabled controls — they read as broken rather than restricted.
+- **Empty state** (record not found): centered icon + h2 + helper paragraph, no CTA. The user can't act their way out — they're being told why the page is empty.
+
+**Rules**
+- One primary CTA per card. Save buttons in detail pages are full-width inside narrow containers (32rem feels cramped with side-by-side actions); this is the one place [4.4](#44-action-positioning)'s "bottom-right of card" rule does not apply.
+- Detail pages don't have tabs. If the record needs multiple lenses, use a navigation pattern (sidebar, breadcrumb) — tabs imply equal-weight peers, but a detail page already has one weight.
+- No page-level CTA. The actions live inside the cards. Add new actions by adding cards, not by crowding the header.
+
 ---
 
 ## 6. Content & microcopy
@@ -679,6 +797,23 @@ Single word preferred. Sentence case. No icons unless it's a confirming success.
 - Confident. State what something does, not what it might do. "Restart will disconnect active sessions" not "Restart may disconnect sessions".
 - Explain consequences for destructive actions in one sentence. "Cannot be undone" is a complete justification.
 - Avoid jargon when the user might not be technical. Where jargon is unavoidable (WireGuard, DHCP), use it without apology — your users know what these mean.
+
+### 6.6 Loading copy
+
+In-progress states use a gerund verb plus a single Unicode ellipsis character.
+
+| Use | Avoid |
+|---|---|
+| Saving… | Saving... |
+| Creating… | Creating ... |
+| Loading… | Loading |
+| Checking for updates… | Checking... |
+
+**Rules**
+- Always use the Unicode ellipsis (`…`, U+2026), never three ASCII dots (`...`). The dots have inconsistent spacing across fonts and copy-paste poorly into other surfaces.
+- Form: gerund + ellipsis. The verb mirrors the button label ("Create tunnel" → "Creating…", "Download backup" → "Downloading…"). Don't introduce new verbs ("Working…", "Please wait…") that don't match the action.
+- The same string sits inside the disabled button while the mutation is pending. Don't move the loading text elsewhere.
+- For longer-running ops where the user might wonder if anything is happening, supplement with a progress indicator (see [4.3](#43-loading-states)) — but the gerund label still wins: "Downloading (1.2 MB / 4.5 MB)" not "Please wait while we download".
 
 ---
 

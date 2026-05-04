@@ -1,8 +1,16 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/core/ui/badge";
+import { MoreHorizontalIcon } from "lucide-react";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/core/ui/dropdown-menu";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
 import type { Blocklist } from "@wardnet/js";
 
@@ -36,7 +44,7 @@ function createColumns(
     },
     {
       accessorKey: "last_updated",
-      header: "Last Updated",
+      header: "Last updated",
       meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
         <span className="text-muted-foreground">
@@ -48,33 +56,42 @@ function createColumns(
       accessorKey: "enabled",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={row.original.enabled ? "default" : "secondary"}>
+        <StatusBadge tone={row.original.enabled ? "success" : "neutral"}>
           {row.original.enabled ? "Enabled" : "Disabled"}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
       id: "actions",
       header: "",
       meta: { className: "text-right" },
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" onClick={() => onToggle(row.original)}>
-            {row.original.enabled ? "Disable" : "Enable"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onRefresh(row.original.id)}
-            disabled={refreshingId === row.original.id}
-          >
-            {refreshingId === row.original.id ? "Updating..." : "Update Now"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
-            Delete
-          </Button>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const blocklist = row.original;
+        const isRefreshing = refreshingId === blocklist.id;
+        return (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${blocklist.name}`}>
+                  <MoreHorizontalIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => onToggle(blocklist)}>
+                  {blocklist.enabled ? "Disable" : "Enable"}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={isRefreshing} onSelect={() => onRefresh(blocklist.id)}>
+                  {isRefreshing ? "Updating…" : "Update now"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(blocklist.id)}>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
     },
   ];
 }
@@ -107,7 +124,7 @@ export function BlocklistTable({
       <EmptyStatePlaceholder
         message="No blocklists configured"
         hint="Add a blocklist URL to start blocking ads and trackers network-wide."
-        actionLabel="Add Blocklist"
+        actionLabel="Add blocklist"
         onAction={onAdd}
       />
     );
@@ -116,9 +133,7 @@ export function BlocklistTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add Blocklist
-        </Button>
+        <Button onClick={onAdd}>Add blocklist</Button>
       </div>
 
       <DataTable columns={columns} data={blocklists} onRowClick={onEdit} />

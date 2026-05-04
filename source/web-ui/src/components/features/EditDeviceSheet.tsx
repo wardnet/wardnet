@@ -20,7 +20,7 @@ export function EditDeviceSheet({ deviceId, open, onOpenChange }: EditDeviceShee
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="w-full overflow-y-auto p-6">
-          <SheetTitle>Edit Device</SheetTitle>
+          <SheetTitle>Edit device</SheetTitle>
           {device ? (
             <EditDeviceForm
               key={device.id + String(data?.current_rule?.type)}
@@ -36,7 +36,7 @@ export function EditDeviceSheet({ deviceId, open, onOpenChange }: EditDeviceShee
               }}
             />
           ) : (
-            <p className="mt-6 text-sm text-muted-foreground">Loading device...</p>
+            <p className="mt-6 text-sm text-muted-foreground">Loading device…</p>
           )}
         </SheetContent>
       </Sheet>

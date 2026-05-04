@@ -23,7 +23,12 @@ import type { ProviderCredentials, ProviderInfo, ServerInfo } from "@wardnet/js"
 
 /** Visual load indicator with a colored dot and percentage. */
 function LoadIndicator({ load }: { load: number }) {
-  const color = load < 30 ? "text-green-500" : load < 70 ? "text-yellow-500" : "text-red-500";
+  const color =
+    load < 30
+      ? "text-success-foreground"
+      : load < 70
+        ? "text-warning-foreground"
+        : "text-destructive";
   return (
     <span className={`flex items-center gap-1 text-xs ${color}`}>
       <span className="inline-block size-2 rounded-full bg-current" />
@@ -174,7 +179,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
         <>
           {supportsToken && supportsCreds && (
             <div className="flex flex-col gap-2">
-              <Label>Auth Method</Label>
+              <Label>Auth method</Label>
               <Select
                 value={authMethod}
                 onValueChange={(v) => {
@@ -186,8 +191,8 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="token">Access Token</SelectItem>
-                  <SelectItem value="credentials">Username & Password</SelectItem>
+                  <SelectItem value="token">Access token</SelectItem>
+                  <SelectItem value="credentials">Username &amp; password</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -195,7 +200,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
 
           {authMethod === "token" ? (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="prov-token">Access Token</Label>
+              <Label htmlFor="prov-token">Access token</Label>
               <Input
                 id="prov-token"
                 type="password"
@@ -244,7 +249,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             onClick={handleValidate}
             disabled={!credsReady || validateCreds.isPending}
           >
-            {validateCreds.isPending ? "Validating..." : "Validate Credentials"}
+            {validateCreds.isPending ? "Validating…" : "Validate credentials"}
           </Button>
           {validateCreds.isError && (
             <ApiErrorAlert error={validateCreds.error} fallback="Validation failed" />
@@ -288,7 +293,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               onClick={handleFetchServers}
               disabled={fetchServers.isPending}
             >
-              {fetchServers.isPending ? "Loading..." : "Refresh"}
+              {fetchServers.isPending ? "Loading…" : "Refresh"}
             </Button>
           </div>
 
@@ -338,7 +343,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           )}
 
           <Button onClick={handleSetup} disabled={setupTunnel.isPending} className="w-full">
-            {setupTunnel.isPending ? "Setting up..." : "Create Tunnel"}
+            {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
           </Button>
         </>
       )}

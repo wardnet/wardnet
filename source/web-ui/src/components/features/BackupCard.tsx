@@ -67,22 +67,39 @@ export function BackupCard({
           it to restore a fresh install, recover from an SD-card failure, or roll back a risky
           configuration change. Bundles are encrypted with age in passphrase mode.
         </p>
-        <p className="text-sm font-semibold">
-          Keep the passphrase somewhere safe. We can&apos;t recover it for you.
-        </p>
 
-        <div className="flex gap-2">
-          <Button onClick={() => setExportOpen(true)} disabled={isExporting}>
-            <DownloadIcon className="mr-2 h-4 w-4" />
+        <div
+          role="alert"
+          className="flex gap-2 rounded-md bg-warning p-3 text-sm text-warning-foreground"
+        >
+          <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+          <span>Keep the passphrase somewhere safe. We can&apos;t recover it for you.</span>
+        </div>
+
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={() => setExportOpen(true)} disabled={isExporting}>
+            <DownloadIcon />
             {isExporting ? "Exporting…" : "Download backup"}
           </Button>
+        </div>
+
+        {/* Danger zone — Restore overwrites state and is sequestered into a
+            subtle inset block so it never sits next to the safe Download CTA
+            (WEBUI-DESIGN-GUIDELINES §4.5). */}
+        <div className="flex items-start justify-between gap-4 rounded-md bg-muted p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Restore from backup</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Overwrites your current database, config, and keys. Cannot be undone.
+            </p>
+          </div>
           <Button
-            variant="outline"
+            variant="destructive"
             onClick={() => setRestoreOpen(true)}
             disabled={isPreviewing || isApplying}
           >
-            <UploadIcon className="mr-2 h-4 w-4" />
-            Restore from backup
+            <UploadIcon />
+            Restore…
           </Button>
         </div>
       </CardContent>
@@ -330,7 +347,7 @@ function RestoreDialog({
               onClick={() => onApply(preview.preview_token)}
               disabled={!preview.compatible || isApplying}
             >
-              {isApplying ? "Applying…" : "Apply restore"}
+              {isApplying ? "Restoring…" : "Restore"}
             </Button>
           )}
         </DialogFooter>

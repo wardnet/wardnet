@@ -33,7 +33,11 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       header: "",
       meta: { className: "text-right" },
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
+        <Button
+          variant="tertiary"
+          className="text-destructive hover:text-destructive"
+          onClick={() => onDelete(row.original.id)}
+        >
           Remove
         </Button>
       ),
@@ -56,7 +60,7 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
       <EmptyStatePlaceholder
         message="No allowlist entries"
         hint="Domains added here will never be blocked, even if they appear in a blocklist."
-        actionLabel="Add Domain"
+        actionLabel="Add domain"
         onAction={onAdd}
       />
     );
@@ -65,9 +69,7 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add Domain
-        </Button>
+        <Button onClick={onAdd}>Add domain</Button>
       </div>
 
       <DataTable columns={columns} data={entries} />

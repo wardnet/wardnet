@@ -112,7 +112,7 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
       >
         {entries.length === 0 ? (
           <p className="p-4 text-center text-muted-foreground">
-            {connected ? "Waiting for log entries..." : "Not connected"}
+            {connected ? "Waiting for log entries…" : "Not connected"}
           </p>
         ) : (
           <div className="divide-y divide-border/50">

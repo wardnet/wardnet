@@ -31,7 +31,11 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<DhcpReservatio
       header: "",
       meta: { className: "text-right" },
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
+        <Button
+          variant="tertiary"
+          className="text-destructive hover:text-destructive"
+          onClick={() => onDelete(row.original.id)}
+        >
           Delete
         </Button>
       ),
@@ -54,7 +58,7 @@ export function DhcpReservationTable({ reservations, onDelete, onAdd }: DhcpRese
       <EmptyStatePlaceholder
         message="No DHCP reservations"
         hint="Add your first reservation to assign a permanent IP address to a device."
-        actionLabel="Add Reservation"
+        actionLabel="Add reservation"
         onAction={onAdd}
       />
     );
@@ -63,9 +67,7 @@ export function DhcpReservationTable({ reservations, onDelete, onAdd }: DhcpRese
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add Reservation
-        </Button>
+        <Button onClick={onAdd}>Add reservation</Button>
       </div>
 
       <DataTable columns={columns} data={reservations} />

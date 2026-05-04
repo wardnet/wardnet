@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Badge } from "@/components/core/ui/badge";
+import { StatusBadge } from "./StatusBadge";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpSummaryCardProps {
@@ -21,9 +21,9 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-sm font-semibold">
           DHCP
-          <Badge variant={status.running ? "default" : "secondary"}>
+          <StatusBadge tone={status.running ? "success" : "neutral"} withIcon={status.running}>
             {status.running ? "Running" : "Stopped"}
-          </Badge>
+          </StatusBadge>
         </CardTitle>
       </CardHeader>
       <CardContent>
