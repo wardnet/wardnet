@@ -10909,11 +10909,12 @@
       },
       "TunnelStatus": {
         "type": "string",
-        "description": "The current status of a `WireGuard` tunnel.",
+        "description": "The current status of a `WireGuard` tunnel.\n\nState machine driven by user/admin actions and the tunnel monitor's\nhealth-check loop:\n\n- `Down` — kernel interface not configured (initial state, after\n  tear-down, or after delete).\n- `Connecting` — `bring_up` succeeded; kernel interface is configured;\n  no handshake observed yet.\n- `Up` — recent (≤ 3 min) handshake observed.\n- `Reconnecting` — was `Up`, last handshake stale (> 3 min) or absent;\n  the iface is still configured and `WireGuard` keepalive is retrying.",
         "enum": [
           "up",
           "down",
-          "connecting"
+          "connecting",
+          "reconnecting"
         ]
       },
       "TunnelSummary": {
