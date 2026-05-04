@@ -24,7 +24,7 @@ export function DhcpConfigCard({ config, onEdit }: DhcpConfigCardProps) {
         </Button>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-muted-foreground">Gateway IP</dt>
             <dd className="font-mono text-xs">{config.gateway_ip}</dd>
