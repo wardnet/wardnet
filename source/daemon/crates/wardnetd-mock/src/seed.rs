@@ -102,7 +102,12 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         };
         device_repo.insert(&row).await?;
         device_ids.push(id);
-        device_lease_inputs.push((id, mac.to_owned(), hostname.map(str::to_owned), ip.to_owned()));
+        device_lease_inputs.push((
+            id,
+            mac.to_owned(),
+            hostname.map(str::to_owned),
+            ip.to_owned(),
+        ));
         tracing::debug!(
             device_id = %id,
             mac,
