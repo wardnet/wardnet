@@ -1,6 +1,14 @@
 import type { ColumnDef } from "@tanstack/react-table";
+import { MoreHorizontalIcon } from "lucide-react";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/core/ui/dropdown-menu";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
@@ -57,24 +65,33 @@ function createColumns(
       id: "actions",
       header: "",
       meta: { className: "text-right" },
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" onClick={() => onToggle(row.original)}>
-            {row.original.enabled ? "Disable" : "Enable"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onRefresh(row.original.id)}
-            disabled={refreshingId === row.original.id}
-          >
-            {refreshingId === row.original.id ? "Updating…" : "Update now"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
-            Delete
-          </Button>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const blocklist = row.original;
+        const isRefreshing = refreshingId === blocklist.id;
+        return (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${blocklist.name}`}>
+                  <MoreHorizontalIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => onToggle(blocklist)}>
+                  {blocklist.enabled ? "Disable" : "Enable"}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={isRefreshing} onSelect={() => onRefresh(blocklist.id)}>
+                  {isRefreshing ? "Updating…" : "Update now"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(blocklist.id)}>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
     },
   ];
 }
