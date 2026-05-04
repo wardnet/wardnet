@@ -2498,21 +2498,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tanstack/query-core@npm:5.100.1":
-  version: 5.100.1
-  resolution: "@tanstack/query-core@npm:5.100.1"
-  checksum: 10c0/62eebf0b493d5931fd0f7946bc321736d9467b9c2e1e52f02eac930a221c38e465305b29920ef6437d18fe10c7f0f3671d2ff60e218672134ef104a2f33edaf5
+"@tanstack/query-core@npm:5.100.6":
+  version: 5.100.6
+  resolution: "@tanstack/query-core@npm:5.100.6"
+  checksum: 10c0/d9b0bb3bc841a2415de9514307ee070c12245e417c63c8ffc71901f3be98d71344f324f345ef3799a526f36ae0b135fbbb1721f28b6ccd6a12c35fcac9244da8
   languageName: node
   linkType: hard
 
-"@tanstack/react-query@npm:5.100.1":
-  version: 5.100.1
-  resolution: "@tanstack/react-query@npm:5.100.1"
+"@tanstack/react-query@npm:5.100.6":
+  version: 5.100.6
+  resolution: "@tanstack/react-query@npm:5.100.6"
   dependencies:
-    "@tanstack/query-core": "npm:5.100.1"
+    "@tanstack/query-core": "npm:5.100.6"
   peerDependencies:
     react: ^18 || ^19
-  checksum: 10c0/23617f2197b400c32ea15bf448d7cc03b0441f8c431e9c4ecf48c5a85cbfdbca48b4d07ec0590984bd9795e1c9fd7e828f57a2bbe808c2526edde09e15815250
+  checksum: 10c0/7bbbfc4b1428b397c5eb5f3c7138b45ac96932f9cfa19106cf74d3f12599f032d9090656cf400ad7adb3c530c6aaff675578d2b79eefa6a2b1ac6ef13d47fde3
   languageName: node
   linkType: hard
 
@@ -5915,9 +5915,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"shadcn@npm:4.4.0":
-  version: 4.4.0
-  resolution: "shadcn@npm:4.4.0"
+"shadcn@npm:4.6.0":
+  version: 4.6.0
+  resolution: "shadcn@npm:4.6.0"
   dependencies:
     "@babel/core": "npm:^7.28.0"
     "@babel/parser": "npm:^7.28.0"
@@ -5955,7 +5955,7 @@ __metadata:
     zod-to-json-schema: "npm:^3.24.6"
   bin:
     shadcn: dist/index.js
-  checksum: 10c0/cff222fbfe69510595a64029ec4c7dddea096d492516f204bfbbc6d5081ac5397c558fa9db9da89acab2d4674f557476563c1e9079cb929935df0f12d4bca789
+  checksum: 10c0/2f4620bccce7ff04b8e76e377f016737308bd314548343b0f50839207262ee11f1f0d6e707fb42fe8b24d3294a6ada916926a487ebaed090284cbf59d327b6d6
   languageName: node
   linkType: hard
 
@@ -6627,7 +6627,7 @@ __metadata:
     "@eslint/js": "npm:10.0.1"
     "@fontsource-variable/geist": "npm:5.2.8"
     "@tailwindcss/vite": "npm:4.2.4"
-    "@tanstack/react-query": "npm:5.100.1"
+    "@tanstack/react-query": "npm:5.100.6"
     "@tanstack/react-table": "npm:8.21.3"
     "@types/node": "npm:25.6.0"
     "@types/react": "npm:19.2.14"
@@ -6651,7 +6651,7 @@ __metadata:
     react: "npm:19.2.5"
     react-dom: "npm:19.2.5"
     react-router: "npm:7.14.2"
-    shadcn: "npm:4.4.0"
+    shadcn: "npm:4.6.0"
     sonner: "npm:2.0.7"
     tailwind-merge: "npm:3.5.0"
     tailwindcss: "npm:4.2.4"
