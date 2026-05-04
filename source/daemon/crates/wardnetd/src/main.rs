@@ -143,11 +143,19 @@ async fn run(
     let started_at = Instant::now();
 
     // Detect wardnet's own LAN IP for DHCP gateway advertisement.
-    let lan_ip = wardnetd::packet_capture_pnet::get_interface_ipv4(&config.network.lan_interface)
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "failed to detect LAN IP, using 0.0.0.0");
-            std::net::Ipv4Addr::UNSPECIFIED
-        });
+    //
+    // After a cold boot, `network-online.target` is reached before the
+    // LAN interface has actually finished applying its IPv4. Single-shot
+    // detection here used to land in that gap, lock in `0.0.0.0` for the
+    // process lifetime, and poison every DHCP response. Poll until the
+    // address is up or the deadline expires.
+    let lan_ip = wardnetd::packet_capture_pnet::wait_for_interface_ipv4(
+        &config.network.lan_interface,
+        Duration::from_secs(30),
+        Duration::from_millis(500),
+    )
+    .await
+    .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
     tracing::info!(
         lan_ip = %lan_ip,
         interface = %config.network.lan_interface,

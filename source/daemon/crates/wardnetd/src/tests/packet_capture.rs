@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::time::Duration;
 
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket};
@@ -8,6 +9,7 @@ use pnet::util::MacAddr;
 
 use crate::packet_capture_pnet::{
     build_arp_request, find_interface, format_mac, parse_frame, should_filter_mac, subnet_hosts,
+    wait_for_interface_ipv4,
 };
 use wardnetd_services::device::packet_capture::PacketSource;
 
@@ -329,5 +331,37 @@ fn find_interface_nonexistent() {
     assert!(
         err_msg.contains("not found"),
         "expected 'not found' in error: {err_msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// wait_for_interface_ipv4
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn wait_for_interface_ipv4_returns_immediately_when_address_present() {
+    // Loopback always has 127.0.0.1; the deadline should never be reached.
+    let result =
+        wait_for_interface_ipv4("lo", Duration::from_secs(5), Duration::from_millis(50)).await;
+    assert_eq!(result, Some(Ipv4Addr::LOCALHOST));
+}
+
+#[tokio::test]
+async fn wait_for_interface_ipv4_returns_none_after_deadline() {
+    let started = std::time::Instant::now();
+    let result = wait_for_interface_ipv4(
+        "this_interface_does_not_exist_xyz_12345",
+        Duration::from_millis(40),
+        Duration::from_millis(5),
+    )
+    .await;
+    let elapsed = started.elapsed();
+
+    assert_eq!(result, None);
+    // Confirm the loop actually polled (proves we didn't bail on the first
+    // attempt) by checking we waited at least the deadline.
+    assert!(
+        elapsed >= Duration::from_millis(40),
+        "expected to wait at least 40ms, waited {elapsed:?}"
     );
 }
