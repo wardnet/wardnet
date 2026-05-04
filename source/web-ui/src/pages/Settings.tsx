@@ -19,7 +19,7 @@ import {
 } from "@/hooks/useUpdate";
 import { useAuthStore } from "@/stores/authStore";
 import { formatBytes, formatUptime } from "@/lib/utils";
-import { RotateCwIcon } from "lucide-react";
+import { RotateCcwIcon } from "lucide-react";
 
 /** Settings page for system configuration (admin only). */
 export default function Settings() {
@@ -104,8 +104,12 @@ export default function Settings() {
                   The daemon will be unreachable for a few seconds while it restarts.
                 </div>
               </div>
-              <Button variant="outline" onClick={() => restart.start()} disabled={restart.isOpen}>
-                <RotateCwIcon className="mr-2 h-4 w-4" />
+              <Button
+                variant="destructive"
+                onClick={() => restart.start()}
+                disabled={restart.isOpen}
+              >
+                <RotateCcwIcon />
                 Restart
               </Button>
             </div>
