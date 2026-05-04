@@ -54,12 +54,12 @@ jobs:
           workspaces: source/daemon
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # v2.75.21
+        uses: taiki-e/install-action@51cd0b8c0499559d9a4d75c0f5c67bec3a894ec8 # v2.75.21
         with:
           tool: cargo-llvm-cov
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@74e87cbfa15a59692b158178d8905a61bf6fca95 # v2.75.21
+        uses: taiki-e/install-action@51cd0b8c0499559d9a4d75c0f5c67bec3a894ec8 # v2.75.21
         with:
           tool: cargo-nextest
 
