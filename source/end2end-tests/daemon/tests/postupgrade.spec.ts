@@ -28,10 +28,30 @@ describe("post-upgrade migration framework", () => {
   }, 120_000);
 
   it("runs cleanly at boot and writes an empty state.json", async () => {
-    const state = await agentGet<PostupgradeState>(
-      TEST_AGENT_URL,
-      "/postupgrade/state",
-    );
+    // wardnet-postupgrade.service is `Type=oneshot` and runs before
+    // wardnetd.service. By the time wardnetd is healthy, the runner
+    // has already exited and the migration runner has written
+    // state.json. Poll briefly anyway in case the test-agent picks
+    // up the API socket a moment before the migration runner's
+    // atomic rename lands.
+    let state: PostupgradeState | undefined;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        state = await agentGet<PostupgradeState>(
+          TEST_AGENT_URL,
+          "/postupgrade/state",
+        );
+        break;
+      } catch (_err) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    if (!state) {
+      throw new Error(
+        "wardnet-postupgrade did not write state.json within 10s",
+      );
+    }
 
     // Empty migration list ships with this PR — no entries should
     // have been applied or failed. last_verification_failure must

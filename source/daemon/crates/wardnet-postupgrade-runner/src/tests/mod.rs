@@ -2,5 +2,7 @@
 //! module owns a sibling test file; `lib.rs` declares this module
 //! gated on `#[cfg(test)]`.
 
+mod exec;
+mod runner;
 mod state;
 mod verify;

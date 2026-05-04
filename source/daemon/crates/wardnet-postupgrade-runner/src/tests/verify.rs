@@ -113,3 +113,53 @@ fn read_artifacts_returns_bytes_when_both_present() {
     assert_eq!(p, b"payload");
     assert_eq!(s, b"sig");
 }
+
+#[test]
+fn read_artifacts_returns_none_when_payload_path_is_a_directory() {
+    // `std::fs::read` on a directory returns an `Err` whose kind is
+    // not `NotFound`, exercising the unhappy I/O branch the runner
+    // logs as an ERROR before returning None.
+    let dir = TempDir::new().unwrap();
+    let dir_as_payload = dir.path().join("a-directory");
+    std::fs::create_dir(&dir_as_payload).unwrap();
+    std::fs::write(dir.path().join("sig"), b"sig").unwrap();
+
+    let result = read_artifacts(&dir_as_payload, &dir.path().join("sig"));
+    assert!(result.is_none());
+}
+
+#[test]
+fn read_artifacts_returns_none_when_signature_path_is_a_directory() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("payload.bin"), b"payload").unwrap();
+    let dir_as_sig = dir.path().join("a-directory");
+    std::fs::create_dir(&dir_as_sig).unwrap();
+
+    let result = read_artifacts(&dir.path().join("payload.bin"), &dir_as_sig);
+    assert!(result.is_none());
+}
+
+#[test]
+fn verify_rejects_invalid_public_key_text() {
+    let err = verify("not-a-valid-pubkey", b"payload", b"sig")
+        .expect_err("garbage public key must be rejected");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("invalid embedded public key"),
+        "expected pubkey-decode error, got: {chain}"
+    );
+}
+
+#[test]
+fn verify_rejects_non_utf8_signature_bytes() {
+    let payload = b"payload";
+    let (pk_text, _sig_text) = signed(payload);
+    let invalid_utf8 = [0xFFu8, 0xFE, 0xFD, 0xFC];
+    let err = verify(&pk_text, payload, &invalid_utf8)
+        .expect_err("non-utf8 signature bytes must be rejected");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("not utf-8"),
+        "expected utf-8 error, got: {chain}"
+    );
+}

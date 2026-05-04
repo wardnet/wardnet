@@ -62,3 +62,31 @@ fn is_applied_matches_by_id() {
     assert!(state.is_applied("0001"));
     assert!(!state.is_applied("0002"));
 }
+
+#[test]
+fn load_returns_err_on_invalid_json() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    std::fs::write(&path, b"definitely not json").unwrap();
+    let err = State::load(&path).expect_err("invalid json must surface as Err");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("parsing state file"),
+        "expected parse-error context, got: {chain}"
+    );
+}
+
+#[test]
+fn load_returns_err_when_path_is_a_directory() {
+    // `std::fs::read` on a directory returns Err with kind that is
+    // not `NotFound`, exercising the third match arm in `load`.
+    let dir = TempDir::new().unwrap();
+    let path_as_dir = dir.path().join("state-as-dir");
+    std::fs::create_dir(&path_as_dir).unwrap();
+    let err = State::load(&path_as_dir).expect_err("directory must surface as Err");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("reading state file"),
+        "expected read-error context, got: {chain}"
+    );
+}

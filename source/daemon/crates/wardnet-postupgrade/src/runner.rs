@@ -115,5 +115,12 @@ pub fn run(state_path: &Path, migrations: &[Migration]) -> anyhow::Result<RunOut
         }
     }
 
+    // Always persist final state — even when nothing changed in
+    // this run — so operators (and the e2e harness) have a stable
+    // "I ran and exited cleanly" marker. On a fresh host with an
+    // empty migration list, this writes the canonical empty state
+    // file the next boot's parse will read back unchanged.
+    state.save(state_path)?;
+
     Ok(RunOutcome::Ok(report))
 }

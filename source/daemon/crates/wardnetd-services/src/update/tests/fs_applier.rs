@@ -194,6 +194,44 @@ async fn tarball_missing_wardnetd_returns_err() {
 }
 
 #[tokio::test]
+async fn postupgrade_swap_failure_does_not_roll_back_wardnetd() {
+    // If the post-upgrade swap step fails AFTER wardnetd has been
+    // renamed (rare but possible: e.g. /var/lib/wardnet/postupgrade
+    // is a regular file, not a directory), the applier logs WARN and
+    // still returns Ok. The new wardnetd is in place; the existing
+    // on-disk postupgrade artifacts are consistent with either the
+    // previous or new wardnetd, and OnFailure=wardnetd-rollback.service
+    // catches any downstream daemon crash.
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
+    let postupgrade_as_file = dir.path().join("postupgrade-is-a-file");
+    // Pre-create the postupgrade target as a regular file. The
+    // applier's `create_dir_all(&cfg.dir)` will fail because the
+    // path exists but isn't a directory.
+    std::fs::write(&postupgrade_as_file, b"not a directory").unwrap();
+
+    let postupgrade_bin: &[u8] = b"the migration runner binary bytes";
+    let (pk_text, sig_text) = signed_pair(postupgrade_bin);
+
+    let tarball = make_tarball(&[
+        ("wardnetd", b"NEW wardnetd"),
+        ("wardnet-postupgrade.bin", postupgrade_bin),
+        ("wardnet-postupgrade.minisig", sig_text.as_bytes()),
+    ]);
+
+    let applier = FsBinaryApplier::new(live_path.clone(), staging)
+        .with_postupgrade(postupgrade_as_file, leak(pk_text));
+    applier
+        .apply(&tarball)
+        .await
+        .expect("apply must succeed even when postupgrade swap can't proceed");
+
+    // wardnetd was still swapped. The postupgrade swap was skipped.
+    assert_eq!(std::fs::read(&live_path).unwrap(), b"NEW wardnetd");
+}
+
+#[tokio::test]
 async fn unconfigured_postupgrade_ignores_artifacts_in_tarball() {
     // Backwards-compat: an applier built without `.with_postupgrade(...)`
     // must skip the .bin/.minisig in the tarball entirely, even if
