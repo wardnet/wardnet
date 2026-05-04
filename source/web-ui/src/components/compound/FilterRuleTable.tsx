@@ -36,15 +36,18 @@ function createColumns(
       header: "",
       meta: { className: "text-right" },
       cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex justify-end gap-4">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="tertiary"
             onClick={() => onToggle(row.original.id, !row.original.enabled)}
           >
             {row.original.enabled ? "Disable" : "Enable"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
+          <Button
+            variant="tertiary"
+            className="text-destructive hover:text-destructive"
+            onClick={() => onDelete(row.original.id)}
+          >
             Delete
           </Button>
         </div>

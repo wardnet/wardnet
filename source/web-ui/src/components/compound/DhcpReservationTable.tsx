@@ -31,7 +31,11 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<DhcpReservatio
       header: "",
       meta: { className: "text-right" },
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
+        <Button
+          variant="tertiary"
+          className="text-destructive hover:text-destructive"
+          onClick={() => onDelete(row.original.id)}
+        >
           Delete
         </Button>
       ),

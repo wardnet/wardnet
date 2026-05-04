@@ -62,13 +62,17 @@ function createColumns(
       meta: { className: "text-right" },
       cell: ({ row }) =>
         row.original.status === "active" ? (
-          <div className="flex justify-end gap-1">
+          <div className="flex justify-end gap-4">
             {onMakeStatic && (
-              <Button variant="ghost" size="sm" onClick={() => onMakeStatic(row.original)}>
-                Make Static
+              <Button variant="tertiary" onClick={() => onMakeStatic(row.original)}>
+                Make static
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => onRevoke(row.original.id)}>
+            <Button
+              variant="tertiary"
+              className="text-destructive hover:text-destructive"
+              onClick={() => onRevoke(row.original.id)}
+            >
               Revoke
             </Button>
           </div>
