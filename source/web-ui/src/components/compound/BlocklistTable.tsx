@@ -36,7 +36,7 @@ function createColumns(
     },
     {
       accessorKey: "last_updated",
-      header: "Last Updated",
+      header: "Last updated",
       meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
         <span className="text-muted-foreground">
@@ -68,7 +68,7 @@ function createColumns(
             onClick={() => onRefresh(row.original.id)}
             disabled={refreshingId === row.original.id}
           >
-            {refreshingId === row.original.id ? "Updating..." : "Update Now"}
+            {refreshingId === row.original.id ? "Updating..." : "Update now"}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
             Delete
@@ -107,7 +107,7 @@ export function BlocklistTable({
       <EmptyStatePlaceholder
         message="No blocklists configured"
         hint="Add a blocklist URL to start blocking ads and trackers network-wide."
-        actionLabel="Add Blocklist"
+        actionLabel="Add blocklist"
         onAction={onAdd}
       />
     );
@@ -117,7 +117,7 @@ export function BlocklistTable({
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
         <Button size="sm" onClick={onAdd}>
-          Add Blocklist
+          Add blocklist
         </Button>
       </div>
 

@@ -1,18 +1,17 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
 import type { DhcpLease, DhcpLeaseStatus } from "@wardnet/js";
 
-function leaseStatusVariant(status: DhcpLeaseStatus) {
-  const map = {
-    active: "default",
-    expired: "secondary",
-    released: "outline",
-  } as const;
-  return map[status];
+function leaseStatusTone(status: DhcpLeaseStatus): "success" | "neutral" {
+  return status === "active" ? "success" : "neutral";
+}
+
+function leaseStatusLabel(status: DhcpLeaseStatus): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function createColumns(
@@ -45,7 +44,9 @@ function createColumns(
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={leaseStatusVariant(row.original.status)}>{row.original.status}</Badge>
+        <StatusBadge tone={leaseStatusTone(row.original.status)}>
+          {leaseStatusLabel(row.original.status)}
+        </StatusBadge>
       ),
     },
     {

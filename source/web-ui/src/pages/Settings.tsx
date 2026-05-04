@@ -63,7 +63,7 @@ export default function Settings() {
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
-            <CardTitle>System Information</CardTitle>
+            <CardTitle>System information</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -89,7 +89,7 @@ export default function Settings() {
                   <dd className="font-medium">{status.tunnel_count}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Database Size</dt>
+                  <dt className="text-muted-foreground">Database size</dt>
                   <dd className="font-medium">{formatBytes(status.db_size_bytes)}</dd>
                 </div>
               </dl>

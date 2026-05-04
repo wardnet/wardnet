@@ -58,7 +58,7 @@ export function DhcpReservationTable({ reservations, onDelete, onAdd }: DhcpRese
       <EmptyStatePlaceholder
         message="No DHCP reservations"
         hint="Add your first reservation to assign a permanent IP address to a device."
-        actionLabel="Add Reservation"
+        actionLabel="Add reservation"
         onAction={onAdd}
       />
     );
@@ -68,7 +68,7 @@ export function DhcpReservationTable({ reservations, onDelete, onAdd }: DhcpRese
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
         <Button size="sm" onClick={onAdd}>
-          Add Reservation
+          Add reservation
         </Button>
       </div>
 

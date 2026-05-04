@@ -72,7 +72,7 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
       <EmptyStatePlaceholder
         message="No custom filter rules"
         hint="Add AdGuard-syntax rules for fine-grained control over what gets blocked or allowed."
-        actionLabel="Add Rule"
+        actionLabel="Add rule"
         onAction={onAdd}
       />
     );
@@ -82,7 +82,7 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
         <Button size="sm" onClick={onAdd}>
-          Add Rule
+          Add rule
         </Button>
       </div>
 

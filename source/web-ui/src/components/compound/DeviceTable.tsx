@@ -12,10 +12,10 @@ const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
   { value: "laptop", label: "Laptop" },
   { value: "tablet", label: "Tablet" },
   { value: "game_console", label: "Console" },
-  { value: "settop_box", label: "Set-top Box" },
+  { value: "settop_box", label: "Set-top box" },
   { value: "iot", label: "IoT" },
   { value: "router", label: "Router" },
-  { value: "managed_switch", label: "Managed Switch" },
+  { value: "managed_switch", label: "Managed switch" },
   { value: "server", label: "Server" },
   { value: "unknown", label: "Unknown" },
 ];
@@ -83,7 +83,7 @@ const columns: ColumnDef<Device>[] = [
   },
   {
     accessorKey: "last_seen",
-    header: "Last Seen",
+    header: "Last seen",
     meta: { className: "text-right" },
     cell: ({ row }) => (
       <span className="text-muted-foreground">{timeAgo(row.original.last_seen)}</span>

@@ -15,7 +15,7 @@ interface NavItem {
   end?: boolean;
 }
 
-const selfServiceLinks: NavItem[] = [{ to: "/", label: "My Device", end: true }];
+const selfServiceLinks: NavItem[] = [{ to: "/", label: "My device", end: true }];
 
 const adminLinks: NavItem[] = [
   { to: "/", label: "Dashboard", end: true },
@@ -23,7 +23,7 @@ const adminLinks: NavItem[] = [
   { to: "/tunnels", label: "Tunnels" },
   { to: "/dhcp", label: "DHCP" },
   { to: "/dns", label: "DNS" },
-  { to: "/ad-blocking", label: "Ad Blocking" },
+  { to: "/ad-blocking", label: "Ad blocking" },
   { to: "/settings", label: "Settings" },
 ];
 

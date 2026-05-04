@@ -60,7 +60,7 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
       <EmptyStatePlaceholder
         message="No allowlist entries"
         hint="Domains added here will never be blocked, even if they appear in a blocklist."
-        actionLabel="Add Domain"
+        actionLabel="Add domain"
         onAction={onAdd}
       />
     );
@@ -70,7 +70,7 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
         <Button size="sm" onClick={onAdd}>
-          Add Domain
+          Add domain
         </Button>
       </div>
 

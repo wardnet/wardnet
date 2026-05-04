@@ -30,7 +30,7 @@ export function DhcpConfigCard({ config, onEdit }: DhcpConfigCardProps) {
             <dd className="font-mono text-xs">{config.gateway_ip}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Pool Range</dt>
+            <dt className="text-muted-foreground">Pool range</dt>
             <dd className="font-mono text-xs">
               {config.pool_start} &ndash; {config.pool_end}
             </dd>
@@ -40,11 +40,11 @@ export function DhcpConfigCard({ config, onEdit }: DhcpConfigCardProps) {
             <dd className="font-mono text-xs">{config.subnet_mask}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Lease Duration</dt>
+            <dt className="text-muted-foreground">Lease duration</dt>
             <dd className="font-medium">{formatDuration(config.lease_duration_secs)}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Fallback Router</dt>
+            <dt className="text-muted-foreground">Fallback router</dt>
             <dd className="font-mono text-xs">{config.router_ip ?? "\u2014"}</dd>
           </div>
           <div>
