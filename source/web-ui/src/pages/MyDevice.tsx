@@ -109,7 +109,7 @@ function RoutingForm({
       )}
 
       <Button onClick={handleSave} disabled={!hasChanges || setMyRule.isPending} className="w-full">
-        {setMyRule.isPending ? "Saving..." : "Save"}
+        {setMyRule.isPending ? "Saving…" : "Save"}
       </Button>
     </div>
   );
@@ -132,7 +132,7 @@ export default function MyDevice() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-lg pt-8">
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
   }

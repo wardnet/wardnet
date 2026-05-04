@@ -249,7 +249,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             onClick={handleValidate}
             disabled={!credsReady || validateCreds.isPending}
           >
-            {validateCreds.isPending ? "Validating..." : "Validate credentials"}
+            {validateCreds.isPending ? "Validating…" : "Validate credentials"}
           </Button>
           {validateCreds.isError && (
             <ApiErrorAlert error={validateCreds.error} fallback="Validation failed" />
@@ -293,7 +293,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               onClick={handleFetchServers}
               disabled={fetchServers.isPending}
             >
-              {fetchServers.isPending ? "Loading..." : "Refresh"}
+              {fetchServers.isPending ? "Loading…" : "Refresh"}
             </Button>
           </div>
 
@@ -343,7 +343,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           )}
 
           <Button onClick={handleSetup} disabled={setupTunnel.isPending} className="w-full">
-            {setupTunnel.isPending ? "Setting up..." : "Create tunnel"}
+            {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
           </Button>
         </>
       )}

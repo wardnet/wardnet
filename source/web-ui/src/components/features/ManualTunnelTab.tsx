@@ -77,7 +77,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
           id="tunnel-config"
           value={config}
           onChange={(e) => setConfig(e.target.value)}
-          placeholder="Paste your .conf file contents here..."
+          placeholder="Paste your .conf file contents here…"
           required
           rows={10}
           className="font-mono"
@@ -87,7 +87,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         <ApiErrorAlert error={createTunnel.error} fallback="Failed to create tunnel" />
       )}
       <Button type="submit" disabled={createTunnel.isPending} className="w-full">
-        {createTunnel.isPending ? "Creating..." : "Create tunnel"}
+        {createTunnel.isPending ? "Creating…" : "Create tunnel"}
       </Button>
     </form>
   );

@@ -72,7 +72,7 @@ export function CreateFilterRuleSheet({ open, onOpenChange }: CreateFilterRuleSh
             disabled={createRule.isPending || ruleText.trim() === ""}
             className="w-full"
           >
-            {createRule.isPending ? "Adding..." : "Add rule"}
+            {createRule.isPending ? "Adding…" : "Add rule"}
           </Button>
         </div>
       </SheetContent>

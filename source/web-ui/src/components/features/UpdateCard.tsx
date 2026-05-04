@@ -134,7 +134,7 @@ export function UpdateCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {isLoading || !status ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <>
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
@@ -215,12 +215,12 @@ export function UpdateCard({
                     onClick={onRollback}
                     disabled={isRollingBack || phaseActive}
                   >
-                    {isRollingBack ? "Rolling back..." : "Rollback to previous"}
+                    {isRollingBack ? "Rolling back…" : "Rollback to previous"}
                   </Button>
                 )}
                 <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
                   <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
-                  {isChecking ? "Checking..." : "Check now"}
+                  {isChecking ? "Checking…" : "Check now"}
                 </Button>
               </div>
             </div>

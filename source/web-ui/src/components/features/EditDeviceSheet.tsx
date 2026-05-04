@@ -36,7 +36,7 @@ export function EditDeviceSheet({ deviceId, open, onOpenChange }: EditDeviceShee
               }}
             />
           ) : (
-            <p className="mt-6 text-sm text-muted-foreground">Loading device...</p>
+            <p className="mt-6 text-sm text-muted-foreground">Loading device…</p>
           )}
         </SheetContent>
       </Sheet>

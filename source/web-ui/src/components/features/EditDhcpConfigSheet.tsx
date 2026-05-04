@@ -120,7 +120,7 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
           )}
 
           <Button onClick={handleSave} disabled={updateConfig.isPending} className="w-full">
-            {updateConfig.isPending ? "Saving..." : "Save configuration"}
+            {updateConfig.isPending ? "Saving…" : "Save configuration"}
           </Button>
         </div>
       </SheetContent>

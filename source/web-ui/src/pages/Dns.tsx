@@ -88,7 +88,7 @@ export default function Dns() {
                   onClick={() => flushCache.mutate()}
                   disabled={flushCache.isPending}
                 >
-                  {flushCache.isPending ? "Flushing..." : "Flush cache"}
+                  {flushCache.isPending ? "Flushing…" : "Flush cache"}
                 </Button>
               </CardHeader>
               <CardContent>

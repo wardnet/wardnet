@@ -104,7 +104,7 @@ export function CreateReservationSheet({
           )}
 
           <Button onClick={handleSave} disabled={createReservation.isPending} className="w-full">
-            {createReservation.isPending ? "Creating..." : "Create reservation"}
+            {createReservation.isPending ? "Creating…" : "Create reservation"}
           </Button>
         </div>
       </SheetContent>

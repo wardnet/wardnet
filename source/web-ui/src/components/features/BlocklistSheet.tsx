@@ -90,8 +90,8 @@ export function BlocklistSheet({ open, onOpenChange, blocklist }: BlocklistSheet
           <Button onClick={handleSave} disabled={mutation.isPending || !canSave} className="w-full">
             {mutation.isPending
               ? isEdit
-                ? "Saving..."
-                : "Adding..."
+                ? "Saving…"
+                : "Adding…"
               : isEdit
                 ? "Save changes"
                 : "Add blocklist"}

@@ -139,7 +139,7 @@ export function EditDeviceForm({
       )}
 
       <Button onClick={handleSave} disabled={updateDevice.isPending} className="w-full">
-        {updateDevice.isPending ? "Saving..." : "Save changes"}
+        {updateDevice.isPending ? "Saving…" : "Save changes"}
       </Button>
     </div>
   );

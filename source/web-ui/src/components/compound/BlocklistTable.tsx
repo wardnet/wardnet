@@ -68,7 +68,7 @@ function createColumns(
             onClick={() => onRefresh(row.original.id)}
             disabled={refreshingId === row.original.id}
           >
-            {refreshingId === row.original.id ? "Updating..." : "Update now"}
+            {refreshingId === row.original.id ? "Updating…" : "Update now"}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onDelete(row.original.id)}>
             Delete

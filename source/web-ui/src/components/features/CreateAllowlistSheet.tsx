@@ -62,7 +62,7 @@ export function CreateAllowlistSheet({ open, onOpenChange }: CreateAllowlistShee
             disabled={createEntry.isPending || domain.trim() === ""}
             className="w-full"
           >
-            {createEntry.isPending ? "Adding..." : "Allow domain"}
+            {createEntry.isPending ? "Adding…" : "Allow domain"}
           </Button>
         </div>
       </SheetContent>
