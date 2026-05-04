@@ -1,6 +1,7 @@
 import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
+import { DownloadIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/core/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
 import {
@@ -10,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/core/ui/select";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 
 /**
  * Whether a given install phase represents work in progress — i.e. a check/
@@ -32,16 +34,28 @@ function isPhaseActive(phase: InstallPhase): boolean {
 
 function describePhase(phase: InstallPhase): string {
   switch (phase.phase) {
+    case "checking":
+      return "Checking";
     case "downloading":
       return phase.total
         ? `Downloading (${phase.bytes.toLocaleString()} / ${phase.total.toLocaleString()} bytes)`
         : "Downloading";
+    case "verifying":
+      return "Verifying";
+    case "staging":
+      return "Staging";
+    case "swapping":
+      return "Swapping";
+    case "restart_pending":
+      return "Restart pending";
     // Failed phase renders its reason in the alert banner; the phase cell
     // only needs to flag the state, not restate the error.
     case "failed":
       return "Failed";
-    default:
-      return phase.phase;
+    case "idle":
+      return "Idle";
+    case "applied":
+      return "Applied";
   }
 }
 
@@ -80,18 +94,43 @@ export function UpdateCard({
   // off a second mutation after the first returns while the daemon is still
   // downloading in the background.
   const phaseActive = status ? isPhaseActive(status.install_phase) : false;
-  const installButtonLabel = !status
-    ? "Install"
-    : isInstalling || phaseActive
-      ? describePhase(status.install_phase) + "..."
-      : status.update_available
-        ? `Install v${status.latest_version}`
-        : "Up to date";
+  const installInProgress = isInstalling || phaseActive;
+
+  // The card head's right slot is a state-as-button transformation
+  // (WEBUI-DESIGN-GUIDELINES §4.4): a non-interactive "Up to date" badge
+  // when there's nothing to do, a primary "Install update" button when
+  // an update is available, and a disabled in-progress button while the
+  // install is running. The action row below carries only Check + Rollback.
+  const renderStateSlot = () => {
+    if (!status) return null;
+    if (installInProgress) {
+      return (
+        <Button disabled>
+          <Loader2Icon className="animate-spin" />
+          {describePhase(status.install_phase)}…
+        </Button>
+      );
+    }
+    if (status.update_available) {
+      return (
+        <Button onClick={onInstall}>
+          <DownloadIcon />
+          Install update
+        </Button>
+      );
+    }
+    return (
+      <StatusBadge tone="success" withIcon>
+        Up to date
+      </StatusBadge>
+    );
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Auto-update</CardTitle>
+        <CardAction>{renderStateSlot()}</CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {isLoading || !status ? (
@@ -167,12 +206,6 @@ export function UpdateCard({
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
                 {isChecking ? "Checking..." : "Check for updates"}
-              </Button>
-              <Button
-                onClick={onInstall}
-                disabled={!status.update_available || isInstalling || phaseActive}
-              >
-                {installButtonLabel}
               </Button>
               {status.rollback_available && (
                 <Button
