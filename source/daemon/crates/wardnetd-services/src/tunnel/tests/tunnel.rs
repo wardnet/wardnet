@@ -46,14 +46,25 @@ PersistentKeepalive = 25
 
 // -- Mock TunnelRepository ------------------------------------------------
 
+/// Stats persisted by `update_stats`; tracked separately because
+/// `TunnelRow` is the insert DTO and doesn't carry live stats columns.
+#[derive(Default, Clone)]
+struct TunnelStatsRow {
+    bytes_tx: i64,
+    bytes_rx: i64,
+    last_handshake: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 struct MockTunnelRepo {
     rows: Mutex<Vec<TunnelRow>>,
+    stats: Mutex<std::collections::HashMap<String, TunnelStatsRow>>,
 }
 
 impl MockTunnelRepo {
     fn new() -> Self {
         Self {
             rows: Mutex::new(Vec::new()),
+            stats: Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -62,13 +73,15 @@ impl MockTunnelRepo {
 impl TunnelRepository for MockTunnelRepo {
     async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
         let rows = self.rows.lock().unwrap();
-        rows.iter().map(row_to_tunnel).collect()
+        let stats = self.stats.lock().unwrap();
+        rows.iter().map(|r| row_to_tunnel(r, &stats)).collect()
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Tunnel>> {
         let rows = self.rows.lock().unwrap();
+        let stats = self.stats.lock().unwrap();
         let row = rows.iter().find(|r| r.id == id);
-        row.map(row_to_tunnel).transpose()
+        row.map(|r| row_to_tunnel(r, &stats)).transpose()
     }
 
     async fn find_config_by_id(&self, id: &str) -> anyhow::Result<Option<TunnelConfig>> {
@@ -106,11 +119,20 @@ impl TunnelRepository for MockTunnelRepo {
 
     async fn update_stats(
         &self,
-        _id: &str,
-        _bytes_tx: i64,
-        _bytes_rx: i64,
-        _last_handshake: Option<&str>,
+        id: &str,
+        bytes_tx: i64,
+        bytes_rx: i64,
+        last_handshake: Option<&str>,
     ) -> anyhow::Result<()> {
+        let parsed = last_handshake.map(str::parse).transpose()?;
+        self.stats.lock().unwrap().insert(
+            id.to_owned(),
+            TunnelStatsRow {
+                bytes_tx,
+                bytes_rx,
+                last_handshake: parsed,
+            },
+        );
         Ok(())
     }
 
@@ -141,13 +163,19 @@ impl TunnelRepository for MockTunnelRepo {
     }
 }
 
-/// Convert a `TunnelRow` into a `Tunnel` for mock responses.
-fn row_to_tunnel(r: &TunnelRow) -> anyhow::Result<Tunnel> {
-    let status = match r.status.as_str() {
+/// Convert a `TunnelRow` into a `Tunnel` for mock responses, layering in
+/// the latest stats observation if one exists.
+fn row_to_tunnel(
+    r: &TunnelRow,
+    stats_map: &std::collections::HashMap<String, TunnelStatsRow>,
+) -> anyhow::Result<Tunnel> {
+    let parsed_status = match r.status.as_str() {
         "up" => TunnelStatus::Up,
         "connecting" => TunnelStatus::Connecting,
+        "reconnecting" => TunnelStatus::Reconnecting,
         _ => TunnelStatus::Down,
     };
+    let s = stats_map.get(&r.id).cloned().unwrap_or_default();
     Ok(Tunnel {
         id: r.id.parse()?,
         label: r.label.clone(),
@@ -155,10 +183,10 @@ fn row_to_tunnel(r: &TunnelRow) -> anyhow::Result<Tunnel> {
         provider: r.provider.clone(),
         interface_name: r.interface_name.clone(),
         endpoint: r.endpoint.clone(),
-        status,
-        last_handshake: None,
-        bytes_tx: 0,
-        bytes_rx: 0,
+        status: parsed_status,
+        last_handshake: s.last_handshake,
+        bytes_tx: s.bytes_tx.cast_unsigned(),
+        bytes_rx: s.bytes_rx.cast_unsigned(),
         created_at: chrono::Utc::now(),
     })
 }
@@ -456,6 +484,7 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
 
 struct TestHarness {
     svc: TunnelServiceImpl,
+    tunnels: Arc<MockTunnelRepo>,
     tunnel_iface: Arc<MockTunnelInterface>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
@@ -469,7 +498,7 @@ fn build_harness() -> TestHarness {
     let events = Arc::new(MockEventPublisher::new());
 
     let svc = TunnelServiceImpl::with_key_store(
-        repo,
+        repo.clone(),
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
@@ -478,6 +507,7 @@ fn build_harness() -> TestHarness {
 
     TestHarness {
         svc,
+        tunnels: repo,
         tunnel_iface,
         events,
         keys,
@@ -491,7 +521,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let events = Arc::new(MockEventPublisher::new());
 
     let svc = TunnelServiceImpl::with_key_store(
-        repo,
+        repo.clone(),
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
@@ -500,6 +530,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
 
     TestHarness {
         svc,
+        tunnels: repo,
         tunnel_iface,
         events,
         keys,
@@ -585,16 +616,19 @@ async fn bring_up_success() {
         assert_eq!(brought_up[0], "wg_ward0");
     }
 
-    // Verify TunnelUp event was published.
+    // Verify TunnelConnecting event was published — the tunnel only flips
+    // to `Up` once the health-check loop observes a handshake.
     let events = h.events.published_events();
     assert_eq!(events.len(), 1);
-    assert!(matches!(&events[0], WardnetEvent::TunnelUp { tunnel_id, .. } if *tunnel_id == id));
+    assert!(
+        matches!(&events[0], WardnetEvent::TunnelConnecting { tunnel_id, .. } if *tunnel_id == id)
+    );
 
-    // Verify tunnel status is now up.
+    // Verify tunnel status is now connecting.
     let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
         .await
         .unwrap();
-    assert_eq!(tunnel.status, TunnelStatus::Up);
+    assert_eq!(tunnel.status, TunnelStatus::Connecting);
 }
 
 #[tokio::test]
@@ -779,14 +813,14 @@ async fn tear_down_internal_succeeds_without_admin_context() {
 }
 
 #[tokio::test]
-async fn bring_up_already_up_is_noop() {
+async fn bring_up_when_iface_already_configured_is_noop() {
     let h = build_harness();
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
         .await
         .unwrap();
     let id = resp.tunnel.id;
 
-    // Bring up the first time.
+    // Bring up the first time — status becomes `Connecting`.
     auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
         .await
         .unwrap();
@@ -794,7 +828,8 @@ async fn bring_up_already_up_is_noop() {
     // Clear events from the first bring_up.
     h.events.events.lock().unwrap().clear();
 
-    // Bring up again -- should be a no-op.
+    // Bring up again -- should be a no-op because the kernel iface is
+    // already configured.
     auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
         .await
         .unwrap();
@@ -1114,32 +1149,63 @@ async fn collect_stats_ignores_down_tunnels() {
     );
 }
 
-#[tokio::test]
-async fn run_health_check_warns_on_stale_handshake() {
-    let h = build_harness();
-    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
-        .await
-        .unwrap();
-    let id = resp.tunnel.id;
-
+/// Helper: bring tunnel up + drive a stats observation through the iface
+/// mock, mimicking what the stats loop would persist into the DB.
+async fn bring_up_then_observe_handshake(
+    h: &TestHarness,
+    id: Uuid,
+    handshake: Option<chrono::DateTime<chrono::Utc>>,
+) {
     auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
         .await
         .unwrap();
-
-    // Simulate a stale handshake (>3 minutes old).
-    let stale = chrono::Utc::now() - chrono::Duration::minutes(10);
     h.tunnel_iface.set_stats(TunnelStats {
         bytes_tx: 0,
         bytes_rx: 0,
-        last_handshake: Some(stale),
+        last_handshake: handshake,
     });
-
-    // Should succeed regardless — the staleness is only logged.
-    h.svc.run_health_check().await.unwrap();
+    h.svc.collect_stats().await.unwrap();
+    h.events.events.lock().unwrap().clear();
 }
 
 #[tokio::test]
-async fn run_health_check_fresh_handshake_succeeds() {
+async fn collect_stats_picks_up_connecting_tunnels() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // After bring_up the status is `Connecting` — not yet `Up`.
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 64,
+        bytes_rx: 0,
+        last_handshake: None,
+    });
+    h.svc.collect_stats().await.unwrap();
+
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::TunnelStatsUpdated {
+                tunnel_id, status, ..
+            } if *tunnel_id == id && *status == TunnelStatus::Connecting
+        )),
+        "expected TunnelStatsUpdated with Connecting status",
+    );
+}
+
+#[tokio::test]
+async fn collect_stats_does_not_change_status() {
+    // Separation-of-concerns guarantee: collect_stats is a pure observer
+    // and must never mutate tunnel status. Status transitions are owned
+    // by run_health_check.
     let h = build_harness();
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
         .await
@@ -1150,6 +1216,8 @@ async fn run_health_check_fresh_handshake_succeeds() {
         .await
         .unwrap();
 
+    // A fresh handshake — the kind of signal that *would* have triggered
+    // a status flip in the old code.
     let fresh = chrono::Utc::now() - chrono::Duration::seconds(10);
     h.tunnel_iface.set_stats(TunnelStats {
         bytes_tx: 0,
@@ -1157,45 +1225,190 @@ async fn run_health_check_fresh_handshake_succeeds() {
         last_handshake: Some(fresh),
     });
 
-    h.svc.run_health_check().await.unwrap();
+    h.svc.collect_stats().await.unwrap();
+
+    // Status must still be `Connecting` — only run_health_check flips it.
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Connecting);
 }
 
 #[tokio::test]
-async fn run_health_check_missing_interface_logs_and_returns_ok() {
-    // `get_stats` returning None triggers the "interface removed externally"
-    // error log path but health check overall returns Ok.
+async fn run_health_check_connecting_to_up_on_handshake() {
     let h = build_harness();
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
         .await
         .unwrap();
     let id = resp.tunnel.id;
 
-    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
-        .await
-        .unwrap();
-    // Default stats_behavior (None) triggers the missing-interface branch.
+    let fresh = chrono::Utc::now() - chrono::Duration::seconds(10);
+    bring_up_then_observe_handshake(&h, id, Some(fresh)).await;
 
     h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Up);
+
+    let events = h.events.published_events();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::TunnelUp { tunnel_id, .. } if *tunnel_id == id)),
+        "expected TunnelUp event",
+    );
 }
 
 #[tokio::test]
-async fn run_health_check_stats_error_logs_and_returns_ok() {
+async fn run_health_check_connecting_stays_connecting_without_handshake() {
     let h = build_harness();
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
         .await
         .unwrap();
     let id = resp.tunnel.id;
 
-    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
-        .await
-        .unwrap();
-    h.tunnel_iface.set_stats_error();
+    bring_up_then_observe_handshake(&h, id, None).await;
 
     h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Connecting);
+
+    let events = h.events.published_events();
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, WardnetEvent::TunnelUp { .. })
+                && !matches!(e, WardnetEvent::TunnelReconnecting { .. })),
+        "no transition events expected",
+    );
 }
 
 #[tokio::test]
-async fn run_health_check_no_up_tunnels_is_noop() {
+async fn run_health_check_up_to_reconnecting_when_handshake_stale() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Drive Connecting → Up via a fresh handshake.
+    let fresh = chrono::Utc::now() - chrono::Duration::seconds(10);
+    bring_up_then_observe_handshake(&h, id, Some(fresh)).await;
+    h.svc.run_health_check().await.unwrap();
+    assert_eq!(
+        auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+            .await
+            .unwrap()
+            .status,
+        TunnelStatus::Up,
+    );
+
+    // Now simulate the handshake going stale — collect_stats persists the
+    // older timestamp.
+    let stale = chrono::Utc::now() - chrono::Duration::minutes(10);
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(stale),
+    });
+    h.svc.collect_stats().await.unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Reconnecting);
+
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::TunnelReconnecting { tunnel_id, .. } if *tunnel_id == id
+        )),
+        "expected TunnelReconnecting event",
+    );
+}
+
+#[tokio::test]
+async fn run_health_check_up_to_reconnecting_when_handshake_absent() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Drive Connecting → Up via a fresh handshake.
+    let fresh = chrono::Utc::now() - chrono::Duration::seconds(10);
+    bring_up_then_observe_handshake(&h, id, Some(fresh)).await;
+    h.svc.run_health_check().await.unwrap();
+
+    // Handshake disappears (e.g. iface state lost between observations).
+    h.tunnels
+        .update_stats(&id.to_string(), 0, 0, None)
+        .await
+        .unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Reconnecting);
+}
+
+#[tokio::test]
+async fn run_health_check_reconnecting_to_up_on_recovery() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Drive the tunnel into Reconnecting.
+    bring_up_then_observe_handshake(&h, id, None).await;
+    // Force status to `Reconnecting` directly to set up the test, without
+    // waiting 3 min of wall-clock for the Up→Reconnecting transition.
+    h.tunnels
+        .update_status(&id.to_string(), "reconnecting")
+        .await
+        .unwrap();
+
+    // Peer starts replying — fresh handshake observed.
+    let fresh = chrono::Utc::now() - chrono::Duration::seconds(5);
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(fresh),
+    });
+    h.svc.collect_stats().await.unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Up);
+
+    let events = h.events.published_events();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::TunnelUp { tunnel_id, .. } if *tunnel_id == id)),
+        "expected TunnelUp event on recovery",
+    );
+}
+
+#[tokio::test]
+async fn run_health_check_no_active_tunnels_is_noop() {
     let h = build_harness();
     // No tunnels brought up; run_health_check iterates over an empty list.
     h.svc.run_health_check().await.unwrap();

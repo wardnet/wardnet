@@ -180,6 +180,25 @@ jobs:
           CRATE: wardnetd
         run: make build-daemon
 
+      - name: Build wardnet-postupgrade-runner
+        # Trust anchor for the privileged post-upgrade pipeline. Ships
+        # in the tarball; install.sh extracts it; FsBinaryApplier
+        # ignores it during auto-update so the runner only changes when
+        # an operator runs install.sh.
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: wardnet-postupgrade-runner
+        run: make build-daemon
+
+      - name: Build wardnet-postupgrade
+        # Privileged migration runner. Signed by release-daemon.yml
+        # using the same minisign key as the tarball, then bundled into
+        # the tarball as `wardnet-postupgrade.bin` + `.minisig`.
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: wardnet-postupgrade
+        run: make build-daemon
+
       - name: Build wardnetd-mock (x86_64 only)
         if: matrix.build-mock
         env:
@@ -196,13 +215,21 @@ jobs:
           set -euo pipefail
           BIN_DIR="source/daemon/target/${TARGET}/release"
           "${STRIP_TOOL}" "${BIN_DIR}/wardnetd"
-          ls -l "${BIN_DIR}/wardnetd"
+          "${STRIP_TOOL}" "${BIN_DIR}/wardnet-postupgrade-runner"
+          "${STRIP_TOOL}" "${BIN_DIR}/wardnet-postupgrade"
+          ls -l "${BIN_DIR}/wardnetd" \
+                "${BIN_DIR}/wardnet-postupgrade-runner" \
+                "${BIN_DIR}/wardnet-postupgrade"
           if [[ "${BUILD_MOCK}" == "true" ]]; then
             "${STRIP_TOOL}" "${BIN_DIR}/wardnetd-mock"
             ls -l "${BIN_DIR}/wardnetd-mock"
           fi
 
       - name: Package wardnetd
+        # Tarball ships unsigned at this stage; release-daemon.yml
+        # signs the post-upgrade payload (renaming wardnet-postupgrade
+        # → wardnet-postupgrade.bin and producing .minisig) and
+        # repacks before signing the outer tarball.
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
@@ -211,9 +238,22 @@ jobs:
           mkdir -p build-artefacts/staged-wardnetd
           cp "source/daemon/target/${TARGET}/release/wardnetd" \
             "build-artefacts/staged-wardnetd/wardnetd"
-          chmod 0755 "build-artefacts/staged-wardnetd/wardnetd"
+          cp "source/daemon/target/${TARGET}/release/wardnet-postupgrade-runner" \
+            "build-artefacts/staged-wardnetd/wardnet-postupgrade-runner"
+          cp "source/daemon/target/${TARGET}/release/wardnet-postupgrade" \
+            "build-artefacts/staged-wardnetd/wardnet-postupgrade"
+          cp deploy/wardnet-postupgrade.service \
+            "build-artefacts/staged-wardnetd/wardnet-postupgrade.service"
+          chmod 0755 "build-artefacts/staged-wardnetd/wardnetd" \
+                     "build-artefacts/staged-wardnetd/wardnet-postupgrade-runner" \
+                     "build-artefacts/staged-wardnetd/wardnet-postupgrade"
+          chmod 0644 "build-artefacts/staged-wardnetd/wardnet-postupgrade.service"
           tar -C build-artefacts/staged-wardnetd \
-            -czf "build-artefacts/wardnetd-${ARCH}.tar.gz" wardnetd
+            -czf "build-artefacts/wardnetd-${ARCH}.tar.gz" \
+            wardnetd \
+            wardnet-postupgrade-runner \
+            wardnet-postupgrade \
+            wardnet-postupgrade.service
 
       - name: Upload wardnetd artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

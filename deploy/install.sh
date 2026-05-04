@@ -24,6 +24,7 @@ MANIFEST_URL="${MANIFEST_URL:-https://releases.wardnet.network/${CHANNEL}.json}"
 LAN_INTERFACE="${LAN_INTERFACE:-}"
 OFFLINE_DIR=""
 CONTAINER_MODE=""
+UPGRADE_ONLY=""
 
 # Embedded release-signing public key. Baking it into the installer is the
 # authenticity anchor: even if DNS or Cloudflare is hijacked, an attacker
@@ -51,6 +52,13 @@ Options:
                         Use when running inside a Docker image build: systemd
                         is not running yet, but the enable symlink is still
                         created so systemd starts the service at boot.
+  --upgrade-only        Skip interactive prompts and the LAN-interface picker;
+                        do not create the wardnet user or rewrite
+                        /etc/wardnet/wardnet.toml. Re-installs the binary,
+                        systemd units, and the post-upgrade migration framework
+                        only. Use this on existing Pis to bootstrap the
+                        post-upgrade framework without disturbing operator
+                        config. Idempotent.
   -h, --help            Show this help text.
 
 Environment overrides:
@@ -66,6 +74,7 @@ while [[ $# -gt 0 ]]; do
         --channel)        CHANNEL="$2";           shift 2 ;;
         --lan-interface)  LAN_INTERFACE="$2";     shift 2 ;;
         --container-mode) CONTAINER_MODE=true;    shift   ;;
+        --upgrade-only)   UPGRADE_ONLY=true;      shift   ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; print_usage >&2; exit 1 ;;
     esac
@@ -187,7 +196,12 @@ pick_lan_interface() {
     echo "Using LAN interface: $LAN_INTERFACE"
 }
 
-pick_lan_interface
+# --upgrade-only skips the picker because the new run reuses the
+# LAN interface already recorded in /etc/wardnet/wardnet.toml from
+# the original install — no config rewrite, no new prompt.
+if [[ -z "$UPGRADE_ONLY" ]]; then
+    pick_lan_interface
+fi
 
 # ---------------------------------------------------------------------------
 # Stage release artefacts (online download OR offline pre-unpacked dir)
@@ -268,8 +282,12 @@ fi
 # Install
 # ---------------------------------------------------------------------------
 
-echo "=== Installing Wardnet v$VERSION ==="
-echo "LAN interface: $LAN_INTERFACE"
+if [[ -n "$UPGRADE_ONLY" ]]; then
+    echo "=== Wardnet upgrade-only run (v$VERSION) ==="
+else
+    echo "=== Installing Wardnet v$VERSION ==="
+    echo "LAN interface: $LAN_INTERFACE"
+fi
 
 # 1. System user. Locked-down account: no shell, no home dir.
 if ! id wardnet &>/dev/null; then
@@ -289,8 +307,10 @@ install -d -o wardnet -g wardnet -m 750 /var/lib/wardnet/updates
 install -d -o wardnet -g wardnet -m 750 /var/log/wardnet
 
 # 3. Default config — written only when none exists, so re-running (e.g.
-#    upgrade that bundles new units) preserves operator tweaks.
-if [[ ! -f /etc/wardnet/wardnet.toml ]]; then
+#    upgrade that bundles new units) preserves operator tweaks. Skipped
+#    explicitly under --upgrade-only so a stray missing config never gets
+#    rebuilt with whatever LAN_INTERFACE the picker chose.
+if [[ -z "$UPGRADE_ONLY" && ! -f /etc/wardnet/wardnet.toml ]]; then
     cat > /etc/wardnet/wardnet.toml <<EOF
 [database]
 provider = "sqlite"
@@ -315,13 +335,46 @@ fi
 #    rename a staged binary into place without setuid or a root helper.
 install -o wardnet -g wardnet -m 0755 "$WORKDIR/wardnetd" /usr/local/bin/wardnetd
 
-# 5. systemd units. The rollback unit is the `OnFailure=` target of the main
-#    unit (see wardnetd.service) — both must land together. Source them from
-#    the offline bundle, the script's sibling dir, or (as a last resort)
-#    GitHub raw for `curl | sudo bash` runs.
+# 5. Privileged post-upgrade migration framework. The runner is the trust
+#    anchor: root-owned, NOT in wardnetd.service's ReadWritePaths, so the
+#    unprivileged wardnet user can't replace it via auto-update. The
+#    signed payload + sig live in /var/lib/wardnet/postupgrade/ — wardnet-
+#    writable so auto-update can refresh them. The state file lives in
+#    /var/lib/wardnet-postupgrade/ (root:root, NOT under the wardnet tree)
+#    so the wardnet user can't mark a Required failure as `applied` and
+#    bypass the daemon-startup gate. Each install run is idempotent and
+#    safe to re-run (used by --upgrade-only on existing Pis).
+install -d -o root    -g root    -m 0755 /usr/local/libexec/wardnet
+install -d -o root    -g root    -m 0755 /usr/local/libexec/wardnet/runner
+install -d -o wardnet -g wardnet -m 0755 /var/lib/wardnet/postupgrade
+install -d -o root    -g root    -m 0755 /var/lib/wardnet-postupgrade
+
+if [[ -f "$WORKDIR/wardnet-postupgrade-runner" ]]; then
+    install -o root -g root -m 0755 \
+        "$WORKDIR/wardnet-postupgrade-runner" \
+        /usr/local/libexec/wardnet/runner/wardnet-postupgrade-runner
+fi
+if [[ -f "$WORKDIR/wardnet-postupgrade.bin" ]]; then
+    install -o wardnet -g wardnet -m 0644 \
+        "$WORKDIR/wardnet-postupgrade.bin" \
+        /var/lib/wardnet/postupgrade/wardnet-postupgrade.bin
+fi
+if [[ -f "$WORKDIR/wardnet-postupgrade.minisig" ]]; then
+    install -o wardnet -g wardnet -m 0644 \
+        "$WORKDIR/wardnet-postupgrade.minisig" \
+        /var/lib/wardnet/postupgrade/wardnet-postupgrade.minisig
+fi
+
+# 6. systemd units. The rollback unit is the `OnFailure=` target of the main
+#    unit (see wardnetd.service) — both must land together. The post-upgrade
+#    unit declares `RequiredBy=wardnetd.service` in its [Install] section,
+#    so `systemctl enable wardnet-postupgrade.service` materialises a
+#    requires/ symlink that gates wardnetd startup on the runner. Source
+#    units from the offline bundle, the script's sibling dir, or (as a
+#    last resort) GitHub raw for `curl | sudo bash` runs.
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 UNIT_BASE="https://raw.githubusercontent.com/wardnet/wardnet/main/deploy"
-for unit in wardnetd.service wardnetd-rollback.service; do
+for unit in wardnetd.service wardnetd-rollback.service wardnet-postupgrade.service; do
     src=""
     if [[ -n "$OFFLINE_DIR" && -f "$OFFLINE_DIR/$unit" ]]; then
         src="$OFFLINE_DIR/$unit"
@@ -339,16 +392,19 @@ if [[ -z "$CONTAINER_MODE" ]]; then
     systemctl daemon-reload
 fi
 
-# 6. Enable (always — creates the WantedBy symlink so the service starts at
-#    boot). In container mode systemd is not running yet during the image
+# 7. Enable (always — creates the WantedBy symlink so the service starts at
+#    boot, plus the wardnetd.service.requires/ symlink for the post-upgrade
+#    runner). In container mode systemd is not running yet during the image
 #    build, so we skip daemon-reload, the immediate start, and the port wait;
 #    systemd will start wardnetd when it initialises as PID 1 at runtime.
 if [[ -n "$CONTAINER_MODE" ]]; then
+    systemctl enable wardnet-postupgrade.service
     systemctl enable wardnetd
     echo ""
     echo "=== Image build complete ==="
     echo "wardnetd will start when the container initialises (systemd as PID 1)."
 else
+    systemctl enable wardnet-postupgrade.service
     systemctl enable --now wardnetd
     systemctl restart wardnetd
 
@@ -363,6 +419,10 @@ else
 
     IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     echo ""
-    echo "=== Install complete ==="
-    echo "Web UI: http://${IP:-<host>}:7411"
+    if [[ -n "$UPGRADE_ONLY" ]]; then
+        echo "=== Upgrade complete ==="
+    else
+        echo "=== Install complete ==="
+        echo "Web UI: http://${IP:-<host>}:7411"
+    fi
 fi

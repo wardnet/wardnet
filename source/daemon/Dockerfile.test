@@ -55,13 +55,37 @@ COPY CALVER /CALVER
 # works.
 ARG WARDNET_VERSION=0.0.0-dev
 
-RUN cargo build --release -p wardnetd -p wardnet-test-agent \
-    && strip target/release/wardnetd target/release/wardnet-test-agent
+# Generate the ephemeral signing keypair BEFORE compiling so the
+# wardnet-postupgrade-runner build embeds the test pubkey via
+# WARDNET_POSTUPGRADE_PUBKEY_PATH. -W = no password (prompt-free);
+# -f = overwrite if a key file already exists. Kept under /tmp so
+# the private key never lands in a runtime layer.
+RUN mkdir -p /tmp/local-bundle \
+    && minisign -G -W -f \
+        -p /tmp/local-bundle/local-bundle.pub \
+        -s /tmp/local-bundle/local-bundle.key
+
+# Build wardnetd + the test agent + the post-upgrade pipeline binaries.
+# WARDNET_POSTUPGRADE_PUBKEY_PATH points at the ephemeral pubkey so the
+# runner's trust anchor in this image only honours signatures from the
+# same ephemeral keypair (production builds default to
+# deploy/keys/wardnet-release.pub).
+RUN WARDNET_POSTUPGRADE_PUBKEY_PATH=/tmp/local-bundle/local-bundle.pub \
+    cargo build --release \
+        -p wardnetd \
+        -p wardnet-test-agent \
+        -p wardnet-postupgrade-runner \
+        -p wardnet-postupgrade \
+    && strip \
+        target/release/wardnetd \
+        target/release/wardnet-test-agent \
+        target/release/wardnet-postupgrade-runner \
+        target/release/wardnet-postupgrade
 
 # Build the synthetic release bundle that install.sh --from consumes:
-# tarball + sha256 + minisig + the two systemd units. The signing key
-# is generated here, used to sign the tarball, then the private half
-# is dropped — only the public key leaves this stage so the runtime
+# tarball + sha256 + minisig + the systemd units. After signing the
+# inner postupgrade binary, the private half of the keypair is
+# dropped — only the public key leaves this stage so the runtime
 # stage can patch it into install.sh's embedded MINISIGN_PUBLIC_KEY.
 RUN <<"EOF" bash
 set -euo pipefail
@@ -70,37 +94,49 @@ case "$(uname -m)" in
     x86_64|amd64)  ARCH=x86_64 ;;
     *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
 esac
-mkdir -p /tmp/local-bundle
 TARBALL="wardnetd-${WARDNET_VERSION}-${ARCH}.tar.gz"
 
-# Stage the tarball contents (only the wardnetd binary; install.sh
-# expects to find it at the root of the archive).
+# Stage the tarball contents. The post-upgrade payload binary is
+# renamed to `wardnet-postupgrade.bin` (the runtime trust anchor's
+# expected filename) and signed with the ephemeral key — same trust
+# model as production, just keyed by an in-image keypair.
 STAGE=$(mktemp -d)
-cp target/release/wardnetd "$STAGE/wardnetd"
-tar -C "$STAGE" -czf "/tmp/local-bundle/${TARBALL}" wardnetd
+cp target/release/wardnetd                    "$STAGE/wardnetd"
+cp target/release/wardnet-postupgrade-runner  "$STAGE/wardnet-postupgrade-runner"
+cp target/release/wardnet-postupgrade         "$STAGE/wardnet-postupgrade.bin"
+cp /deploy/wardnet-postupgrade.service        "$STAGE/wardnet-postupgrade.service"
+minisign -S -W \
+    -s /tmp/local-bundle/local-bundle.key \
+    -t "wardnet-test-image postupgrade" \
+    -m "$STAGE/wardnet-postupgrade.bin" \
+    -x "$STAGE/wardnet-postupgrade.minisig"
+tar -C "$STAGE" -czf "/tmp/local-bundle/${TARBALL}" \
+    wardnetd \
+    wardnet-postupgrade-runner \
+    wardnet-postupgrade.bin \
+    wardnet-postupgrade.minisig \
+    wardnet-postupgrade.service
 rm -rf "$STAGE"
 
 # SHA-256 sidecar. install.sh reads the hash with `awk '{print $1}'`,
 # so the standard `sha256sum` two-column format works as-is.
 ( cd /tmp/local-bundle && sha256sum "${TARBALL}" > "${TARBALL}.sha256" )
 
-# Ephemeral minisign keypair. -W = no password (prompt-free); -f =
-# overwrite if a key file already exists. Kept under /tmp so the
-# private key cannot leak into a runtime layer even by accident.
-minisign -G -W -f \
-    -p /tmp/local-bundle/local-bundle.pub \
-    -s /tmp/local-bundle/local-bundle.key
-
-# Sign the tarball. -t pins the trusted comment so install.sh's
-# verification produces stable output across rebuilds.
+# Sign the outer tarball with the same ephemeral key. -t pins the
+# trusted comment so install.sh's verification produces stable
+# output across rebuilds.
 minisign -S -W \
     -s /tmp/local-bundle/local-bundle.key \
     -t "wardnet-test-image local build" \
     -m "/tmp/local-bundle/${TARBALL}"
 
 # Bundle the systemd units alongside the tarball — install.sh's
-# --from path looks them up next to the archive.
-cp /deploy/wardnetd.service /deploy/wardnetd-rollback.service /tmp/local-bundle/
+# --from path looks them up next to the archive (in addition to
+# whatever's inside the tarball, which it doesn't read here).
+cp /deploy/wardnetd.service \
+   /deploy/wardnetd-rollback.service \
+   /deploy/wardnet-postupgrade.service \
+   /tmp/local-bundle/
 
 # Drop the private key. The public key stays so the runtime stage
 # can patch install.sh's embedded MINISIGN_PUBLIC_KEY before invoking

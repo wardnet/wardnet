@@ -6,8 +6,16 @@ import { formatBytes, timeAgo } from "@/lib/utils";
 import { countryFlag } from "@/lib/country";
 import type { Tunnel, TunnelStatus, ProviderInfo } from "@wardnet/js";
 
-function statusTone(status: TunnelStatus): "success" | "neutral" {
-  return status === "up" ? "success" : "neutral";
+function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
+  switch (status) {
+    case "up":
+      return "success";
+    case "reconnecting":
+      return "danger";
+    case "down":
+    case "connecting":
+      return "neutral";
+  }
 }
 
 function statusLabel(status: TunnelStatus): string {
@@ -18,6 +26,27 @@ function statusLabel(status: TunnelStatus): string {
       return "Down";
     case "connecting":
       return "Connecting";
+    case "reconnecting":
+      return "Reconnecting";
+  }
+}
+
+/**
+ * Hover text explaining a non-`up` tunnel status. `connecting` means the
+ * iface is configured but the peer hasn't replied yet; `reconnecting`
+ * means we previously had a handshake and it's gone stale (>3 min).
+ */
+function statusTooltip(tunnel: Tunnel): string | undefined {
+  switch (tunnel.status) {
+    case "connecting":
+      return "Waiting for first handshake from peer.";
+    case "reconnecting":
+      return tunnel.last_handshake
+        ? `Last handshake ${timeAgo(tunnel.last_handshake)} — peer not responding.`
+        : "Lost handshake — peer not responding.";
+    case "up":
+    case "down":
+      return undefined;
   }
 }
 
@@ -62,7 +91,9 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             </p>
           </div>
         </div>
-        <StatusBadge tone={statusTone(tunnel.status)}>{statusLabel(tunnel.status)}</StatusBadge>
+        <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
+          {statusLabel(tunnel.status)}
+        </StatusBadge>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-y-2 text-sm">

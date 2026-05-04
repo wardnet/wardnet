@@ -178,10 +178,16 @@ async fn run(
             .expect("failed to build release manifest source"),
         ),
         verifier: Arc::new(Sha256MinisignVerifier::new(EMBEDDED_PUBLIC_KEY)),
-        applier: Arc::new(FsBinaryApplier::new(
-            config.update.live_binary_path.clone(),
-            config.update.staging_dir.clone(),
-        )),
+        applier: Arc::new(
+            FsBinaryApplier::new(
+                config.update.live_binary_path.clone(),
+                config.update.staging_dir.clone(),
+            )
+            .with_postupgrade(
+                std::path::PathBuf::from(wardnetd_services::update::POSTUPGRADE_DIR),
+                EMBEDDED_PUBLIC_KEY,
+            ),
+        ),
     };
 
     let host_id = sysinfo::System::host_name().unwrap_or_else(|| "wardnet".to_owned());
