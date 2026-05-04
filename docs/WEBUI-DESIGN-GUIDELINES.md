@@ -309,7 +309,7 @@ The default surface for grouping related content.
 | Slot | Use for |
 |---|---|
 | **Card head (top-right)** | The card's *primary* affordance: a status badge that may transform into the install button (state-as-button), an Edit-config button on read-mostly cards, or an overflow menu. |
-| **Body** | A primary CTA inherent to the card's purpose (Download backup is the point of the Backup card; the button sits in the body, not the footer). |
+| **Body** | A CTA inherent to the card's purpose, right-aligned at the bottom of the body. Use `primary` only when one action genuinely dominates the card; default to `secondary` when actions are utility-grade (Download backup, Export logs) so the page doesn't end up with one filled-primary per card. |
 | **Inset danger-zone block** | A destructive action sharing a card with safe ones (Restore from backup, Reset filters). |
 | **Footer action row** | Utility actions that operate on the card's state but aren't the card's reason for existing (Restart daemon, Check for updates, Flush cache). |
 

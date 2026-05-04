@@ -76,8 +76,8 @@ export function BackupCard({
           <span>Keep the passphrase somewhere safe. We can&apos;t recover it for you.</span>
         </div>
 
-        <div>
-          <Button onClick={() => setExportOpen(true)} disabled={isExporting}>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={() => setExportOpen(true)} disabled={isExporting}>
             <DownloadIcon />
             {isExporting ? "Exporting…" : "Download backup"}
           </Button>
