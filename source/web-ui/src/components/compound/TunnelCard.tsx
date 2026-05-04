@@ -1,18 +1,13 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
+import { StatusBadge } from "./StatusBadge";
 import { formatBytes, timeAgo } from "@/lib/utils";
 import { countryFlag } from "@/lib/country";
 import type { Tunnel, TunnelStatus, ProviderInfo } from "@wardnet/js";
 
-function statusColor(status: TunnelStatus) {
-  const map = {
-    up: "default",
-    down: "secondary",
-    connecting: "outline",
-  } as const;
-  return map[status];
+function statusTone(status: TunnelStatus): "success" | "neutral" {
+  return status === "up" ? "success" : "neutral";
 }
 
 function statusLabel(status: TunnelStatus): string {
@@ -67,7 +62,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             </p>
           </div>
         </div>
-        <Badge variant={statusColor(tunnel.status)}>{statusLabel(tunnel.status)}</Badge>
+        <StatusBadge tone={statusTone(tunnel.status)}>{statusLabel(tunnel.status)}</StatusBadge>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-y-2 text-sm">

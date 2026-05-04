@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Badge } from "@/components/core/ui/badge";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
+import { StatusBadge } from "./StatusBadge";
 import { DashboardUsageBar } from "./DashboardUsageBar";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
@@ -19,9 +19,9 @@ export function DhcpStatusCard({ status, onToggle, isPending }: DhcpStatusCardPr
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-sm font-medium text-muted-foreground">DHCP Server</CardTitle>
-        <Badge variant={status.running ? "default" : "secondary"}>
+        <StatusBadge tone={status.running ? "success" : "neutral"} withIcon={status.running}>
           {status.running ? "Running" : "Stopped"}
-        </Badge>
+        </StatusBadge>
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">

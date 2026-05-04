@@ -1,8 +1,8 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/core/ui/badge";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
 import type { Blocklist } from "@wardnet/js";
 
@@ -48,9 +48,9 @@ function createColumns(
       accessorKey: "enabled",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={row.original.enabled ? "default" : "secondary"}>
+        <StatusBadge tone={row.original.enabled ? "success" : "neutral"}>
           {row.original.enabled ? "Enabled" : "Disabled"}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {

@@ -2,6 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/core/ui/badge";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
 import type { Device, DeviceType, DhcpStatus } from "@wardnet/js";
 
@@ -72,11 +73,11 @@ const columns: ColumnDef<Device>[] = [
       const status: DhcpStatus = row.original.dhcp_status;
       switch (status) {
         case "lease":
-          return <Badge variant="default">Lease</Badge>;
+          return <StatusBadge tone="success">Lease</StatusBadge>;
         case "reservation":
-          return <Badge variant="default">Reserved</Badge>;
+          return <StatusBadge tone="success">Reserved</StatusBadge>;
         case "external":
-          return <Badge variant="secondary">External</Badge>;
+          return <StatusBadge tone="neutral">External</StatusBadge>;
       }
     },
   },

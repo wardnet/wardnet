@@ -5,6 +5,7 @@ import { Label } from "@/components/core/ui/label";
 import { Button } from "@/components/core/ui/button";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
+import { StatusBadge } from "@/components/compound/StatusBadge";
 import { useDnsStatus, useDnsConfig, useToggleDns, useFlushDnsCache } from "@/hooks/useDns";
 
 /** DNS server configuration page (admin only). */
@@ -43,9 +44,12 @@ export default function Dns() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   DNS Server
                 </CardTitle>
-                <Badge variant={status.running ? "default" : "secondary"}>
+                <StatusBadge
+                  tone={status.running ? "success" : "neutral"}
+                  withIcon={status.running}
+                >
                   {status.running ? "Running" : "Stopped"}
-                </Badge>
+                </StatusBadge>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
