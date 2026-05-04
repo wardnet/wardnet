@@ -1,5 +1,5 @@
 import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
-import { DownloadIcon, Loader2Icon } from "lucide-react";
+import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/core/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Switch } from "@/components/core/ui/switch";
@@ -205,6 +205,7 @@ export function UpdateCard({
 
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
+                <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
                 {isChecking ? "Checking..." : "Check for updates"}
               </Button>
               {status.rollback_available && (
