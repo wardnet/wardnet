@@ -69,9 +69,7 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add domain
-        </Button>
+        <Button onClick={onAdd}>Add domain</Button>
       </div>
 
       <DataTable columns={columns} data={entries} />

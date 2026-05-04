@@ -81,9 +81,7 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add rule
-        </Button>
+        <Button onClick={onAdd}>Add rule</Button>
       </div>
 
       <DataTable columns={columns} data={rules} />

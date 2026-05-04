@@ -67,9 +67,7 @@ export function DhcpReservationTable({ reservations, onDelete, onAdd }: DhcpRese
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add reservation
-        </Button>
+        <Button onClick={onAdd}>Add reservation</Button>
       </div>
 
       <DataTable columns={columns} data={reservations} />

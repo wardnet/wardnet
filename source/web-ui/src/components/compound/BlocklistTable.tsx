@@ -116,9 +116,7 @@ export function BlocklistTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}>
-          Add blocklist
-        </Button>
+        <Button onClick={onAdd}>Add blocklist</Button>
       </div>
 
       <DataTable columns={columns} data={blocklists} onRowClick={onEdit} />

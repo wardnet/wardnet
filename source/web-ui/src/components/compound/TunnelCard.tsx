@@ -95,7 +95,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button variant="destructive" size="sm" onClick={() => onDelete(tunnel.id)}>
+          <Button variant="destructive" onClick={() => onDelete(tunnel.id)}>
             Delete
           </Button>
         </div>
