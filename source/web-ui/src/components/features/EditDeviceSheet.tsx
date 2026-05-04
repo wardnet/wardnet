@@ -42,6 +42,7 @@ export function EditDeviceSheet({ deviceId, open, onOpenChange }: EditDeviceShee
       </Sheet>
 
       <CreateReservationSheet
+        key={reservationDefaults ? JSON.stringify(reservationDefaults) : "closed"}
         open={!!reservationDefaults}
         onOpenChange={(o) => {
           if (!o) setReservationDefaults(null);
