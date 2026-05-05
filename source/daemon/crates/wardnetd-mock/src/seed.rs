@@ -8,11 +8,12 @@
 //! Admin credentials are **not** seeded — the setup wizard runs on every
 //! mock launch so developers can exercise that flow repeatedly.
 
-use chrono::{Duration, Utc};
+use chrono::{Datelike, Duration, Timelike, Utc};
 use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, TunnelRow,
+    AllowlistRow, CustomRuleRow, DailyMetricRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow,
+    IntradayMetricRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -31,6 +32,7 @@ pub struct SeededIds {
 pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededIds> {
     let device_repo = factory.device();
     let tunnel_repo = factory.tunnel();
+    let tunnel_metrics_repo = factory.tunnel_metrics();
     let dns_repo = factory.dns();
     let dhcp_repo = factory.dhcp();
 
@@ -160,7 +162,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             Some("nordvpn"),
             "wg_ward0",
             "us1234.nordvpn.com:51820",
-            "down",
+            "up",
             // realistic-looking fake public key
             "wFVuJ3gx+w9kZl1/KxCZYqU9QOHkP3nCqjXmU8ZIxRI=",
             "10.5.0.2/32",
@@ -180,6 +182,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     ];
 
     let mut tunnel_ids = Vec::with_capacity(tunnels.len());
+    let mut up_tunnel_id: Option<Uuid> = None;
     for (label, country, provider, interface, endpoint, status, peer_pk, address_cidr, dns_ip) in
         tunnels
     {
@@ -209,6 +212,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             listen_port: None,
         };
         tunnel_repo.insert(&row).await?;
+        if status == "up" {
+            up_tunnel_id = Some(id);
+        }
         tunnel_ids.push(id);
         tracing::debug!(
             tunnel_id = %id,
@@ -219,19 +225,43 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     }
 
     // ------------------------------------------------------------------
-    // Routing rule: first device → first tunnel.
+    // Tunnel metrics history — only for the seeded "up" tunnel so the
+    // detail page chart looks alive in `make run-dev`. The "down"
+    // tunnel is left empty to validate the empty-state UI.
     // ------------------------------------------------------------------
-    if let (Some(device_id), Some(tunnel_id)) = (device_ids.first(), tunnel_ids.first()) {
+    if let Some(tunnel_id) = up_tunnel_id {
+        let (intraday, daily) = generate_metrics_history(tunnel_id, now);
+        tunnel_metrics_repo.insert_intraday_batch(&intraday).await?;
+        tunnel_metrics_repo.insert_daily_batch(&daily).await?;
+        tracing::debug!(
+            tunnel_id = %tunnel_id,
+            intraday = intraday.len(),
+            daily = daily.len(),
+            "seeded tunnel metrics history: tunnel_id={tunnel_id}, intraday={i}, daily={d}",
+            i = intraday.len(),
+            d = daily.len(),
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Routing rules: route the first two seeded devices through the
+    // "up" tunnel so the tunnel detail page's devices table has more
+    // than one row to render. The "down" tunnel is left with no
+    // devices so its empty-state UI is also exercised.
+    // ------------------------------------------------------------------
+    if let Some(tunnel_id) = up_tunnel_id {
         let target_json =
             serde_json::json!({ "type": "tunnel", "tunnel_id": tunnel_id.to_string() }).to_string();
-        device_repo
-            .upsert_user_rule(&device_id.to_string(), &target_json, &now_iso)
-            .await?;
-        tracing::debug!(
-            device_id = %device_id,
-            tunnel_id = %tunnel_id,
-            "seeded routing rule: device_id={device_id}, tunnel_id={tunnel_id}",
-        );
+        for device_id in device_ids.iter().take(2) {
+            device_repo
+                .upsert_user_rule(&device_id.to_string(), &target_json, &now_iso)
+                .await?;
+            tracing::debug!(
+                device_id = %device_id,
+                tunnel_id = %tunnel_id,
+                "seeded routing rule: device_id={device_id}, tunnel_id={tunnel_id}",
+            );
+        }
     }
 
     // ------------------------------------------------------------------
@@ -268,4 +298,84 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         device_ids,
         tunnel_ids,
     })
+}
+
+/// Generate fixture throughput history for a single tunnel:
+///
+/// - **Intraday**: 48 h × 12 samples/h = 576 rows with a diurnal sine
+///   shape (peak in the evening, low overnight) plus deterministic
+///   pseudo-jitter so the chart looks alive without flapping between
+///   `make run-dev` runs.
+/// - **Daily**: 365 rows with weekly variation (weekend spikes), so the
+///   `12mo` view is fully populated.
+///
+/// All math is integer-only and deterministic — the output depends only
+/// on `tunnel_id` and `now`, so seeding is reproducible.
+fn generate_metrics_history(
+    tunnel_id: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> (Vec<IntradayMetricRow>, Vec<DailyMetricRow>) {
+    const INTERVAL_SECS: i64 = 300;
+    const POINTS_PER_HOUR: usize = 12;
+    const HOURS: usize = 48;
+
+    let tid = tunnel_id.to_string();
+
+    // -- Intraday: 48 h backwards from `now`, one row per 5 min. --------
+    let mut intraday = Vec::with_capacity(HOURS * POINTS_PER_HOUR);
+    let start = now - chrono::Duration::hours(HOURS as i64);
+    for i in 0..(HOURS * POINTS_PER_HOUR) {
+        let ts_dt = start + chrono::Duration::seconds(INTERVAL_SECS * (i as i64 + 1));
+        let ts = ts_dt.timestamp();
+
+        // Diurnal shape: hours-of-day in [0, 24) → sine peaking at 21:00.
+        let hour = ts_dt.hour() as f64 + (ts_dt.minute() as f64) / 60.0;
+        let phase = (hour - 21.0) / 24.0 * std::f64::consts::TAU;
+        let diurnal = (phase.cos() * 0.4 + 0.6).clamp(0.1, 1.0);
+
+        // Cheap deterministic jitter ±15% derived from `i` and `tid`.
+        let jitter_seed = (i as u64).wrapping_mul(2_654_435_761) ^ tunnel_id.as_u128() as u64;
+        let jitter = ((jitter_seed % 31) as f64 - 15.0) / 100.0;
+
+        // Bytes per interval — pick base values that put bytes/sec in
+        // a plausible "consumer streaming" range (a few hundred KB/s).
+        let base_tx = 30_000_000.0_f64; // ~100 KB/s averaged
+        let base_rx = 90_000_000.0_f64; // ~300 KB/s averaged
+        let tx_delta = (base_tx * diurnal * (1.0 + jitter)).max(0.0) as i64;
+        let rx_delta = (base_rx * diurnal * (1.0 + jitter)).max(0.0) as i64;
+
+        intraday.push(IntradayMetricRow {
+            tunnel_id: tid.clone(),
+            ts,
+            bytes_tx_delta: tx_delta,
+            bytes_rx_delta: rx_delta,
+        });
+    }
+
+    // -- Daily: 365 rows with weekly variation. -------------------------
+    let mut daily = Vec::with_capacity(365);
+    for d in 1..=365 {
+        let day_dt = now - chrono::Duration::days(d);
+        let day = day_dt.format("%Y-%m-%d").to_string();
+        // Weekday vs weekend (chrono: Sat=5, Sun=6 in num_days_from_monday).
+        let dow = day_dt.weekday().num_days_from_monday();
+        let weekend_boost = if dow >= 5 { 1.6 } else { 1.0 };
+        let jitter_seed = (d as u64).wrapping_mul(2_654_435_761) ^ tunnel_id.as_u128() as u64;
+        let jitter = ((jitter_seed % 21) as f64 - 10.0) / 100.0;
+
+        // ~2 GB tx, ~6 GB rx on a typical weekday.
+        let base_tx = 2_000_000_000.0_f64;
+        let base_rx = 6_000_000_000.0_f64;
+        let tx_total = (base_tx * weekend_boost * (1.0 + jitter)).max(0.0) as i64;
+        let rx_total = (base_rx * weekend_boost * (1.0 + jitter)).max(0.0) as i64;
+
+        daily.push(DailyMetricRow {
+            tunnel_id: tid.clone(),
+            day,
+            bytes_tx_total: tx_total,
+            bytes_rx_total: rx_total,
+        });
+    }
+
+    (intraday, daily)
 }

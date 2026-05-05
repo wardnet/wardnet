@@ -191,6 +191,13 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn find_devices_for_tunnel(
+        &self,
+        _tid: &str,
+    ) -> anyhow::Result<Vec<wardnet_common::device::Device>> {
+        Ok(vec![])
+    }
+
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,

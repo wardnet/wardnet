@@ -6,6 +6,7 @@ mod dns;
 mod session;
 mod system_config;
 mod tunnel;
+mod tunnel_metrics;
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;

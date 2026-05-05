@@ -398,6 +398,19 @@ impl TunnelService for StubTunnelService {
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
         unimplemented!()
     }
+    async fn get_metrics(
+        &self,
+        _id: Uuid,
+        _range: wardnet_common::api::TunnelMetricsRange,
+    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_tunnel_devices(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelDevicesResponse, AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -420,6 +433,10 @@ impl TunnelService for StubTunnelService {
         Ok(())
     }
     async fn run_health_check(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
         Ok(())
     }
 }

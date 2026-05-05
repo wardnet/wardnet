@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Button } from "@/components/core/ui/button";
 import { StatusBadge } from "./StatusBadge";
@@ -75,58 +76,73 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
   const flag = tunnel.country_code ? countryFlag(tunnel.country_code) : "";
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div className="flex items-center gap-3">
-          {provider && <ProviderLogo provider={provider} />}
-          <div className="flex flex-col gap-1">
-            <CardTitle className="text-base">
-              {flag && <span className="mr-1.5">{flag}</span>}
-              {tunnel.label}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {tunnel.country_code && tunnel.country_code.toUpperCase()}
-              {provider && ` \u00b7 ${provider.name}`}
-              {!provider && tunnel.provider && ` \u00b7 ${tunnel.provider}`}
-            </p>
+    <Card className="transition-colors hover:bg-accent/30">
+      <Link
+        to={`/tunnels/${tunnel.id}`}
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+      >
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div className="flex items-center gap-3">
+            {provider && <ProviderLogo provider={provider} />}
+            <div className="flex flex-col gap-1">
+              <CardTitle className="text-base">
+                {flag && <span className="mr-1.5">{flag}</span>}
+                {tunnel.label}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {tunnel.country_code && tunnel.country_code.toUpperCase()}
+                {provider && ` \u00b7 ${provider.name}`}
+                {!provider && tunnel.provider && ` \u00b7 ${tunnel.provider}`}
+              </p>
+            </div>
           </div>
-        </div>
-        <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
-          {statusLabel(tunnel.status)}
-        </StatusBadge>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-y-2 text-sm">
-          <div>
-            <span className="text-muted-foreground">Interface</span>
-            <p className="font-mono text-xs">{tunnel.interface_name}</p>
+          <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
+            {statusLabel(tunnel.status)}
+          </StatusBadge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-y-2 text-sm">
+            <div>
+              <span className="text-muted-foreground">Interface</span>
+              <p className="font-mono text-xs">{tunnel.interface_name}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Endpoint</span>
+              <p className="font-mono text-xs">{tunnel.endpoint}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Traffic</span>
+              <p className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-0.5">
+                  <ArrowUp className="size-3" aria-label="up" />
+                  {formatBytes(tunnel.bytes_tx)}
+                </span>
+                <span className="inline-flex items-center gap-0.5">
+                  <ArrowDown className="size-3" aria-label="down" />
+                  {formatBytes(tunnel.bytes_rx)}
+                </span>
+              </p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Last handshake</span>
+              <p className="text-xs">
+                {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "\u2014"}
+              </p>
+            </div>
           </div>
-          <div>
-            <span className="text-muted-foreground">Endpoint</span>
-            <p className="font-mono text-xs">{tunnel.endpoint}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Traffic</span>
-            <p className="flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-0.5">
-                <ArrowUp className="size-3" aria-label="up" />
-                {formatBytes(tunnel.bytes_tx)}
-              </span>
-              <span className="inline-flex items-center gap-0.5">
-                <ArrowDown className="size-3" aria-label="down" />
-                {formatBytes(tunnel.bytes_rx)}
-              </span>
-            </p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Last handshake</span>
-            <p className="text-xs">
-              {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "\u2014"}
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <Button variant="destructive" onClick={() => onDelete(tunnel.id)}>
+        </CardContent>
+      </Link>
+      <CardContent className="pt-0">
+        <div className="flex justify-end">
+          <Button
+            variant="destructive"
+            onClick={(e) => {
+              // Card is wrapped in <Link>; don't navigate when clicking delete.
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete(tunnel.id);
+            }}
+          >
             Delete
           </Button>
         </div>

@@ -20,6 +20,9 @@ use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats}
 use crate::tunnel::key_store::KeyStore;
 use crate::{TunnelService, TunnelServiceImpl};
 use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_data::repository::tunnel_metrics::{
+    DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository,
+};
 use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
 
 /// Helper to create an admin auth context for tests.
@@ -160,6 +163,86 @@ impl TunnelRepository for MockTunnelRepo {
 
     async fn count_active(&self) -> anyhow::Result<i64> {
         Ok(0)
+    }
+}
+
+// -- Mock TunnelMetricsRepository ----------------------------------------
+
+#[derive(Default)]
+struct MockMetricsRepo {
+    intraday: Mutex<Vec<IntradayMetricRow>>,
+    daily: Mutex<Vec<DailyMetricRow>>,
+}
+
+#[async_trait]
+impl TunnelMetricsRepository for MockMetricsRepo {
+    async fn insert_intraday(&self, row: &IntradayMetricRow) -> anyhow::Result<()> {
+        self.intraday.lock().unwrap().push(row.clone());
+        Ok(())
+    }
+
+    async fn insert_intraday_batch(&self, rows: &[IntradayMetricRow]) -> anyhow::Result<()> {
+        self.intraday.lock().unwrap().extend(rows.iter().cloned());
+        Ok(())
+    }
+
+    async fn insert_daily_batch(&self, rows: &[DailyMetricRow]) -> anyhow::Result<()> {
+        self.daily.lock().unwrap().extend(rows.iter().cloned());
+        Ok(())
+    }
+
+    async fn query_intraday(
+        &self,
+        tunnel_id: &str,
+        from_ts: i64,
+        to_ts: i64,
+    ) -> anyhow::Result<Vec<IntradayMetricRow>> {
+        let rows = self.intraday.lock().unwrap();
+        Ok(rows
+            .iter()
+            .filter(|r| r.tunnel_id == tunnel_id && r.ts >= from_ts && r.ts <= to_ts)
+            .cloned()
+            .collect())
+    }
+
+    async fn query_daily(
+        &self,
+        tunnel_id: &str,
+        from_day: &str,
+        to_day: &str,
+    ) -> anyhow::Result<Vec<DailyMetricRow>> {
+        let rows = self.daily.lock().unwrap();
+        Ok(rows
+            .iter()
+            .filter(|r| {
+                r.tunnel_id == tunnel_id && r.day.as_str() >= from_day && r.day.as_str() <= to_day
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn days_pending_rollup(&self, _before_day: &str) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    async fn rollup_day(&self, _day: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+
+    async fn trim_intraday(&self, _cutoff_ts: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn trim_daily(&self, _cutoff_day: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn export_intraday(&self) -> anyhow::Result<Vec<IntradayMetricRow>> {
+        Ok(self.intraday.lock().unwrap().clone())
+    }
+
+    async fn export_daily(&self) -> anyhow::Result<Vec<DailyMetricRow>> {
+        Ok(self.daily.lock().unwrap().clone())
     }
 }
 
@@ -420,6 +503,9 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,
@@ -481,6 +567,9 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,
@@ -504,10 +593,13 @@ struct TestHarness {
     tunnel_iface: Arc<MockTunnelInterface>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
+    metrics: Arc<MockMetricsRepo>,
 }
 
 fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
+    let metrics = Arc::new(MockMetricsRepo::default());
+    let metrics_dyn: Arc<dyn TunnelMetricsRepository> = metrics.clone();
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
@@ -515,10 +607,12 @@ fn build_harness() -> TestHarness {
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
+        metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
         events.clone(),
+        300,
     );
 
     TestHarness {
@@ -527,21 +621,26 @@ fn build_harness() -> TestHarness {
         tunnel_iface,
         events,
         keys,
+        metrics,
     }
 }
 
 fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
+    let metrics = Arc::new(MockMetricsRepo::default());
+    let metrics_dyn: Arc<dyn TunnelMetricsRepository> = metrics.clone();
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
+        metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
         events.clone(),
+        300,
     );
 
     TestHarness {
@@ -550,6 +649,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         tunnel_iface,
         events,
         keys,
+        metrics,
     }
 }
 
@@ -1686,4 +1786,60 @@ async fn bring_up_with_preshared_key_and_multiple_allowed_ips() {
 
     assert_eq!(h.tunnel_iface.created.lock().unwrap().len(), 1);
     assert_eq!(h.tunnel_iface.brought_up.lock().unwrap().len(), 1);
+}
+
+// -- Intraday metrics sampler --------------------------------------------
+
+#[tokio::test]
+async fn sampler_does_not_write_first_observation() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let now = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 1_000, 2_000, now).await;
+
+    assert!(h.metrics.intraday.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn sampler_writes_after_interval_elapses() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let t0 = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 1_000, 2_000, t0).await;
+
+    // Within the interval window: still no write.
+    let t_too_soon = t0 + chrono::Duration::seconds(60);
+    h.svc
+        .maybe_record_intraday_at(id, 1_500, 2_500, t_too_soon)
+        .await;
+    assert!(h.metrics.intraday.lock().unwrap().is_empty());
+
+    // After the 300 s interval: one row, delta = current - prev.
+    let t_ok = t0 + chrono::Duration::seconds(301);
+    h.svc.maybe_record_intraday_at(id, 6_000, 9_000, t_ok).await;
+    let rows = h.metrics.intraday.lock().unwrap().clone();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].bytes_tx_delta, 5_000);
+    assert_eq!(rows[0].bytes_rx_delta, 7_000);
+}
+
+#[tokio::test]
+async fn sampler_treats_counter_decrease_as_reset() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let t0 = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 10_000, 20_000, t0).await;
+
+    // Cumulative counter has decreased — interpret as a reset; the new
+    // delta is the *current* value (never negative).
+    let t1 = t0 + chrono::Duration::seconds(301);
+    h.svc.maybe_record_intraday_at(id, 4_200, 7_500, t1).await;
+
+    let rows = h.metrics.intraday.lock().unwrap().clone();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].bytes_tx_delta, 4_200);
+    assert_eq!(rows[0].bytes_rx_delta, 7_500);
 }

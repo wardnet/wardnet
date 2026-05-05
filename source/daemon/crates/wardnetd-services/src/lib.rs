@@ -211,6 +211,7 @@ fn create_services(
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
     let tunnel_repo = repo_factory.tunnel();
+    let tunnel_metrics_repo = repo_factory.tunnel_metrics();
     let update_repo = repo_factory.update();
 
     let event_publisher: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(256));
@@ -253,10 +254,12 @@ fn create_services(
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
         tunnel_repo.clone(),
+        tunnel_metrics_repo.clone(),
         device_repo.clone(),
         backends.tunnel_interface.clone(),
         backends.secret_store.clone(),
         event_publisher.clone(),
+        config.tunnel.metrics_sample_interval_secs,
     ));
 
     let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));

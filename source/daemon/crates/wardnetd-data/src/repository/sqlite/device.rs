@@ -224,6 +224,26 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(())
     }
 
+    async fn find_devices_for_tunnel(&self, tunnel_id: &str) -> anyhow::Result<Vec<Device>> {
+        // The tunnel_id is embedded in the routing_rules.target_json:
+        // {"type":"tunnel","tunnel_id":"<uuid>"}. The JOIN brings both
+        // tables into scope so we must qualify every column with the
+        // `d.` alias — `routing_rules` also has its own `id` column,
+        // which would otherwise raise SQLite's ambiguous-column error.
+        let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
+        let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, d.device_type, \
+             d.first_seen, d.last_seen, d.last_ip, d.admin_locked \
+             FROM devices d \
+             JOIN routing_rules r ON r.device_id = d.id \
+             WHERE r.target_json LIKE ? \
+             ORDER BY d.last_seen DESC";
+        let rows = sqlx::query_as::<_, DeviceRow>(query)
+            .bind(&pattern)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(DeviceRow::into_device).collect()
+    }
+
     async fn switch_tunnel_rules_to_direct(
         &self,
         tunnel_id: &str,

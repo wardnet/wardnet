@@ -1,11 +1,13 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
+    TunnelDetailResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -17,7 +19,9 @@ use wardnetd_services::error::AppError;
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(list_tunnels, create_tunnel))
-        .routes(routes!(delete_tunnel))
+        .routes(routes!(get_tunnel, delete_tunnel))
+        .routes(routes!(get_tunnel_metrics))
+        .routes(routes!(list_tunnel_devices))
 }
 
 #[utoipa::path(
@@ -68,6 +72,100 @@ pub async fn create_tunnel(
 ) -> Result<(StatusCode, Json<CreateTunnelResponse>), AppError> {
     let response = state.tunnel_service().import_tunnel(body).await?;
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/tunnels/{id}",
+    tag = "tunnels",
+    description = "Fetch a single tunnel by ID with its label, country, peer endpoint \
+                   summary, runtime status, and live byte counters. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 200, description = "Tunnel detail", body = TunnelDetailResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn get_tunnel(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TunnelDetailResponse>, AppError> {
+    let tunnel = state.tunnel_service().get_tunnel(id).await?;
+    Ok(Json(TunnelDetailResponse { tunnel }))
+}
+
+/// Query string for `GET /api/tunnels/{id}/metrics`.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct GetMetricsQuery {
+    /// Range selector. One of `1h`, `6h`, `24h`, `48h`, `12mo`. Defaults
+    /// to `24h` when omitted.
+    #[serde(default)]
+    pub range: Option<TunnelMetricsRange>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/tunnels/{id}/metrics",
+    tag = "tunnels",
+    description = "Throughput history for a tunnel. The `1h..48h` ranges return \
+                   one point per `interval_secs` (5 min by default) carrying the \
+                   bytes-tx/bytes-rx delta over that interval. The `12mo` range \
+                   returns one point per day with the daily totals. Admin only.",
+    params(
+        ("id" = Uuid, Path, description = "Tunnel ID"),
+        GetMetricsQuery,
+    ),
+    responses(
+        (status = 200, description = "Throughput history", body = TunnelMetricsResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn get_tunnel_metrics(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+    Query(q): Query<GetMetricsQuery>,
+) -> Result<Json<TunnelMetricsResponse>, AppError> {
+    let range = q.range.unwrap_or(TunnelMetricsRange::TwentyFourHours);
+    let response = state.tunnel_service().get_metrics(id, range).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/tunnels/{id}/devices",
+    tag = "tunnels",
+    description = "List the devices currently routed through this tunnel — i.e. those \
+                   whose routing rule has `target = Tunnel { tunnel_id: <id> }`. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 200, description = "Devices using the tunnel", body = TunnelDevicesResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn list_tunnel_devices(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TunnelDevicesResponse>, AppError> {
+    let response = state.tunnel_service().list_tunnel_devices(id).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(

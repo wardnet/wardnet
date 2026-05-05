@@ -72,6 +72,12 @@ impl DeviceRepository for MockDeviceRepo {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn find_devices_for_tunnel(
+        &self,
+        _tid: &str,
+    ) -> anyhow::Result<Vec<wardnet_common::device::Device>> {
+        Ok(vec![])
+    }
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,

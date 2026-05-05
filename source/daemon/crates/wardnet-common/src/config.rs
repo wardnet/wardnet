@@ -278,6 +278,10 @@ pub struct TunnelConfig {
     pub idle_timeout_secs: u64,
     pub health_check_interval_secs: u64,
     pub stats_interval_secs: u64,
+    /// Cadence (seconds) at which `collect_stats` writes a row to
+    /// `tunnel_metrics_intraday`. The 5-second poll loop decimates to
+    /// this interval, accumulating the delta.
+    pub metrics_sample_interval_secs: u64,
 }
 
 impl Default for TunnelConfig {
@@ -286,6 +290,7 @@ impl Default for TunnelConfig {
             idle_timeout_secs: 600,
             health_check_interval_secs: 10,
             stats_interval_secs: 5,
+            metrics_sample_interval_secs: 300,
         }
     }
 }
