@@ -18,9 +18,11 @@ use wardnetd_data::secret_store::SecretStore;
 use crate::Backends;
 use crate::device::hostname_resolver::HostnameResolver;
 use crate::device::packet_capture::{ObservedDevice, PacketCapture};
+use crate::error::AppError;
 use crate::logging::{ErrorNotifierService, LogService, LogServiceImpl, LogStreamService};
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
+use crate::system::SystemPowerOps;
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::{init_services, init_services_with_factory};
 use wardnet_common::config::AdminConfig;
@@ -146,6 +148,17 @@ impl HostnameResolver for StubHostnameResolver {
     }
 }
 
+struct StubPowerOps;
+#[async_trait]
+impl SystemPowerOps for StubPowerOps {
+    async fn reboot(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn poweroff(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
 struct StubSecretStore;
 #[async_trait]
 impl SecretStore for StubSecretStore {
@@ -184,6 +197,7 @@ fn stub_backends() -> Backends {
         config_path: std::path::PathBuf::from("/tmp/wardnet-init-test.toml"),
         host_id: "init-test-host".to_owned(),
         shutdown_token: tokio_util::sync::CancellationToken::new(),
+        power_ops: Arc::new(StubPowerOps),
     }
 }
 

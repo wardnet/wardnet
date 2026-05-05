@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -7,6 +8,7 @@ use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
 use crate::error::AppError;
+use crate::system::SystemPowerOps;
 use crate::{SystemService, SystemServiceImpl};
 use wardnet_common::tunnel::{Tunnel, TunnelConfig};
 use wardnetd_data::repository::tunnel::TunnelRow;
@@ -93,11 +95,48 @@ fn admin_ctx() -> AuthContext {
     }
 }
 
+/// Counts calls to `reboot()` / `poweroff()` so the request_*
+/// service tests can assert the spawned task fired exactly once
+/// after the grace window.
+#[derive(Default)]
+struct RecordingPowerOps {
+    reboot_calls: AtomicUsize,
+    poweroff_calls: AtomicUsize,
+}
+
+#[async_trait]
+impl SystemPowerOps for RecordingPowerOps {
+    async fn reboot(&self) -> Result<(), AppError> {
+        self.reboot_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    async fn poweroff(&self) -> Result<(), AppError> {
+        self.poweroff_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
 fn build_service(
     devices: i64,
     tunnels: i64,
     active_tunnels: i64,
     db_size: u64,
+) -> SystemServiceImpl {
+    build_service_with_power_ops(
+        devices,
+        tunnels,
+        active_tunnels,
+        db_size,
+        Arc::new(RecordingPowerOps::default()),
+    )
+}
+
+fn build_service_with_power_ops(
+    devices: i64,
+    tunnels: i64,
+    active_tunnels: i64,
+    db_size: u64,
+    power_ops: Arc<dyn SystemPowerOps>,
 ) -> SystemServiceImpl {
     SystemServiceImpl::new(
         Arc::new(MockSystemConfigRepo {
@@ -110,6 +149,7 @@ fn build_service(
         }),
         Instant::now(),
         tokio_util::sync::CancellationToken::new(),
+        power_ops,
     )
 }
 
@@ -161,4 +201,115 @@ async fn status_device_forbidden() {
     };
     let result = auth_context::with_context(ctx, svc.status()).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- request_reboot / request_shutdown ------------------------------------
+
+#[tokio::test(start_paused = true)]
+async fn request_reboot_invokes_power_ops_after_grace() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+
+    auth_context::with_context(admin_ctx(), svc.request_reboot())
+        .await
+        .unwrap();
+
+    // Yield so the spawned task gets polled and registers its sleep
+    // with the paused timer driver. Without this the timer driver
+    // never sees the sleep and `advance` has nothing to wake.
+    tokio::task::yield_now().await;
+    assert_eq!(ops.reboot_calls.load(Ordering::SeqCst), 0);
+
+    // Advance past the 500 ms grace window, then drive the runtime
+    // a few more times so the woken task runs to completion.
+    tokio::time::advance(std::time::Duration::from_millis(750)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+        tokio::time::advance(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(ops.reboot_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn request_shutdown_invokes_power_ops_after_grace() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+
+    auth_context::with_context(admin_ctx(), svc.request_shutdown())
+        .await
+        .unwrap();
+
+    tokio::task::yield_now().await;
+    assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 0);
+
+    tokio::time::advance(std::time::Duration::from_millis(750)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+        tokio::time::advance(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(ops.reboot_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn request_reboot_returns_immediately() {
+    // Without `start_paused`, real time progresses; the test just
+    // confirms the call returns long before the 500 ms grace would
+    // have elapsed (which means the response can flush before the
+    // power op fires).
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops);
+
+    let started = std::time::Instant::now();
+    auth_context::with_context(admin_ctx(), svc.request_reboot())
+        .await
+        .unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(100),
+        "request_reboot should return promptly, took {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn request_reboot_anonymous_forbidden() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.request_reboot()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(ops.reboot_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn request_shutdown_anonymous_forbidden() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.request_shutdown()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn request_reboot_device_forbidden() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+    let ctx = AuthContext::Device {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+    };
+    let result = auth_context::with_context(ctx, svc.request_reboot()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(ops.reboot_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn request_shutdown_device_forbidden() {
+    let ops = Arc::new(RecordingPowerOps::default());
+    let svc = build_service_with_power_ops(0, 0, 0, 0, ops.clone());
+    let ctx = AuthContext::Device {
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+    };
+    let result = auth_context::with_context(ctx, svc.request_shutdown()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 0);
 }

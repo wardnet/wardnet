@@ -13,6 +13,9 @@ pub mod tunnel_interface_wireguard;
 pub mod dhcp;
 pub mod dns;
 
+// Host-power operations (systemctl reboot/poweroff).
+pub mod system;
+
 // Background tasks.
 pub mod device_detector;
 pub mod metrics_collector;

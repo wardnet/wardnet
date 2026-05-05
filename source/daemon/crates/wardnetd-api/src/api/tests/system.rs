@@ -106,6 +106,12 @@ impl SystemService for MockSystemService {
     async fn request_restart(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn request_reboot(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn request_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +156,14 @@ fn system_app_full(state: AppState) -> Router {
         .route(
             "/api/system/restart",
             axum::routing::post(crate::api::system::restart),
+        )
+        .route(
+            "/api/system/reboot",
+            axum::routing::post(crate::api::system::reboot),
+        )
+        .route(
+            "/api/system/shutdown",
+            axum::routing::post(crate::api::system::shutdown),
         )
         .with_state(state)
 }
@@ -811,6 +825,12 @@ async fn restart_surfaces_service_error_as_500() {
         async fn request_restart(&self) -> Result<(), AppError> {
             Err(AppError::Internal(anyhow::anyhow!("shutdown not wired")))
         }
+        async fn request_reboot(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -820,6 +840,184 @@ async fn restart_surfaces_service_error_as_500() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/system/restart")
+        .header("Authorization", "Bearer k")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/system/reboot
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn reboot_returns_204_on_success() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/reboot")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn reboot_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/reboot")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn reboot_surfaces_service_error_as_500() {
+    struct FailingRebootService;
+    #[async_trait]
+    impl SystemService for FailingRebootService {
+        fn version(&self) -> &'static str {
+            "0.0.0"
+        }
+        fn uptime(&self) -> std::time::Duration {
+            std::time::Duration::ZERO
+        }
+        async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn request_restart(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_reboot(&self) -> Result<(), AppError> {
+            Err(AppError::Internal(anyhow::anyhow!("polkit denied")))
+        }
+        async fn request_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    let admin_id = Uuid::new_v4();
+    let state = make_state(AlwaysAuthService { admin_id }, FailingRebootService);
+    let app = system_app_full(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/reboot")
+        .header("Authorization", "Bearer k")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/system/shutdown
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn shutdown_returns_204_on_success() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn shutdown_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn shutdown_surfaces_service_error_as_500() {
+    struct FailingShutdownService;
+    #[async_trait]
+    impl SystemService for FailingShutdownService {
+        fn version(&self) -> &'static str {
+            "0.0.0"
+        }
+        fn uptime(&self) -> std::time::Duration {
+            std::time::Duration::ZERO
+        }
+        async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn request_restart(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_reboot(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_shutdown(&self) -> Result<(), AppError> {
+            Err(AppError::Internal(anyhow::anyhow!("polkit denied")))
+        }
+    }
+
+    let admin_id = Uuid::new_v4();
+    let state = make_state(AlwaysAuthService { admin_id }, FailingShutdownService);
+    let app = system_app_full(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown")
         .header("Authorization", "Bearer k")
         .extension(connect_info_ext())
         .body(Body::empty())

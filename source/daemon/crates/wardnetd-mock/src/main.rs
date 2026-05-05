@@ -23,6 +23,7 @@ use wardnetd_data::create_repository_factory;
 use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
+use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
@@ -222,6 +223,7 @@ async fn run(
         config_path: mock_config_path,
         host_id: "wardnetd-mock".to_owned(),
         shutdown_token: shutdown_token.clone(),
+        power_ops: Arc::new(NoopSystemPowerOps),
     };
 
     // A synthetic LAN IP that looks plausible in UI copy.

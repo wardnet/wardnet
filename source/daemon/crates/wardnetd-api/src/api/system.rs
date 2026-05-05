@@ -17,15 +17,17 @@ use wardnetd_services::error::AppError;
 use wardnetd_services::logging::error_notifier::ErrorEntry;
 
 /// Register system routes (status, log download, recent errors,
-/// restart) onto the given [`OpenApiRouter`]. The WebSocket log stream
-/// is registered separately in [`crate::api::router`] since it cannot
-/// be modeled in `OpenAPI`.
+/// restart, reboot, shutdown) onto the given [`OpenApiRouter`]. The
+/// WebSocket log stream is registered separately in
+/// [`crate::api::router`] since it cannot be modeled in `OpenAPI`.
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(status))
         .routes(routes!(recent_errors))
         .routes(routes!(download_logs))
         .routes(routes!(restart))
+        .routes(routes!(reboot))
+        .routes(routes!(shutdown))
 }
 
 #[utoipa::path(
@@ -114,6 +116,69 @@ pub async fn restart(
     _auth: AdminAuth,
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().request_restart().await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Reboot the host (Pi-level), not just the daemon.
+///
+/// Returns `204 No Content` immediately; logind queues the reboot a
+/// few hundred ms later, after the response has flushed. systemd
+/// drives the actual shutdown sequence and SIGTERMs wardnetd as part
+/// of `shutdown.target`.
+#[utoipa::path(
+    post,
+    path = "/api/system/reboot",
+    tag = "system",
+    description = "Reboot the host. Returns immediately; the reboot \
+                   itself is queued via systemd-logind and runs once \
+                   the response has flushed. The daemon will be \
+                   unreachable for as long as the host takes to come \
+                   back up — typically 30–60 s on a Raspberry Pi.",
+    responses(
+        (status = 204, description = "Reboot scheduled"),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn reboot(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<axum::http::StatusCode, AppError> {
+    state.system_service().request_reboot().await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Power off the host. Internet is unavailable until the operator
+/// physically powers the Pi back on.
+///
+/// Returns `204 No Content` immediately; logind queues the poweroff
+/// a few hundred ms later, after the response has flushed.
+#[utoipa::path(
+    post,
+    path = "/api/system/shutdown",
+    tag = "system",
+    description = "Power the host off. Returns immediately; the \
+                   poweroff itself is queued via systemd-logind and \
+                   runs once the response has flushed. The daemon \
+                   will not come back up until the operator turns \
+                   the Pi on again.",
+    responses(
+        (status = 204, description = "Shutdown scheduled"),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn shutdown(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<axum::http::StatusCode, AppError> {
+    state.system_service().request_shutdown().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
