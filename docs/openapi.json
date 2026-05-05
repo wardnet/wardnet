@@ -7483,6 +7483,173 @@
       }
     },
     "/api/tunnels/{id}": {
+      "get": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "Fetch a single tunnel by ID with its label, country, peer endpoint summary, runtime status, and live byte counters. Admin only.",
+        "operationId": "get_tunnel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "tunnels"
@@ -7508,6 +7675,360 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteTunnelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/tunnels/{id}/devices": {
+      "get": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "List the devices currently routed through this tunnel — i.e. those whose routing rule has `target = Tunnel { tunnel_id: <id> }`. Admin only.",
+        "operationId": "list_tunnel_devices",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Devices using the tunnel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelDevicesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/tunnels/{id}/metrics": {
+      "get": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "Throughput history for a tunnel. The `1h..48h` ranges return one point per `interval_secs` (5 min by default) carrying the bytes-tx/bytes-rx delta over that interval. The `12mo` range returns one point per day with the daily totals. Admin only.",
+        "operationId": "get_tunnel_metrics",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "description": "Range selector. One of `1h`, `6h`, `24h`, `48h`, `12mo`. Defaults\nto `24h` when omitted.",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/TunnelMetricsRange"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Throughput history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelMetricsResponse"
                 }
               }
             }
@@ -10904,6 +11425,93 @@
           },
           "status": {
             "$ref": "#/components/schemas/TunnelStatus"
+          }
+        }
+      },
+      "TunnelDetailResponse": {
+        "type": "object",
+        "description": "Response for GET /api/tunnels/{id}.",
+        "required": [
+          "tunnel"
+        ],
+        "properties": {
+          "tunnel": {
+            "$ref": "#/components/schemas/Tunnel"
+          }
+        }
+      },
+      "TunnelDevicesResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/tunnels/{id}/devices`.\n\nThe devices currently routed through the given tunnel — i.e. those\nwhose user-set or admin-set routing rule has\n`target = Tunnel { tunnel_id: id }`.",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Device"
+            }
+          }
+        }
+      },
+      "TunnelMetricsPoint": {
+        "type": "object",
+        "description": "One point on the throughput chart.\n\n`bytes_tx` / `bytes_rx` are the *deltas* over the interval ending at\n`ts`. The client divides by the configured sample interval (or 86400\nfor daily points) to render bytes/sec. Daily points use the start of\nthe day (UTC) as `ts`.",
+        "required": [
+          "ts",
+          "bytes_tx",
+          "bytes_rx"
+        ],
+        "properties": {
+          "bytes_rx": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bytes_tx": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ts": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          }
+        }
+      },
+      "TunnelMetricsRange": {
+        "type": "string",
+        "description": "Range selector for `GET /api/tunnels/{id}/metrics`.\n\n`OneHour..FortyEightHours` are served from the intraday table at\nthe configured sample interval (5 min default). `TwelveMonths`\nreads from the daily rollup table.",
+        "enum": [
+          "1h",
+          "6h",
+          "24h",
+          "48h",
+          "12mo"
+        ]
+      },
+      "TunnelMetricsResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/tunnels/{id}/metrics`.",
+        "required": [
+          "range",
+          "interval_secs",
+          "points"
+        ],
+        "properties": {
+          "interval_secs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Sample interval in seconds (5 min for intraday, 86400 for daily).",
+            "minimum": 0
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TunnelMetricsPoint"
+            }
+          },
+          "range": {
+            "$ref": "#/components/schemas/TunnelMetricsRange"
           }
         }
       },

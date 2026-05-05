@@ -715,7 +715,7 @@ impl TunnelService for TunnelServiceImpl {
             .into_iter()
             .map(|r| TunnelMetricsPoint {
                 ts: chrono::DateTime::<chrono::Utc>::from_timestamp(r.ts, 0)
-                    .map_or_else(|| String::from(""), |dt| dt.to_rfc3339()),
+                    .map_or_else(String::new, |dt| dt.to_rfc3339()),
                 bytes_tx: r.bytes_tx_delta,
                 bytes_rx: r.bytes_rx_delta,
             })

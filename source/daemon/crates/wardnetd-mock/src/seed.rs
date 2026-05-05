@@ -311,6 +311,13 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
 ///
 /// All math is integer-only and deterministic — the output depends only
 /// on `tunnel_id` and `now`, so seeding is reproducible.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn generate_metrics_history(
     tunnel_id: Uuid,
     now: chrono::DateTime<Utc>,
