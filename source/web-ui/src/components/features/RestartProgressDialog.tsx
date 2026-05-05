@@ -58,7 +58,11 @@ export function RestartProgressDialog({
   const elapsed = useElapsedSeconds(open ? startedAt : null);
 
   const terminal =
-    phase === "ready" || phase === "ready_signed_out" || phase === "timeout" || phase === "failed";
+    phase === "ready" ||
+    phase === "ready_signed_out" ||
+    phase === "timeout" ||
+    phase === "failed" ||
+    phase === "did_not_fire";
 
   return (
     <AlertDialog
@@ -92,7 +96,7 @@ export function RestartProgressDialog({
               Sign in again
             </AlertDialogAction>
           )}
-          {(phase === "timeout" || phase === "failed") && (
+          {(phase === "timeout" || phase === "failed" || phase === "did_not_fire") && (
             <AlertDialogCancel onClick={onDismiss}>Dismiss</AlertDialogCancel>
           )}
         </AlertDialogFooter>
@@ -112,6 +116,7 @@ function PhaseIcon({ phase }: { phase: RestartPhase }) {
       return <LogInIcon className="h-5 w-5 text-amber-600" />;
     case "timeout":
     case "failed":
+    case "did_not_fire":
       return <AlertTriangleIcon className="h-5 w-5 text-destructive" />;
     default:
       return null;
@@ -132,6 +137,8 @@ function titleFor(phase: RestartPhase): string {
       return "Daemon didn't come back";
     case "failed":
       return "Restart request failed";
+    case "did_not_fire":
+      return "Restart didn't fire";
     default:
       return "Restart";
   }
@@ -151,6 +158,8 @@ function descriptionFor(phase: RestartPhase, errorMessage: string | null): strin
       return "The daemon didn't come back within 45 seconds. This usually means the supervisor (systemd) needs attention.";
     case "failed":
       return errorMessage ?? "The restart request itself was rejected.";
+    case "did_not_fire":
+      return "Wardnet didn't restart. The privileged migration may not have run — try Settings → Updates, or re-run install.sh.";
     default:
       return "";
   }

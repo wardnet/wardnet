@@ -24,7 +24,50 @@ export class SystemService {
    * `make run-dev`.
    */
   async restart(): Promise<void> {
-    const res = await fetch(`${this.client.baseUrl}/system/restart`, {
+    await this.postNoContent("/system/restart");
+  }
+
+  /**
+   * Ask the host (Pi) to reboot.
+   *
+   * Resolves once the server has accepted the request (HTTP 204);
+   * the actual reboot fires a few hundred milliseconds later via
+   * `systemctl reboot --no-block`. Callers should treat the daemon
+   * as unreachable for the next 30–60 seconds and surface an
+   * appropriate progress UI to the user.
+   *
+   * Throws [`WardnetApiError`] on a non-2xx response — for example
+   * if the request was not authenticated (401), the user is not an
+   * admin (403), or the polkit migration has not been applied so
+   * logind refused the action (500).
+   */
+  async reboot(): Promise<void> {
+    await this.postNoContent("/system/reboot");
+  }
+
+  /**
+   * Ask the host (Pi) to power off.
+   *
+   * Resolves once the server has accepted the request (HTTP 204);
+   * the actual poweroff fires a few hundred milliseconds later via
+   * `systemctl poweroff --no-block`. Internet for managed devices
+   * stays unavailable until the operator powers the Pi back on
+   * manually — there is no automatic recovery.
+   *
+   * Throws [`WardnetApiError`] on a non-2xx response.
+   */
+  async shutdown(): Promise<void> {
+    await this.postNoContent("/system/shutdown");
+  }
+
+  /**
+   * Shared POST helper for endpoints that return `204 No Content`.
+   * `WardnetClient.request` is JSON-only; rolling our own here keeps
+   * the same error-shape contract without forcing the client to
+   * tolerate an empty body.
+   */
+  private async postNoContent(path: string): Promise<void> {
+    const res = await fetch(`${this.client.baseUrl}${path}`, {
       method: "POST",
       credentials: "include",
     });

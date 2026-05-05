@@ -3,38 +3,37 @@ import { WardnetApiError } from "@wardnet/js";
 import { systemService } from "@/lib/sdk";
 import { useDaemonReachability } from "./useDaemonReachability";
 
-/** Phases the restart flow may surface. Subset of
- *  [`DaemonReachabilityPhase`] — restart never resolves to `off`. */
-export type RestartPhase =
+/** Phases the shutdown flow may surface. Resolves to `off` (the
+ *  host is powered down) instead of `ready`/`ready_signed_out`. */
+export type ShutdownPhase =
   | "idle"
   | "scheduled"
   | "down"
-  | "ready"
-  | "ready_signed_out"
+  | "off"
   | "did_not_fire"
   | "timeout"
   | "failed";
 
 /**
- * Lifecycle manager for a daemon restart from the web UI.
+ * Lifecycle manager for a host shutdown from the web UI.
  *
- * Thin wrapper over [`useDaemonReachability`] that fires
- * `POST /api/system/restart` and starts the shared poll loop in
- * "restart" mode once the server has accepted the request.
- *
- * Public surface mirrors the previous (pre-#215) implementation —
- * existing callers (Settings page, post-restore prompt) keep
- * working without changes.
+ * Fires `POST /api/system/shutdown`, then runs the shared
+ * [`useDaemonReachability`] state machine in "shutdown" mode. The
+ * difference vs reboot/restart: the lifecycle resolves to a
+ * **terminal** `off` once the daemon has been silent for a few
+ * consecutive probes — the operator must manually power the Pi
+ * back on, so there is no comeback poll and the dialog copy says
+ * exactly that.
  */
-export function useRestart() {
+export function useShutdown() {
   const reach = useDaemonReachability();
 
   const start = useCallback(() => {
     reach.markScheduled();
     systemService
-      .restart()
+      .shutdown()
       .then(() => {
-        reach.start({ kind: "restart" });
+        reach.start({ kind: "shutdown" });
       })
       .catch((err: unknown) => {
         const msg =
@@ -42,13 +41,13 @@ export function useRestart() {
             ? (err.body.detail ?? err.body.error)
             : err instanceof Error
               ? err.message
-              : "Failed to restart";
+              : "Failed to shut down";
         reach.fail(msg);
       });
   }, [reach]);
 
   return {
-    phase: reach.phase as RestartPhase,
+    phase: reach.phase as ShutdownPhase,
     errorMessage: reach.errorMessage,
     startedAt: reach.startedAt,
     isOpen: reach.isOpen,
