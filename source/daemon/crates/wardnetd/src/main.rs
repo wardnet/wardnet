@@ -281,6 +281,7 @@ async fn run(
         Some(DeviceDetector::start(
             packet_capture.clone(),
             services.discovery.clone(),
+            services.event_publisher.as_ref(),
             &config.detection,
             config.network.lan_interface.clone(),
             &root_span,

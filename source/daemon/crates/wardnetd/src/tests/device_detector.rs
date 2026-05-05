@@ -6,11 +6,13 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::event::WardnetEvent;
 
 use crate::device_detector::DeviceDetector;
 use wardnet_common::config::DetectionConfig;
 use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
 use wardnetd_services::error::AppError;
+use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 // ---------------------------------------------------------------------------
@@ -173,7 +175,7 @@ impl DeviceDiscoveryService for MockDiscovery {
         Ok(vec![])
     }
 
-    async fn resolve_hostname(&self, _device_id: Uuid, _ip: String) -> Result<(), AppError> {
+    async fn resolve_hostname(&self, _mac: &str, _ip: &str) -> Result<(), AppError> {
         self.resolve_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -225,6 +227,11 @@ fn test_span() -> tracing::Span {
     tracing::info_span!("test")
 }
 
+/// In-memory event bus the detector can subscribe to without external state.
+fn test_events() -> BroadcastEventBus {
+    BroadcastEventBus::new(16)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -239,6 +246,7 @@ async fn start_and_shutdown() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -259,6 +267,7 @@ async fn processor_handles_new_device() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -285,6 +294,7 @@ async fn processor_handles_ip_changed() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -310,6 +320,7 @@ async fn processor_handles_reappeared() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -335,6 +346,7 @@ async fn processor_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -361,6 +373,7 @@ async fn capture_task_logs_error_on_failure() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -383,6 +396,7 @@ async fn flush_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -409,6 +423,7 @@ async fn departure_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -433,6 +448,7 @@ async fn arp_scan_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -458,6 +474,7 @@ async fn arp_scan_task_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -470,5 +487,149 @@ async fn arp_scan_task_handles_error() {
     );
 
     // Should not crash; shutdown completes cleanly.
+    detector.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// Hostname listener tests
+// ---------------------------------------------------------------------------
+
+/// Build a detector that consumes from `events` so tests can publish their
+/// own DHCP lease events into the listener task.
+fn detector_with_event_bus(
+    discovery: Arc<dyn DeviceDiscoveryService>,
+    events: &BroadcastEventBus,
+) -> DeviceDetector {
+    let arp_count = Arc::new(AtomicUsize::new(0));
+    let capture: Arc<dyn PacketCapture> = Arc::new(MockCapture::new(arp_count));
+    DeviceDetector::start(
+        capture,
+        discovery,
+        events,
+        &fast_config(),
+        "eth0".to_owned(),
+        &test_span(),
+    )
+}
+
+fn assigned_with_hostname(hostname: Option<&str>) -> WardnetEvent {
+    WardnetEvent::DhcpLeaseAssigned {
+        lease_id: Uuid::nil(),
+        mac: "aa:bb:cc:dd:ee:01".to_owned(),
+        ip: "192.168.1.10".to_owned(),
+        hostname: hostname.map(ToOwned::to_owned),
+        timestamp: chrono::Utc::now(),
+    }
+}
+
+fn renewed_with_hostname(hostname: Option<&str>) -> WardnetEvent {
+    WardnetEvent::DhcpLeaseRenewed {
+        lease_id: Uuid::nil(),
+        mac: "aa:bb:cc:dd:ee:01".to_owned(),
+        ip: "192.168.1.10".to_owned(),
+        hostname: hostname.map(ToOwned::to_owned),
+        new_expiry: chrono::Utc::now(),
+        timestamp: chrono::Utc::now(),
+    }
+}
+
+/// Wait briefly for the spawned listener to consume an event before asserting,
+/// since `publish` returns immediately while the listener task is async.
+async fn drain_event_bus() {
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+}
+
+#[tokio::test]
+async fn hostname_listener_resolves_on_lease_assigned_with_hostname() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let resolve_count = discovery.resolve_count.clone();
+    let events = test_events();
+
+    let detector = detector_with_event_bus(discovery as Arc<dyn DeviceDiscoveryService>, &events);
+
+    events.publish(assigned_with_hostname(Some("kitchen-tablet")));
+    drain_event_bus().await;
+
+    assert_eq!(
+        resolve_count.load(Ordering::SeqCst),
+        1,
+        "non-empty hostname on DhcpLeaseAssigned must trigger resolve_hostname"
+    );
+
+    detector.shutdown().await;
+}
+
+#[tokio::test]
+async fn hostname_listener_resolves_on_lease_renewed_with_hostname() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let resolve_count = discovery.resolve_count.clone();
+    let events = test_events();
+
+    let detector = detector_with_event_bus(discovery as Arc<dyn DeviceDiscoveryService>, &events);
+
+    events.publish(renewed_with_hostname(Some("kitchen-tablet")));
+    drain_event_bus().await;
+
+    assert_eq!(resolve_count.load(Ordering::SeqCst), 1);
+
+    detector.shutdown().await;
+}
+
+#[tokio::test]
+async fn hostname_listener_skips_when_event_hostname_is_none() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let resolve_count = discovery.resolve_count.clone();
+    let events = test_events();
+
+    let detector = detector_with_event_bus(discovery as Arc<dyn DeviceDiscoveryService>, &events);
+
+    events.publish(assigned_with_hostname(None));
+    events.publish(renewed_with_hostname(None));
+    drain_event_bus().await;
+
+    assert_eq!(
+        resolve_count.load(Ordering::SeqCst),
+        0,
+        "events without a hostname must not trigger resolve_hostname"
+    );
+
+    detector.shutdown().await;
+}
+
+#[tokio::test]
+async fn hostname_listener_skips_when_event_hostname_is_whitespace() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let resolve_count = discovery.resolve_count.clone();
+    let events = test_events();
+
+    let detector = detector_with_event_bus(discovery as Arc<dyn DeviceDiscoveryService>, &events);
+
+    events.publish(assigned_with_hostname(Some("   ")));
+    drain_event_bus().await;
+
+    assert_eq!(resolve_count.load(Ordering::SeqCst), 0);
+
+    detector.shutdown().await;
+}
+
+#[tokio::test]
+async fn hostname_listener_ignores_unrelated_events() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let resolve_count = discovery.resolve_count.clone();
+    let events = test_events();
+
+    let detector = detector_with_event_bus(discovery as Arc<dyn DeviceDiscoveryService>, &events);
+
+    // Random unrelated event — listener must ignore it cleanly.
+    events.publish(WardnetEvent::DeviceGone {
+        device_id: Uuid::nil(),
+        mac: "aa:bb:cc:dd:ee:01".to_owned(),
+        last_ip: "192.168.1.10".to_owned(),
+        timestamp: chrono::Utc::now(),
+    });
+    drain_event_bus().await;
+
+    assert_eq!(resolve_count.load(Ordering::SeqCst), 0);
+
     detector.shutdown().await;
 }

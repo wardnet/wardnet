@@ -90,6 +90,7 @@ pub enum WardnetEvent {
         lease_id: Uuid,
         mac: String,
         ip: String,
+        hostname: Option<String>,
         new_expiry: DateTime<Utc>,
         timestamp: DateTime<Utc>,
     },

@@ -221,6 +221,17 @@ impl DhcpRepository for SqliteDhcpRepository {
         Ok(())
     }
 
+    async fn update_lease_hostname(&self, id: &str, hostname: Option<&str>) -> anyhow::Result<()> {
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("UPDATE dhcp_leases SET hostname = ?, updated_at = ? WHERE id = ?")
+            .bind(hostname)
+            .bind(&now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn expire_stale_leases(&self) -> anyhow::Result<u64> {
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let result = sqlx::query(

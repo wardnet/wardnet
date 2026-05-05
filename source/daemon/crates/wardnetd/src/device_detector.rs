@@ -1,23 +1,27 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use wardnet_common::config::DetectionConfig;
+use wardnet_common::event::WardnetEvent;
 use wardnetd_services::device::packet_capture::PacketCapture;
+use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 /// Background device detection orchestrator.
 ///
-/// Spawns five subtasks:
+/// Spawns six subtasks:
 /// 1. Passive capture loop -- listens for ARP/IP packets, sends observations on mpsc channel
 /// 2. Observation processor -- receives from channel, calls discovery service, logs at info level
 /// 3. Batch flush loop -- every N seconds, flushes `last_seen` to DB
 /// 4. Departure scanner -- every N seconds, emits `DeviceGone` for stale devices
 /// 5. Active ARP scanner -- every N seconds, broadcasts ARP requests for all IPs in subnet
+/// 6. Hostname listener -- subscribes to DHCP lease events and re-resolves
+///    hostnames when a client supplies a new option-12 value
 pub struct DeviceDetector {
     cancel: CancellationToken,
     handles: Vec<tokio::task::JoinHandle<()>>,
@@ -35,6 +39,7 @@ impl DeviceDetector {
     pub fn start(
         capture: Arc<dyn PacketCapture>,
         discovery: Arc<dyn DeviceDiscoveryService>,
+        events: &dyn EventPublisher,
         config: &DetectionConfig,
         interface: String,
         parent: &tracing::Span,
@@ -42,6 +47,8 @@ impl DeviceDetector {
         let cancel = CancellationToken::new();
         let (tx, rx) = mpsc::channel(10_000);
         let span = tracing::info_span!(parent: parent, "device_detector");
+
+        let event_rx = events.subscribe();
 
         let capture_handle = tokio::spawn(
             capture_task(capture.clone(), interface.clone(), tx, cancel.clone())
@@ -63,7 +70,7 @@ impl DeviceDetector {
 
         let departure_handle = tokio::spawn(
             departure_task(
-                discovery,
+                discovery.clone(),
                 config.departure_timeout_secs,
                 config.departure_scan_interval_secs,
                 cancel.clone(),
@@ -78,7 +85,11 @@ impl DeviceDetector {
                 config.arp_scan_interval_secs,
                 cancel.clone(),
             )
-            .instrument(span),
+            .instrument(span.clone()),
+        );
+
+        let hostname_handle = tokio::spawn(
+            hostname_listener_task(discovery, event_rx, cancel.clone()).instrument(span),
         );
 
         Self {
@@ -89,6 +100,7 @@ impl DeviceDetector {
                 flush_handle,
                 departure_handle,
                 arp_handle,
+                hostname_handle,
             ],
         }
     }
@@ -135,12 +147,13 @@ async fn processor_task(
                         // the current span so log output includes the
                         // `device_detector` context.
                         let discovery_clone = discovery.clone();
+                        let mac = obs.mac.clone();
                         let ip = obs.ip.clone();
                         let resolve_span = tracing::Span::current();
                         tokio::spawn(
                             async move {
                                 if let Err(e) =
-                                    discovery_clone.resolve_hostname(device_id, ip).await
+                                    discovery_clone.resolve_hostname(&mac, &ip).await
                                 {
                                     tracing::warn!(
                                         device_id = %device_id,
@@ -258,6 +271,51 @@ async fn arp_scan_task(
             );
         } else {
             tracing::debug!(interface = %interface, "ARP scan sent on {interface}");
+        }
+    }
+}
+
+/// Subscribe to DHCP lease events and re-resolve hostnames whenever a client
+/// supplies a new option-12 value. Skips events with no hostname — the
+/// existing reverse-DNS-derived value is as good as it'll get without fresh
+/// option-12 input.
+async fn hostname_listener_task(
+    discovery: Arc<dyn DeviceDiscoveryService>,
+    mut event_rx: broadcast::Receiver<WardnetEvent>,
+    cancel: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => break,
+            result = event_rx.recv() => {
+                match result {
+                    Ok(
+                        WardnetEvent::DhcpLeaseAssigned { mac, ip, hostname: Some(h), .. }
+                        | WardnetEvent::DhcpLeaseRenewed { mac, ip, hostname: Some(h), .. },
+                    ) if !h.trim().is_empty() => {
+                        if let Err(e) = discovery.resolve_hostname(&mac, &ip).await {
+                            tracing::warn!(
+                                %mac,
+                                error = %e,
+                                "hostname re-resolution after DHCP lease event failed: {e}"
+                            );
+                        }
+                    }
+                    Ok(_) => {
+                        // Other events / leases without a hostname: nothing to do.
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            skipped = n,
+                            "hostname listener lagged behind event bus, skipped {n} events"
+                        );
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        tracing::info!("hostname listener: event bus closed");
+                        break;
+                    }
+                }
+            }
         }
     }
 }

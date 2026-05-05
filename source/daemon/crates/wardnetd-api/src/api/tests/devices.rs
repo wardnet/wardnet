@@ -207,7 +207,11 @@ impl DhcpService for MockDhcpService {
     ) -> Result<wardnet_common::dhcp::DhcpLease, AppError> {
         unimplemented!()
     }
-    async fn renew_lease(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpLease, AppError> {
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<wardnet_common::dhcp::DhcpLease, AppError> {
         unimplemented!()
     }
     async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
@@ -243,7 +247,7 @@ impl DeviceDiscoveryService for MockDiscoveryService {
     async fn scan_departures(&self, _timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
         Ok(vec![])
     }
-    async fn resolve_hostname(&self, _device_id: Uuid, _ip: String) -> Result<(), AppError> {
+    async fn resolve_hostname(&self, _mac: &str, _ip: &str) -> Result<(), AppError> {
         Ok(())
     }
     async fn get_all_devices(&self) -> Result<Vec<Device>, AppError> {

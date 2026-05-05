@@ -77,6 +77,7 @@ fn dhcp_lease_renewed_tagged() {
         lease_id: Uuid::nil(),
         mac: "AA:BB:CC:DD:EE:01".to_owned(),
         ip: "192.168.1.100".to_owned(),
+        hostname: Some("myphone".to_owned()),
         new_expiry: "2026-03-09T00:00:00Z".parse().unwrap(),
         timestamp: "2026-03-08T00:00:00Z".parse().unwrap(),
     };

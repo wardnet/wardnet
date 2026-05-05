@@ -12,6 +12,8 @@ use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
 
 use crate::auth_context;
 use crate::error::AppError;
+use crate::event::EventPublisher;
+use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::{
     DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
@@ -68,8 +70,11 @@ pub trait DhcpService: Send + Sync {
     /// Renew/confirm a lease for a DHCP REQUEST -- used by the DHCP server runtime.
     ///
     /// Extends the existing lease if one is active, otherwise assigns a new one.
-    /// Requires admin auth context.
-    async fn renew_lease(&self, mac: &str) -> Result<DhcpLease, AppError>;
+    /// `hostname` is the option-12 value from the DHCPREQUEST packet; when
+    /// present and different from the stored value, the lease record is updated
+    /// so downstream consumers (device registry, lease list UI) reflect the
+    /// latest client-supplied identity. Requires admin auth context.
+    async fn renew_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError>;
 
     /// Release a lease for a DHCP RELEASE -- used by the DHCP server runtime.
     ///
@@ -93,6 +98,7 @@ pub trait DhcpService: Send + Sync {
 pub struct DhcpServiceImpl {
     dhcp: Arc<dyn DhcpRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
+    events: Arc<dyn EventPublisher>,
     /// Wardnet's own LAN IP, auto-detected at startup.
     gateway_ip: Ipv4Addr,
 }
@@ -102,13 +108,21 @@ impl DhcpServiceImpl {
     pub fn new(
         dhcp: Arc<dyn DhcpRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
+        events: Arc<dyn EventPublisher>,
         gateway_ip: Ipv4Addr,
     ) -> Self {
         Self {
             dhcp,
             system_config,
+            events,
             gateway_ip,
         }
+    }
+
+    /// Normalise an option-12 hostname: empty / whitespace-only values count
+    /// as absent (clients sometimes send empty strings to mean "no hostname").
+    fn normalised_hostname(hostname: Option<&str>) -> Option<&str> {
+        hostname.map(str::trim).filter(|h| !h.is_empty())
     }
 
     /// Load the current DHCP configuration from `system_config`.
@@ -602,6 +616,7 @@ impl DhcpService for DhcpServiceImpl {
         auth_context::require_admin()?;
         let mac = mac.to_lowercase();
         let mac = mac.as_str();
+        let hostname = Self::normalised_hostname(hostname);
 
         let config = self.load_config().await?;
 
@@ -609,8 +624,58 @@ impl DhcpService for DhcpServiceImpl {
         // configuration. An orphaned lease (reservation removed or pool
         // narrowed away from the IP) is expired inside the helper so the
         // fall-through allocates a fresh IP instead of pinning the device.
-        if let Some(existing) = self.lease_if_still_valid(mac, &config).await? {
+        if let Some(mut existing) = self.lease_if_still_valid(mac, &config).await? {
+            // Detect a real option-12 change so we only update + emit an
+            // event when something downstream consumers care about has
+            // actually moved. Plain DISCOVER retransmits with the same
+            // hostname produce no work.
+            let hostname_changed = match hostname {
+                Some(new_h) => existing.hostname.as_deref() != Some(new_h),
+                None => false,
+            };
+
+            if hostname_changed {
+                let new_h = hostname.expect("hostname_changed implies Some");
+                let old = existing.hostname.clone();
+                self.dhcp
+                    .update_lease_hostname(&existing.id.to_string(), Some(new_h))
+                    .await
+                    .map_err(AppError::Internal)?;
+                self.dhcp
+                    .insert_lease_log(&DhcpLeaseLogRow {
+                        lease_id: existing.id.to_string(),
+                        event_type: "assigned".to_owned(),
+                        details: Some(format!(
+                            "hostname updated: {} -> {new_h}",
+                            old.as_deref().unwrap_or("<none>")
+                        )),
+                    })
+                    .await
+                    .map_err(AppError::Internal)?;
+                tracing::info!(
+                    mac,
+                    lease_id = %existing.id,
+                    old = old.as_deref().unwrap_or("<none>"),
+                    new = new_h,
+                    "DHCP lease hostname updated on cached lease"
+                );
+                existing.hostname = Some(new_h.to_owned());
+            }
             tracing::debug!(mac, ip = %existing.ip_address, "reusing existing active lease");
+
+            // Only emit an event when state actually changed — quiets the
+            // listener for routine retransmits while still fanning out a
+            // genuine rename.
+            if hostname_changed {
+                self.events.publish(WardnetEvent::DhcpLeaseAssigned {
+                    lease_id: existing.id,
+                    mac: mac.to_owned(),
+                    ip: existing.ip_address.to_string(),
+                    hostname: existing.hostname.clone(),
+                    timestamp: chrono::Utc::now(),
+                });
+            }
+
             return Ok(existing);
         }
 
@@ -659,6 +724,14 @@ impl DhcpService for DhcpServiceImpl {
 
         tracing::info!(mac, %ip, lease_id = %id, "DHCP lease assigned");
 
+        self.events.publish(WardnetEvent::DhcpLeaseAssigned {
+            lease_id: id,
+            mac: mac.to_owned(),
+            ip: ip.to_string(),
+            hostname: hostname.map(ToOwned::to_owned),
+            timestamp: chrono::Utc::now(),
+        });
+
         // Return the newly created lease.
         self.dhcp
             .find_lease_by_id(&id.to_string())
@@ -667,10 +740,11 @@ impl DhcpService for DhcpServiceImpl {
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("lease not found after insert")))
     }
 
-    async fn renew_lease(&self, mac: &str) -> Result<DhcpLease, AppError> {
+    async fn renew_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError> {
         auth_context::require_admin()?;
         let mac = mac.to_lowercase();
         let mac = mac.as_str();
+        let hostname = Self::normalised_hostname(hostname);
 
         let config = self.load_config().await?;
 
@@ -681,7 +755,7 @@ impl DhcpService for DhcpServiceImpl {
         // is expired in-place and we fall through to assign_lease, which
         // closes the window where the old IP could be re-handed while the
         // original device still holds it.
-        if let Some(existing) = self.lease_if_still_valid(mac, &config).await? {
+        if let Some(mut existing) = self.lease_if_still_valid(mac, &config).await? {
             let new_end = chrono::Utc::now()
                 + chrono::Duration::seconds(i64::from(config.lease_duration_secs));
 
@@ -690,16 +764,56 @@ impl DhcpService for DhcpServiceImpl {
                 .await
                 .map_err(AppError::Internal)?;
 
+            // Refresh the stored option-12 value when the client sent a new one.
+            let hostname_changed = match hostname {
+                Some(new_h) => existing.hostname.as_deref() != Some(new_h),
+                None => false,
+            };
+            if hostname_changed {
+                let new_h = hostname.expect("hostname_changed implies Some");
+                let old = existing.hostname.clone();
+                self.dhcp
+                    .update_lease_hostname(&existing.id.to_string(), Some(new_h))
+                    .await
+                    .map_err(AppError::Internal)?;
+                tracing::info!(
+                    mac,
+                    lease_id = %existing.id,
+                    old = old.as_deref().unwrap_or("<none>"),
+                    new = new_h,
+                    "DHCP lease hostname updated during renewal"
+                );
+                existing.hostname = Some(new_h.to_owned());
+            }
+
+            // Roll the hostname change into the renewal audit row when
+            // applicable so a single log entry captures everything that
+            // happened on this REQUEST.
+            let renewal_details = if hostname_changed {
+                let new_h = hostname.expect("hostname_changed implies Some");
+                Some(format!("new expiry: {new_end}; hostname: {new_h}"))
+            } else {
+                Some(format!("new expiry: {new_end}"))
+            };
             self.dhcp
                 .insert_lease_log(&DhcpLeaseLogRow {
                     lease_id: existing.id.to_string(),
                     event_type: "renewed".to_owned(),
-                    details: Some(format!("new expiry: {new_end}")),
+                    details: renewal_details,
                 })
                 .await
                 .map_err(AppError::Internal)?;
 
             tracing::info!(mac, lease_id = %existing.id, %new_end, "DHCP lease renewed");
+
+            self.events.publish(WardnetEvent::DhcpLeaseRenewed {
+                lease_id: existing.id,
+                mac: mac.to_owned(),
+                ip: existing.ip_address.to_string(),
+                hostname: existing.hostname.clone(),
+                new_expiry: new_end,
+                timestamp: chrono::Utc::now(),
+            });
 
             self.dhcp
                 .find_lease_by_id(&existing.id.to_string())
@@ -707,9 +821,11 @@ impl DhcpService for DhcpServiceImpl {
                 .map_err(AppError::Internal)?
                 .ok_or_else(|| AppError::Internal(anyhow::anyhow!("lease not found after renew")))
         } else {
-            // No valid active lease (none, or just expired as orphan) — assign fresh.
+            // No valid active lease (none, or just expired as orphan) — assign
+            // fresh. Forward the option-12 hostname so it isn't dropped on
+            // the renew→assign fall-through.
             tracing::info!(mac, "no active lease for renewal, assigning new lease");
-            self.assign_lease(mac, None).await
+            self.assign_lease(mac, hostname).await
         }
     }
 

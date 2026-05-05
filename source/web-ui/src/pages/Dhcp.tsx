@@ -19,6 +19,7 @@ import {
   useRevokeLease,
   useDeleteReservation,
 } from "@/hooks/useDhcp";
+import { useDevices } from "@/hooks/useDevices";
 
 /** DHCP management page (admin only). */
 export default function Dhcp() {
@@ -26,6 +27,7 @@ export default function Dhcp() {
   const { data: configData } = useDhcpConfig();
   const { data: leaseData } = useDhcpLeases();
   const { data: reservationData } = useDhcpReservations();
+  const { data: deviceData } = useDevices();
 
   const toggleDhcp = useToggleDhcp();
   const revokeLease = useRevokeLease();
@@ -43,6 +45,7 @@ export default function Dhcp() {
   const config = configData?.config;
   const leases = leaseData?.leases ?? [];
   const reservations = reservationData?.reservations ?? [];
+  const devices = deviceData?.devices ?? [];
 
   const leaseToRevoke = leases.find((l) => l.id === revokeLeaseId);
   const reservationToDelete = reservations.find((r) => r.id === deleteReservationId);
@@ -78,6 +81,7 @@ export default function Dhcp() {
             <TabsContent value="leases" className="mt-4 flex min-h-0 flex-1 flex-col">
               <DhcpLeaseTable
                 leases={leases}
+                devices={devices}
                 onRevoke={setRevokeLeaseId}
                 onMakeStatic={(lease) =>
                   setReservationSheet({
@@ -94,6 +98,7 @@ export default function Dhcp() {
             <TabsContent value="reservations" className="mt-4 flex min-h-0 flex-1 flex-col">
               <DhcpReservationTable
                 reservations={reservations}
+                devices={devices}
                 onDelete={setDeleteReservationId}
                 onAdd={() => setReservationSheet({ open: true })}
               />

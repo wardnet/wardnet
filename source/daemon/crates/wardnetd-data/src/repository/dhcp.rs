@@ -77,6 +77,9 @@ pub trait DhcpRepository: Send + Sync {
     /// Extend a lease by updating its `lease_end` timestamp.
     async fn renew_lease(&self, id: &str, new_end: &str) -> anyhow::Result<()>;
 
+    /// Update the option-12 hostname recorded on a lease.
+    async fn update_lease_hostname(&self, id: &str, hostname: Option<&str>) -> anyhow::Result<()>;
+
     /// Mark all active leases whose `lease_end` is in the past as expired.
     ///
     /// Returns the number of rows affected.

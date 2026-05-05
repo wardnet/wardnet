@@ -230,8 +230,9 @@ fn create_services(
     ));
 
     let dhcp_service: Arc<dyn DhcpService> = Arc::new(DhcpServiceImpl::new(
-        dhcp_repo,
+        dhcp_repo.clone(),
         system_config_repo.clone(),
+        event_publisher.clone(),
         lan_ip,
     ));
 
@@ -266,6 +267,7 @@ fn create_services(
 
     let discovery_service = build_discovery_service(
         device_repo.clone(),
+        dhcp_repo,
         event_publisher.clone(),
         backends.hostname_resolver,
         lan_ip,
@@ -319,6 +321,7 @@ fn create_services(
 /// from `lan_ip` (falls back to a `/24` on invalid inputs).
 fn build_discovery_service(
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+    dhcp_repo: Arc<dyn wardnetd_data::repository::DhcpRepository>,
     event_publisher: Arc<dyn EventPublisher>,
     hostname_resolver: Arc<dyn device::HostnameResolver>,
     lan_ip: std::net::Ipv4Addr,
@@ -329,6 +332,7 @@ fn build_discovery_service(
     });
     Arc::new(DeviceDiscoveryServiceImpl::new(
         device_repo,
+        dhcp_repo,
         event_publisher,
         hostname_resolver,
         lan_subnet,

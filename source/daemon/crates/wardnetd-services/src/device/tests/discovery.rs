@@ -2,9 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use chrono::Utc;
+use std::net::Ipv4Addr;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::RoutingRule;
 
@@ -19,6 +22,9 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::device::DeviceRow;
+use wardnetd_data::repository::{
+    DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+};
 
 /// Helper to create an admin auth context for tests.
 fn admin_ctx() -> AuthContext {
@@ -252,6 +258,98 @@ impl EventPublisher for MockEventPublisher {
     }
 }
 
+// -- Mock DhcpRepository --------------------------------------------------
+
+/// Minimal `DhcpRepository` mock that returns a configurable hostname per MAC
+/// from the active-lease lookup. Other methods are unused by the discovery
+/// service and panic if called.
+struct MockDhcpRepository {
+    leases_by_mac: HashMap<String, Option<String>>,
+}
+
+impl MockDhcpRepository {
+    fn empty() -> Self {
+        Self {
+            leases_by_mac: HashMap::new(),
+        }
+    }
+
+    fn with_lease_hostnames(entries: Vec<(&str, Option<&str>)>) -> Self {
+        let mut leases_by_mac = HashMap::new();
+        for (mac, hostname) in entries {
+            leases_by_mac.insert(mac.to_owned(), hostname.map(ToOwned::to_owned));
+        }
+        Self { leases_by_mac }
+    }
+}
+
+#[async_trait]
+impl DhcpRepository for MockDhcpRepository {
+    async fn insert_lease(&self, _row: &DhcpLeaseRow) -> anyhow::Result<()> {
+        unreachable!("discovery service does not write leases")
+    }
+    async fn find_lease_by_id(&self, _id: &str) -> anyhow::Result<Option<DhcpLease>> {
+        unreachable!()
+    }
+    async fn find_active_lease_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpLease>> {
+        Ok(self.leases_by_mac.get(mac).map(|hostname| DhcpLease {
+            id: Uuid::nil(),
+            mac_address: mac.to_owned(),
+            ip_address: Ipv4Addr::new(192, 168, 1, 10),
+            hostname: hostname.clone(),
+            lease_start: Utc::now(),
+            lease_end: Utc::now(),
+            status: DhcpLeaseStatus::Active,
+            device_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }))
+    }
+    async fn find_active_lease_by_ip(&self, _ip: &str) -> anyhow::Result<Option<DhcpLease>> {
+        unreachable!()
+    }
+    async fn list_active_leases(&self) -> anyhow::Result<Vec<DhcpLease>> {
+        unreachable!()
+    }
+    async fn update_lease_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn renew_lease(&self, _id: &str, _new_end: &str) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn update_lease_hostname(
+        &self,
+        _id: &str,
+        _hostname: Option<&str>,
+    ) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn expire_stale_leases(&self) -> anyhow::Result<u64> {
+        unreachable!()
+    }
+    async fn insert_reservation(&self, _row: &DhcpReservationRow) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn delete_reservation(&self, _id: &str) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn list_reservations(&self) -> anyhow::Result<Vec<DhcpReservation>> {
+        unreachable!()
+    }
+    async fn find_reservation_by_mac(&self, _mac: &str) -> anyhow::Result<Option<DhcpReservation>> {
+        unreachable!()
+    }
+    async fn find_reservation_by_ip(&self, _ip: &str) -> anyhow::Result<Option<DhcpReservation>> {
+        unreachable!()
+    }
+    async fn insert_lease_log(&self, _row: &DhcpLeaseLogRow) -> anyhow::Result<()> {
+        unreachable!()
+    }
+    async fn find_lease_logs(&self, _lease_id: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
+        unreachable!()
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
@@ -289,10 +387,12 @@ fn build_harness() -> TestHarness {
 
 fn build_harness_with_devices(devices: Vec<Device>) -> TestHarness {
     let repo = Arc::new(MockDeviceRepo::with_devices(devices));
+    let dhcp = Arc::new(MockDhcpRepository::empty());
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::new());
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
+        dhcp,
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
@@ -305,11 +405,20 @@ fn build_harness_with_resolver(
     devices: Vec<Device>,
     resolver_mappings: HashMap<String, String>,
 ) -> TestHarness {
+    build_harness_with_resolver_and_dhcp(devices, resolver_mappings, MockDhcpRepository::empty())
+}
+
+fn build_harness_with_resolver_and_dhcp(
+    devices: Vec<Device>,
+    resolver_mappings: HashMap<String, String>,
+    dhcp: MockDhcpRepository,
+) -> TestHarness {
     let repo = Arc::new(MockDeviceRepo::with_devices(devices));
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::with_mappings(resolver_mappings));
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
+        Arc::new(dhcp),
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
@@ -693,7 +802,7 @@ async fn update_device_as_device_admin_locked_forbidden() {
 }
 
 #[tokio::test]
-async fn resolve_hostname_updates_db() {
+async fn resolve_hostname_falls_back_to_reverse_dns() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
         "AA:BB:CC:DD:EE:01",
@@ -705,12 +814,13 @@ async fn resolve_hostname_updates_db() {
     let h = build_harness_with_resolver(vec![device], mappings);
 
     h.svc
-        .resolve_hostname(id, "192.168.1.10".to_owned())
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
         .await
         .unwrap();
 
     let updates = h.repo.hostname_updates.lock().unwrap();
     assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].0, id.to_string());
     assert_eq!(updates[0].1, "myphone.local");
 }
 
@@ -721,20 +831,147 @@ async fn resolve_hostname_no_result_does_not_update_db() {
         "AA:BB:CC:DD:EE:01",
         "192.168.1.10",
     );
-    let id = device.id;
-    // Empty resolver: no mappings, resolve returns None.
+    // Empty resolver and no DHCP lease: nothing to write.
     let h = build_harness_with_resolver(vec![device], HashMap::new());
 
     h.svc
-        .resolve_hostname(id, "192.168.1.10".to_owned())
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
         .await
         .unwrap();
 
     let updates = h.repo.hostname_updates.lock().unwrap();
     assert!(
         updates.is_empty(),
-        "no hostname update when resolver returns None"
+        "no hostname update when neither DHCP nor reverse DNS produce a value"
     );
+}
+
+#[tokio::test]
+async fn resolve_hostname_prefers_dhcp_over_reverse_dns() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.10",
+    );
+    let id = device.id;
+
+    // Reverse DNS would return "generic.local", but the active lease has
+    // an option-12 hostname — that should win per FR-022.
+    let mut mappings = HashMap::new();
+    mappings.insert("192.168.1.10".to_owned(), "generic.local".to_owned());
+    // The real DHCP service writes MACs lowercase before insert, so the
+    // mock follows the same convention.
+    let dhcp = MockDhcpRepository::with_lease_hostnames(vec![(
+        "aa:bb:cc:dd:ee:01",
+        Some("living-room-tv"),
+    )]);
+    let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
+
+    h.svc
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .await
+        .unwrap();
+
+    let updates = h.repo.hostname_updates.lock().unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].0, id.to_string());
+    assert_eq!(updates[0].1, "living-room-tv");
+}
+
+#[tokio::test]
+async fn resolve_hostname_falls_back_when_dhcp_value_empty() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.10",
+    );
+
+    // Empty / whitespace-only option-12 counts as absent — fall through.
+    let mut mappings = HashMap::new();
+    mappings.insert("192.168.1.10".to_owned(), "myphone.local".to_owned());
+    let dhcp = MockDhcpRepository::with_lease_hostnames(vec![("aa:bb:cc:dd:ee:01", Some("   "))]);
+    let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
+
+    h.svc
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .await
+        .unwrap();
+
+    let updates = h.repo.hostname_updates.lock().unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].1, "myphone.local");
+}
+
+#[tokio::test]
+async fn resolve_hostname_falls_back_when_no_active_lease() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.10",
+    );
+
+    let mut mappings = HashMap::new();
+    mappings.insert("192.168.1.10".to_owned(), "myphone.local".to_owned());
+    // No DHCP lease for this MAC — should fall back to reverse DNS.
+    let h =
+        build_harness_with_resolver_and_dhcp(vec![device], mappings, MockDhcpRepository::empty());
+
+    h.svc
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .await
+        .unwrap();
+
+    let updates = h.repo.hostname_updates.lock().unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].1, "myphone.local");
+}
+
+#[tokio::test]
+async fn resolve_hostname_no_op_when_device_not_registered() {
+    // Lease arrives before packet capture has registered the device — must
+    // not error, must not write.
+    let dhcp = MockDhcpRepository::with_lease_hostnames(vec![("aa:bb:cc:dd:ee:99", Some("ghost"))]);
+    let h = build_harness_with_resolver_and_dhcp(vec![], HashMap::new(), dhcp);
+
+    h.svc
+        .resolve_hostname("AA:BB:CC:DD:EE:99", "192.168.1.99")
+        .await
+        .unwrap();
+
+    let updates = h.repo.hostname_updates.lock().unwrap();
+    assert!(updates.is_empty());
+}
+
+#[tokio::test]
+async fn resolve_hostname_normalises_mac_case_across_sources() {
+    // Reproduces the production split: packet capture stores devices with
+    // uppercase MACs, DHCP service stores leases with lowercase. The
+    // lease-event listener calls resolve_hostname with the lowercase form.
+    // Both lookups must succeed regardless. Tracked for canonicalisation
+    // in wardnet/wardnet#312.
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.10",
+    );
+    let id = device.id;
+
+    let dhcp = MockDhcpRepository::with_lease_hostnames(vec![(
+        "aa:bb:cc:dd:ee:01",
+        Some("kitchen-tablet"),
+    )]);
+    let h = build_harness_with_resolver_and_dhcp(vec![device], HashMap::new(), dhcp);
+
+    // Listener-driven call: lowercase MAC (matches the event payload).
+    h.svc
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+        .await
+        .unwrap();
+
+    let updates = h.repo.hostname_updates.lock().unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].0, id.to_string());
+    assert_eq!(updates[0].1, "kitchen-tablet");
 }
 
 #[tokio::test]
