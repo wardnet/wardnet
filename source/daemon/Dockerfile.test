@@ -155,14 +155,17 @@ EOF
 FROM ghcr.io/wardnet/wardnet-base@sha256:ba478f4a8b6441af3ebe8b3b4918d44040905a4b92dcefaf0d150eede8aad53b
 
 # Test-only client tooling: dig (DNS probe), ping (reachability),
-# dhclient (lease renew). Not in wardnet-base because the prod image
-# doesn't need them; they only exist for the wardnet-test-agent client
-# subcommands that the end-to-end suite drives.
+# dhclient (lease renew). policykit-1 ships pkcheck + the polkitd
+# daemon, both required for the Safe Reboot / Safe Shutdown
+# end-to-end spec (#215). Not in wardnet-base because the prod image
+# doesn't need them; they only exist for the wardnet-test-agent
+# client subcommands that the end-to-end suite drives.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         dnsutils \
         iputils-ping \
         isc-dhcp-client \
+        policykit-1 \
     && rm -rf /var/lib/apt/lists/*
 
 # install.sh + service units copied from the repo (online manifest
@@ -217,6 +220,36 @@ RUN chmod 0755 /usr/local/bin/wardnet-test-agent \
     && chmod 0644 /etc/systemd/system/wardnet-test-agent.service \
     && ln -s /etc/systemd/system/wardnet-test-agent.service \
         /etc/systemd/system/multi-user.target.wants/wardnet-test-agent.service
+
+# Shim for `systemctl` at /usr/sbin/systemctl that intercepts the
+# `reboot` / `poweroff` subcommands so the Safe Reboot / Safe
+# Shutdown end-to-end spec (#215) can assert the daemon's spawned
+# task actually invoked them — without literally rebooting CI.
+#
+# The daemon's production `ShellCommandExecutor` resolves the
+# program name through `/usr/sbin` and `/sbin` first (see
+# `source/daemon/crates/wardnetd/src/command.rs`), so a binary
+# named `systemctl` parked here is what wardnetd will exec when
+# `SystemctlPowerOps::reboot()` / `.poweroff()` runs. Other
+# systemctl callers (the test agent, install.sh, manual `docker
+# exec` debugging) keep using the real binary at `/usr/bin/systemctl`
+# — this shim only shadows for processes that resolve via sbin.
+#
+# The shim writes its argv to a marker file under /var/lib/wardnet
+# that the test-agent's `/power/systemctl-invocations` endpoint
+# surfaces back to the spec. Each invocation appends a line; the
+# spec reads the whole file and asserts the expected verbs landed.
+COPY <<"SHIM_EOF" /usr/sbin/systemctl
+#!/bin/sh
+# Test-only shim — see Dockerfile.test for context. Installed by
+# the wardnet test image so end-to-end specs can verify Safe
+# Reboot / Safe Shutdown without rebooting CI.
+mkdir -p /var/lib/wardnet
+echo "$@" >> /var/lib/wardnet/systemctl-invocations.log
+exit 0
+SHIM_EOF
+RUN chown root:root /usr/sbin/systemctl \
+    && chmod 0755 /usr/sbin/systemctl
 
 # wardnet-base already exposes 53/udp 53/tcp 67/udp 7411/tcp for the
 # daemon; the test-agent's HTTP probe API listens on 3001 (see
