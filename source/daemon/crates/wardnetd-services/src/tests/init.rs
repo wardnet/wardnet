@@ -215,7 +215,11 @@ impl crate::update::verifier::ReleaseVerifier for StubReleaseVerifier {
 struct StubBinaryApplier;
 #[async_trait]
 impl crate::update::applier::BinaryApplier for StubBinaryApplier {
-    async fn apply(&self, _tarball: &[u8]) -> anyhow::Result<crate::update::applier::SwapOutcome> {
+    async fn apply(
+        &self,
+        _tarball: &[u8],
+        _signature: &[u8],
+    ) -> anyhow::Result<crate::update::applier::SwapOutcome> {
         unimplemented!("init tests never apply a real tarball")
     }
     async fn rollback(&self) -> anyhow::Result<()> {

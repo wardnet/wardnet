@@ -5269,11 +5269,13 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
+ "flate2",
  "libc",
  "minisign",
  "minisign-verify",
  "serde",
  "serde_json",
+ "tar",
  "tempfile",
  "tracing",
  "tracing-subscriber",

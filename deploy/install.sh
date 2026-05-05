@@ -294,12 +294,14 @@ if ! id wardnet &>/dev/null; then
     useradd --system --no-create-home --shell /usr/sbin/nologin wardnet
 fi
 
-# 2. Directory structure. `/var/lib/wardnet/updates` must share a filesystem
-#    with `/usr/local/bin/wardnetd` so the auto-update rename is atomic;
-#    `/var/lib` qualifies on a typical Debian/Ubuntu install. The secret
-#    store lives under `/var/lib/wardnet/secrets` (not `/etc`) because it
-#    holds runtime state — generated WireGuard keys, backup passphrases,
-#    destination credentials — not static operator configuration.
+# 2. Directory structure. `/var/lib/wardnet/updates` is wardnet-writable
+#    (the daemon stages the next release tarball here for the runner to
+#    pick up) and must share a filesystem with `/usr/local/bin/wardnetd`
+#    so the runner's final rename is atomic. `/var/lib` qualifies on a
+#    typical Debian/Ubuntu install. The secret store lives under
+#    `/var/lib/wardnet/secrets` (not `/etc`) because it holds runtime
+#    state — generated WireGuard keys, backup passphrases, destination
+#    credentials — not static operator configuration.
 install -d -o wardnet -g wardnet -m 750 /etc/wardnet
 install -d -o wardnet -g wardnet -m 750 /var/lib/wardnet
 install -d -o wardnet -g wardnet -m 700 /var/lib/wardnet/secrets
@@ -331,8 +333,11 @@ EOF
     chmod 640 /etc/wardnet/wardnet.toml
 fi
 
-# 4. Binary. Daemon-owned + 0755 so the auto-update runner can atomically
-#    rename a staged binary into place without setuid or a root helper.
+# 4. Binary. Owned by wardnet so the daemon process can read+exec it,
+#    but the parent /usr/local/bin/ stays root-owned. The atomic swap
+#    on auto-update is performed by `wardnet-postupgrade-runner` (root)
+#    not the daemon — see step 5 and source/daemon/crates/wardnet-
+#    postupgrade-runner/src/swap.rs for the trust anchor.
 install -o wardnet -g wardnet -m 0755 "$WORKDIR/wardnetd" /usr/local/bin/wardnetd
 
 # 5. Privileged post-upgrade migration framework. The runner is the trust

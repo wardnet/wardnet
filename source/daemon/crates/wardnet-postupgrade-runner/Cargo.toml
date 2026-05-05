@@ -17,6 +17,8 @@ path = "src/main.rs"
 anyhow.workspace = true
 # https://crates.io/crates/chrono
 chrono.workspace = true
+# https://crates.io/crates/flate2
+flate2.workspace = true
 # https://crates.io/crates/libc
 libc.workspace = true
 # https://crates.io/crates/minisign-verify
@@ -25,6 +27,8 @@ minisign-verify.workspace = true
 serde.workspace = true
 # https://crates.io/crates/serde_json
 serde_json.workspace = true
+# https://crates.io/crates/tar
+tar.workspace = true
 # https://crates.io/crates/tracing
 tracing.workspace = true
 # https://crates.io/crates/tracing-subscriber

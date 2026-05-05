@@ -1,7 +1,9 @@
-//! Tests for `FsBinaryApplier`. Each test generates a fresh minisign
-//! keypair, builds an in-memory gzip-tar with the requested entries,
-//! and exercises the apply path in a tempdir. No fixtures committed
-//! to disk.
+//! Tests for `FsBinaryApplier` — the staging side of the runner-
+//! mediated swap. Each test generates a fresh minisign keypair, builds
+//! an in-memory gzip-tar with the requested entries, and exercises the
+//! stage path in a tempdir. The actual privileged rename happens in
+//! the runner crate's swap tests; here we only assert that the
+//! daemon stages the right artefacts in the right places.
 
 use std::io::Cursor;
 use std::path::Path;
@@ -14,8 +16,6 @@ use tempfile::TempDir;
 use crate::update::applier::BinaryApplier;
 use crate::update::fs_applier::FsBinaryApplier;
 
-/// Build a gzip-compressed tar archive in memory with the given
-/// `(name, bytes)` entries at the archive root.
 fn make_tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut gz = GzEncoder::new(Vec::new(), Compression::fast());
     {
@@ -32,8 +32,6 @@ fn make_tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
     gz.finish().unwrap()
 }
 
-/// Generate a minisign keypair and sign `payload`. Returns
-/// `(public_key_text, signature_text)`.
 fn signed_pair(payload: &[u8]) -> (String, String) {
     let keypair = KeyPair::generate_unencrypted_keypair().expect("keypair");
     let pk_text = keypair.pk.to_box().expect("pk box").into_string();
@@ -49,16 +47,40 @@ fn signed_pair(payload: &[u8]) -> (String, String) {
     (pk_text, signature_box.into_string())
 }
 
-/// `&'static str` is what `with_postupgrade` expects (the embedded
-/// public key has 'static lifetime in production). Tests work around
-/// the constraint by leaking each generated key — the leak is bounded
-/// by the test process's lifetime.
 fn leak(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
 }
 
 #[tokio::test]
-async fn valid_postupgrade_artifacts_swap_both() {
+async fn apply_stages_pending_tarball_and_signature() {
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
+
+    let tarball = make_tarball(&[("wardnetd", b"new wardnetd bytes")]);
+    let outer_sig = b"outer tarball signature";
+
+    let applier = FsBinaryApplier::new(live_path.clone(), staging.clone());
+    let outcome = applier.apply(&tarball, outer_sig).await.expect("apply ok");
+
+    // Pending tarball + sig land at the runner's expected names.
+    assert_eq!(
+        std::fs::read(staging.join("wardnetd-pending.tar.gz")).unwrap(),
+        tarball,
+    );
+    assert_eq!(
+        std::fs::read(staging.join("wardnetd-pending.tar.gz.minisig")).unwrap(),
+        outer_sig,
+    );
+    // Daemon must NOT have touched the live binary — the runner does
+    // that under root on the next restart.
+    assert!(!live_path.exists());
+    // The previous-binary path the runner *will* produce on swap.
+    assert_eq!(outcome.previous_binary, dir.path().join("wardnetd.old"));
+}
+
+#[tokio::test]
+async fn apply_with_postupgrade_swaps_payload_and_stages_tarball() {
     let dir = TempDir::new().unwrap();
     let live_path = dir.path().join("wardnetd");
     let staging = dir.path().join("staging");
@@ -73,15 +95,16 @@ async fn valid_postupgrade_artifacts_swap_both() {
         ("wardnet-postupgrade.minisig", sig_text.as_bytes()),
     ]);
 
-    let applier = FsBinaryApplier::new(live_path.clone(), staging)
+    let applier = FsBinaryApplier::new(live_path.clone(), staging.clone())
         .with_postupgrade(postupgrade.clone(), leak(pk_text));
 
-    applier.apply(&tarball).await.expect("apply ok");
+    applier
+        .apply(&tarball, b"outer-sig")
+        .await
+        .expect("apply ok");
 
-    assert_eq!(
-        std::fs::read(&live_path).unwrap(),
-        b"the wardnetd binary bytes",
-    );
+    // Postupgrade artefacts swap into place (wardnet-writable, no
+    // runner round-trip needed).
     assert_eq!(
         std::fs::read(postupgrade.join("wardnet-postupgrade.bin")).unwrap(),
         postupgrade_bin,
@@ -90,6 +113,13 @@ async fn valid_postupgrade_artifacts_swap_both() {
         std::fs::read(postupgrade.join("wardnet-postupgrade.minisig")).unwrap(),
         sig_text.as_bytes(),
     );
+    // Pending tarball is staged verbatim (the runner will re-verify
+    // the OUTER signature, not the embedded postupgrade one).
+    assert_eq!(
+        std::fs::read(staging.join("wardnetd-pending.tar.gz")).unwrap(),
+        tarball,
+    );
+    assert!(!live_path.exists());
 }
 
 #[tokio::test]
@@ -100,14 +130,12 @@ async fn corrupted_postupgrade_signature_aborts_apply() {
     let postupgrade = dir.path().join("postupgrade");
 
     // Pre-existing files we expect untouched after the failed apply.
-    std::fs::write(&live_path, b"OLD wardnetd").unwrap();
     std::fs::create_dir_all(&postupgrade).unwrap();
     std::fs::write(
         postupgrade.join("wardnet-postupgrade.bin"),
         b"OLD postupgrade bin",
     )
     .unwrap();
-    std::fs::write(postupgrade.join("wardnet-postupgrade.minisig"), b"OLD sig").unwrap();
 
     let postupgrade_bin: &[u8] = b"the migration runner binary bytes";
     let (pk_text, sig_text) = signed_pair(postupgrade_bin);
@@ -121,38 +149,36 @@ async fn corrupted_postupgrade_signature_aborts_apply() {
         ("wardnet-postupgrade.minisig", &tampered),
     ]);
 
-    let applier = FsBinaryApplier::new(live_path.clone(), staging)
+    let applier = FsBinaryApplier::new(live_path.clone(), staging.clone())
         .with_postupgrade(postupgrade.clone(), leak(pk_text));
-    let err = applier.apply(&tarball).await.unwrap_err();
+    let err = applier.apply(&tarball, b"outer-sig").await.unwrap_err();
     let chain = format!("{err:#}");
     assert!(
         chain.contains("verification failed") || chain.contains("decode failed"),
         "expected verification failure, got: {chain}"
     );
 
-    // Live binary and on-disk postupgrade artifacts remain at their
-    // pre-apply state — no half-finished swap.
-    assert_eq!(std::fs::read(&live_path).unwrap(), b"OLD wardnetd");
+    // Pre-apply postupgrade payload + missing pending tarball — the
+    // failed pre-flight must not have written anything.
     assert_eq!(
         std::fs::read(postupgrade.join("wardnet-postupgrade.bin")).unwrap(),
         b"OLD postupgrade bin",
     );
-    assert_eq!(
-        std::fs::read(postupgrade.join("wardnet-postupgrade.minisig")).unwrap(),
-        b"OLD sig",
-    );
-    assert!(!exists(&dir.path().join("wardnetd.old")));
+    assert!(!staging.join("wardnetd-pending.tar.gz").exists());
 }
 
 #[tokio::test]
-async fn tarball_without_postupgrade_only_swaps_wardnetd() {
+async fn apply_without_postupgrade_pair_still_stages_tarball() {
+    // Lenient downgrade tolerance: a tarball that omits the
+    // postupgrade pair stages cleanly. The on-disk postupgrade files
+    // are left in place; the runner will swap the wardnetd binary on
+    // next boot and the existing payload stays consistent with the
+    // new daemon.
     let dir = TempDir::new().unwrap();
     let live_path = dir.path().join("wardnetd");
     let staging = dir.path().join("staging");
     let postupgrade = dir.path().join("postupgrade");
 
-    // Pre-place an existing postupgrade payload to confirm it is left
-    // untouched (lenient downgrade tolerance).
     std::fs::create_dir_all(&postupgrade).unwrap();
     std::fs::write(
         postupgrade.join("wardnet-postupgrade.bin"),
@@ -163,53 +189,127 @@ async fn tarball_without_postupgrade_only_swaps_wardnetd() {
     let (pk_text, _sig_text) = signed_pair(b"unused");
     let tarball = make_tarball(&[("wardnetd", b"NEW wardnetd")]);
 
-    let applier = FsBinaryApplier::new(live_path.clone(), staging)
+    let applier = FsBinaryApplier::new(live_path, staging.clone())
         .with_postupgrade(postupgrade.clone(), leak(pk_text));
-    applier.apply(&tarball).await.expect("apply ok");
+    applier
+        .apply(&tarball, b"outer-sig")
+        .await
+        .expect("apply ok");
 
-    assert_eq!(std::fs::read(&live_path).unwrap(), b"NEW wardnetd");
-    // Existing payload is preserved — applier never touched it.
     assert_eq!(
         std::fs::read(postupgrade.join("wardnet-postupgrade.bin")).unwrap(),
         b"existing payload",
     );
+    assert!(staging.join("wardnetd-pending.tar.gz").exists());
 }
 
 #[tokio::test]
-async fn tarball_missing_wardnetd_returns_err() {
+async fn apply_clears_stale_rollback_request() {
+    // A pending rollback request from a previous failed install must
+    // not race a new install — staging the next forward swap clears
+    // the marker so the runner doesn't roll back instead.
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::write(staging.join("wardnetd-rollback.request"), b"").unwrap();
+
+    let tarball = make_tarball(&[("wardnetd", b"NEW wardnetd")]);
+    let applier = FsBinaryApplier::new(live_path, staging.clone());
+    applier
+        .apply(&tarball, b"outer-sig")
+        .await
+        .expect("apply ok");
+
+    assert!(!staging.join("wardnetd-rollback.request").exists());
+    assert!(staging.join("wardnetd-pending.tar.gz").exists());
+}
+
+#[tokio::test]
+async fn rollback_writes_request_marker_when_old_binary_present() {
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
+    let old_path = dir.path().join("wardnetd.old");
+
+    std::fs::write(&old_path, b"previous").unwrap();
+
+    let applier = FsBinaryApplier::new(live_path, staging.clone());
+    applier.rollback().await.expect("rollback request ok");
+
+    assert!(staging.join("wardnetd-rollback.request").exists());
+    // Request is empty (marker only, no body).
+    assert!(
+        std::fs::read(staging.join("wardnetd-rollback.request"))
+            .unwrap()
+            .is_empty(),
+    );
+}
+
+#[tokio::test]
+async fn rollback_without_old_binary_returns_err() {
     let dir = TempDir::new().unwrap();
     let live_path = dir.path().join("wardnetd");
     let staging = dir.path().join("staging");
 
-    let tarball = make_tarball(&[("README", b"unrelated entry")]);
+    let applier = FsBinaryApplier::new(live_path, staging);
+    let err = applier.rollback().await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("no previous binary"),
+        "expected no-previous-binary error"
+    );
+}
 
+#[tokio::test]
+async fn rollback_available_reflects_old_binary_existence() {
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
     let applier = FsBinaryApplier::new(live_path.clone(), staging);
-    let err = applier.apply(&tarball).await.unwrap_err();
+
+    assert!(!applier.rollback_available().await);
+    std::fs::write(dir.path().join("wardnetd.old"), b"x").unwrap();
+    assert!(applier.rollback_available().await);
+}
+
+#[tokio::test]
+async fn fs_error_during_apply_carries_failing_path() {
+    // Issue #309 regression: a forced fs failure during staging must
+    // surface the offending PathBuf in the error chain so operators
+    // can diagnose without scraping kernel logs.
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    // Pre-create staging as a regular file so `create_dir_all` bails
+    // with ENOTDIR — a deterministic stand-in for the EACCES the user
+    // hit in production.
+    let staging = dir.path().join("staging-is-a-file");
+    std::fs::write(&staging, b"not a directory").unwrap();
+
+    let tarball = make_tarball(&[("wardnetd", b"daemon")]);
+    let applier = FsBinaryApplier::new(live_path, staging.clone());
+    let err = applier.apply(&tarball, b"outer-sig").await.unwrap_err();
     let chain = format!("{err:#}");
     assert!(
-        chain.contains("wardnetd"),
-        "expected wardnetd-missing error, got: {chain}"
+        chain.contains(staging.to_string_lossy().as_ref()),
+        "expected failing path in error chain, got: {chain}"
     );
-    assert!(!exists(&live_path));
 }
 
 #[tokio::test]
-async fn postupgrade_swap_failure_does_not_roll_back_wardnetd() {
-    // If the post-upgrade swap step fails AFTER wardnetd has been
-    // renamed (rare but possible: e.g. /var/lib/wardnet/postupgrade
-    // is a regular file, not a directory), the applier logs WARN and
-    // still returns Ok. The new wardnetd is in place; the existing
-    // on-disk postupgrade artifacts are consistent with either the
-    // previous or new wardnetd, and OnFailure=wardnetd-rollback.service
-    // catches any downstream daemon crash.
+async fn apply_logs_warning_when_postupgrade_swap_fails() {
+    // The pre-flight verify of the postupgrade pair succeeds, but the
+    // subsequent rename into `cfg.dir` fails — `swap_postupgrade`
+    // returns Err and the apply path logs (rather than aborts) so the
+    // staged wardnetd tarball still reaches the runner.
     let dir = TempDir::new().unwrap();
     let live_path = dir.path().join("wardnetd");
     let staging = dir.path().join("staging");
-    let postupgrade_as_file = dir.path().join("postupgrade-is-a-file");
-    // Pre-create the postupgrade target as a regular file. The
-    // applier's `create_dir_all(&cfg.dir)` will fail because the
-    // path exists but isn't a directory.
-    std::fs::write(&postupgrade_as_file, b"not a directory").unwrap();
+    // Postupgrade dir resolves to a regular file -> create_dir_all
+    // inside swap_postupgrade returns ENOTDIR. Same shape of error the
+    // diagnose-by-path #309 fix surfaces, just for the postupgrade
+    // pipeline rather than the wardnetd swap.
+    let postupgrade = dir.path().join("postupgrade-is-a-file");
+    std::fs::write(&postupgrade, b"not a dir").unwrap();
 
     let postupgrade_bin: &[u8] = b"the migration runner binary bytes";
     let (pk_text, sig_text) = signed_pair(postupgrade_bin);
@@ -220,38 +320,27 @@ async fn postupgrade_swap_failure_does_not_roll_back_wardnetd() {
         ("wardnet-postupgrade.minisig", sig_text.as_bytes()),
     ]);
 
-    let applier = FsBinaryApplier::new(live_path.clone(), staging)
-        .with_postupgrade(postupgrade_as_file, leak(pk_text));
+    let applier = FsBinaryApplier::new(live_path.clone(), staging.clone())
+        .with_postupgrade(postupgrade, leak(pk_text));
+
+    // The wardnetd tarball is still staged — only the postupgrade
+    // swap is best-effort. A subscriber is installed for the duration
+    // so the warn macro's structured fields actually evaluate;
+    // coverage tools treat field exprs inside disabled tracing macros
+    // as unhit.
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_test_writer()
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
     applier
-        .apply(&tarball)
+        .apply(&tarball, b"outer-sig")
         .await
-        .expect("apply must succeed even when postupgrade swap can't proceed");
-
-    // wardnetd was still swapped. The postupgrade swap was skipped.
-    assert_eq!(std::fs::read(&live_path).unwrap(), b"NEW wardnetd");
+        .expect("apply ok despite postupgrade swap failure");
+    assert!(staging.join("wardnetd-pending.tar.gz").exists());
 }
 
-#[tokio::test]
-async fn unconfigured_postupgrade_ignores_artifacts_in_tarball() {
-    // Backwards-compat: an applier built without `.with_postupgrade(...)`
-    // must skip the .bin/.minisig in the tarball entirely, even if
-    // they're present. Useful for legacy callers and the in-tree
-    // wardnetd-mock when run without a postupgrade fixture path.
-    let dir = TempDir::new().unwrap();
-    let live_path = dir.path().join("wardnetd");
-    let staging = dir.path().join("staging");
-
-    let tarball = make_tarball(&[
-        ("wardnetd", b"daemon"),
-        ("wardnet-postupgrade.bin", b"would-be-payload"),
-        ("wardnet-postupgrade.minisig", b"would-be-signature"),
-    ]);
-
-    let applier = FsBinaryApplier::new(live_path.clone(), staging);
-    applier.apply(&tarball).await.expect("apply ok");
-    assert_eq!(std::fs::read(&live_path).unwrap(), b"daemon");
-}
-
+#[allow(dead_code)]
 fn exists(p: &Path) -> bool {
     p.exists()
 }
