@@ -9,6 +9,8 @@ interface DetailPageHeaderProps {
   parentTo: string;
   /** The current item's label — usually the title row. */
   itemLabel: string;
+  /** Optional icon rendered inline left of the title. */
+  icon?: ReactNode;
   /** Optional content rendered to the right of the title (status pill, etc.). */
   status?: ReactNode;
   /** Optional content rendered below the title row (last-handshake age, etc.). */
@@ -26,6 +28,7 @@ export function DetailPageHeader({
   parentLabel,
   parentTo,
   itemLabel,
+  icon,
   status,
   meta,
 }: DetailPageHeaderProps) {
@@ -42,6 +45,11 @@ export function DetailPageHeader({
         <span className="truncate">{itemLabel}</span>
       </nav>
       <div className="flex flex-wrap items-center gap-3">
+        {icon ? (
+          <span aria-hidden className="inline-flex items-center text-foreground/70">
+            {icon}
+          </span>
+        ) : null}
         <h1 className="text-2xl font-semibold tracking-tight">{itemLabel}</h1>
         {status}
       </div>

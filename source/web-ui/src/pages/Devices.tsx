@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
-import { EditDeviceSheet } from "@/components/features/EditDeviceSheet";
 import { useDevices } from "@/hooks/useDevices";
 
 function sortDevices<T extends { name: string | null; hostname: string | null; mac: string }>(
@@ -20,11 +19,15 @@ function sortDevices<T extends { name: string | null; hostname: string | null; m
 /** Devices page with managed and discovered tabs. */
 export default function Devices() {
   const { data, isLoading, isError } = useDevices();
+  const navigate = useNavigate();
   const allDevices = data?.devices ?? [];
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   const managed = sortDevices(allDevices.filter((d) => d.name != null));
   const discovered = sortDevices(allDevices.filter((d) => d.name == null));
+
+  function openDevice(id: string) {
+    navigate(`/devices/${id}`);
+  }
 
   return (
     <>
@@ -46,7 +49,7 @@ export default function Devices() {
           </TabsList>
           <TabsContent value="managed" className="mt-4 flex min-h-0 flex-1 flex-col">
             {managed.length > 0 ? (
-              <DeviceTable devices={managed} onDeviceClick={setSelectedDeviceId} />
+              <DeviceTable devices={managed} onDeviceClick={openDevice} />
             ) : (
               <EmptyStatePlaceholder
                 message="No managed devices yet"
@@ -56,7 +59,7 @@ export default function Devices() {
           </TabsContent>
           <TabsContent value="discovered" className="mt-4 flex min-h-0 flex-1 flex-col">
             {discovered.length > 0 ? (
-              <DeviceTable devices={discovered} onDeviceClick={setSelectedDeviceId} />
+              <DeviceTable devices={discovered} onDeviceClick={openDevice} />
             ) : (
               <p className="py-10 text-center text-sm text-muted-foreground">
                 All devices have been named. New devices will appear here when detected.
@@ -64,16 +67,6 @@ export default function Devices() {
             )}
           </TabsContent>
         </Tabs>
-      )}
-
-      {selectedDeviceId && (
-        <EditDeviceSheet
-          deviceId={selectedDeviceId}
-          open={!!selectedDeviceId}
-          onOpenChange={(open) => {
-            if (!open) setSelectedDeviceId(null);
-          }}
-        />
       )}
     </>
   );
