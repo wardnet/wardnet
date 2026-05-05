@@ -3,26 +3,9 @@ import { Badge } from "@/components/core/ui/badge";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { StatusBadge } from "@/components/compound/StatusBadge";
+import { deviceTypeLabel } from "@/lib/device";
 import { timeAgo } from "@/lib/utils";
-import type { Device, DeviceType, DhcpStatus } from "@wardnet/js";
-
-const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
-  { value: "tv", label: "TV" },
-  { value: "phone", label: "Phone" },
-  { value: "laptop", label: "Laptop" },
-  { value: "tablet", label: "Tablet" },
-  { value: "game_console", label: "Console" },
-  { value: "settop_box", label: "Set-top box" },
-  { value: "iot", label: "IoT" },
-  { value: "router", label: "Router" },
-  { value: "managed_switch", label: "Managed switch" },
-  { value: "server", label: "Server" },
-  { value: "unknown", label: "Unknown" },
-];
-
-function deviceTypeLabel(type: Device["device_type"]): string {
-  return DEVICE_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
-}
+import type { Device, DhcpStatus } from "@wardnet/js";
 
 const columns: ColumnDef<Device>[] = [
   {

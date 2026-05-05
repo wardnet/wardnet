@@ -7,6 +7,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useSetupStatus } from "@/hooks/useSetup";
 import Dashboard from "@/pages/Dashboard";
 import Devices from "@/pages/Devices";
+import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
@@ -80,6 +81,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Devices />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="devices/:id"
+          element={
+            <AdminRoute>
+              <DeviceDetail />
             </AdminRoute>
           }
         />

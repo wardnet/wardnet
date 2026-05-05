@@ -71,6 +71,10 @@ export function useCreateReservation() {
     onSuccess: (data) => {
       toast.success(data.message || "Reservation created");
       qc.invalidateQueries({ queryKey: ["dhcp", "reservations"] });
+      // Device DHCP chip is derived from the device payload, not the
+      // reservation list — refresh it so the UI reflects the change without
+      // needing a manual reload.
+      qc.invalidateQueries({ queryKey: ["devices"] });
     },
     onError: () => toast.error("Failed to create reservation"),
   });
@@ -83,6 +87,7 @@ export function useDeleteReservation() {
     onSuccess: (data) => {
       toast.success(data.message || "Reservation deleted");
       qc.invalidateQueries({ queryKey: ["dhcp", "reservations"] });
+      qc.invalidateQueries({ queryKey: ["devices"] });
     },
     onError: () => toast.error("Failed to delete reservation"),
   });
@@ -95,6 +100,7 @@ export function useRevokeLease() {
     onSuccess: (data) => {
       toast.success(data.message || "Lease revoked");
       qc.invalidateQueries({ queryKey: ["dhcp", "leases"] });
+      qc.invalidateQueries({ queryKey: ["devices"] });
     },
     onError: () => toast.error("Failed to revoke lease"),
   });

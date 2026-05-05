@@ -1,5 +1,3 @@
-import { RadioGroup, RadioGroupItem } from "@/components/core/ui/radio-group";
-import { Label } from "@/components/core/ui/label";
 import {
   Select,
   SelectContent,
@@ -7,19 +5,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/core/ui/select";
-import type { RoutingTarget, Tunnel } from "@wardnet/js";
 import { Link } from "react-router";
+import { WifiOffIcon } from "lucide-react";
+import { countryFlag } from "@/lib/country";
+import type { RoutingTarget, Tunnel } from "@wardnet/js";
 
-type RoutingMode = "default" | "direct" | "tunnel";
+const DIRECT_VALUE = "direct";
 
-function modeFromTarget(target: RoutingTarget | null): RoutingMode {
-  if (!target) return "default";
-  return target.type === "tunnel" ? "tunnel" : target.type;
-}
-
-function tunnelIdFromTarget(target: RoutingTarget | null): string | undefined {
-  if (target?.type === "tunnel") return target.tunnel_id;
-  return undefined;
+function valueFromTarget(target: RoutingTarget | null, tunnels: Tunnel[]): string {
+  if (target?.type === "tunnel") {
+    if (tunnels.some((t) => t.id === target.tunnel_id)) return target.tunnel_id;
+  }
+  return DIRECT_VALUE;
 }
 
 interface RoutingSelectorProps {
@@ -30,7 +27,12 @@ interface RoutingSelectorProps {
   isAdmin?: boolean;
 }
 
-/** Compound component for selecting a device's routing target. */
+/** Compound component for selecting a device's routing target.
+ *
+ * Single dropdown: "Direct (no VPN)" plus one entry per tunnel (with country
+ * flag). The legacy `Default` target (resolved server-side via
+ * `network.default_policy`) is intentionally not exposed — saving rewrites
+ * any incoming `default` to an explicit choice. */
 export function RoutingSelector({
   value,
   onChange,
@@ -38,81 +40,70 @@ export function RoutingSelector({
   disabled,
   isAdmin,
 }: RoutingSelectorProps) {
-  const mode = modeFromTarget(value);
-  const selectedTunnelId = tunnelIdFromTarget(value);
+  const selected = valueFromTarget(value, tunnels);
 
-  function handleModeChange(newMode: string) {
-    switch (newMode) {
-      case "direct":
-        onChange({ type: "direct" });
-        break;
-      case "default":
-        onChange({ type: "default" });
-        break;
-      case "tunnel":
-        if (tunnels.length > 0) {
-          onChange({ type: "tunnel", tunnel_id: tunnels[0].id });
-        }
-        break;
+  function handleChange(next: string) {
+    if (next === DIRECT_VALUE) {
+      onChange({ type: "direct" });
+    } else {
+      onChange({ type: "tunnel", tunnel_id: next });
     }
   }
 
-  function handleTunnelChange(tunnelId: string) {
-    onChange({ type: "tunnel", tunnel_id: tunnelId });
+  if (tunnels.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Select value={DIRECT_VALUE} onValueChange={handleChange} disabled>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DIRECT_VALUE}>
+              <span className="inline-flex items-center gap-2">
+                <WifiOffIcon className="size-4 text-muted-foreground" />
+                Direct (no VPN)
+              </span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-sm text-muted-foreground">
+          No tunnels configured.{" "}
+          {isAdmin ? (
+            <Link to="/tunnels" className="text-primary underline">
+              Add one
+            </Link>
+          ) : (
+            "Contact your network admin."
+          )}
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <RadioGroup value={mode} onValueChange={handleModeChange} disabled={disabled}>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="default" id="route-default" />
-          <Label htmlFor="route-default" className="cursor-pointer font-normal">
-            Default
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="direct" id="route-direct" />
-          <Label htmlFor="route-direct" className="cursor-pointer font-normal">
+    <Select value={selected} onValueChange={handleChange} disabled={disabled}>
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={DIRECT_VALUE}>
+          <span className="inline-flex items-center gap-2">
+            <WifiOffIcon className="size-4 text-muted-foreground" />
             Direct (no VPN)
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="tunnel" id="route-tunnel" />
-          <Label htmlFor="route-tunnel" className="cursor-pointer font-normal">
-            Via tunnel
-          </Label>
-        </div>
-      </RadioGroup>
-
-      {mode === "tunnel" && (
-        <div className="pl-6">
-          {tunnels.length > 0 ? (
-            <Select value={selectedTunnelId} onValueChange={handleTunnelChange} disabled={disabled}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a tunnel" />
-              </SelectTrigger>
-              <SelectContent>
-                {tunnels.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.label} ({t.country_code.toUpperCase()})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No tunnels configured.{" "}
-              {isAdmin ? (
-                <Link to="/tunnels" className="text-primary underline">
-                  Add one
-                </Link>
-              ) : (
-                "Contact your network admin."
-              )}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
+          </span>
+        </SelectItem>
+        {tunnels.map((t) => {
+          const flag = t.country_code ? countryFlag(t.country_code) : "";
+          return (
+            <SelectItem key={t.id} value={t.id}>
+              <span className="inline-flex items-center gap-2">
+                {flag ? <span aria-hidden>{flag}</span> : null}
+                {t.label}
+              </span>
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }
