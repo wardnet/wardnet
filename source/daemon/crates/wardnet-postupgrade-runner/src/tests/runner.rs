@@ -15,6 +15,7 @@ use std::io::Cursor;
 use minisign::{KeyPair, sign};
 use tempfile::TempDir;
 
+use crate::swap::SwapPaths;
 use crate::{RunOutcome, Runner};
 
 /// `&'static str` is what `Runner::public_key` expects. Tests leak
@@ -44,6 +45,15 @@ fn build_runner(dir: &std::path::Path, public_key: &'static str) -> Runner {
         payload_path: dir.join("postupgrade.bin"),
         signature_path: dir.join("postupgrade.minisig"),
         state_path: dir.join("state.json"),
+        // Tests that don't exercise the swap step point swap paths
+        // into a sub-tempdir whose pending files don't exist; the swap
+        // module short-circuits to NoOp without touching live_binary.
+        swap_paths: SwapPaths {
+            pending_tarball: dir.join("swap-unused/pending.tar.gz"),
+            pending_signature: dir.join("swap-unused/pending.tar.gz.minisig"),
+            rollback_request: dir.join("swap-unused/rollback.request"),
+            live_binary: dir.join("swap-unused/wardnetd"),
+        },
         public_key,
     }
 }
@@ -146,5 +156,50 @@ fn with_default_paths_uses_production_constants() {
     assert_eq!(
         runner.state_path,
         std::path::PathBuf::from(crate::DEFAULT_STATE_PATH)
+    );
+    assert_eq!(
+        runner.swap_paths.live_binary,
+        std::path::PathBuf::from(crate::DEFAULT_LIVE_BINARY_PATH)
+    );
+    assert_eq!(
+        runner.swap_paths.pending_tarball,
+        std::path::PathBuf::from(crate::swap::DEFAULT_PENDING_TARBALL_PATH)
+    );
+}
+
+#[test]
+fn swap_failure_short_circuits_run() {
+    // When the pending tarball is present but its signature doesn't
+    // verify, `Runner::run` must return `SwapFailed` without touching
+    // the migration payload — gating wardnetd start on a clean swap.
+    let dir = TempDir::new().unwrap();
+    let pending = dir.path().join("pending.tar.gz");
+    let pending_sig = dir.path().join("pending.tar.gz.minisig");
+    let live = dir.path().join("wardnetd");
+    std::fs::write(&live, b"OLD wardnetd").unwrap();
+    let tarball = b"any tarball bytes";
+    let (pk_a, _) = signed_pair(tarball);
+    let (_, sig_b) = signed_pair(tarball);
+    std::fs::write(&pending, tarball).unwrap();
+    std::fs::write(&pending_sig, sig_b).unwrap();
+
+    let mut runner = build_runner(dir.path(), leak(pk_a));
+    runner.swap_paths = SwapPaths {
+        pending_tarball: pending,
+        pending_signature: pending_sig,
+        rollback_request: dir.path().join("rollback.request"),
+        live_binary: live.clone(),
+    };
+
+    let argv = [CString::new("p").unwrap()];
+    let outcome = runner.run(&argv);
+    assert!(
+        matches!(outcome, RunOutcome::SwapFailed(_)),
+        "expected SwapFailed, got {outcome:?}"
+    );
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        b"OLD wardnetd",
+        "live binary must be untouched on swap failure",
     );
 }

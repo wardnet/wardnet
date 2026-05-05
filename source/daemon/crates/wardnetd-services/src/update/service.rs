@@ -260,7 +260,10 @@ impl UpdateServiceImpl {
                 Ok(())
             }
             Err((phase, err)) => {
-                let msg = err.to_string();
+                // `{:#}` walks the anyhow chain so context wrapping (e.g.
+                // the path the applier tried to swap) reaches the history
+                // row and log line, not just the bare `io::Error`.
+                let msg = format!("{err:#}");
                 self.publish_progress(
                     &target,
                     InstallPhase::Failed {
@@ -345,26 +348,36 @@ impl UpdateServiceImpl {
             .await
             .map_err(|e| (InstallPhase::Verifying, AppError::Internal(e)))?;
 
-        if self.require_signature {
-            let minisig_url = release.minisig_url.clone().ok_or_else(|| {
-                (
-                    InstallPhase::Verifying,
-                    AppError::Internal(anyhow::anyhow!(
-                        "signature required but release has no minisig_url"
-                    )),
-                )
-            })?;
-            let sig_bytes = self
-                .release_source
+        // The detached signature is required for the runner-mediated
+        // swap regardless of `require_signature` — `wardnet-postupgrade-
+        // runner` re-verifies it under root before renaming the binary.
+        // `require_signature` only controls whether the daemon also
+        // verifies pre-stash; the trust anchor's check is unconditional.
+        let sig_bytes = if let Some(minisig_url) = release.minisig_url.clone() {
+            self.release_source
                 .fetch_asset(&minisig_url)
                 .await
-                .map_err(|e| (InstallPhase::Verifying, AppError::Internal(e)))?;
+                .map_err(|e| (InstallPhase::Verifying, AppError::Internal(e)))?
+        } else if self.require_signature {
+            return Err((
+                InstallPhase::Verifying,
+                AppError::Internal(anyhow::anyhow!(
+                    "signature required but release has no minisig_url"
+                )),
+            ));
+        } else {
+            tracing::warn!(
+                "signature verification disabled — staging without minisign \
+                 (runner will refuse to swap without one)"
+            );
+            Vec::new()
+        };
+
+        if self.require_signature {
             self.verifier
                 .verify_signature(&tarball, &sig_bytes)
                 .await
                 .map_err(|e| (InstallPhase::Verifying, AppError::Internal(e)))?;
-        } else {
-            tracing::warn!("signature verification disabled — proceeding without minisign");
         }
 
         self.publish_progress(&target, InstallPhase::Staging).await;
@@ -372,7 +385,7 @@ impl UpdateServiceImpl {
 
         let outcome = self
             .applier
-            .apply(&tarball)
+            .apply(&tarball, &sig_bytes)
             .await
             .map_err(|e| (InstallPhase::Swapping, AppError::Internal(e)))?;
 
@@ -617,7 +630,9 @@ impl UpdateService for UpdateServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        tracing::info!("rollback complete — daemon will be restarted by systemd");
+        tracing::info!(
+            "rollback request staged — runner will restore previous binary on next daemon restart",
+        );
         Ok(RollbackResponse {
             message: "rollback staged — daemon will restart".to_owned(),
         })

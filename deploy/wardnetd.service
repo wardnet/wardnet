@@ -41,10 +41,11 @@ RuntimeDirectoryMode=0755
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-# `/usr/local/bin` is writable so the auto-update runner can atomically
-# rename the staged binary into place. The daemon user owns the binary
-# (install.sh chowns it) so no root-only step is needed.
-ReadWritePaths=/var/lib/wardnet /var/log/wardnet /usr/local/bin
+# Auto-update stages the new tarball into /var/lib/wardnet/updates/;
+# the privileged `wardnet-postupgrade.service` performs the actual
+# /usr/local/bin/wardnetd swap on next start under root, so the
+# wardnet user no longer needs write access to /usr/local/bin.
+ReadWritePaths=/var/lib/wardnet /var/log/wardnet
 PrivateTmp=yes
 
 # Logging to journal

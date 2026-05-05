@@ -44,6 +44,16 @@ fn main() {
             );
             std::process::exit(2);
         }
+        RunOutcome::SwapFailed(e) => {
+            tracing::error!(
+                error = %format!("{e:#}"),
+                pending = %runner.swap_paths.pending_tarball.display(),
+                live = %runner.swap_paths.live_binary.display(),
+                "wardnetd swap failed; refusing to start the daemon: error={e:#}",
+                e = format!("{e:#}"),
+            );
+            std::process::exit(3);
+        }
     }
 }
 

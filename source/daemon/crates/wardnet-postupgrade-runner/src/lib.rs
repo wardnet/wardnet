@@ -23,6 +23,7 @@
 
 pub mod exec;
 pub mod state;
+pub mod swap;
 pub mod verify;
 
 use std::path::PathBuf;
@@ -38,6 +39,10 @@ pub const DEFAULT_SIGNATURE_PATH: &str = "/var/lib/wardnet/postupgrade/wardnet-p
 /// cannot rewrite this file to mark a `Required` failure as `applied`
 /// and bypass the daemon-startup gate.
 pub const DEFAULT_STATE_PATH: &str = "/var/lib/wardnet-postupgrade/state.json";
+/// Default location of the live wardnetd binary swapped into place by
+/// the privileged swap step. Mirrors the daemon's
+/// `config.update.live_binary_path` default.
+pub const DEFAULT_LIVE_BINARY_PATH: &str = "/usr/local/bin/wardnetd";
 
 /// Inputs the runner needs to verify and exec a payload. Mostly fixed
 /// at compile time; `Runner::with_default_paths` wires the production
@@ -46,6 +51,7 @@ pub struct Runner {
     pub payload_path: PathBuf,
     pub signature_path: PathBuf,
     pub state_path: PathBuf,
+    pub swap_paths: swap::SwapPaths,
     pub public_key: &'static str,
 }
 
@@ -65,6 +71,11 @@ pub enum RunOutcome {
     /// the process and never returns this variant. Very rare in
     /// practice (kernel out of memory, seccomp policy mismatch).
     ExecFailed(anyhow::Error),
+    /// Privileged swap of `<live>` could not be completed (signature
+    /// failure, missing wardnetd entry, fs error). The runner exits
+    /// nonzero so systemd refuses to start `wardnetd.service` against
+    /// an unverified binary.
+    SwapFailed(anyhow::Error),
 }
 
 impl Runner {
@@ -76,6 +87,7 @@ impl Runner {
             payload_path: PathBuf::from(DEFAULT_PAYLOAD_PATH),
             signature_path: PathBuf::from(DEFAULT_SIGNATURE_PATH),
             state_path: PathBuf::from(DEFAULT_STATE_PATH),
+            swap_paths: swap::SwapPaths::with_defaults(PathBuf::from(DEFAULT_LIVE_BINARY_PATH)),
             public_key,
         }
     }
@@ -84,6 +96,31 @@ impl Runner {
     /// failure modes are mapped to [`RunOutcome`] variants. The caller
     /// (`main.rs`) translates the variant to a logger call + exit code.
     pub fn run(&self, args: &[std::ffi::CString]) -> RunOutcome {
+        // Privileged daemon swap runs first — the migration runner the
+        // exec branch invokes belongs to the new release, not the old
+        // one. A swap failure aborts boot rather than running migrations
+        // against a binary the trust anchor couldn't verify.
+        match swap::run(&self.swap_paths, self.public_key) {
+            swap::SwapOutcome::NoOp => {}
+            swap::SwapOutcome::Swapped => {
+                tracing::info!(
+                    live = %self.swap_paths.live_binary.display(),
+                    "wardnetd binary swapped into place at {live}",
+                    live = self.swap_paths.live_binary.display(),
+                );
+            }
+            swap::SwapOutcome::RolledBack => {
+                tracing::info!(
+                    live = %self.swap_paths.live_binary.display(),
+                    "wardnetd rolled back to previous binary at {live}",
+                    live = self.swap_paths.live_binary.display(),
+                );
+            }
+            swap::SwapOutcome::Failed(e) => {
+                return RunOutcome::SwapFailed(e);
+            }
+        }
+
         let Some((payload, signature)) =
             verify::read_artifacts(&self.payload_path, &self.signature_path)
         else {

@@ -1,19 +1,42 @@
-//! Filesystem [`BinaryApplier`] — extract, stage, rename-swap.
+//! Filesystem [`BinaryApplier`] — stage tarball + signature for the
+//! root-mediated swap performed by `wardnet-postupgrade-runner`.
+//!
+//! Why staged-not-direct: the daemon runs as the unprivileged
+//! `wardnet` user and cannot rename a binary into `/usr/local/bin/`
+//! (the parent dir is `root:root 0755` and `rename(2)` needs write+x
+//! on the destination directory). The previous version of this module
+//! attempted the rename in-process and hit `EACCES (os error 13)` on
+//! every Pi install — see issue #309 for the diagnosis.
+//!
+//! The current design keeps the daemon's responsibilities limited to
+//! what the wardnet user *can* do:
+//!
+//!   1. Verify the tarball signature against the embedded public key.
+//!   2. Pluck `wardnet-postupgrade.bin` / `.minisig` and swap them into
+//!      `/var/lib/wardnet/postupgrade/` — wardnet-writable, no privilege
+//!      step required.
+//!   3. Write the original tarball + signature to
+//!      `<staging>/wardnetd-pending.tar.gz{,.minisig}`. The runner picks
+//!      these up at the next daemon restart, re-verifies the signature
+//!      under root, and renames the extracted `wardnetd` into
+//!      `/usr/local/bin/`.
+//!
+//! `rollback()` writes a request marker the runner consumes the same
+//! way. The trust boundary survives because the runner re-verifies
+//! every time — the wardnet user can stage anything but cannot get a
+//! payload past the embedded public key.
 
 use std::io::Read;
 use std::path::PathBuf;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use flate2::read::GzDecoder;
 use tokio::task;
 
 use crate::update::applier::{BinaryApplier, SwapOutcome};
 
-/// File names extracted from the release tarball. Anything else
-/// (`wardnet-postupgrade-runner`, `wardnet-postupgrade.service`,
-/// `LICENSE`, …) is silently ignored during auto-update — the runner
-/// is the trust anchor and may only be replaced by `install.sh`.
-const ARCHIVE_NAME_DAEMON: &str = "wardnetd";
+/// File names extracted from the release tarball.
 const ARCHIVE_NAME_POSTUPGRADE_BIN: &str = "wardnet-postupgrade.bin";
 const ARCHIVE_NAME_POSTUPGRADE_SIG: &str = "wardnet-postupgrade.minisig";
 
@@ -21,6 +44,15 @@ const ARCHIVE_NAME_POSTUPGRADE_SIG: &str = "wardnet-postupgrade.minisig";
 /// swap.
 const POSTUPGRADE_BIN_FILENAME: &str = "wardnet-postupgrade.bin";
 const POSTUPGRADE_SIG_FILENAME: &str = "wardnet-postupgrade.minisig";
+
+/// File names the runner reads from the staging dir.
+///
+/// MUST match `wardnet_postupgrade_runner::swap::DEFAULT_PENDING_*` —
+/// kept in sync manually because the daemon and the trust-anchor
+/// runner are intentionally separate compilation units.
+const PENDING_TARBALL_FILENAME: &str = "wardnetd-pending.tar.gz";
+const PENDING_SIGNATURE_FILENAME: &str = "wardnetd-pending.tar.gz.minisig";
+const ROLLBACK_REQUEST_FILENAME: &str = "wardnetd-rollback.request";
 
 /// Optional post-upgrade pipeline: where to place the wardnet-writable
 /// payload + signature, and which embedded public key to verify them
@@ -30,19 +62,12 @@ struct PostupgradeConfig {
     public_key: &'static str,
 }
 
-/// Write-then-rename applier bound to a live binary path and staging dir.
+/// Stages a release tarball for the runner-mediated swap.
 ///
-/// The live binary and the staging directory must live on the same
-/// filesystem so the final `rename(2)` is atomic. `apply()` leaves the
-/// previous binary at `<live>.old`, which is the target `rollback()`
-/// swaps back into place.
-///
-/// When configured via [`Self::with_postupgrade`], the applier also
-/// extracts `wardnet-postupgrade.bin` + `wardnet-postupgrade.minisig`
-/// from the tarball, **pre-flight verifies** the signature against
-/// the embedded key before any rename, then swaps them into the
-/// post-upgrade dir after `wardnetd`. A pre-flight verification
-/// failure aborts the entire apply (wardnetd is not touched).
+/// Holds the live binary path (used to compute the rollback target's
+/// expected `<live>.old` location), the staging directory (where the
+/// pending tarball + signature land), and an optional post-upgrade
+/// configuration for the migration framework's signed payload.
 pub struct FsBinaryApplier {
     live_path: PathBuf,
     staging_dir: PathBuf,
@@ -54,7 +79,6 @@ pub struct FsBinaryApplier {
 /// that will hit disk and a verification failure costs nothing.
 #[derive(Default)]
 struct Plucked {
-    wardnetd: Option<Vec<u8>>,
     postupgrade_bin: Option<Vec<u8>>,
     postupgrade_sig: Option<Vec<u8>>,
 }
@@ -92,20 +116,30 @@ impl FsBinaryApplier {
         p
     }
 
-    fn extract_and_swap(&self, tarball: &[u8]) -> anyhow::Result<SwapOutcome> {
-        std::fs::create_dir_all(&self.staging_dir)?;
-        let plucked = Self::pluck(tarball)?;
+    fn pending_tarball_path(&self) -> PathBuf {
+        self.staging_dir.join(PENDING_TARBALL_FILENAME)
+    }
 
-        let wardnetd_bytes = plucked.wardnetd.ok_or_else(|| {
-            anyhow::anyhow!("tarball did not contain a `wardnetd` entry at any path")
-        })?;
+    fn pending_signature_path(&self) -> PathBuf {
+        self.staging_dir.join(PENDING_SIGNATURE_FILENAME)
+    }
+
+    fn rollback_request_path(&self) -> PathBuf {
+        self.staging_dir.join(ROLLBACK_REQUEST_FILENAME)
+    }
+
+    fn stage_pending(&self, tarball: &[u8], signature: &[u8]) -> anyhow::Result<()> {
+        std::fs::create_dir_all(&self.staging_dir)
+            .with_context(|| format!("create_dir_all {}", self.staging_dir.display()))?;
+
+        let plucked = Self::pluck(tarball)?;
 
         // Pre-flight verify postupgrade artifacts (when configured AND
         // both files are present). A failed verify aborts the apply
         // before any rename. A missing pair is "lenient" — we leave
-        // the on-disk postupgrade alone and only swap wardnetd, which
-        // tolerates downgrades to pre-framework releases and CI
-        // regressions that briefly omit the artifacts.
+        // the on-disk postupgrade alone and only stage the wardnetd
+        // tarball, which tolerates downgrades to pre-framework releases
+        // and CI regressions that briefly omit the artifacts.
         let postupgrade_pair = match (
             self.postupgrade.as_ref(),
             plucked.postupgrade_bin,
@@ -118,45 +152,45 @@ impl FsBinaryApplier {
             _ => None,
         };
 
-        // Stage wardnetd (write to staging, set executable). All of
-        // this runs before any rename so a failure here also leaves
-        // the live tree untouched.
-        let staged_daemon = self.staging_dir.join("wardnetd.staged");
-        Self::write_file_executable(&staged_daemon, &wardnetd_bytes)?;
+        // Stage the runner-bound payload first: tarball + signature
+        // adjacent to each other, written atomically (tmp + rename) so
+        // a partial write can't be picked up by the runner. The runner
+        // re-verifies before swapping, so a torn write would fail
+        // verification rather than swap a bad binary.
+        Self::write_atomic(&self.pending_tarball_path(), tarball)?;
+        Self::write_atomic(&self.pending_signature_path(), signature)?;
 
-        // Swap wardnetd: move live → live.old, staged → live.
-        let old_path = self.old_path();
-        if self.live_path.exists() {
-            if old_path.exists() {
-                std::fs::remove_file(&old_path)?;
-            }
-            std::fs::rename(&self.live_path, &old_path)?;
-        }
-        std::fs::rename(&staged_daemon, &self.live_path)?;
-
-        // Swap postupgrade artifacts (best-effort: a rename failure
-        // here is logged but does not roll back wardnetd, since the
-        // existing on-disk postupgrade is still consistent with
-        // either the previous or new wardnetd — and OnFailure=
-        // wardnetd-rollback covers any downstream daemon crash).
+        // Postupgrade artifacts are wardnet-writable today, so the
+        // daemon swaps them itself — no runner round trip required.
+        // A rename failure here is logged but does not abort the
+        // pending stage above, since the stale on-disk postupgrade
+        // pair stays consistent with either the previous or new
+        // wardnetd.
         if let Some((cfg, bin, sig)) = postupgrade_pair
             && let Err(e) = self.swap_postupgrade(cfg, &bin, &sig)
         {
             tracing::warn!(
-                error = %e,
+                error = %format!("{e:#}"),
                 dir = %cfg.dir.display(),
                 "postupgrade artifacts not swapped: dir={dir}, error={e}",
                 dir = cfg.dir.display(),
+                e = format!("{e:#}"),
             );
         }
 
-        Ok(SwapOutcome {
-            previous_binary: old_path,
-        })
+        // A pending rollback request from a previous failed install
+        // would race the new pending tarball if both stayed on disk.
+        // Explicit precedence: a fresh install supersedes a stale
+        // rollback request.
+        let _ = std::fs::remove_file(self.rollback_request_path());
+
+        Ok(())
     }
 
-    /// Single pass over the tarball. Plucks the three known names into
-    /// memory; everything else is skipped.
+    /// Single pass over the tarball. Plucks the postupgrade pair into
+    /// memory; everything else is skipped. The wardnetd binary itself
+    /// is not extracted by the daemon — the runner does that under
+    /// root after re-verifying the tarball signature.
     fn pluck(tarball: &[u8]) -> anyhow::Result<Plucked> {
         let decoder = GzDecoder::new(tarball);
         let mut archive = tar::Archive::new(decoder);
@@ -170,7 +204,6 @@ impl FsBinaryApplier {
                 .and_then(|s| s.to_str())
                 .unwrap_or_default();
             let target: Option<&mut Option<Vec<u8>>> = match name {
-                ARCHIVE_NAME_DAEMON => Some(&mut out.wardnetd),
                 ARCHIVE_NAME_POSTUPGRADE_BIN => Some(&mut out.postupgrade_bin),
                 ARCHIVE_NAME_POSTUPGRADE_SIG => Some(&mut out.postupgrade_sig),
                 _ => None,
@@ -201,17 +234,17 @@ impl FsBinaryApplier {
         Ok(())
     }
 
-    fn write_file_executable(path: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
-        let mut out = std::fs::File::create(path)?;
-        std::io::Write::write_all(&mut out, bytes)?;
-        drop(out);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(path)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(path, perms)?;
-        }
+    /// Atomic write: tmp + rename. The runner only reads files at the
+    /// final names, so a crash mid-write leaves a `.tmp` alongside but
+    /// no half-written pending tarball.
+    fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
+        let tmp = path.with_extension(format!(
+            "{}.tmp",
+            path.extension().and_then(|s| s.to_str()).unwrap_or("tmp")
+        ));
+        std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
         Ok(())
     }
 
@@ -221,12 +254,15 @@ impl FsBinaryApplier {
         bin: &[u8],
         sig: &[u8],
     ) -> anyhow::Result<()> {
-        std::fs::create_dir_all(&cfg.dir)?;
+        std::fs::create_dir_all(&cfg.dir)
+            .with_context(|| format!("create_dir_all {}", cfg.dir.display()))?;
 
         let staged_bin = self.staging_dir.join("wardnet-postupgrade.bin.staged");
         let staged_sig = self.staging_dir.join("wardnet-postupgrade.minisig.staged");
-        std::fs::write(&staged_bin, bin)?;
-        std::fs::write(&staged_sig, sig)?;
+        std::fs::write(&staged_bin, bin)
+            .with_context(|| format!("write {}", staged_bin.display()))?;
+        std::fs::write(&staged_sig, sig)
+            .with_context(|| format!("write {}", staged_sig.display()))?;
 
         // Rename the binary first, then the signature. If the second
         // rename fails after the first succeeds we are left with a
@@ -234,31 +270,42 @@ impl FsBinaryApplier {
         // previous) pair — the runner will reject that on the next
         // boot, blocking a malformed payload from running, which is
         // exactly the failure mode we want.
-        std::fs::rename(&staged_bin, cfg.dir.join(POSTUPGRADE_BIN_FILENAME))?;
-        std::fs::rename(&staged_sig, cfg.dir.join(POSTUPGRADE_SIG_FILENAME))?;
+        let final_bin = cfg.dir.join(POSTUPGRADE_BIN_FILENAME);
+        let final_sig = cfg.dir.join(POSTUPGRADE_SIG_FILENAME);
+        std::fs::rename(&staged_bin, &final_bin).with_context(|| {
+            format!("rename {} -> {}", staged_bin.display(), final_bin.display())
+        })?;
+        std::fs::rename(&staged_sig, &final_sig).with_context(|| {
+            format!("rename {} -> {}", staged_sig.display(), final_sig.display())
+        })?;
         Ok(())
     }
 }
 
 #[async_trait]
 impl BinaryApplier for FsBinaryApplier {
-    async fn apply(&self, tarball: &[u8]) -> anyhow::Result<SwapOutcome> {
+    async fn apply(&self, tarball: &[u8], signature: &[u8]) -> anyhow::Result<SwapOutcome> {
         let tarball = tarball.to_vec();
+        let signature = signature.to_vec();
         let live = self.live_path.clone();
         let staging = self.staging_dir.clone();
         let postupgrade = self.postupgrade.as_ref().map(|cfg| PostupgradeConfig {
             dir: cfg.dir.clone(),
             public_key: cfg.public_key,
         });
+        let outcome = SwapOutcome {
+            previous_binary: self.old_path(),
+        };
         task::spawn_blocking(move || {
             let applier = FsBinaryApplier {
                 live_path: live,
                 staging_dir: staging,
                 postupgrade,
             };
-            applier.extract_and_swap(&tarball)
+            applier.stage_pending(&tarball, &signature)
         })
-        .await?
+        .await??;
+        Ok(outcome)
     }
 
     async fn rollback(&self) -> anyhow::Result<()> {
@@ -269,15 +316,20 @@ impl BinaryApplier for FsBinaryApplier {
                 old.to_string_lossy()
             ));
         }
-        let live = self.live_path.clone();
+        let staging = self.staging_dir.clone();
+        let request = self.rollback_request_path();
         task::spawn_blocking(move || -> anyhow::Result<()> {
-            if live.exists() {
-                std::fs::remove_file(&live)?;
-            }
-            std::fs::rename(&old, &live)?;
+            std::fs::create_dir_all(&staging)
+                .with_context(|| format!("create_dir_all {}", staging.display()))?;
+            // Empty marker — the runner's swap step honours its
+            // presence; the body is unused. Atomic write so a
+            // mid-write crash doesn't leave an empty file the runner
+            // could misinterpret as a successful request.
+            FsBinaryApplier::write_atomic(&request, b"")?;
             Ok(())
         })
-        .await?
+        .await??;
+        Ok(())
     }
 
     async fn rollback_available(&self) -> bool {

@@ -134,7 +134,7 @@ struct RecordingApplier {
 
 #[async_trait]
 impl BinaryApplier for RecordingApplier {
-    async fn apply(&self, _tarball: &[u8]) -> anyhow::Result<SwapOutcome> {
+    async fn apply(&self, _tarball: &[u8], _signature: &[u8]) -> anyhow::Result<SwapOutcome> {
         *self.apply_count.lock().unwrap() += 1;
         let prev = std::path::PathBuf::from("/tmp/fake.old");
         *self.rollback_target.lock().unwrap() = Some(prev.clone());
