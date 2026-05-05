@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use wardnet_common::dns::DnsConfig;
 
-use crate::dns::server::UdpDnsServer;
+use crate::dns::server::{UdpDnsServer, duration_to_ms, record_query, upstream_label};
+use wardnet_common::dns::{DnsProtocol, UpstreamDns};
+use wardnetd_data::repository::QueryLogRow;
+use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::filter::DnsFilter;
 use wardnetd_services::dns::server::DnsServer;
 
@@ -943,4 +946,76 @@ async fn query_allowed_domain_passes_filter() {
     );
 
     server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Helper tests — record_query / upstream_label / duration_to_ms
+// ---------------------------------------------------------------------------
+
+#[test]
+fn duration_to_ms_converts_microseconds_to_milliseconds() {
+    let one_ms = std::time::Duration::from_micros(1500);
+    assert!((duration_to_ms(one_ms) - 1.5).abs() < 1e-9);
+}
+
+#[test]
+fn upstream_label_returns_first_address_when_present() {
+    let upstreams = vec![
+        UpstreamDns {
+            address: "1.1.1.1".to_owned(),
+            name: "Cloudflare".to_owned(),
+            protocol: DnsProtocol::Udp,
+            port: None,
+        },
+        UpstreamDns {
+            address: "8.8.8.8".to_owned(),
+            name: "Google".to_owned(),
+            protocol: DnsProtocol::Udp,
+            port: None,
+        },
+    ];
+    assert_eq!(upstream_label(&upstreams), Some("1.1.1.1".to_owned()));
+}
+
+#[test]
+fn upstream_label_returns_none_for_empty() {
+    assert_eq!(upstream_label(&[]), None);
+}
+
+#[tokio::test]
+async fn record_query_is_no_op_when_sink_absent() {
+    // Just shouldn't panic — the early-return path.
+    record_query(
+        None,
+        "example.com",
+        hickory_proto::rr::RecordType::A,
+        SocketAddr::from(([10, 0, 0, 1], 12345)),
+        "forwarded",
+        None,
+        std::time::Duration::from_millis(5),
+    );
+}
+
+#[tokio::test]
+async fn record_query_pushes_row_into_sink_when_present() {
+    let (sink, mut rx) = DnsLogSink::new();
+    record_query(
+        Some(sink.as_ref()),
+        "example.com.",
+        hickory_proto::rr::RecordType::A,
+        SocketAddr::from(([10, 0, 0, 1], 12345)),
+        "blocked",
+        Some("1.1.1.1".to_owned()),
+        std::time::Duration::from_micros(2_500),
+    );
+
+    let row: QueryLogRow = rx.recv().await.expect("row delivered to persist channel");
+    // Trailing dot is stripped to keep the persisted log consistent
+    // with the "domain" filter used by the UI.
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.client_ip, "10.0.0.1");
+    assert_eq!(row.result, "blocked");
+    assert_eq!(row.upstream.as_deref(), Some("1.1.1.1"));
+    assert_eq!(row.query_type, "A");
+    assert!((row.latency_ms - 2.5).abs() < 1e-9);
 }

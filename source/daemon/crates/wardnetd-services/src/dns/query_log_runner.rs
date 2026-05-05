@@ -176,7 +176,7 @@ async fn runner_loop(
     }
 }
 
-async fn flush(
+pub(crate) async fn flush(
     service: &Arc<dyn DnsService>,
     dns_repo: &dyn DnsRepository,
     admin_ctx: &AuthContext,
@@ -232,7 +232,7 @@ async fn flush(
     }
 }
 
-async fn cleanup(
+pub(crate) async fn cleanup(
     service: &Arc<dyn DnsService>,
     dns_repo: &dyn DnsRepository,
     admin_ctx: &AuthContext,

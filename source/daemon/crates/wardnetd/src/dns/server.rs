@@ -479,7 +479,7 @@ async fn handle_query(
 /// Push a `QueryLogRow` into the log sink. Single-line helper called at
 /// each terminal arm of `handle_query`. Never blocks — `DnsLogSink` uses
 /// `try_send` internally and drops on full.
-fn record_query(
+pub(crate) fn record_query(
     sink: Option<&DnsLogSink>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
@@ -504,7 +504,7 @@ fn record_query(
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn duration_to_ms(d: std::time::Duration) -> f64 {
+pub(crate) fn duration_to_ms(d: std::time::Duration) -> f64 {
     (d.as_micros() as f64) / 1000.0
 }
 
@@ -512,7 +512,7 @@ fn duration_to_ms(d: std::time::Duration) -> f64 {
 /// fan-outs across all configured upstreams; recording the first one is a
 /// good-enough hint for "which provider answered" without plumbing the
 /// exact server through hickory.
-fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
+pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
     upstreams.first().map(|u| u.address.clone())
 }
 

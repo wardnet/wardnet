@@ -19,6 +19,7 @@ use wardnet_common::api::{
     UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
     UpdateFilterRuleResponse,
 };
+use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{
     AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsResolutionMode,
 };
@@ -421,6 +422,312 @@ async fn runner_reports_dropped_counter_once_per_interval() {
     assert!(sink.dropped_count() > 0);
 
     runner.shutdown().await;
+}
+
+// ── Direct unit tests for flush() + cleanup() ─────────────────────────────
+//
+// The runner_loop's tick branches are exercised through
+// `start_with_intervals` above, but the inner helpers have several
+// failure paths (insert error, config-load error, disabled mode in
+// cleanup) that are best covered with direct calls instead of timing
+// races.
+
+/// Repo whose `insert_query_log_batch` always returns Err.
+struct InsertFailingRepo;
+
+#[async_trait]
+impl DnsRepository for InsertFailingRepo {
+    async fn insert_query_log_batch(&self, _entries: &[QueryLogRow]) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("synthetic insert failure"))
+    }
+    async fn query_log_paginated(
+        &self,
+        _limit: u32,
+        _offset: u32,
+        _filter: &QueryLogFilter,
+    ) -> anyhow::Result<Vec<QueryLogRow>> {
+        Ok(Vec::new())
+    }
+    async fn query_log_count(&self, _filter: &QueryLogFilter) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn query_stats(&self, _since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
+        Ok(QueryStatsRow::default())
+    }
+    async fn top_domains(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<TopDomainRow>> {
+        Ok(Vec::new())
+    }
+    async fn top_clients(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<TopClientRow>> {
+        Ok(Vec::new())
+    }
+    async fn series_buckets(
+        &self,
+        _since: DateTime<Utc>,
+        _bucket: BucketSize,
+    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
+        Ok(Vec::new())
+    }
+    async fn list_blocklists(&self) -> anyhow::Result<Vec<Blocklist>> {
+        Ok(Vec::new())
+    }
+    async fn get_blocklist(&self, _id: Uuid) -> anyhow::Result<Option<Blocklist>> {
+        Ok(None)
+    }
+    async fn create_blocklist(
+        &self,
+        _row: &wardnetd_data::repository::BlocklistRow,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_blocklist(
+        &self,
+        _id: Uuid,
+        _row: &wardnetd_data::repository::BlocklistUpdate,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_blocklist(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    async fn replace_blocklist_domains(
+        &self,
+        _id: Uuid,
+        _domains: &[String],
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn list_all_blocked_domains_for_enabled(&self) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn set_blocklist_error(&self, _id: Uuid, _error: Option<&str>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_allowlist(&self) -> anyhow::Result<Vec<AllowlistEntry>> {
+        Ok(Vec::new())
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _row: &wardnetd_data::repository::AllowlistRow,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_allowlist_entry(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    async fn list_custom_rules(&self) -> anyhow::Result<Vec<CustomFilterRule>> {
+        Ok(Vec::new())
+    }
+    async fn get_custom_rule(&self, _id: Uuid) -> anyhow::Result<Option<CustomFilterRule>> {
+        Ok(None)
+    }
+    async fn create_custom_rule(
+        &self,
+        _row: &wardnetd_data::repository::CustomRuleRow,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_custom_rule(
+        &self,
+        _id: Uuid,
+        _row: &wardnetd_data::repository::CustomRuleUpdate,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_custom_rule(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+}
+
+/// Service whose `get_dns_config` always returns Err — exercises the
+/// "failed to read config" branches of `flush` and `cleanup`.
+struct ErroringConfigService;
+
+#[async_trait]
+impl DnsService for ErroringConfigService {
+    async fn get_config(&self) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _req: UpdateDnsConfigRequest,
+    ) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn toggle(
+        &self,
+        _req: ToggleDnsRequest,
+    ) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnet_common::api::DnsStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn flush_cache(&self) -> Result<wardnet_common::api::DnsCacheFlushResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!("config load failed")))
+    }
+    async fn list_blocklists(&self) -> Result<ListBlocklistsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _req: CreateBlocklistRequest,
+    ) -> Result<CreateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _id: Uuid,
+        _req: UpdateBlocklistRequest,
+    ) -> Result<UpdateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_blocklist(&self, _id: Uuid) -> Result<DeleteBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist_now(&self, _id: Uuid) -> Result<JobDispatchedResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_allowlist(&self) -> Result<ListAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _req: CreateAllowlistRequest,
+    ) -> Result<CreateAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(&self, _id: Uuid) -> Result<DeleteAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_filter_rules(&self) -> Result<ListFilterRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_filter_rule(
+        &self,
+        _req: CreateFilterRuleRequest,
+    ) -> Result<CreateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_filter_rule(
+        &self,
+        _id: Uuid,
+        _req: UpdateFilterRuleRequest,
+    ) -> Result<UpdateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_query_log(
+        &self,
+        _params: ListQueryLogParams,
+    ) -> Result<ListQueryLogResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dns_stats(&self, _hours: u32) -> Result<DnsStatsResponse, AppError> {
+        unimplemented!()
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<QueryLogEvent>, AppError> {
+        unimplemented!()
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        Ok(0)
+    }
+    async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
+        unimplemented!()
+    }
+}
+
+#[tokio::test]
+async fn flush_no_op_on_empty_buffer() {
+    let service: Arc<dyn DnsService> = Arc::new(MockService { enabled: true });
+    let repo = RecordingRepo::default();
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    let mut buf: Vec<QueryLogRow> = Vec::new();
+    crate::dns::query_log_runner::flush(&service, &repo, &admin_ctx, &mut buf).await;
+    assert!(repo.inserts.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn flush_logs_error_on_repo_failure() {
+    let service: Arc<dyn DnsService> = Arc::new(MockService { enabled: true });
+    let repo = InsertFailingRepo;
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    let mut buf = vec![sample_row()];
+    // Should not panic; just emit a tracing::error.
+    crate::dns::query_log_runner::flush(&service, &repo, &admin_ctx, &mut buf).await;
+    // Buffer is cleared either way (we don't retry).
+    assert!(buf.is_empty());
+}
+
+#[tokio::test]
+async fn flush_treats_config_error_as_enabled() {
+    let service: Arc<dyn DnsService> = Arc::new(ErroringConfigService);
+    let repo = RecordingRepo::default();
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    let mut buf = vec![sample_row()];
+    crate::dns::query_log_runner::flush(&service, &repo, &admin_ctx, &mut buf).await;
+    // Defaulting to enabled means the row IS inserted.
+    let total = total_inserts(&repo);
+    assert_eq!(total, 1);
+}
+
+#[tokio::test]
+async fn cleanup_runs_when_enabled() {
+    let service: Arc<dyn DnsService> = Arc::new(MockService { enabled: true });
+    let repo = RecordingRepo::default();
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
+    let calls = cleanup_calls(&repo);
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0], 7);
+}
+
+#[tokio::test]
+async fn cleanup_skips_when_disabled() {
+    let service: Arc<dyn DnsService> = Arc::new(MockService { enabled: false });
+    let repo = RecordingRepo::default();
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
+    assert!(cleanup_calls(&repo).is_empty());
+}
+
+#[tokio::test]
+async fn cleanup_skips_when_config_load_fails() {
+    let service: Arc<dyn DnsService> = Arc::new(ErroringConfigService);
+    let repo = RecordingRepo::default();
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
+    assert!(cleanup_calls(&repo).is_empty());
 }
 
 /// Verify the runner doesn't crash when the cleanup tick fires before

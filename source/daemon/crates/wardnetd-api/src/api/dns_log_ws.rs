@@ -54,14 +54,14 @@ pub async fn dns_log_ws(
 }
 
 #[derive(Default)]
-struct ClientFilter {
-    domain: String,
-    client_ip: String,
-    results: Vec<String>,
+pub(crate) struct ClientFilter {
+    pub domain: String,
+    pub client_ip: String,
+    pub results: Vec<String>,
 }
 
 impl ClientFilter {
-    fn matches(&self, event: &QueryLogEvent) -> bool {
+    pub(crate) fn matches(&self, event: &QueryLogEvent) -> bool {
         if !self.domain.is_empty() && !event.domain.contains(&self.domain) {
             return false;
         }
@@ -70,6 +70,33 @@ impl ClientFilter {
         }
         if !self.results.is_empty() && !self.results.iter().any(|r| r == &event.result) {
             return false;
+        }
+        true
+    }
+
+    /// Parse a JSON `SetFilter` command and apply each `Some` field.
+    /// Returns true when the JSON parsed and was applied. Extracted out
+    /// of `handle_socket` for direct unit-testing.
+    pub(crate) fn apply_command_json(&mut self, json: &str) -> bool {
+        let Ok(cmd) = serde_json::from_str::<ClientCommand>(json) else {
+            return false;
+        };
+        let ClientCommand::SetFilter {
+            domain,
+            client_ip,
+            results,
+        } = cmd
+        else {
+            return false;
+        };
+        if let Some(d) = domain {
+            self.domain = d;
+        }
+        if let Some(ip) = client_ip {
+            self.client_ip = ip;
+        }
+        if let Some(r) = results {
+            self.results = r;
         }
         true
     }
@@ -104,24 +131,125 @@ async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<QueryL
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Ok(ClientCommand::SetFilter { domain, client_ip, results }) =
-                            serde_json::from_str::<ClientCommand>(&text)
-                        {
-                            if let Some(d) = domain {
-                                filter.domain = d;
-                            }
-                            if let Some(ip) = client_ip {
-                                filter.client_ip = ip;
-                            }
-                            if let Some(r) = results {
-                                filter.results = r;
-                            }
-                        }
+                        filter.apply_command_json(&text);
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     _ => {}
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    fn event(domain: &str, ip: &str, result: &str) -> QueryLogEvent {
+        QueryLogEvent {
+            timestamp: "2026-05-05T00:00:00Z".to_owned(),
+            client_ip: ip.to_owned(),
+            domain: domain.to_owned(),
+            query_type: "A".to_owned(),
+            result: result.to_owned(),
+            upstream: None,
+            latency_ms: 0.0,
+            device_id: None,
+        }
+    }
+
+    #[test]
+    fn empty_filter_matches_anything() {
+        let f = ClientFilter::default();
+        assert!(f.matches(&event("example.com", "10.0.0.1", "forwarded")));
+    }
+
+    #[test]
+    fn domain_filter_uses_substring() {
+        let f = ClientFilter {
+            domain: "ads".to_owned(),
+            ..Default::default()
+        };
+        assert!(f.matches(&event("ads.tracker.io", "10.0.0.1", "blocked")));
+        assert!(!f.matches(&event("example.com", "10.0.0.1", "forwarded")));
+    }
+
+    #[test]
+    fn client_ip_filter_is_exact() {
+        let f = ClientFilter {
+            client_ip: "10.0.0.5".to_owned(),
+            ..Default::default()
+        };
+        assert!(f.matches(&event("a.com", "10.0.0.5", "forwarded")));
+        assert!(!f.matches(&event("a.com", "10.0.0.6", "forwarded")));
+    }
+
+    #[test]
+    fn results_filter_is_any_of() {
+        let f = ClientFilter {
+            results: vec!["blocked".to_owned(), "rewritten".to_owned()],
+            ..Default::default()
+        };
+        assert!(f.matches(&event("a.com", "10.0.0.5", "blocked")));
+        assert!(f.matches(&event("a.com", "10.0.0.5", "rewritten")));
+        assert!(!f.matches(&event("a.com", "10.0.0.5", "forwarded")));
+    }
+
+    #[test]
+    fn all_filters_combine_with_and() {
+        let f = ClientFilter {
+            domain: "tracker".to_owned(),
+            client_ip: "10.0.0.5".to_owned(),
+            results: vec!["blocked".to_owned()],
+        };
+        assert!(f.matches(&event("ads.tracker.io", "10.0.0.5", "blocked")));
+        // Domain miss
+        assert!(!f.matches(&event("ok.com", "10.0.0.5", "blocked")));
+        // IP miss
+        assert!(!f.matches(&event("ads.tracker.io", "10.0.0.6", "blocked")));
+        // Result miss
+        assert!(!f.matches(&event("ads.tracker.io", "10.0.0.5", "forwarded")));
+    }
+
+    #[test]
+    fn apply_command_json_set_filter_updates_fields() {
+        let mut f = ClientFilter::default();
+        let ok = f.apply_command_json(
+            r#"{"type":"set_filter","domain":"ads","client_ip":"10.0.0.5","results":["blocked"]}"#,
+        );
+        assert!(ok);
+        assert_eq!(f.domain, "ads");
+        assert_eq!(f.client_ip, "10.0.0.5");
+        assert_eq!(f.results, vec!["blocked".to_owned()]);
+    }
+
+    #[test]
+    fn apply_command_json_partial_only_overwrites_some_fields() {
+        let mut f = ClientFilter {
+            domain: "existing".to_owned(),
+            client_ip: "10.0.0.5".to_owned(),
+            ..Default::default()
+        };
+        let ok = f.apply_command_json(r#"{"type":"set_filter","domain":"new"}"#);
+        assert!(ok);
+        assert_eq!(f.domain, "new");
+        // Untouched.
+        assert_eq!(f.client_ip, "10.0.0.5");
+    }
+
+    #[test]
+    fn apply_command_json_invalid_json_is_ignored() {
+        let mut f = ClientFilter::default();
+        let ok = f.apply_command_json("not json");
+        assert!(!ok);
+    }
+
+    #[test]
+    fn apply_command_json_unknown_command_is_ignored() {
+        let mut f = ClientFilter::default();
+        // The `Unknown` variant matches any other tag; this exercises
+        // the early-return in `apply_command_json`.
+        let ok = f.apply_command_json(r#"{"type":"something_else"}"#);
+        assert!(!ok);
     }
 }
