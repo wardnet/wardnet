@@ -179,6 +179,29 @@ async fn renew_lease() {
 }
 
 #[tokio::test]
+async fn update_lease_hostname_sets_value() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000001";
+
+    // Seed with no hostname so we exercise the None → Some transition.
+    let mut row = sample_lease_row(id, "aa:bb:cc:dd:ee:01", "192.168.1.100");
+    row.hostname = None;
+    repo.insert_lease(&row).await.unwrap();
+
+    repo.update_lease_hostname(id, Some("kitchen-tablet"))
+        .await
+        .unwrap();
+    let after_set = repo.find_lease_by_id(id).await.unwrap().unwrap();
+    assert_eq!(after_set.hostname.as_deref(), Some("kitchen-tablet"));
+
+    // None overwrites a previously-set hostname (e.g. an admin-driven clear).
+    repo.update_lease_hostname(id, None).await.unwrap();
+    let after_clear = repo.find_lease_by_id(id).await.unwrap().unwrap();
+    assert!(after_clear.hostname.is_none());
+}
+
+#[tokio::test]
 async fn expire_stale_leases() {
     let pool = test_pool().await;
     let repo = SqliteDhcpRepository::new(pool);
