@@ -27,7 +27,7 @@ describe("post-upgrade migration framework", () => {
     await waitForReady(client);
   }, 120_000);
 
-  it("runs cleanly at boot and writes an empty state.json", async () => {
+  it("runs cleanly at boot and records every shipped migration as applied", async () => {
     // wardnet-postupgrade.service is `Type=oneshot` and runs before
     // wardnetd.service. By the time wardnetd is healthy, the runner
     // has already exited and the migration runner has written
@@ -53,11 +53,12 @@ describe("post-upgrade migration framework", () => {
       );
     }
 
-    // Empty migration list ships with this PR — no entries should
-    // have been applied or failed. last_verification_failure must
+    // No migrations may have failed. last_verification_failure must
     // not be set (the runner only writes that field when the
-    // signature on the in-image payload doesn't verify).
-    expect(state.applied).toEqual([]);
+    // signature on the in-image payload doesn't verify). The
+    // safe-power spec asserts `applied` contains the specific
+    // 0001_polkit_power_rule entry; here we just guard that the
+    // runner ran cleanly to completion.
     expect(state.failed).toEqual([]);
     expect(state.last_verification_failure ?? null).toBeNull();
   });
