@@ -16,7 +16,8 @@ use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
     ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
     ListTunnelsResponse, SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse,
-    SystemStatusResponse, ValidateCredentialsRequest, ValidateCredentialsResponse,
+    SystemStatusResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
+    ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::event::WardnetEvent;
@@ -255,6 +256,16 @@ impl TunnelService for StubTunnelService {
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
         unimplemented!()
     }
+    async fn get_metrics(
+        &self,
+        _id: Uuid,
+        _range: TunnelMetricsRange,
+    ) -> Result<TunnelMetricsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_tunnel_devices(&self, _id: Uuid) -> Result<TunnelDevicesResponse, AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -277,6 +288,9 @@ impl TunnelService for StubTunnelService {
         unimplemented!()
     }
     async fn run_health_check(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
         unimplemented!()
     }
 }

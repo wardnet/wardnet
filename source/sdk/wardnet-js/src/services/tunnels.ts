@@ -4,6 +4,10 @@ import type {
   CreateTunnelResponse,
   DeleteTunnelResponse,
   ListTunnelsResponse,
+  TunnelDetailResponse,
+  TunnelDevicesResponse,
+  TunnelMetricsRange,
+  TunnelMetricsResponse,
 } from "../types/api.js";
 
 /** Tunnel management service for the Wardnet daemon. */
@@ -13,6 +17,23 @@ export class TunnelService {
   /** List all configured tunnels (admin only). */
   async list(): Promise<ListTunnelsResponse> {
     return this.client.request<ListTunnelsResponse>("/tunnels");
+  }
+
+  /** Get one tunnel by ID (admin only). */
+  async getById(id: string): Promise<TunnelDetailResponse> {
+    return this.client.request<TunnelDetailResponse>(`/tunnels/${id}`);
+  }
+
+  /** Get throughput history for a tunnel (admin only). */
+  async getMetrics(id: string, range: TunnelMetricsRange = "24h"): Promise<TunnelMetricsResponse> {
+    return this.client.request<TunnelMetricsResponse>(
+      `/tunnels/${id}/metrics?range=${encodeURIComponent(range)}`,
+    );
+  }
+
+  /** List the devices currently routed through a tunnel (admin only). */
+  async listDevices(id: string): Promise<TunnelDevicesResponse> {
+    return this.client.request<TunnelDevicesResponse>(`/tunnels/${id}/devices`);
   }
 
   /** Import a tunnel from a WireGuard .conf file (admin only). */

@@ -16,8 +16,9 @@ use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsRepository,
     SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
     SqliteDhcpRepository, SqliteDnsRepository, SqliteSessionRepository,
-    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteUpdateRepository,
-    SystemConfigRepository, TunnelRepository, UpdateRepository,
+    SqliteSystemConfigRepository, SqliteTunnelMetricsRepository, SqliteTunnelRepository,
+    SqliteUpdateRepository, SystemConfigRepository, TunnelMetricsRepository, TunnelRepository,
+    UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -33,6 +34,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn dhcp(&self) -> Arc<dyn DhcpRepository>;
     fn dns(&self) -> Arc<dyn DnsRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
+    fn tunnel_metrics(&self) -> Arc<dyn TunnelMetricsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
 
     /// Provider-specific database dumper for backup/restore.
@@ -129,6 +131,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn tunnel(&self) -> Arc<dyn TunnelRepository> {
         Arc::new(SqliteTunnelRepository::new(self.pool.clone()))
+    }
+
+    fn tunnel_metrics(&self) -> Arc<dyn TunnelMetricsRepository> {
+        Arc::new(SqliteTunnelMetricsRepository::new(self.pool.clone()))
     }
 
     fn update(&self) -> Arc<dyn UpdateRepository> {

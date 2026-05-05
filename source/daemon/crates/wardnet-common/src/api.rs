@@ -152,6 +152,73 @@ pub struct DeleteTunnelResponse {
     pub message: String,
 }
 
+/// Response for GET /api/tunnels/{id}.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelDetailResponse {
+    pub tunnel: Tunnel,
+}
+
+/// Range selector for `GET /api/tunnels/{id}/metrics`.
+///
+/// `OneHour..FortyEightHours` are served from the intraday table at
+/// the configured sample interval (5 min default). `TwelveMonths`
+/// reads from the daily rollup table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TunnelMetricsRange {
+    #[serde(rename = "1h")]
+    OneHour,
+    #[serde(rename = "6h")]
+    SixHours,
+    #[serde(rename = "24h")]
+    TwentyFourHours,
+    #[serde(rename = "48h")]
+    FortyEightHours,
+    #[serde(rename = "12mo")]
+    TwelveMonths,
+}
+
+impl TunnelMetricsRange {
+    /// Whether the range is served from the daily rollup table.
+    #[must_use]
+    pub fn is_daily(self) -> bool {
+        matches!(self, Self::TwelveMonths)
+    }
+}
+
+/// One point on the throughput chart.
+///
+/// `bytes_tx` / `bytes_rx` are the *deltas* over the interval ending at
+/// `ts`. The client divides by the configured sample interval (or 86400
+/// for daily points) to render bytes/sec. Daily points use the start of
+/// the day (UTC) as `ts`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelMetricsPoint {
+    /// RFC 3339 timestamp.
+    pub ts: String,
+    pub bytes_tx: i64,
+    pub bytes_rx: i64,
+}
+
+/// Response for `GET /api/tunnels/{id}/metrics`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelMetricsResponse {
+    pub range: TunnelMetricsRange,
+    /// Sample interval in seconds (5 min for intraday, 86400 for daily).
+    pub interval_secs: u32,
+    pub points: Vec<TunnelMetricsPoint>,
+}
+
+/// Response for `GET /api/tunnels/{id}/devices`.
+///
+/// The devices currently routed through the given tunnel — i.e. those
+/// whose user-set or admin-set routing rule has
+/// `target = Tunnel { tunnel_id: id }`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelDevicesResponse {
+    pub devices: Vec<Device>,
+}
+
 /// A device enriched with its DHCP status for API responses.
 ///
 /// Uses `#[serde(flatten)]` so the JSON output includes all `Device` fields

@@ -110,6 +110,13 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn find_devices_for_tunnel(
+        &self,
+        _tid: &str,
+    ) -> anyhow::Result<Vec<wardnet_common::device::Device>> {
+        Ok(vec![])
+    }
+
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,
@@ -213,6 +220,21 @@ impl TunnelService for MockTunnelService {
             .ok_or_else(|| AppError::NotFound("tunnel not found".to_owned()))
     }
 
+    async fn get_metrics(
+        &self,
+        _id: Uuid,
+        _range: wardnet_common::api::TunnelMetricsRange,
+    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
+        unimplemented!("not used in routing tests")
+    }
+
+    async fn list_tunnel_devices(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelDevicesResponse, AppError> {
+        unimplemented!("not used in routing tests")
+    }
+
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!("not used in routing tests")
     }
@@ -247,6 +269,10 @@ impl TunnelService for MockTunnelService {
     }
 
     async fn run_health_check(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
         Ok(())
     }
 }

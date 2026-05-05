@@ -72,6 +72,9 @@ pub trait DeviceRepository: Send + Sync {
         now: &str,
     ) -> anyhow::Result<()>;
 
+    /// Return all devices whose routing rule targets the given tunnel.
+    async fn find_devices_for_tunnel(&self, tunnel_id: &str) -> anyhow::Result<Vec<Device>>;
+
     /// Switch all routing rules targeting the given tunnel to `Direct`.
     ///
     /// Returns the device IDs that were updated. Used when a tunnel is deleted

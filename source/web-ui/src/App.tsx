@@ -8,6 +8,7 @@ import { useSetupStatus } from "@/hooks/useSetup";
 import Dashboard from "@/pages/Dashboard";
 import Devices from "@/pages/Devices";
 import Tunnels from "@/pages/Tunnels";
+import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
@@ -86,6 +87,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Tunnels />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="tunnels/:id"
+          element={
+            <AdminRoute>
+              <TunnelDetail />
             </AdminRoute>
           }
         />

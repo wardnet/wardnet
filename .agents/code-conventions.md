@@ -30,6 +30,15 @@
 - **All business logic in `@wardnet/js`** — components are pure presentation.
 - **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error.
 - **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`.
+- **Detail views are routed pages, not sheets.**
+  - One detail concept per resource: `/<resource>/:id` (e.g. `/tunnels/:id`,
+    `/devices/:id`). The list page links into the detail page; sheets are
+    reserved for forms (create/edit), not for read-mostly detail screens.
+  - Standard chrome on every detail page: page title plus a small
+    breadcrumb directly below it (`<Resource list> / <item label>`).
+    Build it with the shared `<DetailPageHeader>` compound component so
+    breadcrumb + title + status pill + trailing meta stay consistent
+    across resources.
 
 ## OpenAPI annotations (daemon)
 

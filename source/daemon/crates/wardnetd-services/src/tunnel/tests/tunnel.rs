@@ -20,6 +20,9 @@ use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats}
 use crate::tunnel::key_store::KeyStore;
 use crate::{TunnelService, TunnelServiceImpl};
 use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_data::repository::tunnel_metrics::{
+    DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository,
+};
 use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
 
 /// Helper to create an admin auth context for tests.
@@ -160,6 +163,86 @@ impl TunnelRepository for MockTunnelRepo {
 
     async fn count_active(&self) -> anyhow::Result<i64> {
         Ok(0)
+    }
+}
+
+// -- Mock TunnelMetricsRepository ----------------------------------------
+
+#[derive(Default)]
+struct MockMetricsRepo {
+    intraday: Mutex<Vec<IntradayMetricRow>>,
+    daily: Mutex<Vec<DailyMetricRow>>,
+}
+
+#[async_trait]
+impl TunnelMetricsRepository for MockMetricsRepo {
+    async fn insert_intraday(&self, row: &IntradayMetricRow) -> anyhow::Result<()> {
+        self.intraday.lock().unwrap().push(row.clone());
+        Ok(())
+    }
+
+    async fn insert_intraday_batch(&self, rows: &[IntradayMetricRow]) -> anyhow::Result<()> {
+        self.intraday.lock().unwrap().extend(rows.iter().cloned());
+        Ok(())
+    }
+
+    async fn insert_daily_batch(&self, rows: &[DailyMetricRow]) -> anyhow::Result<()> {
+        self.daily.lock().unwrap().extend(rows.iter().cloned());
+        Ok(())
+    }
+
+    async fn query_intraday(
+        &self,
+        tunnel_id: &str,
+        from_ts: i64,
+        to_ts: i64,
+    ) -> anyhow::Result<Vec<IntradayMetricRow>> {
+        let rows = self.intraday.lock().unwrap();
+        Ok(rows
+            .iter()
+            .filter(|r| r.tunnel_id == tunnel_id && r.ts >= from_ts && r.ts <= to_ts)
+            .cloned()
+            .collect())
+    }
+
+    async fn query_daily(
+        &self,
+        tunnel_id: &str,
+        from_day: &str,
+        to_day: &str,
+    ) -> anyhow::Result<Vec<DailyMetricRow>> {
+        let rows = self.daily.lock().unwrap();
+        Ok(rows
+            .iter()
+            .filter(|r| {
+                r.tunnel_id == tunnel_id && r.day.as_str() >= from_day && r.day.as_str() <= to_day
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn days_pending_rollup(&self, _before_day: &str) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    async fn rollup_day(&self, _day: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+
+    async fn trim_intraday(&self, _cutoff_ts: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn trim_daily(&self, _cutoff_day: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn export_intraday(&self) -> anyhow::Result<Vec<IntradayMetricRow>> {
+        Ok(self.intraday.lock().unwrap().clone())
+    }
+
+    async fn export_daily(&self) -> anyhow::Result<Vec<DailyMetricRow>> {
+        Ok(self.daily.lock().unwrap().clone())
     }
 }
 
@@ -420,6 +503,9 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,
@@ -481,6 +567,9 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(vec![])
+    }
     async fn switch_tunnel_rules_to_direct(
         &self,
         _tid: &str,
@@ -504,10 +593,13 @@ struct TestHarness {
     tunnel_iface: Arc<MockTunnelInterface>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
+    metrics: Arc<MockMetricsRepo>,
 }
 
 fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
+    let metrics = Arc::new(MockMetricsRepo::default());
+    let metrics_dyn: Arc<dyn TunnelMetricsRepository> = metrics.clone();
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
@@ -515,10 +607,12 @@ fn build_harness() -> TestHarness {
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
+        metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
         events.clone(),
+        300,
     );
 
     TestHarness {
@@ -527,21 +621,26 @@ fn build_harness() -> TestHarness {
         tunnel_iface,
         events,
         keys,
+        metrics,
     }
 }
 
 fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
+    let metrics = Arc::new(MockMetricsRepo::default());
+    let metrics_dyn: Arc<dyn TunnelMetricsRepository> = metrics.clone();
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
+        metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
         keys.clone(),
         events.clone(),
+        300,
     );
 
     TestHarness {
@@ -550,6 +649,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         tunnel_iface,
         events,
         keys,
+        metrics,
     }
 }
 
@@ -1686,4 +1786,224 @@ async fn bring_up_with_preshared_key_and_multiple_allowed_ips() {
 
     assert_eq!(h.tunnel_iface.created.lock().unwrap().len(), 1);
     assert_eq!(h.tunnel_iface.brought_up.lock().unwrap().len(), 1);
+}
+
+// -- Intraday metrics sampler --------------------------------------------
+
+#[tokio::test]
+async fn sampler_does_not_write_first_observation() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let now = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 1_000, 2_000, now).await;
+
+    assert!(h.metrics.intraday.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn sampler_writes_after_interval_elapses() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let t0 = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 1_000, 2_000, t0).await;
+
+    // Within the interval window: still no write.
+    let t_too_soon = t0 + chrono::Duration::seconds(60);
+    h.svc
+        .maybe_record_intraday_at(id, 1_500, 2_500, t_too_soon)
+        .await;
+    assert!(h.metrics.intraday.lock().unwrap().is_empty());
+
+    // After the 300 s interval: one row, delta = current - prev.
+    let t_ok = t0 + chrono::Duration::seconds(301);
+    h.svc.maybe_record_intraday_at(id, 6_000, 9_000, t_ok).await;
+    let rows = h.metrics.intraday.lock().unwrap().clone();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].bytes_tx_delta, 5_000);
+    assert_eq!(rows[0].bytes_rx_delta, 7_000);
+}
+
+#[tokio::test]
+async fn sampler_treats_counter_decrease_as_reset() {
+    let h = build_harness();
+    let id = Uuid::new_v4();
+
+    let t0 = chrono::Utc::now();
+    h.svc.maybe_record_intraday_at(id, 10_000, 20_000, t0).await;
+
+    // Cumulative counter has decreased — interpret as a reset; the new
+    // delta is the *current* value (never negative).
+    let t1 = t0 + chrono::Duration::seconds(301);
+    h.svc.maybe_record_intraday_at(id, 4_200, 7_500, t1).await;
+
+    let rows = h.metrics.intraday.lock().unwrap().clone();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].bytes_tx_delta, 4_200);
+    assert_eq!(rows[0].bytes_rx_delta, 7_500);
+}
+
+// -- get_metrics ----------------------------------------------------------
+
+#[tokio::test]
+async fn get_metrics_intraday_returns_points_in_window() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Seed two intraday rows for this tunnel within the 24 h window, plus
+    // one row for an unrelated tunnel that must be filtered out.
+    let now = chrono::Utc::now();
+    {
+        let mut intraday = h.metrics.intraday.lock().unwrap();
+        intraday.push(IntradayMetricRow {
+            tunnel_id: id.to_string(),
+            ts: (now - chrono::Duration::minutes(10)).timestamp(),
+            bytes_tx_delta: 100,
+            bytes_rx_delta: 200,
+        });
+        intraday.push(IntradayMetricRow {
+            tunnel_id: id.to_string(),
+            ts: (now - chrono::Duration::minutes(5)).timestamp(),
+            bytes_tx_delta: 300,
+            bytes_rx_delta: 400,
+        });
+        intraday.push(IntradayMetricRow {
+            tunnel_id: Uuid::new_v4().to_string(),
+            ts: now.timestamp(),
+            bytes_tx_delta: 999,
+            bytes_rx_delta: 999,
+        });
+    }
+
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc.get_metrics(id, TunnelMetricsRange::TwentyFourHours),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.range, TunnelMetricsRange::TwentyFourHours);
+    assert_eq!(result.interval_secs, 300);
+    assert_eq!(result.points.len(), 2);
+    assert_eq!(result.points[0].bytes_tx, 100);
+    assert_eq!(result.points[1].bytes_tx, 300);
+    assert!(result.points[0].ts.contains('T')); // RFC3339
+}
+
+#[tokio::test]
+async fn get_metrics_twelve_months_reads_daily_table() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Seed one daily row within the 365 d window.
+    let now = chrono::Utc::now();
+    let day = (now - chrono::Duration::days(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    h.metrics.daily.lock().unwrap().push(DailyMetricRow {
+        tunnel_id: id.to_string(),
+        day,
+        bytes_tx_total: 1_000_000,
+        bytes_rx_total: 2_000_000,
+    });
+
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc.get_metrics(id, TunnelMetricsRange::TwelveMonths),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.range, TunnelMetricsRange::TwelveMonths);
+    assert_eq!(result.interval_secs, 86_400);
+    assert_eq!(result.points.len(), 1);
+    assert_eq!(result.points[0].bytes_tx, 1_000_000);
+    assert_eq!(result.points[0].bytes_rx, 2_000_000);
+    assert!(result.points[0].ts.ends_with("T00:00:00Z"));
+}
+
+#[tokio::test]
+async fn get_metrics_unknown_tunnel_returns_not_found() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc
+            .get_metrics(Uuid::new_v4(), TunnelMetricsRange::OneHour),
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn get_metrics_anonymous_forbidden() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc
+            .get_metrics(Uuid::new_v4(), TunnelMetricsRange::OneHour),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- list_tunnel_devices --------------------------------------------------
+
+#[tokio::test]
+async fn list_tunnel_devices_returns_empty_for_known_tunnel() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.list_tunnel_devices(id))
+        .await
+        .unwrap();
+    assert!(result.devices.is_empty());
+}
+
+#[tokio::test]
+async fn list_tunnel_devices_unknown_tunnel_returns_not_found() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.list_tunnel_devices(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn list_tunnel_devices_anonymous_forbidden() {
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.list_tunnel_devices(Uuid::new_v4()),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- run_metrics_maintenance ----------------------------------------------
+
+#[tokio::test]
+async fn run_metrics_maintenance_is_noop_with_empty_repo() {
+    // Default `MockMetricsRepo` returns no pending days and zero deletions
+    // for trim — exercises the happy path of every match arm without
+    // relying on real data.
+    let h = build_harness();
+    h.svc.run_metrics_maintenance().await.unwrap();
 }
