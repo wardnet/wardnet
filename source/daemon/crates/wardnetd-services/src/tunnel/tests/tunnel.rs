@@ -1843,3 +1843,167 @@ async fn sampler_treats_counter_decrease_as_reset() {
     assert_eq!(rows[0].bytes_tx_delta, 4_200);
     assert_eq!(rows[0].bytes_rx_delta, 7_500);
 }
+
+// -- get_metrics ----------------------------------------------------------
+
+#[tokio::test]
+async fn get_metrics_intraday_returns_points_in_window() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Seed two intraday rows for this tunnel within the 24 h window, plus
+    // one row for an unrelated tunnel that must be filtered out.
+    let now = chrono::Utc::now();
+    {
+        let mut intraday = h.metrics.intraday.lock().unwrap();
+        intraday.push(IntradayMetricRow {
+            tunnel_id: id.to_string(),
+            ts: (now - chrono::Duration::minutes(10)).timestamp(),
+            bytes_tx_delta: 100,
+            bytes_rx_delta: 200,
+        });
+        intraday.push(IntradayMetricRow {
+            tunnel_id: id.to_string(),
+            ts: (now - chrono::Duration::minutes(5)).timestamp(),
+            bytes_tx_delta: 300,
+            bytes_rx_delta: 400,
+        });
+        intraday.push(IntradayMetricRow {
+            tunnel_id: Uuid::new_v4().to_string(),
+            ts: now.timestamp(),
+            bytes_tx_delta: 999,
+            bytes_rx_delta: 999,
+        });
+    }
+
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc.get_metrics(id, TunnelMetricsRange::TwentyFourHours),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.range, TunnelMetricsRange::TwentyFourHours);
+    assert_eq!(result.interval_secs, 300);
+    assert_eq!(result.points.len(), 2);
+    assert_eq!(result.points[0].bytes_tx, 100);
+    assert_eq!(result.points[1].bytes_tx, 300);
+    assert!(result.points[0].ts.contains('T')); // RFC3339
+}
+
+#[tokio::test]
+async fn get_metrics_twelve_months_reads_daily_table() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Seed one daily row within the 365 d window.
+    let now = chrono::Utc::now();
+    let day = (now - chrono::Duration::days(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    h.metrics.daily.lock().unwrap().push(DailyMetricRow {
+        tunnel_id: id.to_string(),
+        day,
+        bytes_tx_total: 1_000_000,
+        bytes_rx_total: 2_000_000,
+    });
+
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc.get_metrics(id, TunnelMetricsRange::TwelveMonths),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.range, TunnelMetricsRange::TwelveMonths);
+    assert_eq!(result.interval_secs, 86_400);
+    assert_eq!(result.points.len(), 1);
+    assert_eq!(result.points[0].bytes_tx, 1_000_000);
+    assert_eq!(result.points[0].bytes_rx, 2_000_000);
+    assert!(result.points[0].ts.ends_with("T00:00:00Z"));
+}
+
+#[tokio::test]
+async fn get_metrics_unknown_tunnel_returns_not_found() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.svc
+            .get_metrics(Uuid::new_v4(), TunnelMetricsRange::OneHour),
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn get_metrics_anonymous_forbidden() {
+    use wardnet_common::api::TunnelMetricsRange;
+
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc
+            .get_metrics(Uuid::new_v4(), TunnelMetricsRange::OneHour),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- list_tunnel_devices --------------------------------------------------
+
+#[tokio::test]
+async fn list_tunnel_devices_returns_empty_for_known_tunnel() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.list_tunnel_devices(id))
+        .await
+        .unwrap();
+    assert!(result.devices.is_empty());
+}
+
+#[tokio::test]
+async fn list_tunnel_devices_unknown_tunnel_returns_not_found() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.list_tunnel_devices(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn list_tunnel_devices_anonymous_forbidden() {
+    let h = build_harness();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.svc.list_tunnel_devices(Uuid::new_v4()),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- run_metrics_maintenance ----------------------------------------------
+
+#[tokio::test]
+async fn run_metrics_maintenance_is_noop_with_empty_repo() {
+    // Default `MockMetricsRepo` returns no pending days and zero deletions
+    // for trim — exercises the happy path of every match arm without
+    // relying on real data.
+    let h = build_harness();
+    h.svc.run_metrics_maintenance().await.unwrap();
+}
