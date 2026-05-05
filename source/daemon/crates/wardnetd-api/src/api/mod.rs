@@ -3,6 +3,7 @@ pub mod backup;
 pub mod devices;
 pub mod dhcp;
 pub mod dns;
+pub mod dns_log_ws;
 pub mod info;
 pub mod jobs;
 pub mod logs_ws;
@@ -75,7 +76,9 @@ pub fn router(state: AppState) -> Router {
     // the generated axum router already routes under `/api/*`. WebSocket
     // endpoints cannot be modeled in OpenAPI; attach them to the generated
     // axum router as a plain route (using the full path for consistency).
-    let api_router = api_router.route("/api/system/logs/stream", get(logs_ws::logs_ws));
+    let api_router = api_router
+        .route("/api/system/logs/stream", get(logs_ws::logs_ws))
+        .route("/api/dns/log/stream", get(dns_log_ws::dns_log_ws));
 
     // Spec endpoint: admin-gated JSON. `AdminAuth` as an extractor ensures the
     // handler returns 401 for unauthenticated callers without any extra

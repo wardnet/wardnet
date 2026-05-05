@@ -37,6 +37,7 @@ use wardnetd_api::state::AppState;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 use wardnetd_services::dns::filter::DnsFilter;
+use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
@@ -355,11 +356,13 @@ async fn run(
     // constructed earlier as a backend; the runner reuses the same instance
     // for its periodic cron-driven downloads.
     let dns_filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()));
-    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> =
-        Arc::new(wardnetd::dns::server::UdpDnsServer::new(
+    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = Arc::new(
+        wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             Arc::clone(&dns_filter),
-        ));
+        )
+        .with_log_sink(services.dns_log_sink.clone()),
+    );
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
@@ -369,6 +372,24 @@ async fn run(
         services.event_publisher.as_ref(),
         &root_span,
         Duration::from_mins(1),
+    );
+
+    // Drain the DNS query log persistence channel into SQLite and trim the
+    // table once a day. The receiver is taken out of `Services` exactly
+    // once at startup; the sink stays in `Services` so the API layer can
+    // subscribe to live-stream events.
+    let dns_log_persist_rx = services
+        .dns_log_persist_rx
+        .lock()
+        .expect("dns log persist rx lock poisoned")
+        .take()
+        .expect("dns log persist rx taken twice");
+    let dns_query_log_runner = DnsQueryLogRunner::start(
+        services.dns.clone(),
+        services.dns_repo.clone(),
+        services.dns_log_sink.clone(),
+        dns_log_persist_rx,
+        &root_span,
     );
 
     // Start the auto-update poller. An initial check runs immediately; then
@@ -468,6 +489,7 @@ async fn run(
     monitor.shutdown().await;
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
+    dns_query_log_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     tunnel_metrics_runner.shutdown().await;

@@ -22,12 +22,15 @@ pub mod vpn;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tokio::sync::mpsc;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_data::RepositoryFactory;
-use wardnetd_data::repository::DnsRepository;
+use wardnetd_data::repository::{DnsRepository, QueryLogRow};
+
+use crate::dns::log_sink::DnsLogSink;
 
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
@@ -112,6 +115,11 @@ pub struct Services {
     pub event_publisher: Arc<dyn EventPublisher>,
     pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
+    /// Shared sink the DNS server writes to and the WS handler subscribes
+    /// from. Live for the lifetime of the daemon.
+    pub dns_log_sink: Arc<DnsLogSink>,
+    /// Persistence receiver, taken by the runner once at startup.
+    pub dns_log_persist_rx: Mutex<Option<mpsc::Receiver<QueryLogRow>>>,
 }
 
 /// Initialize all services from the application configuration.
@@ -237,12 +245,15 @@ fn create_services(
         lan_ip,
     ));
 
+    let (dns_log_sink, dns_log_persist_rx) = DnsLogSink::new();
     let dns_service: Arc<dyn DnsService> = Arc::new(DnsServiceImpl::new(
         system_config_repo.clone(),
         dns_repo.clone(),
+        device_repo.clone(),
         event_publisher.clone(),
         job_service.clone(),
         backends.blocklist_fetcher.clone(),
+        Some(dns_log_sink.clone()),
     ));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
@@ -317,6 +328,8 @@ fn create_services(
         event_publisher,
         jobs: job_service,
         dns_repo,
+        dns_log_sink,
+        dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
     }
 }
 

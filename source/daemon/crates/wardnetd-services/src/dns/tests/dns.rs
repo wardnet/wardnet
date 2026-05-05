@@ -20,9 +20,14 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::jobs::JobServiceImpl;
 use crate::{DnsService, DnsServiceImpl, JobService};
+use chrono::{DateTime, Utc};
+use wardnet_common::device::Device;
+use wardnet_common::routing::RoutingRule;
+use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::{
-    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
-    QueryLogFilter, QueryLogRow, SystemConfigRepository,
+    AllowlistRow, BlocklistRow, BlocklistUpdate, BucketSize, CustomRuleRow, CustomRuleUpdate,
+    DeviceRepository, DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow,
+    SystemConfigRepository, TopClientRow, TopDomainRow,
 };
 
 // -- Mock SystemConfigRepository ----------------------------------------------
@@ -114,6 +119,35 @@ impl DnsRepository for MockDnsRepository {
 
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
+    }
+
+    async fn query_stats(&self, _since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
+        Ok(QueryStatsRow::default())
+    }
+
+    async fn top_domains(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<TopDomainRow>> {
+        Ok(Vec::new())
+    }
+
+    async fn top_clients(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<TopClientRow>> {
+        Ok(Vec::new())
+    }
+
+    async fn series_buckets(
+        &self,
+        _since: DateTime<Utc>,
+        _bucket: BucketSize,
+    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
+        Ok(Vec::new())
     }
 
     // Blocklists
@@ -298,6 +332,76 @@ impl EventPublisher for MockEventPublisher {
     }
 }
 
+// -- Mock DeviceRepository ----------------------------------------------------
+
+pub(super) struct MockDeviceRepo;
+
+#[async_trait]
+impl DeviceRepository for MockDeviceRepo {
+    async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_and_ip(
+        &self,
+        _id: &str,
+        _ip: &str,
+        _last_seen: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_hostname(&self, _id: &str, _hostname: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _device_type: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        Ok(None)
+    }
+    async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
 // -- Helpers ------------------------------------------------------------------
 
 fn admin_ctx() -> AuthContext {
@@ -322,25 +426,53 @@ fn stub_fetcher() -> Arc<dyn BlocklistFetcher> {
     Arc::new(StubBlocklistFetcher)
 }
 
+fn stub_device_repo() -> Arc<dyn DeviceRepository> {
+    Arc::new(MockDeviceRepo)
+}
+
 fn build_service() -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::new());
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    DnsServiceImpl::new(system_config, dns_repo, events, stub_jobs(), stub_fetcher())
+    DnsServiceImpl::new(
+        system_config,
+        dns_repo,
+        stub_device_repo(),
+        events,
+        stub_jobs(),
+        stub_fetcher(),
+        None,
+    )
 }
 
 fn build_service_with_config(data: HashMap<String, String>) -> DnsServiceImpl {
     let system_config = Arc::new(MockSystemConfigRepository::with_data(data));
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    DnsServiceImpl::new(system_config, dns_repo, events, stub_jobs(), stub_fetcher())
+    DnsServiceImpl::new(
+        system_config,
+        dns_repo,
+        stub_device_repo(),
+        events,
+        stub_jobs(),
+        stub_fetcher(),
+        None,
+    )
 }
 
 fn build_service_with_repo() -> (DnsServiceImpl, Arc<MockSystemConfigRepository>) {
     let repo = Arc::new(MockSystemConfigRepository::new());
     let dns_repo = Arc::new(MockDnsRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    let svc = DnsServiceImpl::new(repo.clone(), dns_repo, events, stub_jobs(), stub_fetcher());
+    let svc = DnsServiceImpl::new(
+        repo.clone(),
+        dns_repo,
+        stub_device_repo(),
+        events,
+        stub_jobs(),
+        stub_fetcher(),
+        None,
+    );
     (svc, repo)
 }
 
@@ -357,9 +489,11 @@ fn build_full_service() -> FullService {
     let svc = DnsServiceImpl::new(
         system_config,
         dns_repo.clone(),
+        stub_device_repo(),
         events.clone(),
         stub_jobs(),
         stub_fetcher(),
+        None,
     );
     FullService {
         svc,
@@ -1118,9 +1252,11 @@ async fn update_blocklist_now_dispatch_runs_fetch_and_store() {
     let svc = DnsServiceImpl::new(
         system_config,
         dns_repo.clone(),
+        stub_device_repo(),
         events.clone(),
         jobs.clone(),
         fetcher,
+        None,
     );
 
     let created = auth_context::with_context(
@@ -1451,4 +1587,458 @@ async fn create_filter_rule_invalid_parse_error() {
     };
     let result = auth_context::with_context(admin_ctx(), fs.svc.create_filter_rule(req)).await;
     assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// -- Stage 6: query log + stats + auth gates ----------------------------------
+
+#[tokio::test]
+async fn update_config_rejects_retention_below_min() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        query_log_retention_days: Some(0),
+        ..UpdateDnsConfigRequest::default_request()
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_rejects_retention_above_max() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        query_log_retention_days: Some(31),
+        ..UpdateDnsConfigRequest::default_request()
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn update_config_accepts_retention_in_range() {
+    let svc = build_service();
+    let req = UpdateDnsConfigRequest {
+        query_log_retention_days: Some(14),
+        ..UpdateDnsConfigRequest::default_request()
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn list_query_log_requires_admin() {
+    let svc = build_service();
+    // No auth context = anonymous caller; service must reject.
+    let result = svc
+        .list_query_log(wardnet_common::api::ListQueryLogParams::default())
+        .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn dns_stats_requires_admin() {
+    let svc = build_service();
+    let result = svc.dns_stats(24).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn dns_stats_clamps_hours_above_max() {
+    let svc = build_service();
+    // Mock repo returns empty rows for all stats queries — we just
+    // verify the request is accepted and capped without error.
+    let resp = auth_context::with_context(admin_ctx(), svc.dns_stats(99_999))
+        .await
+        .unwrap();
+    // Service clamps to DNS_STATS_MAX_HOURS (168).
+    assert_eq!(resp.hours, 168);
+}
+
+#[tokio::test]
+async fn dns_stats_returns_zero_blocked_percent_on_empty() {
+    let svc = build_service();
+    let resp = auth_context::with_context(admin_ctx(), svc.dns_stats(24))
+        .await
+        .unwrap();
+    assert_eq!(resp.totals.total_queries, 0);
+    assert!((resp.totals.blocked_percent - 0.0).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn list_query_log_clamps_limit() {
+    let svc = build_service();
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        svc.list_query_log(wardnet_common::api::ListQueryLogParams {
+            limit: Some(99_999),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap();
+    // Mock repo returns no rows; just verify the call succeeds with
+    // the over-the-max limit (service clamps internally).
+    assert!(resp.entries.is_empty());
+}
+
+// Default impl helper for UpdateDnsConfigRequest — the request struct
+// doesn't derive Default upstream because every field is optional.
+trait UpdateDnsConfigRequestDefault {
+    fn default_request() -> Self;
+}
+impl UpdateDnsConfigRequestDefault for UpdateDnsConfigRequest {
+    fn default_request() -> Self {
+        Self {
+            resolution_mode: None,
+            upstream_servers: None,
+            cache_size: None,
+            cache_ttl_min_secs: None,
+            cache_ttl_max_secs: None,
+            dnssec_enabled: None,
+            rebinding_protection: None,
+            rate_limit_per_second: None,
+            ad_blocking_enabled: None,
+            query_log_enabled: None,
+            query_log_retention_days: None,
+        }
+    }
+}
+
+// -- Stage 6 happy-path coverage ---------------------------------------------
+
+/// Repo returning canned stats so we can exercise the non-empty
+/// branches of `dns_stats` (`blocked_percent` calculation, series
+/// projection, top-N enrichment).
+struct StubStatsRepo;
+
+#[async_trait]
+impl DnsRepository for StubStatsRepo {
+    async fn insert_query_log_batch(&self, _entries: &[QueryLogRow]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn query_log_paginated(
+        &self,
+        _limit: u32,
+        _offset: u32,
+        _filter: &QueryLogFilter,
+    ) -> anyhow::Result<Vec<QueryLogRow>> {
+        // One row covers parse_iso_timestamp + parse_dns_query_result
+        // both happy paths in `list_query_log`.
+        Ok(vec![QueryLogRow {
+            timestamp: "2026-05-05T12:00:00Z".to_owned(),
+            client_ip: "10.0.0.5".to_owned(),
+            domain: "example.com".to_owned(),
+            query_type: "A".to_owned(),
+            result: "blocked".to_owned(),
+            upstream: None,
+            latency_ms: 1.5,
+            device_id: None,
+        }])
+    }
+    async fn query_log_count(&self, _filter: &QueryLogFilter) -> anyhow::Result<u64> {
+        Ok(1)
+    }
+    async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn query_stats(&self, _since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
+        Ok(QueryStatsRow {
+            total_queries: 100,
+            blocked_queries: 25,
+            avg_latency_ms: 4.2,
+            unique_clients: 5,
+            unique_domains: 30,
+        })
+    }
+    async fn top_domains(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+        blocked_only: bool,
+    ) -> anyhow::Result<Vec<TopDomainRow>> {
+        let domain = if blocked_only { "ads.io" } else { "github.com" };
+        Ok(vec![TopDomainRow {
+            domain: domain.to_owned(),
+            count: 42,
+        }])
+    }
+    async fn top_clients(
+        &self,
+        _since: DateTime<Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<TopClientRow>> {
+        Ok(vec![TopClientRow {
+            client_ip: "10.0.0.5".to_owned(),
+            count: 17,
+        }])
+    }
+    async fn series_buckets(
+        &self,
+        _since: DateTime<Utc>,
+        _bucket: BucketSize,
+    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
+        Ok(vec![SeriesBucketRow {
+            bucket: "2026-05-05 12".to_owned(),
+            total: 100,
+            blocked: 25,
+        }])
+    }
+    async fn list_blocklists(&self) -> anyhow::Result<Vec<Blocklist>> {
+        Ok(Vec::new())
+    }
+    async fn get_blocklist(&self, _id: Uuid) -> anyhow::Result<Option<Blocklist>> {
+        Ok(None)
+    }
+    async fn create_blocklist(&self, _row: &BlocklistRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_blocklist(&self, _id: Uuid, _row: &BlocklistUpdate) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_blocklist(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    async fn replace_blocklist_domains(
+        &self,
+        _id: Uuid,
+        _domains: &[String],
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn list_all_blocked_domains_for_enabled(&self) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn set_blocklist_error(&self, _id: Uuid, _error: Option<&str>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_allowlist(&self) -> anyhow::Result<Vec<AllowlistEntry>> {
+        Ok(Vec::new())
+    }
+    async fn create_allowlist_entry(&self, _row: &AllowlistRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_allowlist_entry(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    async fn list_custom_rules(&self) -> anyhow::Result<Vec<CustomFilterRule>> {
+        Ok(Vec::new())
+    }
+    async fn get_custom_rule(&self, _id: Uuid) -> anyhow::Result<Option<CustomFilterRule>> {
+        Ok(None)
+    }
+    async fn create_custom_rule(&self, _row: &CustomRuleRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_custom_rule(&self, _id: Uuid, _row: &CustomRuleUpdate) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete_custom_rule(&self, _id: Uuid) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+}
+
+/// Device repo that returns one device with a friendly name and a MAC,
+/// so `enrich_top_clients` exercises the Some(device) branch.
+struct DeviceRepoWithEntry;
+
+#[async_trait]
+impl DeviceRepository for DeviceRepoWithEntry {
+    async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
+        if ip == "10.0.0.5" {
+            Ok(Some(Device {
+                id: Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
+                mac: "AA:BB:CC:00:00:99".to_owned(),
+                name: Some("alice-laptop".to_owned()),
+                hostname: Some("alice".to_owned()),
+                manufacturer: None,
+                device_type: wardnet_common::device::DeviceType::Laptop,
+                first_seen: "2026-05-05T00:00:00Z".parse().unwrap(),
+                last_seen: "2026-05-05T00:00:00Z".parse().unwrap(),
+                last_ip: ip.to_owned(),
+                admin_locked: false,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(None)
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_and_ip(
+        &self,
+        _id: &str,
+        _ip: &str,
+        _last_seen: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_hostname(&self, _id: &str, _hostname: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _device_type: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        Ok(None)
+    }
+    async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+        Ok(Vec::new())
+    }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tid: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
+fn build_service_with_stats() -> DnsServiceImpl {
+    DnsServiceImpl::new(
+        Arc::new(MockSystemConfigRepository::new()),
+        Arc::new(StubStatsRepo),
+        Arc::new(DeviceRepoWithEntry),
+        Arc::new(MockEventPublisher::new()),
+        stub_jobs(),
+        stub_fetcher(),
+        None,
+    )
+}
+
+#[tokio::test]
+async fn dns_stats_returns_top_domains_blocked_clients_and_series() {
+    let svc = build_service_with_stats();
+    let resp = auth_context::with_context(admin_ctx(), svc.dns_stats(24))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.totals.total_queries, 100);
+    assert_eq!(resp.totals.blocked_queries, 25);
+    assert!((resp.totals.blocked_percent - 25.0).abs() < 1e-9);
+    assert_eq!(resp.totals.unique_clients, 5);
+
+    assert_eq!(resp.top_domains.len(), 1);
+    assert_eq!(resp.top_domains[0].domain, "github.com");
+
+    assert_eq!(resp.top_blocked.len(), 1);
+    assert_eq!(resp.top_blocked[0].domain, "ads.io");
+
+    // Top client gets enriched with the device's friendly label + MAC.
+    assert_eq!(resp.top_clients.len(), 1);
+    assert_eq!(resp.top_clients[0].client_ip, "10.0.0.5");
+    assert_eq!(
+        resp.top_clients[0].device_label.as_deref(),
+        Some("alice-laptop")
+    );
+    assert_eq!(
+        resp.top_clients[0].device_mac.as_deref(),
+        Some("AA:BB:CC:00:00:99")
+    );
+
+    assert_eq!(resp.series.len(), 1);
+    assert_eq!(resp.series[0].total, 100);
+    assert_eq!(resp.series[0].blocked, 25);
+}
+
+#[tokio::test]
+async fn dns_stats_one_hour_uses_minute_buckets() {
+    // Hours <= 1 → minute series buckets; >1 → hour buckets.
+    let svc = build_service_with_stats();
+    let resp = auth_context::with_context(admin_ctx(), svc.dns_stats(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.series_bucket,
+        wardnet_common::api::DnsSeriesBucket::Minute
+    );
+
+    let resp24 = auth_context::with_context(admin_ctx(), svc.dns_stats(24))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp24.series_bucket,
+        wardnet_common::api::DnsSeriesBucket::Hour
+    );
+}
+
+#[tokio::test]
+async fn list_query_log_translates_row_into_typed_entry() {
+    let svc = build_service_with_stats();
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        svc.list_query_log(wardnet_common::api::ListQueryLogParams::default()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp.total, 1);
+    assert_eq!(resp.entries.len(), 1);
+    let entry = &resp.entries[0];
+    assert_eq!(entry.client_ip, "10.0.0.5");
+    assert_eq!(entry.domain, "example.com");
+    assert_eq!(entry.result, wardnet_common::dns::DnsQueryResult::Blocked);
+    assert!((entry.latency_ms - 1.5).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn flush_query_log_returns_zero_no_op() {
+    let svc = build_service_with_stats();
+    let n = auth_context::with_context(admin_ctx(), svc.flush_query_log())
+        .await
+        .unwrap();
+    assert_eq!(n, 0);
+}
+
+#[tokio::test]
+async fn subscribe_query_stream_errors_without_sink() {
+    let svc = build_service_with_stats();
+    let result =
+        auth_context::with_context(admin_ctx(), async { svc.subscribe_query_stream() }).await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn subscribe_query_stream_succeeds_with_sink() {
+    use crate::dns::log_sink::DnsLogSink;
+    let (sink, _rx) = DnsLogSink::new();
+    let svc = DnsServiceImpl::new(
+        Arc::new(MockSystemConfigRepository::new()),
+        Arc::new(StubStatsRepo),
+        Arc::new(DeviceRepoWithEntry),
+        Arc::new(MockEventPublisher::new()),
+        stub_jobs(),
+        stub_fetcher(),
+        Some(sink),
+    );
+    let result =
+        auth_context::with_context(admin_ctx(), async { svc.subscribe_query_stream() }).await;
+    assert!(result.is_ok());
 }

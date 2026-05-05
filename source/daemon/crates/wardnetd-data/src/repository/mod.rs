@@ -15,8 +15,9 @@ pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{
-    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
-    QueryLogFilter, QueryLogRow,
+    AllowlistRow, BlocklistRow, BlocklistUpdate, BucketSize, CustomRuleRow, CustomRuleUpdate,
+    DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow, TopClientRow,
+    TopDomainRow,
 };
 pub use session::SessionRepository;
 pub use sqlite::{

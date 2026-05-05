@@ -196,6 +196,27 @@ impl DnsService for MockRunnerDnsService {
     async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
         unimplemented!()
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dns_stats(
+        &self,
+        _hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        unimplemented!()
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        unimplemented!()
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
         Ok(crate::dns::filter::FilterInputs::default())
     }
@@ -244,6 +265,34 @@ impl DnsRepository for MockDnsRepository {
     }
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
+    }
+    async fn query_stats(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<wardnetd_data::repository::QueryStatsRow> {
+        Ok(wardnetd_data::repository::QueryStatsRow::default())
+    }
+    async fn top_domains(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopDomainRow>> {
+        Ok(Vec::new())
+    }
+    async fn top_clients(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopClientRow>> {
+        Ok(Vec::new())
+    }
+    async fn series_buckets(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _bucket: wardnetd_data::repository::BucketSize,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::SeriesBucketRow>> {
+        Ok(Vec::new())
     }
     async fn list_blocklists(&self) -> anyhow::Result<Vec<wardnet_common::dns::Blocklist>> {
         Ok(vec![])
@@ -687,6 +736,27 @@ impl DnsService for ErroringDnsService {
     async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
         unimplemented!()
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dns_stats(
+        &self,
+        _hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        unimplemented!()
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        unimplemented!()
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
         unimplemented!()
     }
@@ -889,6 +959,27 @@ async fn runner_handles_reload_config_error_after_event() {
             &self,
             _id: Uuid,
         ) -> Result<DeleteFilterRuleResponse, AppError> {
+            unimplemented!()
+        }
+        async fn list_query_log(
+            &self,
+            _params: wardnet_common::api::ListQueryLogParams,
+        ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dns_stats(
+            &self,
+            _hours: u32,
+        ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+            unimplemented!()
+        }
+        fn subscribe_query_stream(
+            &self,
+        ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+        {
+            unimplemented!()
+        }
+        async fn flush_query_log(&self) -> Result<u64, AppError> {
             unimplemented!()
         }
         async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
@@ -1123,6 +1214,34 @@ impl DnsRepository for CronMockDnsRepository {
     }
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
+    }
+    async fn query_stats(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<wardnetd_data::repository::QueryStatsRow> {
+        Ok(wardnetd_data::repository::QueryStatsRow::default())
+    }
+    async fn top_domains(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopDomainRow>> {
+        Ok(Vec::new())
+    }
+    async fn top_clients(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopClientRow>> {
+        Ok(Vec::new())
+    }
+    async fn series_buckets(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _bucket: wardnetd_data::repository::BucketSize,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::SeriesBucketRow>> {
+        Ok(Vec::new())
     }
     async fn list_blocklists(&self) -> anyhow::Result<Vec<wardnet_common::dns::Blocklist>> {
         Ok(self.blocklists.lock().unwrap().clone())
@@ -1530,6 +1649,27 @@ impl DnsService for FailingFilterInputsService {
     async fn delete_filter_rule(&self, _id: Uuid) -> Result<DeleteFilterRuleResponse, AppError> {
         unimplemented!()
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dns_stats(
+        &self,
+        _hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        unimplemented!()
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        unimplemented!()
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn load_filter_inputs(&self) -> Result<crate::dns::filter::FilterInputs, AppError> {
         Err(AppError::Internal(anyhow::anyhow!(
             "load_filter_inputs failed"
@@ -1709,6 +1849,34 @@ impl DnsRepository for FailingStoreDnsRepository {
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
     }
+    async fn query_stats(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<wardnetd_data::repository::QueryStatsRow> {
+        Ok(wardnetd_data::repository::QueryStatsRow::default())
+    }
+    async fn top_domains(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopDomainRow>> {
+        Ok(Vec::new())
+    }
+    async fn top_clients(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopClientRow>> {
+        Ok(Vec::new())
+    }
+    async fn series_buckets(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _bucket: wardnetd_data::repository::BucketSize,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::SeriesBucketRow>> {
+        Ok(Vec::new())
+    }
     async fn list_blocklists(&self) -> anyhow::Result<Vec<wardnet_common::dns::Blocklist>> {
         Ok(self.blocklists.clone())
     }
@@ -1870,6 +2038,34 @@ impl DnsRepository for FailingListDnsRepository {
     }
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
+    }
+    async fn query_stats(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<wardnetd_data::repository::QueryStatsRow> {
+        Ok(wardnetd_data::repository::QueryStatsRow::default())
+    }
+    async fn top_domains(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+        _blocked_only: bool,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopDomainRow>> {
+        Ok(Vec::new())
+    }
+    async fn top_clients(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: u32,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::TopClientRow>> {
+        Ok(Vec::new())
+    }
+    async fn series_buckets(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _bucket: wardnetd_data::repository::BucketSize,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::SeriesBucketRow>> {
+        Ok(Vec::new())
     }
     async fn list_blocklists(&self) -> anyhow::Result<Vec<wardnet_common::dns::Blocklist>> {
         Err(anyhow::anyhow!("DB read failed"))

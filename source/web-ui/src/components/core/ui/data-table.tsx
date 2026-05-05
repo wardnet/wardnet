@@ -6,14 +6,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/core/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/core/ui/table";
 import { cn } from "@/lib/utils";
 
 declare module "@tanstack/react-table" {
@@ -30,6 +23,16 @@ interface DataTableProps<TData, TValue> {
   emptyMessage?: string;
   /** Optional click handler per row. */
   onRowClick?: (row: TData) => void;
+  /**
+   * Use `table-layout: fixed` so per-column widths (declared via
+   * `columnDef.meta.className`, e.g. `"w-24"`) are honored regardless
+   * of cell content. Without this, the browser's default `auto`
+   * layout re-fits columns to content — fine for static tables, but
+   * causes visible reflow on any table whose data changes frequently
+   * (live DNS log, filtered views, etc.). Opt-in so existing tables
+   * that rely on auto-fit aren't disrupted.
+   */
+  fixedLayout?: boolean;
 }
 
 /** Reusable data table built on TanStack Table + shadcn Table primitives. */
@@ -38,6 +41,7 @@ export function DataTable<TData, TValue>({
   data,
   emptyMessage = "No results.",
   onRowClick,
+  fixedLayout = false,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -46,16 +50,24 @@ export function DataTable<TData, TValue>({
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <Table>
+    // Note: no `overflow-*` here — any non-visible overflow on an ancestor
+    // disables `position: sticky` on the <th> below, so headers can't pin
+    // to the scroll context. We also bypass the shadcn `<Table>`
+    // primitive because it wraps `<table>` in a `<div overflow-x-auto>`
+    // that has the same clipping side-effect; rendering the `<table>`
+    // ourselves keeps sticky positioning working all the way up to the
+    // nearest scrolling ancestor (page-level main, or a per-page
+    // wrapper like the DNS log's flex column).
+    <div className="rounded-xl border border-border">
+      <table className={cn("w-full caption-bottom text-sm", fixedLayout && "table-fixed")}>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id} className="bg-muted/50 hover:bg-muted/50">
+            <TableRow key={headerGroup.id} className="bg-muted hover:bg-muted">
               {headerGroup.headers.map((header) => (
                 <TableHead
                   key={header.id}
                   className={cn(
-                    "px-4 py-3 text-muted-foreground",
+                    "sticky top-0 z-10 bg-muted px-4 py-3 text-muted-foreground",
                     header.column.columnDef.meta?.className,
                   )}
                 >
@@ -96,7 +108,7 @@ export function DataTable<TData, TValue>({
             </TableRow>
           )}
         </TableBody>
-      </Table>
+      </table>
     </div>
   );
 }

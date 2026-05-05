@@ -259,6 +259,48 @@ impl DnsService for MockDnsService {
             message: format!("filter rule {id} deleted"),
         })
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        Ok(wardnet_common::api::ListQueryLogResponse {
+            entries: Vec::new(),
+            total: 0,
+        })
+    }
+    async fn dns_stats(
+        &self,
+        hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        Ok(wardnet_common::api::DnsStatsResponse {
+            hours,
+            totals: wardnet_common::api::DnsStatsTotals {
+                total_queries: 0,
+                blocked_queries: 0,
+                blocked_percent: 0.0,
+                avg_latency_ms: 0.0,
+                unique_clients: 0,
+                unique_domains: 0,
+            },
+            top_domains: Vec::new(),
+            top_blocked: Vec::new(),
+            top_clients: Vec::new(),
+            series_bucket: wardnet_common::api::DnsSeriesBucket::Hour,
+            series: Vec::new(),
+        })
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        // Keep the sender alive for the receiver's lifetime in tests.
+        std::mem::forget(tx);
+        Ok(rx)
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        Ok(0)
+    }
     async fn load_filter_inputs(
         &self,
     ) -> Result<wardnetd_services::dns::filter::FilterInputs, AppError> {
@@ -333,6 +375,12 @@ fn dns_router(state: AppState) -> Router {
         .route(
             "/api/dns/rules/{id}",
             put(crate::api::dns::update_filter_rule).delete(crate::api::dns::delete_filter_rule),
+        )
+        .route("/api/dns/log", get(crate::api::dns::list_query_log))
+        .route("/api/dns/stats", get(crate::api::dns::get_stats))
+        .route(
+            "/api/dns/log/stream",
+            get(crate::api::dns_log_ws::dns_log_ws),
         )
         .with_state(state)
 }
@@ -828,4 +876,154 @@ async fn toggle_disable_returns_error_when_server_stop_fails() {
 
     assert_ne!(resp.status(), StatusCode::OK);
     assert!(resp.status().is_server_error());
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Query log + stats + WS (Stage 6)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn list_query_log_authenticated() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/log").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["entries"].is_array());
+    assert_eq!(json["total"], 0);
+}
+
+#[tokio::test]
+async fn list_query_log_passes_query_params_through() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, _json) = get_json(
+        app,
+        "/api/dns/log?limit=10&offset=20&domain=example.com&client_ip=10.0.0.1&result=blocked",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn list_query_log_unauthenticated() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/dns/log")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn get_stats_authenticated() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/stats?hours=24").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["hours"], 24);
+    assert_eq!(json["totals"]["total_queries"], 0);
+    assert!(json["top_domains"].is_array());
+    assert!(json["top_blocked"].is_array());
+    assert!(json["top_clients"].is_array());
+    assert!(json["series"].is_array());
+}
+
+#[tokio::test]
+async fn get_stats_default_hours() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let (status, json) = get_json(app, "/api/dns/stats").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["hours"], 24);
+}
+
+#[tokio::test]
+async fn get_stats_unauthenticated() {
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/dns/stats")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn dns_log_stream_unauthenticated_returns_401() {
+    // Critical regression guard for the Stage 6 plan: the `/api/dns/log/stream`
+    // WS handler must reject unauthenticated callers BEFORE the upgrade,
+    // unlike the un-gated `/api/system/logs/stream` (tracked in #321).
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/dns/log/stream")
+                .header("Connection", "upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn dns_log_stream_authenticated_passes_auth_gate() {
+    // With a valid session cookie the AdminAuth extractor succeeds and
+    // the request progresses to `WebSocketUpgrade`. Tower's
+    // `oneshot` doesn't carry the transport hijacking needed for a
+    // real 101 — we accept the upgrade-rejection (426) as proof that
+    // auth passed, rather than 401.
+    let state = build_state(MockDnsService);
+    let app = dns_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/dns/log/stream")
+                .header("Cookie", "wardnet_session=valid-token")
+                .header("Connection", "upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "WS auth gate must NOT reject an authenticated session"
+    );
 }

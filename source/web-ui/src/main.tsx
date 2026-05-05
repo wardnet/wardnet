@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { Toaster } from "@/components/core/ui/toaster";
 import { LogStreamManager } from "@/services/LogStreamManager";
+import { DnsLogStreamManager } from "@/services/DnsLogStreamManager";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -23,6 +24,7 @@ createRoot(document.getElementById("root")!).render(
         <App />
         <Toaster />
         <LogStreamManager />
+        <DnsLogStreamManager />
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

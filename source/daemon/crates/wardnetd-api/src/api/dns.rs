@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -8,10 +8,10 @@ use wardnet_common::api::{
     CreateAllowlistRequest, CreateAllowlistResponse, CreateBlocklistRequest,
     CreateBlocklistResponse, CreateFilterRuleRequest, CreateFilterRuleResponse,
     DeleteAllowlistResponse, DeleteBlocklistResponse, DeleteFilterRuleResponse,
-    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListAllowlistResponse,
-    ListBlocklistsResponse, ListFilterRulesResponse, ToggleDnsRequest, UpdateBlocklistRequest,
-    UpdateBlocklistResponse, UpdateDnsConfigRequest, UpdateFilterRuleRequest,
-    UpdateFilterRuleResponse,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatsParams, DnsStatsResponse, DnsStatusResponse,
+    ListAllowlistResponse, ListBlocklistsResponse, ListFilterRulesResponse, ListQueryLogParams,
+    ListQueryLogResponse, ToggleDnsRequest, UpdateBlocklistRequest, UpdateBlocklistResponse,
+    UpdateDnsConfigRequest, UpdateFilterRuleRequest, UpdateFilterRuleResponse,
 };
 use wardnet_common::jobs::JobDispatchedResponse;
 
@@ -34,6 +34,8 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(delete_allowlist_entry))
         .routes(routes!(list_filter_rules, create_filter_rule))
         .routes(routes!(update_filter_rule, delete_filter_rule))
+        .routes(routes!(list_query_log))
+        .routes(routes!(get_stats))
 }
 
 #[utoipa::path(
@@ -519,5 +521,64 @@ pub async fn delete_filter_rule(
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteFilterRuleResponse>, AppError> {
     let response = state.dns_service().delete_filter_rule(id).await?;
+    Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
+// Query log + stats
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/api/dns/log",
+    tag = "dns",
+    description = "Paginated DNS query log. Filterable by domain (substring), \
+                   client IP (exact), and result. Newest entries first. Admin only.",
+    params(ListQueryLogParams),
+    responses(
+        (status = 200, description = "Page of query log entries", body = ListQueryLogResponse),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn list_query_log(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Query(params): Query<ListQueryLogParams>,
+) -> Result<Json<ListQueryLogResponse>, AppError> {
+    let response = state.dns_service().list_query_log(params).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/dns/stats",
+    tag = "dns",
+    description = "Aggregated DNS statistics for the last `hours` hours \
+                   (default 24, max 168). Returns totals, top domains, top \
+                   blocked, top clients (with device labels) and a \
+                   queries-over-time series. Admin only.",
+    params(DnsStatsParams),
+    responses(
+        (status = 200, description = "Aggregated stats", body = DnsStatsResponse),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn get_stats(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Query(params): Query<DnsStatsParams>,
+) -> Result<Json<DnsStatsResponse>, AppError> {
+    let hours = params.hours.unwrap_or(24);
+    let response = state.dns_service().dns_stats(hours).await?;
     Ok(Json(response))
 }

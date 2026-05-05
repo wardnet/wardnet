@@ -28,6 +28,7 @@ use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::dns::blocklist_downloader::HttpBlocklistFetcher;
+use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
@@ -141,6 +142,17 @@ async fn run(
         tunnels.into_iter().map(|t| t.id).collect::<Vec<_>>()
     };
 
+    // Re-read device IPs so the fake-DNS emitter can attribute events to
+    // real seeded clients (lights up the top-clients table + filter dropdown).
+    let dns_client_ips = {
+        let devices = factory.device().find_all().await?;
+        devices
+            .into_iter()
+            .map(|d| d.last_ip)
+            .filter(|ip| !ip.is_empty())
+            .collect::<Vec<_>>()
+    };
+
     // No-op backends are used only for subsystems that require Linux kernel
     // APIs unavailable on macOS (WireGuard, netlink routing, nftables, pnet
     // capture). Anything that works cross-platform — like HTTP blocklist
@@ -250,6 +262,22 @@ async fn run(
         services.jobs.clone(),
     );
 
+    // Drain the DNS query log persistence channel into SQLite so the
+    // fake live-stream events also populate the historical view.
+    let dns_log_persist_rx = services
+        .dns_log_persist_rx
+        .lock()
+        .expect("dns log persist rx lock poisoned")
+        .take()
+        .expect("dns log persist rx taken twice");
+    let dns_query_log_runner = DnsQueryLogRunner::start(
+        services.dns.clone(),
+        services.dns_repo.clone(),
+        services.dns_log_sink.clone(),
+        dns_log_persist_rx,
+        &tracing::Span::current(),
+    );
+
     // Start the fake event emitter (unless disabled).
     let emitter = if cli.no_events {
         tracing::info!("--no-events set, skipping fake event emitter");
@@ -258,6 +286,8 @@ async fn run(
         Some(FakeEventEmitter::start(
             services.event_publisher.clone(),
             tunnel_ids_for_events,
+            services.dns_log_sink.clone(),
+            dns_client_ips,
         ))
     };
 
@@ -284,6 +314,7 @@ async fn run(
     if let Some(emitter) = emitter {
         emitter.shutdown().await;
     }
+    dns_query_log_runner.shutdown().await;
 
     Ok(())
 }

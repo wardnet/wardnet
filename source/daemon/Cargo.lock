@@ -5336,6 +5336,7 @@ dependencies = [
  "uuid",
  "wardnet-common",
  "wardnetd-api",
+ "wardnetd-data",
  "wardnetd-services",
  "wireguard-control",
 ]
