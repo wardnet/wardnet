@@ -247,6 +247,9 @@ struct MockTunnelInterface {
     brought_up: Mutex<Vec<String>>,
     torn_down: Mutex<Vec<String>>,
     removed: Mutex<Vec<String>>,
+    /// Names of interfaces currently considered present in the kernel.
+    /// `create` adds, `remove` deletes — drives `list()`.
+    live: Mutex<std::collections::HashSet<String>>,
     stats_behavior: Mutex<StatsBehavior>,
 }
 
@@ -257,6 +260,7 @@ impl MockTunnelInterface {
             brought_up: Mutex::new(Vec::new()),
             torn_down: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
+            live: Mutex::new(std::collections::HashSet::new()),
             stats_behavior: Mutex::new(StatsBehavior::None),
         }
     }
@@ -268,11 +272,22 @@ impl MockTunnelInterface {
     fn set_stats_error(&self) {
         *self.stats_behavior.lock().unwrap() = StatsBehavior::Err;
     }
+
+    /// Simulate an external event that drops the kernel iface (kernel
+    /// reboot, `modprobe -r wireguard`, `ip link delete`) without going
+    /// through the service's tear-down path.
+    fn drop_iface(&self, name: &str) {
+        self.live.lock().unwrap().remove(name);
+    }
 }
 
 #[async_trait]
 impl TunnelInterface for MockTunnelInterface {
     async fn create(&self, params: CreateTunnelParams) -> anyhow::Result<()> {
+        self.live
+            .lock()
+            .unwrap()
+            .insert(params.interface_name.clone());
         self.created.lock().unwrap().push(params.interface_name);
         Ok(())
     }
@@ -294,6 +309,7 @@ impl TunnelInterface for MockTunnelInterface {
     }
 
     async fn remove(&self, interface_name: &str) -> anyhow::Result<()> {
+        self.live.lock().unwrap().remove(interface_name);
         self.removed.lock().unwrap().push(interface_name.to_owned());
         Ok(())
     }
@@ -307,7 +323,7 @@ impl TunnelInterface for MockTunnelInterface {
     }
 
     async fn list(&self) -> anyhow::Result<Vec<String>> {
-        Ok(Vec::new())
+        Ok(self.live.lock().unwrap().iter().cloned().collect())
     }
 }
 
@@ -1412,6 +1428,192 @@ async fn run_health_check_no_active_tunnels_is_noop() {
     let h = build_harness();
     // No tunnels brought up; run_health_check iterates over an empty list.
     h.svc.run_health_check().await.unwrap();
+}
+
+#[tokio::test]
+async fn run_health_check_iface_missing_flips_up_to_down() {
+    // Issue #311: after a daemon restart or `modprobe -r wireguard`, the DB
+    // still says `Up` while the kernel iface is gone. Health check must
+    // reconcile and flip to `Down` so on-demand bring-up can pick it back up.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    let fresh = chrono::Utc::now() - chrono::Duration::seconds(10);
+    bring_up_then_observe_handshake(&h, id, Some(fresh)).await;
+    h.svc.run_health_check().await.unwrap();
+    assert_eq!(
+        auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+            .await
+            .unwrap()
+            .status,
+        TunnelStatus::Up,
+    );
+
+    // Simulate an external event that drops the kernel iface without
+    // touching DB state — daemon restart, kernel module unload, etc.
+    h.tunnel_iface.drop_iface("wg_ward0");
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    let tunnel = auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status, TunnelStatus::Down);
+
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::TunnelDown { tunnel_id, reason, .. }
+                if *tunnel_id == id && reason == "interface absent"
+        )),
+        "expected TunnelDown event with 'interface absent' reason",
+    );
+}
+
+#[tokio::test]
+async fn run_health_check_iface_missing_flips_reconnecting_to_down() {
+    // Same scenario as the daemon-restart case but where status is already
+    // `Reconnecting` when the iface vanishes — the case in the original
+    // bug report.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    bring_up_then_observe_handshake(&h, id, None).await;
+    h.tunnels
+        .update_status(&id.to_string(), "reconnecting")
+        .await
+        .unwrap();
+
+    h.tunnel_iface.drop_iface("wg_ward0");
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    assert_eq!(
+        auth_context::with_context(admin_ctx(), h.svc.get_tunnel(id))
+            .await
+            .unwrap()
+            .status,
+        TunnelStatus::Down,
+    );
+}
+
+#[tokio::test]
+async fn run_health_check_stuck_reconnecting_triggers_recreate() {
+    // When the iface is present but the peer hasn't replied for far longer
+    // than the stale threshold, the tunnel may be wedged or the peer DNS
+    // may have rotated. Health check must tear down + bring up to reset.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    bring_up_then_observe_handshake(&h, id, None).await;
+    h.tunnels
+        .update_status(&id.to_string(), "reconnecting")
+        .await
+        .unwrap();
+
+    // Persist a last_handshake well past the recovery threshold (15 min).
+    let very_stale = chrono::Utc::now() - chrono::Duration::minutes(30);
+    h.tunnels
+        .update_stats(&id.to_string(), 0, 0, Some(&very_stale.to_rfc3339()))
+        .await
+        .unwrap();
+    h.tunnel_iface.torn_down.lock().unwrap().clear();
+    h.tunnel_iface.removed.lock().unwrap().clear();
+    h.tunnel_iface.created.lock().unwrap().clear();
+    h.tunnel_iface.brought_up.lock().unwrap().clear();
+    h.events.events.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    // Recreate path must have run: tear-down + remove + create + bring-up.
+    assert_eq!(
+        h.tunnel_iface.torn_down.lock().unwrap().len(),
+        1,
+        "expected exactly one tear_down call"
+    );
+    assert_eq!(
+        h.tunnel_iface.removed.lock().unwrap().len(),
+        1,
+        "expected exactly one remove call"
+    );
+    assert_eq!(
+        h.tunnel_iface.created.lock().unwrap().len(),
+        1,
+        "expected exactly one create call"
+    );
+    assert_eq!(
+        h.tunnel_iface.brought_up.lock().unwrap().len(),
+        1,
+        "expected exactly one bring_up call"
+    );
+
+    // Domain events must be published so subscribers (routing engine, web
+    // UI) react to the recreate.
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::TunnelDown { tunnel_id, reason, .. }
+                if *tunnel_id == id && reason == "stuck in reconnecting, recreating"
+        )),
+        "expected TunnelDown event with stuck-reconnecting reason",
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::TunnelConnecting { tunnel_id, .. } if *tunnel_id == id
+        )),
+        "expected TunnelConnecting event after recreate",
+    );
+}
+
+#[tokio::test]
+async fn run_health_check_reconnecting_within_threshold_no_recreate() {
+    // Reconnecting with a stale-but-recent handshake should NOT trigger a
+    // recreate yet — give the peer time to come back on its own.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    bring_up_then_observe_handshake(&h, id, None).await;
+    h.tunnels
+        .update_status(&id.to_string(), "reconnecting")
+        .await
+        .unwrap();
+
+    // 5 min old: past stale (3 min) but well below recovery (15 min).
+    let stale_recent = chrono::Utc::now() - chrono::Duration::minutes(5);
+    h.tunnels
+        .update_stats(&id.to_string(), 0, 0, Some(&stale_recent.to_rfc3339()))
+        .await
+        .unwrap();
+    h.tunnel_iface.torn_down.lock().unwrap().clear();
+    h.tunnel_iface.removed.lock().unwrap().clear();
+
+    h.svc.run_health_check().await.unwrap();
+
+    assert!(
+        h.tunnel_iface.torn_down.lock().unwrap().is_empty(),
+        "tear_down must not be called for a tunnel still within the recovery threshold"
+    );
+    assert!(
+        h.tunnel_iface.removed.lock().unwrap().is_empty(),
+        "remove must not be called for a tunnel still within the recovery threshold"
+    );
 }
 
 const SAMPLE_CONF_WITH_PRESHARED: &str = "\

@@ -276,6 +276,97 @@ impl TunnelServiceImpl {
         Ok(())
     }
 
+    /// Reconcile DB tunnel status against kernel reality. After a daemon
+    /// restart or external `modprobe -r wireguard` / `ip link delete`, the
+    /// DB can claim a tunnel is `Up`/`Connecting`/`Reconnecting` while the
+    /// kernel has no iface — every subsequent decision based on
+    /// `tunnel.status` is then wrong. Flip iface-missing tunnels to `Down`
+    /// here so the existing routing-path bring-up and `bring_up_core`'s
+    /// `Down` guard both work as designed.
+    ///
+    /// Returns the subset of tunnels whose iface is still present, ready
+    /// for the rest of the health-check pass.
+    async fn reconcile_iface_presence(
+        &self,
+        all_tunnels: Vec<Tunnel>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<Tunnel>, AppError> {
+        let live_ifaces: std::collections::HashSet<String> = self
+            .tunnel_interface
+            .list()
+            .await
+            .map_err(AppError::Internal)?
+            .into_iter()
+            .collect();
+
+        let mut surviving = Vec::new();
+        for tunnel in all_tunnels {
+            if tunnel.status == TunnelStatus::Down {
+                continue;
+            }
+            if live_ifaces.contains(&tunnel.interface_name) {
+                surviving.push(tunnel);
+                continue;
+            }
+            if let Err(e) = self
+                .tunnels
+                .update_status(&tunnel.id.to_string(), "down")
+                .await
+            {
+                tracing::error!(
+                    tunnel_id = %tunnel.id,
+                    error = %e,
+                    "health check: failed to mark iface-missing tunnel down for {}: {e}",
+                    tunnel.interface_name
+                );
+                continue;
+            }
+            tracing::warn!(
+                tunnel_id = %tunnel.id,
+                interface = %tunnel.interface_name,
+                previous_status = ?tunnel.status,
+                "health check: kernel interface is gone, marking tunnel down"
+            );
+            self.events.publish(WardnetEvent::TunnelDown {
+                tunnel_id: tunnel.id,
+                interface_name: tunnel.interface_name,
+                reason: "interface absent".to_owned(),
+                timestamp: now,
+            });
+        }
+        Ok(surviving)
+    }
+
+    /// Tear down + bring up each stuck tunnel sequentially. Errors are
+    /// logged and swallowed — one failure should not stop recovery for
+    /// the others.
+    async fn recreate_stuck_tunnels(&self, ids: Vec<Uuid>) {
+        for id in ids {
+            tracing::warn!(
+                tunnel_id = %id,
+                "health check: tunnel stuck in reconnecting, recreating"
+            );
+            if let Err(e) = self
+                .tear_down_core(id, "stuck in reconnecting, recreating")
+                .await
+            {
+                tracing::error!(
+                    tunnel_id = %id,
+                    error = %e,
+                    "health check: failed to tear down stuck tunnel: {e}"
+                );
+                continue;
+            }
+            if let Err(e) = self.bring_up_core(id).await {
+                tracing::error!(
+                    tunnel_id = %id,
+                    error = %e,
+                    "health check: failed to bring stuck tunnel back up: {e}"
+                );
+            }
+        }
+    }
+
     /// Core logic for tearing down a tunnel (no auth check).
     async fn tear_down_core(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
         let tunnel = self.require_tunnel(id).await?;
@@ -561,14 +652,19 @@ impl TunnelService for TunnelServiceImpl {
 
     async fn run_health_check(&self) -> Result<(), AppError> {
         let stale_threshold = chrono::Duration::minutes(3);
+        // After this much time without a handshake while in `Reconnecting`,
+        // the iface is present but the peer hasn't replied — recreate to
+        // force fresh DNS resolution and a clean iface state. 5x the stale
+        // threshold gives the peer plenty of room to come back on its own.
+        let stuck_recovery_threshold = chrono::Duration::minutes(15);
         let now = chrono::Utc::now();
         let all_tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
-        // Health judgement applies to every tunnel whose iface is up.
-        // `collect_stats` has just refreshed `last_handshake` for these.
-        let active_tunnels: Vec<_> = all_tunnels
-            .into_iter()
-            .filter(|t| t.status != wardnet_common::tunnel::TunnelStatus::Down)
-            .collect();
+        let active_tunnels = self.reconcile_iface_presence(all_tunnels, now).await?;
+
+        // IDs of tunnels that are stuck in `Reconnecting` and need an active
+        // recreate after the per-tunnel match below has had its chance to
+        // flip them back to `Up`.
+        let mut to_recreate: Vec<Uuid> = Vec::new();
 
         for tunnel in active_tunnels {
             // A handshake is "fresh" if we have one and it's within the
@@ -639,11 +735,24 @@ impl TunnelService for TunnelServiceImpl {
                         timestamp: now,
                     });
                 }
-                // No-op: Up + fresh, Connecting + still no handshake,
-                // Reconnecting + still no handshake.
+                // Reconnecting and the peer still hasn't replied. If we've
+                // been stuck this long, the iface itself may be wedged or
+                // the peer DNS may have rotated — schedule a recreate.
+                (wardnet_common::tunnel::TunnelStatus::Reconnecting, false) => {
+                    let stuck = tunnel
+                        .last_handshake
+                        .is_none_or(|ts| (now - ts) > stuck_recovery_threshold);
+                    if stuck {
+                        to_recreate.push(tunnel.id);
+                    }
+                }
+                // No-op: Up + fresh, Connecting + still no handshake.
                 _ => {}
             }
         }
+
+        self.recreate_stuck_tunnels(to_recreate).await;
+
         Ok(())
     }
 }
