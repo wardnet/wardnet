@@ -202,10 +202,10 @@ fn perform_rollback(paths: &SwapPaths) -> anyhow::Result<()> {
             )
         })
     } else {
+        let old = old.display().to_string();
         tracing::warn!(
-            old = %old.display(),
+            %old,
             "rollback requested but no previous binary at {old}; clearing request and exiting clean",
-            old = old.display(),
         );
         Ok(())
     };

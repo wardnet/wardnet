@@ -213,6 +213,62 @@ fn rollback_request_takes_precedence_over_pending_swap() {
 }
 
 #[test]
+fn fails_when_live_binary_path_has_no_parent() {
+    // `Path::new("/").parent()` is None; an empty path likewise. The
+    // `parent()` ok_or_else arm builds an anyhow describing the
+    // unusable live path so the operator gets a diagnostic instead of
+    // a silent no-op.
+    let dir = TempDir::new().unwrap();
+    let mut p = paths(dir.path());
+    p.live_binary = std::path::PathBuf::from("/");
+
+    let tarball = make_tarball(&[("wardnetd", b"NEW wardnetd")]);
+    let (pk, sig) = signed_pair(&tarball);
+    std::fs::write(&p.pending_tarball, &tarball).unwrap();
+    std::fs::write(&p.pending_signature, sig).unwrap();
+
+    let outcome = swap::run(&p, &pk);
+    let SwapOutcome::Failed(err) = outcome else {
+        panic!("expected Failed, got {outcome:?}");
+    };
+    assert!(
+        format!("{err:#}").contains("no parent"),
+        "expected no-parent message"
+    );
+}
+
+#[test]
+fn happy_path_removes_pre_existing_old_before_renaming() {
+    // A previous failed swap can leave `<live>.old` behind. The next
+    // successful swap must `remove_file` the stale .old before the
+    // rename, otherwise `rename(<live> -> <live>.old)` fails with
+    // EEXIST on Linux's strict-mode tmpfs and on file systems where
+    // overwrite semantics aren't guaranteed.
+    let dir = TempDir::new().unwrap();
+    let p = paths(dir.path());
+
+    std::fs::write(&p.live_binary, b"OLD wardnetd").unwrap();
+    std::fs::write(dir.path().join("wardnetd.old"), b"STALE old").unwrap();
+
+    let tarball = make_tarball(&[("wardnetd", b"NEW wardnetd")]);
+    let (pk, sig) = signed_pair(&tarball);
+    std::fs::write(&p.pending_tarball, &tarball).unwrap();
+    std::fs::write(&p.pending_signature, sig).unwrap();
+
+    let outcome = swap::run(&p, &pk);
+    assert!(
+        matches!(outcome, SwapOutcome::Swapped),
+        "expected Swapped, got {outcome:?}"
+    );
+    assert_eq!(std::fs::read(&p.live_binary).unwrap(), b"NEW wardnetd");
+    assert_eq!(
+        std::fs::read(dir.path().join("wardnetd.old")).unwrap(),
+        b"OLD wardnetd",
+        ".old should hold the just-replaced binary, not the stale one",
+    );
+}
+
+#[test]
 fn rollback_without_old_binary_clears_request_and_succeeds() {
     let dir = TempDir::new().unwrap();
     let p = paths(dir.path());

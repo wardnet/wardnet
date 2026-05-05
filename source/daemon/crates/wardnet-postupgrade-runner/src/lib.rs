@@ -103,18 +103,12 @@ impl Runner {
         match swap::run(&self.swap_paths, self.public_key) {
             swap::SwapOutcome::NoOp => {}
             swap::SwapOutcome::Swapped => {
-                tracing::info!(
-                    live = %self.swap_paths.live_binary.display(),
-                    "wardnetd binary swapped into place at {live}",
-                    live = self.swap_paths.live_binary.display(),
-                );
+                let live = self.swap_paths.live_binary.display().to_string();
+                tracing::info!(%live, "wardnetd binary swapped into place at {live}");
             }
             swap::SwapOutcome::RolledBack => {
-                tracing::info!(
-                    live = %self.swap_paths.live_binary.display(),
-                    "wardnetd rolled back to previous binary at {live}",
-                    live = self.swap_paths.live_binary.display(),
-                );
+                let live = self.swap_paths.live_binary.display().to_string();
+                tracing::info!(%live, "wardnetd rolled back to previous binary at {live}");
             }
             swap::SwapOutcome::Failed(e) => {
                 return RunOutcome::SwapFailed(e);
@@ -135,11 +129,11 @@ impl Runner {
             if let Err(state_err) =
                 state::record_verification_failure(&self.state_path, &format!("{e:#}"), now)
             {
+                let state = self.state_path.display().to_string();
                 tracing::warn!(
-                    error = %state_err,
-                    state = %self.state_path.display(),
+                    %state_err,
+                    %state,
                     "could not record verification failure to {state}: {state_err}",
-                    state = self.state_path.display(),
                 );
             }
             return RunOutcome::VerifyFailed(e);

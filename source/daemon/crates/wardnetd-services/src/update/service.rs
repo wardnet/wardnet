@@ -215,7 +215,7 @@ impl UpdateServiceImpl {
         });
     }
 
-    async fn run_install(&self, release: Release) -> Result<(), AppError> {
+    pub(crate) async fn run_install(&self, release: Release) -> Result<(), AppError> {
         let target = release.version.clone();
         let history_id = self
             .history
@@ -301,7 +301,10 @@ impl UpdateServiceImpl {
     /// Run the download/verify/stage/swap pipeline. Emits progress events at
     /// each phase transition. On failure, returns the phase where the error
     /// occurred so history rows record a useful `phase` column.
-    async fn install_pipeline(&self, release: &Release) -> Result<(), (InstallPhase, AppError)> {
+    pub(crate) async fn install_pipeline(
+        &self,
+        release: &Release,
+    ) -> Result<(), (InstallPhase, AppError)> {
         let target = release.version.clone();
         let downloading = || InstallPhase::Downloading {
             bytes: 0,

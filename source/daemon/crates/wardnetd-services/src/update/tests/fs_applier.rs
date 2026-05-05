@@ -295,6 +295,51 @@ async fn fs_error_during_apply_carries_failing_path() {
     );
 }
 
+#[tokio::test]
+async fn apply_logs_warning_when_postupgrade_swap_fails() {
+    // The pre-flight verify of the postupgrade pair succeeds, but the
+    // subsequent rename into `cfg.dir` fails — `swap_postupgrade`
+    // returns Err and the apply path logs (rather than aborts) so the
+    // staged wardnetd tarball still reaches the runner.
+    let dir = TempDir::new().unwrap();
+    let live_path = dir.path().join("wardnetd");
+    let staging = dir.path().join("staging");
+    // Postupgrade dir resolves to a regular file -> create_dir_all
+    // inside swap_postupgrade returns ENOTDIR. Same shape of error the
+    // diagnose-by-path #309 fix surfaces, just for the postupgrade
+    // pipeline rather than the wardnetd swap.
+    let postupgrade = dir.path().join("postupgrade-is-a-file");
+    std::fs::write(&postupgrade, b"not a dir").unwrap();
+
+    let postupgrade_bin: &[u8] = b"the migration runner binary bytes";
+    let (pk_text, sig_text) = signed_pair(postupgrade_bin);
+
+    let tarball = make_tarball(&[
+        ("wardnetd", b"NEW wardnetd"),
+        ("wardnet-postupgrade.bin", postupgrade_bin),
+        ("wardnet-postupgrade.minisig", sig_text.as_bytes()),
+    ]);
+
+    let applier = FsBinaryApplier::new(live_path.clone(), staging.clone())
+        .with_postupgrade(postupgrade, leak(pk_text));
+
+    // The wardnetd tarball is still staged — only the postupgrade
+    // swap is best-effort. A subscriber is installed for the duration
+    // so the warn macro's structured fields actually evaluate;
+    // coverage tools treat field exprs inside disabled tracing macros
+    // as unhit.
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_test_writer()
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    applier
+        .apply(&tarball, b"outer-sig")
+        .await
+        .expect("apply ok despite postupgrade swap failure");
+    assert!(staging.join("wardnetd-pending.tar.gz").exists());
+}
+
 #[allow(dead_code)]
 fn exists(p: &Path) -> bool {
     p.exists()

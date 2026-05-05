@@ -169,12 +169,12 @@ impl FsBinaryApplier {
         if let Some((cfg, bin, sig)) = postupgrade_pair
             && let Err(e) = self.swap_postupgrade(cfg, &bin, &sig)
         {
+            let dir = cfg.dir.display().to_string();
+            let error = format!("{e:#}");
             tracing::warn!(
-                error = %format!("{e:#}"),
-                dir = %cfg.dir.display(),
-                "postupgrade artifacts not swapped: dir={dir}, error={e}",
-                dir = cfg.dir.display(),
-                e = format!("{e:#}"),
+                %error,
+                %dir,
+                "postupgrade artifacts not swapped: dir={dir}, error={error}",
             );
         }
 

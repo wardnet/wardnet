@@ -12,6 +12,8 @@
 use std::ffi::CString;
 use std::io::Cursor;
 
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use minisign::{KeyPair, sign};
 use tempfile::TempDir;
 
@@ -164,6 +166,140 @@ fn with_default_paths_uses_production_constants() {
     assert_eq!(
         runner.swap_paths.pending_tarball,
         std::path::PathBuf::from(crate::swap::DEFAULT_PENDING_TARBALL_PATH)
+    );
+}
+
+/// Install a process-global tracing subscriber once for the test
+/// binary. Without an active subscriber the structured fields inside
+/// `tracing::info!` / `warn!` macros expand to no-ops, so coverage
+/// tools mark the success-log arms as unhit. We use a global default
+/// rather than a thread-local guard because each tracing callsite is
+/// registered at first-touch and the registration result sticks for
+/// the rest of the process — a guard installed inside one test is
+/// raced by the callsite register from another test running in
+/// parallel.
+fn ensure_global_subscriber() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_test_writer()
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+}
+
+fn make_tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut gz = GzEncoder::new(Vec::new(), Compression::fast());
+    {
+        let mut tar = tar::Builder::new(&mut gz);
+        for (name, bytes) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append_data(&mut header, name, *bytes).unwrap();
+        }
+        tar.finish().unwrap();
+    }
+    gz.finish().unwrap()
+}
+
+#[test]
+fn swap_succeeds_then_no_payload_returns_no_payload() {
+    // Drives the `SwapOutcome::Swapped` arm in `Runner::run`. The
+    // postupgrade payload is absent, so after the successful binary
+    // swap the run resolves to `NoPayload` — exercising the info-log
+    // arm without needing a real fexecve.
+    let dir = TempDir::new().unwrap();
+    let live = dir.path().join("wardnetd");
+    std::fs::write(&live, b"OLD wardnetd").unwrap();
+
+    let tarball = make_tarball(&[("wardnetd", b"NEW wardnetd")]);
+    let (pk, sig) = signed_pair(&tarball);
+    let pending_tarball = dir.path().join("pending.tar.gz");
+    let pending_sig = dir.path().join("pending.tar.gz.minisig");
+    std::fs::write(&pending_tarball, &tarball).unwrap();
+    std::fs::write(&pending_sig, sig).unwrap();
+
+    let mut runner = build_runner(dir.path(), leak(pk));
+    runner.swap_paths = SwapPaths {
+        pending_tarball,
+        pending_signature: pending_sig,
+        rollback_request: dir.path().join("rollback.request"),
+        live_binary: live.clone(),
+    };
+    let argv = [CString::new("p").unwrap()];
+    ensure_global_subscriber();
+    let outcome = runner.run(&argv);
+    // The swap succeeded; no postupgrade payload is staged, so the
+    // pipeline short-circuits to NoPayload.
+    assert!(
+        matches!(outcome, RunOutcome::NoPayload),
+        "expected NoPayload after successful swap, got {outcome:?}"
+    );
+    assert_eq!(std::fs::read(&live).unwrap(), b"NEW wardnetd");
+}
+
+#[test]
+fn rollback_request_then_no_payload_returns_no_payload() {
+    // Drives the `SwapOutcome::RolledBack` arm in `Runner::run`. A
+    // request marker is present, the runner clears it, and the rest
+    // of the pipeline resolves to `NoPayload`.
+    let dir = TempDir::new().unwrap();
+    let live = dir.path().join("wardnetd");
+    std::fs::write(&live, b"BAD wardnetd").unwrap();
+    std::fs::write(dir.path().join("wardnetd.old"), b"GOOD wardnetd").unwrap();
+    let rollback_request = dir.path().join("rollback.request");
+    std::fs::write(&rollback_request, b"").unwrap();
+
+    let mut runner = build_runner(dir.path(), "untrusted comment: x\nAAAA");
+    runner.swap_paths = SwapPaths {
+        pending_tarball: dir.path().join("pending.tar.gz"),
+        pending_signature: dir.path().join("pending.tar.gz.minisig"),
+        rollback_request: rollback_request.clone(),
+        live_binary: live.clone(),
+    };
+    let argv = [CString::new("p").unwrap()];
+    ensure_global_subscriber();
+    let outcome = runner.run(&argv);
+    assert!(
+        matches!(outcome, RunOutcome::NoPayload),
+        "expected NoPayload after rollback, got {outcome:?}"
+    );
+    assert_eq!(std::fs::read(&live).unwrap(), b"GOOD wardnetd");
+    assert!(!rollback_request.exists());
+}
+
+#[test]
+fn verify_failed_with_unwritable_state_path_still_returns_verify_failed() {
+    // Regression for the "best-effort" state recording in
+    // `Runner::run`: a state.json that lives under a non-existent
+    // parent directory makes `record_verification_failure` fail. The
+    // run must still return `VerifyFailed` and the warn arm must
+    // execute (otherwise the journal would lose the failure mode).
+    let dir = TempDir::new().unwrap();
+    let payload = b"some payload bytes";
+    let (pk_a, _) = signed_pair(payload);
+    let (_, sig_b) = signed_pair(payload);
+    std::fs::write(dir.path().join("postupgrade.bin"), payload).unwrap();
+    std::fs::write(dir.path().join("postupgrade.minisig"), sig_b).unwrap();
+
+    let mut runner = build_runner(dir.path(), leak(pk_a));
+    // Point state.json at a path whose parent component is a regular
+    // file — `record_verification_failure` calls `create_dir_all`
+    // which fails with ENOTDIR.
+    let blocker = dir.path().join("blocker");
+    std::fs::write(&blocker, b"not a dir").unwrap();
+    runner.state_path = blocker.join("state.json");
+
+    let argv = [CString::new("p").unwrap()];
+    ensure_global_subscriber();
+    let outcome = runner.run(&argv);
+    assert!(
+        matches!(outcome, RunOutcome::VerifyFailed(_)),
+        "expected VerifyFailed despite state-write failure, got {outcome:?}"
     );
 }
 
