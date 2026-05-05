@@ -33,10 +33,11 @@ interface Props {
  * speculatively extract a generic compound until a second feature
  * needs the same shape).
  *
- * Visual hierarchy (top-to-bottom = most-to-least common usage):
- *   1. Safe Reboot — primary button, default variant
- *   2. Safe Shutdown — destructive (red) variant
- *   3. Restart daemon — small/secondary, lower in the card
+ * Visual hierarchy: all three are secondary actions — none is a
+ * happy-path CTA, so they all use the `outline` variant. Shutdown
+ * keeps the destructive (red) styling because it's the only one
+ * that leaves the network without internet until the operator
+ * physically powers the Pi back on.
  */
 export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props) {
   // The two confirmation dialogs live as local state so we can keep
@@ -60,7 +61,12 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
               managed devices fall back to the upstream router during that gap.
             </div>
           </div>
-          <Button onClick={() => setRebootOpen(true)} disabled={busy} aria-label="Safe Reboot">
+          <Button
+            variant="outline"
+            onClick={() => setRebootOpen(true)}
+            disabled={busy}
+            aria-label="Safe Reboot"
+          >
             <RotateCcwIcon />
             Reboot
           </Button>
