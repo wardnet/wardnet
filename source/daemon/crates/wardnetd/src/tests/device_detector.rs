@@ -11,6 +11,7 @@ use crate::device_detector::DeviceDetector;
 use wardnet_common::config::DetectionConfig;
 use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
 use wardnetd_services::error::AppError;
+use wardnetd_services::event::BroadcastEventBus;
 use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 // ---------------------------------------------------------------------------
@@ -173,7 +174,7 @@ impl DeviceDiscoveryService for MockDiscovery {
         Ok(vec![])
     }
 
-    async fn resolve_hostname(&self, _device_id: Uuid, _ip: String) -> Result<(), AppError> {
+    async fn resolve_hostname(&self, _mac: &str, _ip: &str) -> Result<(), AppError> {
         self.resolve_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -225,6 +226,11 @@ fn test_span() -> tracing::Span {
     tracing::info_span!("test")
 }
 
+/// In-memory event bus the detector can subscribe to without external state.
+fn test_events() -> BroadcastEventBus {
+    BroadcastEventBus::new(16)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -239,6 +245,7 @@ async fn start_and_shutdown() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -259,6 +266,7 @@ async fn processor_handles_new_device() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -285,6 +293,7 @@ async fn processor_handles_ip_changed() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -310,6 +319,7 @@ async fn processor_handles_reappeared() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -335,6 +345,7 @@ async fn processor_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -361,6 +372,7 @@ async fn capture_task_logs_error_on_failure() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -383,6 +395,7 @@ async fn flush_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -409,6 +422,7 @@ async fn departure_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -433,6 +447,7 @@ async fn arp_scan_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),
@@ -458,6 +473,7 @@ async fn arp_scan_task_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        &test_events(),
         &fast_config(),
         "eth0".to_owned(),
         &test_span(),

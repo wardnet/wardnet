@@ -346,7 +346,10 @@ pub(crate) async fn handle_request(
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
     };
-    let lease = auth_context::with_context(admin_ctx, service.renew_lease(mac)).await?;
+    let hostname = extract_hostname(msg);
+    let lease =
+        auth_context::with_context(admin_ctx, service.renew_lease(mac, hostname.as_deref()))
+            .await?;
 
     tracing::info!(
         %mac,

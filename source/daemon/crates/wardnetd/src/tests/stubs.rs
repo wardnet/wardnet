@@ -154,7 +154,7 @@ impl DeviceDiscoveryService for StubDiscoveryService {
     async fn scan_departures(&self, _t: u64) -> Result<Vec<Uuid>, AppError> {
         unimplemented!()
     }
-    async fn resolve_hostname(&self, _id: Uuid, _ip: String) -> Result<(), AppError> {
+    async fn resolve_hostname(&self, _mac: &str, _ip: &str) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn get_all_devices(&self) -> Result<Vec<Device>, AppError> {
@@ -396,7 +396,11 @@ impl DhcpService for StubDhcpService {
     ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
-    async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
     async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {

@@ -180,11 +180,12 @@ impl DhcpService for MockDhcpService {
         Ok(self.lease.clone())
     }
 
-    async fn renew_lease(&self, mac: &str) -> Result<DhcpLease, AppError> {
+    async fn renew_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError> {
+        let detail = hostname.map_or_else(String::new, |h| format!(":{h}"));
         self.calls
             .lock()
             .await
-            .push(("renew_lease".to_owned(), mac.to_owned()));
+            .push(("renew_lease".to_owned(), format!("{mac}{detail}")));
         Ok(self.lease.clone())
     }
 
@@ -610,7 +611,11 @@ async fn handle_discover_returns_error_when_service_fails() {
         ) -> Result<DhcpLease, AppError> {
             Err(AppError::Conflict("pool exhausted".to_owned()))
         }
-        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        async fn renew_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
             Err(AppError::NotFound("no active lease".to_owned()))
         }
         async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
@@ -682,7 +687,11 @@ async fn handle_request_returns_error_when_service_fails() {
         ) -> Result<DhcpLease, AppError> {
             unimplemented!()
         }
-        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        async fn renew_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
             Err(AppError::Internal(anyhow::anyhow!("database error")))
         }
         async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
@@ -1221,7 +1230,11 @@ async fn server_loop_handles_discover_error_gracefully() {
         ) -> Result<DhcpLease, AppError> {
             Err(AppError::Conflict("pool exhausted".to_owned()))
         }
-        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        async fn renew_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
             Err(AppError::NotFound("no lease".to_owned()))
         }
         async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
@@ -1302,7 +1315,11 @@ async fn server_loop_handles_request_error_gracefully() {
         ) -> Result<DhcpLease, AppError> {
             unimplemented!()
         }
-        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        async fn renew_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
             Err(AppError::Internal(anyhow::anyhow!("db error")))
         }
         async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {

@@ -17,6 +17,7 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use wardnetd_data::oui;
 use wardnetd_data::repository::DeviceRepository;
+use wardnetd_data::repository::DhcpRepository;
 use wardnetd_data::repository::device::DeviceRow;
 
 /// In-memory tracking state for a device.
@@ -78,8 +79,15 @@ pub trait DeviceDiscoveryService: Send + Sync {
     /// Returns the IDs of newly departed devices.
     async fn scan_departures(&self, timeout_secs: u64) -> Result<Vec<Uuid>, AppError>;
 
-    /// Resolve hostname for a device and update the database.
-    async fn resolve_hostname(&self, device_id: Uuid, ip: String) -> Result<(), AppError>;
+    /// Resolve a hostname for a device and update the registry.
+    ///
+    /// Precedence: DHCP option-12 (active lease's `hostname`) wins when
+    /// non-empty; otherwise falls back to reverse DNS via the configured
+    /// [`HostnameResolver`]. The admin-assigned `Device.name` is a separate
+    /// column and overrides both at display time, so this method never
+    /// touches it. Tolerates a missing device (e.g. a lease event arriving
+    /// before packet capture has registered the MAC).
+    async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError>;
 
     /// Get all devices (admin view).
     async fn get_all_devices(&self) -> Result<Vec<Device>, AppError>;
@@ -99,6 +107,7 @@ pub trait DeviceDiscoveryService: Send + Sync {
 /// Default implementation of [`DeviceDiscoveryService`].
 pub struct DeviceDiscoveryServiceImpl {
     devices: Arc<dyn DeviceRepository>,
+    dhcp: Arc<dyn DhcpRepository>,
     events: Arc<dyn EventPublisher>,
     resolver: Arc<dyn HostnameResolver>,
     /// LAN subnet — only observations from IPs within this range are processed.
@@ -112,12 +121,14 @@ impl DeviceDiscoveryServiceImpl {
     /// Create a new discovery service with the given dependencies.
     pub fn new(
         devices: Arc<dyn DeviceRepository>,
+        dhcp: Arc<dyn DhcpRepository>,
         events: Arc<dyn EventPublisher>,
         resolver: Arc<dyn HostnameResolver>,
         lan_subnet: ipnetwork::Ipv4Network,
     ) -> Self {
         Self {
             devices,
+            dhcp,
             events,
             resolver,
             lan_subnet,
@@ -426,10 +437,49 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         Ok(ids)
     }
 
-    async fn resolve_hostname(&self, device_id: Uuid, ip: String) -> Result<(), AppError> {
-        if let Some(hostname) = self.resolver.resolve(&ip).await {
+    async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
+        // MAC casing is currently inconsistent across the codebase: the
+        // device registry stores uppercase (set by `format_mac` in the
+        // packet-capture layer), the DHCP service stores lowercase
+        // (`mac.to_lowercase()` before insert/lookup). Until #312
+        // canonicalises this we normalise per-repo here so cross-source
+        // lookups succeed regardless of the caller's casing.
+        let mac_for_devices = mac.to_uppercase();
+        let mac_for_dhcp = mac.to_lowercase();
+
+        // The MAC may belong to a device the registry hasn't seen yet (e.g.
+        // a lease event arriving before packet capture observes the device).
+        // Treat that as a no-op rather than an error; the next observation
+        // will trigger another resolution attempt.
+        let Some(device) = self
+            .devices
+            .find_by_mac(&mac_for_devices)
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            tracing::debug!(mac, "resolve_hostname: device not yet registered");
+            return Ok(());
+        };
+
+        // Prefer the client-supplied option-12 hostname when present; FR-022
+        // says it's the primary source. Fall back to reverse DNS otherwise.
+        let dhcp_hostname = self
+            .dhcp
+            .find_active_lease_by_mac(&mac_for_dhcp)
+            .await
+            .map_err(AppError::Internal)?
+            .and_then(|l| l.hostname)
+            .map(|h| h.trim().to_owned())
+            .filter(|h| !h.is_empty());
+
+        let hostname = match dhcp_hostname {
+            Some(h) => Some(h),
+            None => self.resolver.resolve(ip).await,
+        };
+
+        if let Some(hostname) = hostname {
             self.devices
-                .update_hostname(&device_id.to_string(), &hostname)
+                .update_hostname(&device.id.to_string(), &hostname)
                 .await
                 .map_err(AppError::Internal)?;
         }

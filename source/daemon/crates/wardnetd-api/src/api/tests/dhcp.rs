@@ -151,7 +151,11 @@ impl DhcpService for MockDhcpService {
     ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
-    async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
     async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {

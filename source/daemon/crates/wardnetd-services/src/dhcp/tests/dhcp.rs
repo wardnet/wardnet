@@ -11,8 +11,12 @@ use wardnet_common::api::{
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 
+use tokio::sync::broadcast;
+use wardnet_common::event::WardnetEvent;
+
 use crate::auth_context;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 use crate::{DhcpService, DhcpServiceImpl};
 use wardnetd_data::repository::{
     DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow, SystemConfigRepository,
@@ -86,6 +90,14 @@ impl DhcpRepository for MockDhcpRepository {
         let mut rows = self.leases.lock().unwrap();
         if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
             r.lease_end = new_end.to_owned();
+        }
+        Ok(())
+    }
+
+    async fn update_lease_hostname(&self, id: &str, hostname: Option<&str>) -> anyhow::Result<()> {
+        let mut rows = self.leases.lock().unwrap();
+        if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
+            r.hostname = hostname.map(ToOwned::to_owned);
         }
         Ok(())
     }
@@ -194,6 +206,36 @@ fn row_to_reservation(r: &DhcpReservationRow) -> anyhow::Result<DhcpReservation>
     })
 }
 
+// -- Mock EventPublisher --------------------------------------------------
+
+/// Records published events for assertion in tests.
+struct MockEventPublisher {
+    events: Mutex<Vec<WardnetEvent>>,
+}
+
+impl MockEventPublisher {
+    fn new() -> Self {
+        Self {
+            events: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn published(&self) -> Vec<WardnetEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+impl EventPublisher for MockEventPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        let (_, rx) = broadcast::channel(16);
+        rx
+    }
+}
+
 // -- Mock SystemConfigRepository -------------------------------------------
 
 /// In-memory mock for `SystemConfigRepository`.
@@ -260,7 +302,8 @@ fn admin_ctx() -> AuthContext {
 fn build_service() -> DhcpServiceImpl {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
-    DhcpServiceImpl::new(dhcp, system_config, "10.0.0.1".parse().unwrap())
+    let events = Arc::new(MockEventPublisher::new());
+    DhcpServiceImpl::new(dhcp, system_config, events, "10.0.0.1".parse().unwrap())
 }
 
 // -- Tests -----------------------------------------------------------------
@@ -511,14 +554,28 @@ fn build_service_with_deps() -> (
     Arc<MockDhcpRepository>,
     Arc<MockSystemConfigRepository>,
 ) {
+    let (svc, dhcp, system_config, _events) = build_service_with_event_recorder();
+    (svc, dhcp, system_config)
+}
+
+/// Like [`build_service_with_deps`] but also returns the event recorder so
+/// tests can assert on published events.
+fn build_service_with_event_recorder() -> (
+    DhcpServiceImpl,
+    Arc<MockDhcpRepository>,
+    Arc<MockSystemConfigRepository>,
+    Arc<MockEventPublisher>,
+) {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
     let svc = DhcpServiceImpl::new(
         dhcp.clone(),
         system_config.clone(),
+        events.clone(),
         "192.168.1.1".parse().unwrap(),
     );
-    (svc, dhcp, system_config)
+    (svc, dhcp, system_config, events)
 }
 
 /// Insert a pre-existing active lease into the mock repository.
@@ -620,11 +677,12 @@ async fn assign_lease_reuses_existing_active_lease() {
     .await
     .unwrap();
 
-    // Should return the existing lease, not create a new one.
+    // Should reuse the same lease ID + IP (no fresh allocation), but the
+    // option-12 value from the new request must propagate so the device
+    // registry sees the latest client-supplied identity.
     assert_eq!(lease.id.to_string(), existing_id);
     assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 150));
-    // The hostname should be from the existing lease (None), not the new request.
-    assert!(lease.hostname.is_none());
+    assert_eq!(lease.hostname.as_deref(), Some("other-host"));
 }
 
 #[tokio::test]
@@ -734,7 +792,7 @@ async fn renew_lease_extends_existing() {
 
     let existing_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:20", "192.168.1.105");
 
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:20"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:20", None))
         .await
         .unwrap();
 
@@ -755,7 +813,7 @@ async fn renew_lease_assigns_new_when_no_active_lease() {
     let (svc, dhcp, _cfg) = build_service_with_deps();
 
     // No existing lease for this MAC.
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:21"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:21", None))
         .await
         .unwrap();
 
@@ -789,7 +847,7 @@ async fn renew_lease_extends_expiry_into_the_future() {
         device_id: None,
     });
 
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:22"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:22", None))
         .await
         .unwrap();
 
@@ -813,7 +871,7 @@ async fn renew_lease_migrates_to_reserved_ip_when_reservation_changed() {
     let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.105");
     seed_reservation(&dhcp, "aa:bb:cc:dd:ee:30", "192.168.1.106");
 
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:30"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:30", None))
         .await
         .unwrap();
 
@@ -854,7 +912,7 @@ async fn renew_lease_does_not_migrate_when_reservation_matches_current_ip() {
     let existing_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
     seed_reservation(&dhcp, "aa:bb:cc:dd:ee:31", "192.168.1.107");
 
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:31"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:31", None))
         .await
         .unwrap();
 
@@ -880,7 +938,7 @@ async fn renew_lease_migrates_orphaned_lease_when_reservation_deleted() {
     // backing it, this lease is orphaned.
     let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:32", "192.168.1.50");
 
-    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:32"))
+    let lease = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:32", None))
         .await
         .unwrap();
 
@@ -1164,7 +1222,8 @@ async fn load_config_missing_keys_uses_defaults() {
     let system_config = Arc::new(MockSystemConfigRepository {
         data: Mutex::new(HashMap::new()),
     });
-    let svc = DhcpServiceImpl::new(dhcp, system_config, "10.0.0.1".parse().unwrap());
+    let events = Arc::new(MockEventPublisher::new());
+    let svc = DhcpServiceImpl::new(dhcp, system_config, events, "10.0.0.1".parse().unwrap());
 
     let config = auth_context::with_context(admin_ctx(), svc.get_dhcp_config())
         .await
@@ -1292,9 +1351,10 @@ async fn full_lease_lifecycle_assign_renew_release() {
     let original_end = lease.lease_end;
 
     // 2. Renew the lease -- should extend expiry.
-    let renewed = auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:50"))
-        .await
-        .unwrap();
+    let renewed =
+        auth_context::with_context(admin_ctx(), svc.renew_lease("AA:BB:CC:DD:EE:50", None))
+            .await
+            .unwrap();
     assert_eq!(renewed.id, lease.id);
     assert!(renewed.lease_end >= original_end);
 
@@ -1549,4 +1609,103 @@ async fn pool_size_zero_when_end_before_start() {
         .await
         .unwrap();
     assert_eq!(resp.pool_total, 0);
+}
+
+// =========================================================================
+// Event publication
+// =========================================================================
+
+#[tokio::test]
+async fn assign_lease_publishes_event_with_hostname() {
+    let (svc, _dhcp, _system_config, events) = build_service_with_event_recorder();
+
+    auth_context::with_context(
+        admin_ctx(),
+        svc.assign_lease("aa:bb:cc:dd:ee:60", Some("living-room-tv")),
+    )
+    .await
+    .unwrap();
+
+    let published = events.published();
+    assert_eq!(published.len(), 1);
+    match &published[0] {
+        WardnetEvent::DhcpLeaseAssigned { mac, hostname, .. } => {
+            assert_eq!(mac, "aa:bb:cc:dd:ee:60");
+            assert_eq!(hostname.as_deref(), Some("living-room-tv"));
+        }
+        other => panic!("expected DhcpLeaseAssigned, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn assign_lease_publishes_event_with_none_when_no_hostname() {
+    let (svc, _dhcp, _system_config, events) = build_service_with_event_recorder();
+
+    auth_context::with_context(admin_ctx(), svc.assign_lease("aa:bb:cc:dd:ee:61", None))
+        .await
+        .unwrap();
+
+    match &events.published()[0] {
+        WardnetEvent::DhcpLeaseAssigned { hostname, .. } => assert!(hostname.is_none()),
+        other => panic!("expected DhcpLeaseAssigned, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn assign_lease_normalises_empty_hostname_to_none() {
+    let (svc, _dhcp, _system_config, events) = build_service_with_event_recorder();
+
+    // Some clients send empty / whitespace option-12 — treat as absent.
+    auth_context::with_context(
+        admin_ctx(),
+        svc.assign_lease("aa:bb:cc:dd:ee:62", Some("   ")),
+    )
+    .await
+    .unwrap();
+
+    match &events.published()[0] {
+        WardnetEvent::DhcpLeaseAssigned { hostname, .. } => assert!(hostname.is_none()),
+        other => panic!("expected DhcpLeaseAssigned, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn assign_lease_cached_lease_updates_hostname_and_emits_event() {
+    let (svc, dhcp, _system_config, events) = build_service_with_event_recorder();
+    let mac = "aa:bb:cc:dd:ee:63";
+    let _id = seed_active_lease(&dhcp, mac, "192.168.1.150");
+
+    // Same client re-DISCOVERs with a new option-12 value.
+    let lease = auth_context::with_context(admin_ctx(), svc.assign_lease(mac, Some("new-name")))
+        .await
+        .unwrap();
+
+    assert_eq!(lease.hostname.as_deref(), Some("new-name"));
+    match &events.published()[0] {
+        WardnetEvent::DhcpLeaseAssigned { hostname, .. } => {
+            assert_eq!(hostname.as_deref(), Some("new-name"));
+        }
+        other => panic!("expected DhcpLeaseAssigned, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn renew_lease_publishes_event_with_updated_hostname() {
+    let (svc, dhcp, _system_config, events) = build_service_with_event_recorder();
+    let mac = "aa:bb:cc:dd:ee:64";
+    seed_active_lease(&dhcp, mac, "192.168.1.151");
+
+    auth_context::with_context(admin_ctx(), svc.renew_lease(mac, Some("renamed")))
+        .await
+        .unwrap();
+
+    match &events.published()[0] {
+        WardnetEvent::DhcpLeaseRenewed {
+            hostname, mac: m, ..
+        } => {
+            assert_eq!(m, mac);
+            assert_eq!(hostname.as_deref(), Some("renamed"));
+        }
+        other => panic!("expected DhcpLeaseRenewed, got {other:?}"),
+    }
 }

@@ -121,7 +121,11 @@ impl DhcpService for MockRunnerDhcpService {
     ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
-    async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
         unimplemented!()
     }
     async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
@@ -416,7 +420,11 @@ async fn runner_handles_config_load_failure() {
         ) -> Result<DhcpLease, AppError> {
             unimplemented!()
         }
-        async fn renew_lease(&self, _mac: &str) -> Result<DhcpLease, AppError> {
+        async fn renew_lease(
+            &self,
+            _mac: &str,
+            _hostname: Option<&str>,
+        ) -> Result<DhcpLease, AppError> {
             unimplemented!()
         }
         async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
