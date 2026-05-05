@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use hickory_proto::op::{Message, OpCode, ResponseCode};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use hickory_resolver::Resolver;
@@ -16,6 +17,8 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
+use wardnetd_data::repository::QueryLogRow;
+use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::filter::DnsFilter;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
@@ -66,6 +69,7 @@ pub struct UdpDnsServer {
     cancel: Mutex<CancellationToken>,
     handle: Mutex<Option<JoinHandle<()>>>,
     local_addr: Arc<std::sync::Mutex<Option<SocketAddr>>>,
+    log_sink: Option<Arc<DnsLogSink>>,
 }
 
 impl UdpDnsServer {
@@ -93,7 +97,16 @@ impl UdpDnsServer {
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
             local_addr: Arc::new(std::sync::Mutex::new(None)),
+            log_sink: None,
         }
+    }
+
+    /// Attach a [`DnsLogSink`] so every handled query records a log entry.
+    /// Builder pattern — call once at construction time.
+    #[must_use]
+    pub fn with_log_sink(mut self, sink: Arc<DnsLogSink>) -> Self {
+        self.log_sink = Some(sink);
+        self
     }
 
     /// Create a DNS server with a pre-bound socket (for testing).
@@ -115,6 +128,7 @@ impl UdpDnsServer {
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
             local_addr: Arc::new(std::sync::Mutex::new(None)),
+            log_sink: None,
         }
     }
 
@@ -153,6 +167,7 @@ impl DnsServer for UdpDnsServer {
         let cache = Arc::clone(&self.cache);
         let filter = Arc::clone(&self.filter);
         let running = Arc::clone(&self.running);
+        let log_sink = self.log_sink.clone();
 
         let new_cancel = CancellationToken::new();
         let cancel = new_cancel.clone();
@@ -161,7 +176,7 @@ impl DnsServer for UdpDnsServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, config, cache, filter, cancel).await;
+            server_loop(socket, config, cache, filter, log_sink, cancel).await;
             running.store(false, Ordering::SeqCst);
         });
 
@@ -211,6 +226,7 @@ async fn server_loop(
     config: Arc<RwLock<DnsConfig>>,
     cache: Arc<RwLock<DnsCache>>,
     filter: Arc<RwLock<DnsFilter>>,
+    log_sink: Option<Arc<DnsLogSink>>,
     cancel: CancellationToken,
 ) {
     let mut buf = vec![0u8; 4096];
@@ -237,11 +253,21 @@ async fn server_loop(
                         let cache = Arc::clone(&cache);
                         let filter = Arc::clone(&filter);
                         let resolver = Arc::clone(&resolver);
+                        let log_sink = log_sink.clone();
 
                         tokio::spawn(async move {
                             if let Err(e) = handle_query(
-                                &packet, src, &socket, &config, &cache, &filter, &resolver,
-                            ).await {
+                                &packet,
+                                src,
+                                &socket,
+                                &config,
+                                &cache,
+                                &filter,
+                                &resolver,
+                                log_sink.as_deref(),
+                            )
+                            .await
+                            {
                                 tracing::debug!(error = %e, %src, "failed to handle DNS query from {src}: {e}");
                             }
                         });
@@ -257,6 +283,7 @@ async fn server_loop(
 
 /// Handle a single DNS query: parse, check cache, filter, forward, cache response.
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 async fn handle_query(
     packet: &[u8],
     src: SocketAddr,
@@ -265,6 +292,7 @@ async fn handle_query(
     cache: &Arc<RwLock<DnsCache>>,
     filter: &Arc<RwLock<DnsFilter>>,
     resolver: &Arc<RwLock<TokioResolver>>,
+    log_sink: Option<&DnsLogSink>,
 ) -> anyhow::Result<()> {
     let request = Message::from_bytes(packet)?;
     let id = request.metadata.id;
@@ -287,6 +315,15 @@ async fn handle_query(
             let bytes = response.to_bytes()?;
             socket.send_to(&bytes, src).await?;
             tracing::trace!(%domain, ?rtype, "cache hit");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                "cache_hit",
+                None,
+                start.elapsed(),
+            );
             return Ok(());
         }
     }
@@ -309,6 +346,15 @@ async fn handle_query(
                     let bytes = response.to_bytes()?;
                     socket.send_to(&bytes, src).await?;
                     tracing::trace!(%domain, ?rtype, "blocked by filter");
+                    record_query(
+                        log_sink,
+                        &domain,
+                        rtype,
+                        src,
+                        "blocked",
+                        None,
+                        start.elapsed(),
+                    );
                     return Ok(());
                 }
                 FilterAction::Rewrite { ip } => {
@@ -337,6 +383,15 @@ async fn handle_query(
                     let bytes = response.to_bytes()?;
                     socket.send_to(&bytes, src).await?;
                     tracing::trace!(%domain, ?rtype, %ip, "rewritten by filter");
+                    record_query(
+                        log_sink,
+                        &domain,
+                        rtype,
+                        src,
+                        "rewritten",
+                        None,
+                        start.elapsed(),
+                    );
                     return Ok(());
                 }
                 FilterAction::Pass => {}
@@ -349,6 +404,7 @@ async fn handle_query(
     let lookup: Result<Lookup, _> = resolver_guard.lookup(&domain, rtype).await;
 
     let cfg = config.read().await;
+    let upstream = upstream_label(&cfg.upstream_servers);
 
     match lookup {
         Ok(lookup) => {
@@ -382,6 +438,15 @@ async fn handle_query(
 
             let elapsed = start.elapsed();
             tracing::trace!(%domain, ?rtype, ?elapsed, "forwarded");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                "forwarded",
+                upstream.clone(),
+                elapsed,
+            );
         }
         Err(e) => {
             // Return SERVFAIL to the client.
@@ -396,10 +461,59 @@ async fn handle_query(
 
             let elapsed = start.elapsed();
             tracing::debug!(%domain, ?rtype, ?elapsed, error = %e, "upstream failed for {domain}: {e}");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                "upstream_error",
+                upstream,
+                elapsed,
+            );
         }
     }
 
     Ok(())
+}
+
+/// Push a `QueryLogRow` into the log sink. Single-line helper called at
+/// each terminal arm of `handle_query`. Never blocks — `DnsLogSink` uses
+/// `try_send` internally and drops on full.
+fn record_query(
+    sink: Option<&DnsLogSink>,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    src: SocketAddr,
+    result: &str,
+    upstream: Option<String>,
+    latency: std::time::Duration,
+) {
+    let Some(sink) = sink else { return };
+
+    let row = QueryLogRow {
+        timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        client_ip: src.ip().to_string(),
+        domain: domain.trim_end_matches('.').to_owned(),
+        query_type: format!("{rtype:?}"),
+        result: result.to_owned(),
+        upstream,
+        latency_ms: duration_to_ms(latency),
+        device_id: None,
+    };
+    sink.record(row);
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn duration_to_ms(d: std::time::Duration) -> f64 {
+    (d.as_micros() as f64) / 1000.0
+}
+
+/// Pick a representative upstream label for the query log. The resolver
+/// fan-outs across all configured upstreams; recording the first one is a
+/// good-enough hint for "which provider answered" without plumbing the
+/// exact server through hickory.
+fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
+    upstreams.first().map(|u| u.address.clone())
 }
 
 /// Type alias for the tokio-based resolver.

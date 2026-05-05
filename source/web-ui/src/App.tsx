@@ -12,6 +12,7 @@ import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
+import DnsLogs from "@/pages/DnsLogs";
 import AdBlocking from "@/pages/AdBlocking";
 import MyDevice from "@/pages/MyDevice";
 import Login from "@/pages/Login";
@@ -111,6 +112,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Dns />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="dns/logs"
+          element={
+            <AdminRoute>
+              <DnsLogs />
             </AdminRoute>
           }
         />

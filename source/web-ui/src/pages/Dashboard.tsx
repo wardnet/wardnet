@@ -7,6 +7,7 @@ import { useSystemStatus, useRecentErrors } from "@/hooks/useSystemStatus";
 import { useDevices } from "@/hooks/useDevices";
 import { useTunnels } from "@/hooks/useTunnels";
 import { useDhcpStatus } from "@/hooks/useDhcp";
+import { useDnsStats } from "@/hooks/useDnsLogs";
 import { formatBytes, formatUptime } from "@/lib/utils";
 
 /** Admin dashboard with system overview stats. */
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const { data: tunnelsData } = useTunnels();
   const { data: dhcpStatus } = useDhcpStatus();
   const { data: errorsData } = useRecentErrors();
+  const { data: dnsStats } = useDnsStats(24);
 
   const deviceCount = devicesData?.devices.length ?? status?.device_count ?? 0;
   const tunnelCount = tunnelsData?.tunnels.length ?? status?.tunnel_count ?? 0;
@@ -66,6 +68,27 @@ export default function Dashboard() {
               <DhcpSummaryCard status={dhcpStatus} to="/dhcp" />
             </>
           )}
+          <DashboardStatCard
+            title="DNS queries (24h)"
+            value={dnsStats?.totals.total_queries.toLocaleString() ?? "—"}
+            subtitle={
+              dnsStats
+                ? `${dnsStats.totals.unique_clients} clients · ${dnsStats.totals.unique_domains} domains`
+                : undefined
+            }
+            to="/dns/logs"
+          />
+          <DashboardStatCard
+            title="Blocked (24h)"
+            value={dnsStats ? `${dnsStats.totals.blocked_percent.toFixed(1)}%` : "—"}
+            subtitle={
+              dnsStats
+                ? `${dnsStats.totals.blocked_queries.toLocaleString()} of ${dnsStats.totals.total_queries.toLocaleString()}`
+                : undefined
+            }
+            usagePercent={dnsStats?.totals.blocked_percent}
+            to="/ad-blocking"
+          />
         </div>
 
         {/* Recent errors */}

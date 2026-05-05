@@ -21,6 +21,9 @@ import type {
   UpdateFilterRuleRequest,
   UpdateFilterRuleResponse,
   DeleteFilterRuleResponse,
+  ListQueryLogParams,
+  ListQueryLogResponse,
+  DnsStatsResponse,
 } from "../types/dns.js";
 import type { JobDispatchedResponse } from "../types/jobs.js";
 
@@ -158,5 +161,27 @@ export class DnsService {
     return this.client.request<DeleteFilterRuleResponse>(`/dns/rules/${id}`, {
       method: "DELETE",
     });
+  }
+
+  // --- Query log + stats ---
+
+  /** Paginated DNS query log (admin only). */
+  async listQueryLog(params: ListQueryLogParams = {}): Promise<ListQueryLogResponse> {
+    // Hand-built query string — the SDK targets a tsconfig without the
+    // DOM lib, so `URLSearchParams` isn't available here.
+    const parts: string[] = [];
+    const enc = encodeURIComponent;
+    if (params.limit !== undefined) parts.push(`limit=${params.limit}`);
+    if (params.offset !== undefined) parts.push(`offset=${params.offset}`);
+    if (params.domain) parts.push(`domain=${enc(params.domain)}`);
+    if (params.client_ip) parts.push(`client_ip=${enc(params.client_ip)}`);
+    if (params.result) parts.push(`result=${enc(params.result)}`);
+    const path = parts.length === 0 ? "/dns/log" : `/dns/log?${parts.join("&")}`;
+    return this.client.request<ListQueryLogResponse>(path);
+  }
+
+  /** Aggregated DNS stats over the last `hours` hours (admin only). */
+  async getStats(hours = 24): Promise<DnsStatsResponse> {
+    return this.client.request<DnsStatsResponse>(`/dns/stats?hours=${hours}`);
   }
 }

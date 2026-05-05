@@ -4,7 +4,8 @@ use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
-    AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, UpstreamDns,
+    AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, DnsQueryLogEntry,
+    UpstreamDns,
 };
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
@@ -811,4 +812,115 @@ pub struct BackupStatusResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListSnapshotsResponse {
     pub snapshots: Vec<LocalSnapshot>,
+}
+
+// ---------------------------------------------------------------------------
+// DNS query log + stats
+// ---------------------------------------------------------------------------
+
+/// Query parameters for `GET /api/dns/log`.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
+pub struct ListQueryLogParams {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub client_ip: Option<String>,
+    #[serde(default)]
+    pub result: Option<String>,
+}
+
+/// Response for `GET /api/dns/log`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListQueryLogResponse {
+    pub entries: Vec<DnsQueryLogEntry>,
+    pub total: u64,
+}
+
+/// Live event broadcast over `/api/dns/log/stream`. Mirrors a row in
+/// `dns_query_log` so clients can render entries before they're persisted.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct QueryLogEvent {
+    /// RFC 3339 timestamp.
+    pub timestamp: String,
+    pub client_ip: String,
+    pub domain: String,
+    pub query_type: String,
+    pub result: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
+    pub latency_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+}
+
+/// Query parameters for `GET /api/dns/stats`.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
+pub struct DnsStatsParams {
+    /// Window in hours, default 24, max 168 (7 days).
+    #[serde(default)]
+    pub hours: Option<u32>,
+}
+
+/// Aggregate counters for the requested window.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsStatsTotals {
+    pub total_queries: u64,
+    pub blocked_queries: u64,
+    pub blocked_percent: f64,
+    pub avg_latency_ms: f64,
+    pub unique_clients: u64,
+    pub unique_domains: u64,
+}
+
+/// Top domain by hit count.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TopDomain {
+    pub domain: String,
+    pub count: u64,
+}
+
+/// Top client by query count, optionally enriched with device metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TopClient {
+    pub client_ip: String,
+    pub count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_mac: Option<String>,
+}
+
+/// One point on the queries-over-time chart.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsSeriesPoint {
+    /// Bucket label: `YYYY-MM-DD HH:MM` (minute) or `YYYY-MM-DD HH` (hour).
+    pub bucket: String,
+    pub total: u64,
+    pub blocked: u64,
+}
+
+/// Bucket size for the series chart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsSeriesBucket {
+    Minute,
+    Hour,
+}
+
+/// Response for `GET /api/dns/stats`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsStatsResponse {
+    pub hours: u32,
+    pub totals: DnsStatsTotals,
+    pub top_domains: Vec<TopDomain>,
+    pub top_blocked: Vec<TopDomain>,
+    pub top_clients: Vec<TopClient>,
+    pub series_bucket: DnsSeriesBucket,
+    pub series: Vec<DnsSeriesPoint>,
 }

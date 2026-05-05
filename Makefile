@@ -326,7 +326,7 @@ run-dev-daemon:
 	fi; \
 	echo "Mock API : http://127.0.0.1:7411"; \
 	echo ""; \
-	cargo run --manifest-path=$(DAEMON_DIR)/Cargo.toml --bin wardnetd-mock -- --verbose $$DB_ARG
+	cd $(DAEMON_DIR) && cargo run --bin wardnetd-mock -- --verbose $$DB_ARG
 
 # Run just the Vite dev server on :7412, proxying `/api` to :7411. Use
 # this when you already have a mock daemon running in another terminal.

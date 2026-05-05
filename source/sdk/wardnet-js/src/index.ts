@@ -103,6 +103,8 @@ export type {
 
 // Services — DNS
 export { DnsService } from "./services/dns.js";
+export { DnsLogStreamService } from "./services/dnsLogStream.js";
+export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
 // Services — auto-update
 export { UpdateService } from "./services/update.js";
@@ -174,4 +176,15 @@ export type {
   UpdateFilterRuleRequest,
   UpdateFilterRuleResponse,
   DeleteFilterRuleResponse,
+  DnsQueryResult,
+  DnsQueryLogEntry,
+  QueryLogEvent,
+  ListQueryLogParams,
+  ListQueryLogResponse,
+  DnsStatsTotals,
+  TopDomain,
+  TopClient,
+  DnsSeriesPoint,
+  DnsSeriesBucket,
+  DnsStatsResponse,
 } from "./types/dns.js";

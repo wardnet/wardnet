@@ -12,6 +12,7 @@ workspace = true
 # Internal
 wardnet-common.workspace = true
 wardnetd-api.workspace = true
+wardnetd-data.workspace = true
 wardnetd-services.workspace = true
 
 # https://crates.io/crates/tokio

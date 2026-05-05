@@ -22,6 +22,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::TunnelStatus;
+use wardnetd_data::repository::QueryLogRow;
+use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::event::EventPublisher;
 
 /// How often the emitter publishes a batch of fake events.
@@ -41,7 +43,12 @@ impl FakeEventEmitter {
     /// If the list is empty no tunnel-stats events are emitted (only the
     /// DNS toggle cycle continues).
     #[must_use]
-    pub fn start(publisher: Arc<dyn EventPublisher>, tunnel_ids: Vec<Uuid>) -> Self {
+    pub fn start(
+        publisher: Arc<dyn EventPublisher>,
+        tunnel_ids: Vec<Uuid>,
+        dns_sink: Arc<DnsLogSink>,
+        dns_client_ips: Vec<String>,
+    ) -> Self {
         let cancel = CancellationToken::new();
         let cancel_child = cancel.clone();
         let tunnel_count = tunnel_ids.len();
@@ -78,6 +85,12 @@ impl FakeEventEmitter {
                                 last_handshake: None,
                                 timestamp: Utc::now(),
                             });
+                        }
+
+                        // Emit a handful of fake DNS query events every tick so
+                        // the live-tail and stats keep updating during dev.
+                        if !dns_client_ips.is_empty() {
+                            emit_fake_dns_queries(&dns_sink, &dns_client_ips, tick);
                         }
 
                         // Toggle DNS server status every 12 ticks (~1 minute).
@@ -118,5 +131,89 @@ impl FakeEventEmitter {
         if let Err(e) = self.handle.await {
             tracing::warn!(error = %e, "mock event emitter join failed: error={e}");
         }
+    }
+}
+
+/// Push a small batch of synthetic DNS queries through the log sink so
+/// the live tail, stats endpoint, and dashboard cards stay populated
+/// while the mock is running. Deterministic on `tick` for reproducibility.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn emit_fake_dns_queries(sink: &DnsLogSink, client_ips: &[String], tick: u64) {
+    const POPULAR: [&str; 6] = [
+        "github.com",
+        "youtube.com",
+        "wikipedia.org",
+        "duckduckgo.com",
+        "news.ycombinator.com",
+        "reddit.com",
+    ];
+    const AD_BLOCKED: [&str; 5] = [
+        "doubleclick.net",
+        "googletagmanager.com",
+        "adservice.google.com",
+        "ads.facebook.com",
+        "tracker.example.net",
+    ];
+    const CDN: [&str; 4] = [
+        "fonts.googleapis.com",
+        "cdn.cloudflare.com",
+        "edge-mqtt.facebook.com",
+        "akamaihd.net",
+    ];
+    const UPSTREAMS: [&str; 2] = ["1.1.1.1", "8.8.8.8"];
+
+    // Per tick, fire 4 events so the chart actually moves.
+    for q in 0..4u64 {
+        let seed = tick.wrapping_mul(2_654_435_761).wrapping_add(q);
+        let client = &client_ips[(seed as usize) % client_ips.len()];
+        let bucket = (seed >> 7) % 10;
+
+        let (domain, result) = if bucket < 2 {
+            (
+                AD_BLOCKED[(seed >> 11) as usize % AD_BLOCKED.len()].to_owned(),
+                "blocked",
+            )
+        } else if bucket < 5 {
+            (
+                POPULAR[(seed >> 13) as usize % POPULAR.len()].to_owned(),
+                "cache_hit",
+            )
+        } else if bucket == 9 {
+            (
+                CDN[(seed >> 17) as usize % CDN.len()].to_owned(),
+                "forwarded",
+            )
+        } else {
+            (
+                POPULAR[(seed >> 19) as usize % POPULAR.len()].to_owned(),
+                "forwarded",
+            )
+        };
+
+        let latency_ms = match result {
+            "cache_hit" => 0.4 + ((seed >> 23) as f64 % 5.0) / 10.0,
+            "blocked" => 0.2 + ((seed >> 23) as f64 % 3.0) / 10.0,
+            _ => 12.0 + ((seed >> 23) as f64 % 50.0),
+        };
+        let upstream = if result == "forwarded" {
+            Some(UPSTREAMS[(seed >> 29) as usize % UPSTREAMS.len()].to_owned())
+        } else {
+            None
+        };
+
+        sink.record(QueryLogRow {
+            timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            client_ip: client.clone(),
+            domain,
+            query_type: "A".to_owned(),
+            result: result.to_owned(),
+            upstream,
+            latency_ms,
+            device_id: None,
+        });
     }
 }

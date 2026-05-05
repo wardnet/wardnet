@@ -4676,6 +4676,224 @@
         ]
       }
     },
+    "/api/dns/log": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Paginated DNS query log. Filterable by domain (substring), client IP (exact), and result. Newest entries first. Admin only.",
+        "operationId": "list_query_log",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "client_ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of query log entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListQueryLogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/dns/rules": {
       "get": {
         "tags": [
@@ -5271,6 +5489,179 @@
           },
           "404": {
             "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/stats": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Aggregated DNS statistics for the last `hours` hours (default 24, max 168). Returns totals, top domains, top blocked, top clients (with device labels) and a queries-over-time series. Admin only.",
+        "operationId": "get_stats",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "description": "Window in hours, default 24, max 168 (7 days).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregated stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsStatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10122,6 +10513,70 @@
           "https"
         ]
       },
+      "DnsQueryLogEntry": {
+        "type": "object",
+        "description": "A single entry in the DNS query log.",
+        "required": [
+          "id",
+          "timestamp",
+          "client_ip",
+          "domain",
+          "query_type",
+          "result",
+          "latency_ms"
+        ],
+        "properties": {
+          "client_ip": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "latency_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "query_type": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/DnsQueryResult"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "upstream": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DnsQueryResult": {
+        "type": "string",
+        "description": "Result classification for a DNS query.",
+        "enum": [
+          "forwarded",
+          "cached",
+          "blocked",
+          "local",
+          "recursive",
+          "error"
+        ]
+      },
       "DnsResolutionMode": {
         "type": "string",
         "description": "DNS resolution strategy.",
@@ -10129,6 +10584,131 @@
           "forwarding",
           "recursive"
         ]
+      },
+      "DnsSeriesBucket": {
+        "type": "string",
+        "description": "Bucket size for the series chart.",
+        "enum": [
+          "minute",
+          "hour"
+        ]
+      },
+      "DnsSeriesPoint": {
+        "type": "object",
+        "description": "One point on the queries-over-time chart.",
+        "required": [
+          "bucket",
+          "total",
+          "blocked"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "bucket": {
+            "type": "string",
+            "description": "Bucket label: `YYYY-MM-DD HH:MM` (minute) or `YYYY-MM-DD HH` (hour)."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DnsStatsResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/dns/stats`.",
+        "required": [
+          "hours",
+          "totals",
+          "top_domains",
+          "top_blocked",
+          "top_clients",
+          "series_bucket",
+          "series"
+        ],
+        "properties": {
+          "hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DnsSeriesPoint"
+            }
+          },
+          "series_bucket": {
+            "$ref": "#/components/schemas/DnsSeriesBucket"
+          },
+          "top_blocked": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopDomain"
+            }
+          },
+          "top_clients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopClient"
+            }
+          },
+          "top_domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopDomain"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/DnsStatsTotals"
+          }
+        }
+      },
+      "DnsStatsTotals": {
+        "type": "object",
+        "description": "Aggregate counters for the requested window.",
+        "required": [
+          "total_queries",
+          "blocked_queries",
+          "blocked_percent",
+          "avg_latency_ms",
+          "unique_clients",
+          "unique_domains"
+        ],
+        "properties": {
+          "avg_latency_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "blocked_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "blocked_queries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_queries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unique_clients": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unique_domains": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "DnsStatusResponse": {
         "type": "object",
@@ -10597,6 +11177,27 @@
               "$ref": "#/components/schemas/ProviderInfo"
             },
             "description": "List of available VPN providers."
+          }
+        }
+      },
+      "ListQueryLogResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/dns/log`.",
+        "required": [
+          "entries",
+          "total"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DnsQueryLogEntry"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -11362,6 +11963,60 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "TopClient": {
+        "type": "object",
+        "description": "Top client by query count, optionally enriched with device metadata.",
+        "required": [
+          "client_ip",
+          "count"
+        ],
+        "properties": {
+          "client_ip": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TopDomain": {
+        "type": "object",
+        "description": "Top domain by hit count.",
+        "required": [
+          "domain",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "domain": {
+            "type": "string"
           }
         }
       },

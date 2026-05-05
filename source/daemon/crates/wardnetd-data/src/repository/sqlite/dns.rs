@@ -1,12 +1,13 @@
 use async_trait::async_trait;
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 use wardnet_common::dns::{AllowlistEntry, Blocklist, CustomFilterRule};
 
 use crate::repository::dns::{
-    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate, DnsRepository,
-    QueryLogFilter, QueryLogRow,
+    AllowlistRow, BlocklistRow, BlocklistUpdate, BucketSize, CustomRuleRow, CustomRuleUpdate,
+    DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow, TopClientRow,
+    TopDomainRow,
 };
 
 /// SQLite-backed DNS repository.
@@ -266,6 +267,119 @@ impl DnsRepository for SqliteDnsRepository {
             .await?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn query_stats(&self, since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
+        let since_str = since.format(TS_FMT).to_string();
+        let row: (i64, i64, Option<f64>, i64, i64) = sqlx::query_as(
+            "SELECT \
+                 COUNT(*) AS total, \
+                 COALESCE(SUM(CASE WHEN result = 'blocked' THEN 1 ELSE 0 END), 0) AS blocked, \
+                 AVG(latency_ms) AS avg_latency, \
+                 COUNT(DISTINCT client_ip) AS unique_clients, \
+                 COUNT(DISTINCT domain) AS unique_domains \
+             FROM dns_query_log WHERE timestamp >= ?",
+        )
+        .bind(&since_str)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(QueryStatsRow {
+            total_queries: u64::try_from(row.0).unwrap_or(0),
+            blocked_queries: u64::try_from(row.1).unwrap_or(0),
+            avg_latency_ms: row.2.unwrap_or(0.0),
+            unique_clients: u64::try_from(row.3).unwrap_or(0),
+            unique_domains: u64::try_from(row.4).unwrap_or(0),
+        })
+    }
+
+    async fn top_domains(
+        &self,
+        since: DateTime<Utc>,
+        limit: u32,
+        blocked_only: bool,
+    ) -> anyhow::Result<Vec<TopDomainRow>> {
+        let since_str = since.format(TS_FMT).to_string();
+        let sql = if blocked_only {
+            "SELECT domain, COUNT(*) AS c FROM dns_query_log \
+             WHERE timestamp >= ? AND result = 'blocked' \
+             GROUP BY domain ORDER BY c DESC, domain ASC LIMIT ?"
+        } else {
+            "SELECT domain, COUNT(*) AS c FROM dns_query_log \
+             WHERE timestamp >= ? \
+             GROUP BY domain ORDER BY c DESC, domain ASC LIMIT ?"
+        };
+
+        let rows: Vec<(String, i64)> = sqlx::query_as(sql)
+            .bind(&since_str)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(domain, count)| TopDomainRow {
+                domain,
+                count: u64::try_from(count).unwrap_or(0),
+            })
+            .collect())
+    }
+
+    async fn top_clients(
+        &self,
+        since: DateTime<Utc>,
+        limit: u32,
+    ) -> anyhow::Result<Vec<TopClientRow>> {
+        let since_str = since.format(TS_FMT).to_string();
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT client_ip, COUNT(*) AS c FROM dns_query_log \
+             WHERE timestamp >= ? \
+             GROUP BY client_ip ORDER BY c DESC, client_ip ASC LIMIT ?",
+        )
+        .bind(&since_str)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(client_ip, count)| TopClientRow {
+                client_ip,
+                count: u64::try_from(count).unwrap_or(0),
+            })
+            .collect())
+    }
+
+    async fn series_buckets(
+        &self,
+        since: DateTime<Utc>,
+        bucket: BucketSize,
+    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
+        let since_str = since.format(TS_FMT).to_string();
+        let fmt = bucket.strftime_fmt();
+        let sql = format!(
+            "SELECT strftime('{fmt}', timestamp) AS bucket, \
+                    COUNT(*) AS total, \
+                    COALESCE(SUM(CASE WHEN result = 'blocked' THEN 1 ELSE 0 END), 0) AS blocked \
+             FROM dns_query_log WHERE timestamp >= ? \
+             GROUP BY bucket ORDER BY bucket ASC"
+        );
+
+        let rows: Vec<(Option<String>, i64, i64)> = sqlx::query_as(&sql)
+            .bind(&since_str)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(bucket, total, blocked)| {
+                bucket.map(|bucket| SeriesBucketRow {
+                    bucket,
+                    total: u64::try_from(total).unwrap_or(0),
+                    blocked: u64::try_from(blocked).unwrap_or(0),
+                })
+            })
+            .collect())
     }
 
     // ── Blocklists ────────────────────────────────────────────────────────

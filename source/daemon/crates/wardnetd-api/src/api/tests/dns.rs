@@ -259,6 +259,48 @@ impl DnsService for MockDnsService {
             message: format!("filter rule {id} deleted"),
         })
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        Ok(wardnet_common::api::ListQueryLogResponse {
+            entries: Vec::new(),
+            total: 0,
+        })
+    }
+    async fn dns_stats(
+        &self,
+        hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        Ok(wardnet_common::api::DnsStatsResponse {
+            hours,
+            totals: wardnet_common::api::DnsStatsTotals {
+                total_queries: 0,
+                blocked_queries: 0,
+                blocked_percent: 0.0,
+                avg_latency_ms: 0.0,
+                unique_clients: 0,
+                unique_domains: 0,
+            },
+            top_domains: Vec::new(),
+            top_blocked: Vec::new(),
+            top_clients: Vec::new(),
+            series_bucket: wardnet_common::api::DnsSeriesBucket::Hour,
+            series: Vec::new(),
+        })
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        // Keep the sender alive for the receiver's lifetime in tests.
+        std::mem::forget(tx);
+        Ok(rx)
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        Ok(0)
+    }
     async fn load_filter_inputs(
         &self,
     ) -> Result<wardnetd_services::dns::filter::FilterInputs, AppError> {

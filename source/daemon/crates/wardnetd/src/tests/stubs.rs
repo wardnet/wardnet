@@ -530,6 +530,27 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, AppError> {
         unimplemented!()
     }
+    async fn list_query_log(
+        &self,
+        _params: wardnet_common::api::ListQueryLogParams,
+    ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dns_stats(
+        &self,
+        _hours: u32,
+    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
+        unimplemented!()
+    }
+    fn subscribe_query_stream(
+        &self,
+    ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
+    {
+        unimplemented!()
+    }
+    async fn flush_query_log(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn load_filter_inputs(
         &self,
     ) -> Result<wardnetd_services::dns::filter::FilterInputs, AppError> {

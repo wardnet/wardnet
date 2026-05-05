@@ -189,3 +189,89 @@ export interface UpdateFilterRuleResponse {
 export interface DeleteFilterRuleResponse {
   message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Query log + stats
+// ---------------------------------------------------------------------------
+
+/** Result classification for a DNS query. */
+export type DnsQueryResult = "forwarded" | "cached" | "blocked" | "local" | "recursive" | "error";
+
+/** A single entry in the persisted DNS query log. */
+export interface DnsQueryLogEntry {
+  id: number;
+  timestamp: string;
+  client_ip: string;
+  domain: string;
+  query_type: string;
+  result: DnsQueryResult;
+  upstream?: string | null;
+  latency_ms: number;
+  device_id?: string | null;
+}
+
+/** Live event broadcast over `/api/dns/log/stream`. Mirrors a query log row. */
+export interface QueryLogEvent {
+  timestamp: string;
+  client_ip: string;
+  domain: string;
+  query_type: string;
+  /** Raw result string; superset of `DnsQueryResult` (includes `cache_hit`, `rewritten`, `upstream_error`). */
+  result: string;
+  upstream?: string | null;
+  latency_ms: number;
+  device_id?: string | null;
+}
+
+export interface ListQueryLogParams {
+  limit?: number;
+  offset?: number;
+  domain?: string;
+  client_ip?: string;
+  result?: string;
+}
+
+export interface ListQueryLogResponse {
+  entries: DnsQueryLogEntry[];
+  total: number;
+}
+
+export interface DnsStatsTotals {
+  total_queries: number;
+  blocked_queries: number;
+  blocked_percent: number;
+  avg_latency_ms: number;
+  unique_clients: number;
+  unique_domains: number;
+}
+
+export interface TopDomain {
+  domain: string;
+  count: number;
+}
+
+export interface TopClient {
+  client_ip: string;
+  count: number;
+  device_id?: string | null;
+  device_label?: string | null;
+  device_mac?: string | null;
+}
+
+export interface DnsSeriesPoint {
+  bucket: string;
+  total: number;
+  blocked: number;
+}
+
+export type DnsSeriesBucket = "minute" | "hour";
+
+export interface DnsStatsResponse {
+  hours: number;
+  totals: DnsStatsTotals;
+  top_domains: TopDomain[];
+  top_blocked: TopDomain[];
+  top_clients: TopClient[];
+  series_bucket: DnsSeriesBucket;
+  series: DnsSeriesPoint[];
+}

@@ -9,6 +9,7 @@ import { FilterRuleTable } from "@/components/compound/FilterRuleTable";
 import { BlocklistSheet } from "@/components/features/BlocklistSheet";
 import { CreateAllowlistSheet } from "@/components/features/CreateAllowlistSheet";
 import { CreateFilterRuleSheet } from "@/components/features/CreateFilterRuleSheet";
+import { DnsStatsSection } from "@/components/features/DnsStatsSection";
 import {
   useBlocklists,
   useDeleteBlocklist,
@@ -65,8 +66,9 @@ export default function AdBlocking() {
       )}
 
       {!blocklistsLoading && (
-        <Tabs defaultValue="blocklists" className="flex min-h-0 flex-1 flex-col">
+        <Tabs defaultValue="stats" className="flex min-h-0 flex-1 flex-col">
           <TabsList>
+            <TabsTrigger value="stats">Stats</TabsTrigger>
             <TabsTrigger value="blocklists">
               Blocklists
               {blocklists.length > 0 && (
@@ -92,6 +94,10 @@ export default function AdBlocking() {
               )}
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="stats" className="mt-4 flex min-h-0 flex-1 flex-col">
+            <DnsStatsSection />
+          </TabsContent>
 
           <TabsContent value="blocklists" className="mt-4 flex min-h-0 flex-1 flex-col">
             <BlocklistTable

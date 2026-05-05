@@ -13,7 +13,7 @@ use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DailyMetricRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow,
-    IntradayMetricRow, TunnelRow,
+    IntradayMetricRow, QueryLogRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -286,12 +286,31 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         })
         .await?;
 
+    // ------------------------------------------------------------------
+    // DNS query log fixture — 24 h of synthetic queries spread across the
+    // seeded devices, with a realistic mix of forwarded / cache_hit /
+    // blocked / rewritten / upstream_error results. Generated
+    // deterministically from `now` so the dev experience is reproducible
+    // across `make run-dev` restarts.
+    // ------------------------------------------------------------------
+    let dns_client_ips: Vec<String> = device_lease_inputs
+        .iter()
+        .map(|(_, _, _, ip)| ip.clone())
+        .collect();
+    let log_rows = generate_dns_query_log(&dns_client_ips, now);
+    let total_log_rows = log_rows.len();
+    for chunk in log_rows.chunks(256) {
+        dns_repo.insert_query_log_batch(chunk).await?;
+    }
+
     tracing::info!(
         devices = device_ids.len(),
         tunnels = tunnel_ids.len(),
-        "seeded demo data: devices={dev}, tunnels={tun}",
+        dns_queries = total_log_rows,
+        "seeded demo data: devices={dev}, tunnels={tun}, dns_queries={dns}",
         dev = device_ids.len(),
         tun = tunnel_ids.len(),
+        dns = total_log_rows,
     );
 
     Ok(SeededIds {
@@ -385,4 +404,112 @@ fn generate_metrics_history(
     }
 
     (intraday, daily)
+}
+
+// ── DNS query log fixture ─────────────────────────────────────────────────
+
+/// Build a 24-hour synthetic query log spread across the seeded device IPs.
+/// Returns rows in chronological order (oldest first) so paginated UI views
+/// show recent queries first.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> Vec<QueryLogRow> {
+    if client_ips.is_empty() {
+        return Vec::new();
+    }
+
+    // Pool of synthetic domains. Mix of "popular", "ad/tracker" (will be
+    // marked blocked), CDN, and the seeded allowlist/custom-rule entries.
+    let popular = [
+        "github.com",
+        "youtube.com",
+        "wikipedia.org",
+        "duckduckgo.com",
+        "news.ycombinator.com",
+        "reddit.com",
+    ];
+    let ad_blocked = [
+        "doubleclick.net",
+        "googletagmanager.com",
+        "adservice.google.com",
+        "ads.facebook.com",
+        "tracker.example.net",
+    ];
+    let cdn = [
+        "fonts.googleapis.com",
+        "cdn.cloudflare.com",
+        "edge-mqtt.facebook.com",
+        "akamaihd.net",
+    ];
+    let upstreams = ["1.1.1.1", "8.8.8.8"];
+
+    // 24 h × ~1 query / 30 s = ~2 880 rows across all clients. Plenty of
+    // density for the chart without bloating the seed.
+    let total_minutes = 24 * 60;
+    let queries_per_minute: u32 = 2;
+    let mut rows = Vec::with_capacity(total_minutes as usize * queries_per_minute as usize);
+
+    for minute_offset in 0..total_minutes {
+        for q in 0..queries_per_minute {
+            // Deterministic pseudo-random index — no rng dependency.
+            let seed = (minute_offset as u64).wrapping_mul(2_654_435_761) ^ u64::from(q);
+            let client = &client_ips[(seed as usize) % client_ips.len()];
+            let bucket_pick = (seed >> 7) % 10;
+
+            let (domain, result) = if bucket_pick < 2 {
+                // 20 % blocked
+                (
+                    ad_blocked[(seed >> 11) as usize % ad_blocked.len()].to_owned(),
+                    "blocked",
+                )
+            } else if bucket_pick < 5 {
+                // 30 % cache hit
+                (
+                    popular[(seed >> 13) as usize % popular.len()].to_owned(),
+                    "cache_hit",
+                )
+            } else if bucket_pick == 9 {
+                // 10 % CDN forward (simulates a fresh upstream lookup)
+                (
+                    cdn[(seed >> 17) as usize % cdn.len()].to_owned(),
+                    "forwarded",
+                )
+            } else {
+                // remainder — forwarded popular domains
+                (
+                    popular[(seed >> 19) as usize % popular.len()].to_owned(),
+                    "forwarded",
+                )
+            };
+
+            // Place oldest at the start of the loop, newest at the end.
+            let ts = now - Duration::minutes(i64::from(total_minutes - minute_offset));
+            let latency_ms = match result {
+                "cache_hit" => 0.4 + ((seed >> 23) as f64 % 5.0) / 10.0,
+                "blocked" => 0.2 + ((seed >> 23) as f64 % 3.0) / 10.0,
+                _ => 12.0 + ((seed >> 23) as f64 % 50.0),
+            };
+            let upstream = if result == "forwarded" {
+                Some(upstreams[(seed >> 29) as usize % upstreams.len()].to_owned())
+            } else {
+                None
+            };
+
+            rows.push(QueryLogRow {
+                timestamp: ts.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                client_ip: client.clone(),
+                domain,
+                query_type: "A".to_owned(),
+                result: result.to_owned(),
+                upstream,
+                latency_ms,
+                device_id: None,
+            });
+        }
+    }
+
+    rows
 }
