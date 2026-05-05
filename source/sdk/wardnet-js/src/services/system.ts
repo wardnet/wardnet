@@ -1,5 +1,4 @@
-import { WardnetApiError, type WardnetClient } from "../client.js";
-import type { ApiError } from "../types/api.js";
+import { type WardnetClient } from "../client.js";
 import type { SystemStatusResponse } from "../types/system.js";
 
 /** System information service for the Wardnet daemon. */
@@ -62,19 +61,13 @@ export class SystemService {
 
   /**
    * Shared POST helper for endpoints that return `204 No Content`.
-   * `WardnetClient.request` is JSON-only; rolling our own here keeps
-   * the same error-shape contract without forcing the client to
-   * tolerate an empty body.
+   *
+   * Routes through `client.request<void>` so subclassed clients
+   * (e.g. `AuthedClient` in the e2e harness, which overrides
+   * `request` to attach a `Bearer` token) get a chance to inject
+   * their headers. The client handles the empty body for 204.
    */
   private async postNoContent(path: string): Promise<void> {
-    const res = await fetch(`${this.client.baseUrl}${path}`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) {
-      const requestId = res.headers.get("X-Request-Id") ?? undefined;
-      const body = (await res.json().catch(() => ({ error: res.statusText }))) as ApiError;
-      throw new WardnetApiError(res.status, res.statusText, body, requestId);
-    }
+    await this.client.request<void>(path, { method: "POST" });
   }
 }
