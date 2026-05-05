@@ -36,7 +36,15 @@ export class WardnetClient {
     this.baseUrl = options?.baseUrl ?? "/api";
   }
 
-  /** Send a typed HTTP request to the daemon API. */
+  /** Send a typed HTTP request to the daemon API.
+   *
+   * Returns `undefined` (cast to `T`) on `204 No Content` so callers
+   * with `Promise<void>` can route through the same path as JSON-
+   * returning calls — important because subclasses (e.g. `AuthedClient`
+   * in the e2e harness) override `request` to attach an
+   * `Authorization` header. Bypassing `request` means bypassing
+   * those overrides; routing through it keeps the auth path uniform.
+   */
   async request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: { "Content-Type": "application/json" },
@@ -50,6 +58,10 @@ export class WardnetClient {
         error: res.statusText,
       }))) as ApiError;
       throw new WardnetApiError(res.status, res.statusText, body, requestId);
+    }
+
+    if (res.status === 204) {
+      return undefined as T;
     }
 
     return (await res.json()) as T;

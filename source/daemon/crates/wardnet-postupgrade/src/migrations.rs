@@ -36,9 +36,21 @@ pub struct Migration {
 /// The migration list applied at every boot. Order matters: each
 /// migration may rely on the system state established by earlier
 /// applied migrations.
-///
-/// Empty until #215 lands `0001_polkit_power_rule`.
 #[must_use]
 pub fn migrations() -> &'static [Migration] {
-    &[]
+    &[Migration {
+        // Authorises the daemon (running as the unprivileged
+        // `wardnet` user) to call logind's reboot / power-off
+        // actions, which is what `systemctl reboot|poweroff
+        // --no-block` invokes under the hood. See #215.
+        //
+        // Severity::Optional: the daemon still starts without it.
+        // Only Safe Reboot / Safe Shutdown stop working — the rest
+        // of the system keeps functioning, so blocking startup
+        // would be the wrong trade-off (e.g. on a non-systemd
+        // container or a host where polkit is uninstalled).
+        id: "0001_polkit_power_rule",
+        severity: Severity::Optional,
+        up: crate::up::write_polkit_power_rule,
+    }]
 }

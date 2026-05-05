@@ -1,0 +1,14 @@
+// Authorise the unprivileged 'wardnet' daemon user to reboot and power
+// off the host. Managed by Wardnet's post-upgrade migration framework
+// (migration 0001_polkit_power_rule). Do not edit by hand.
+polkit.addRule(function(action, subject) {
+    if (subject.user !== "wardnet") {
+        return;
+    }
+    if (action.id === "org.freedesktop.login1.reboot" ||
+        action.id === "org.freedesktop.login1.reboot-multiple-sessions" ||
+        action.id === "org.freedesktop.login1.power-off" ||
+        action.id === "org.freedesktop.login1.power-off-multiple-sessions") {
+        return polkit.Result.YES;
+    }
+});

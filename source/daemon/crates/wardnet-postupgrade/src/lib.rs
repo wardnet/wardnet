@@ -19,6 +19,7 @@
 pub mod migrations;
 pub mod runner;
 pub mod state;
+pub mod up;
 
 pub use migrations::{Migration, Severity, migrations};
 pub use runner::{RunOutcome, RunReport, run};

@@ -5,3 +5,4 @@ pub mod fixtures;
 pub mod kernel;
 pub mod pid;
 pub mod postupgrade;
+pub mod power;

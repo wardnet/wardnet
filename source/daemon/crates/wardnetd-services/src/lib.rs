@@ -87,6 +87,10 @@ pub struct Backends {
     /// shutdown path runs — axum drains connections, runners exit
     /// cleanly, Drop impls fire.
     pub shutdown_token: tokio_util::sync::CancellationToken,
+    /// Host-power operations. Production wires `SystemctlPowerOps`
+    /// (shells out to `systemctl reboot|poweroff --no-block`); the
+    /// mock wires a logging no-op so dev launches don't get killed.
+    pub power_ops: Arc<dyn system::SystemPowerOps>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -261,6 +265,7 @@ fn create_services(
         tunnel_repo.clone(),
         started_at,
         backends.shutdown_token.clone(),
+        backends.power_ops.clone(),
     ));
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(

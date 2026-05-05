@@ -37,6 +37,12 @@ impl SystemService for MockSystemService {
     async fn request_restart(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn request_reboot(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn request_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 /// Mock system service that always returns an error.
@@ -56,6 +62,16 @@ impl SystemService for FailingSystemService {
         )))
     }
     async fn request_restart(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
+    }
+    async fn request_reboot(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
+    }
+    async fn request_shutdown(&self) -> Result<(), AppError> {
         Err(AppError::Internal(anyhow::anyhow!(
             "simulated service failure"
         )))

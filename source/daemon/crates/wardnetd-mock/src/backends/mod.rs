@@ -11,5 +11,6 @@
 pub mod noop_device;
 pub mod noop_dhcp;
 pub mod noop_dns;
+pub mod noop_power_ops;
 pub mod noop_routing;
 pub mod noop_tunnel;

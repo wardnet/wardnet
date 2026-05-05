@@ -7,6 +7,7 @@ mod pidfile;
 mod profiling;
 mod routing_listener;
 pub mod stubs;
+mod systemctl_power_ops;
 mod tunnel_idle;
 mod tunnel_interface_wireguard;
 mod tunnel_monitor;

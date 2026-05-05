@@ -30,6 +30,7 @@ use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
+use wardnetd::system::SystemctlPowerOps;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_monitor::TunnelMonitor;
@@ -223,6 +224,7 @@ async fn run(
         config_path: config_path.clone(),
         host_id,
         shutdown_token: shutdown_token.clone(),
+        power_ops: Arc::new(SystemctlPowerOps::new(executor.clone())),
     };
 
     // Wire services (initialises repo factory, bootstraps admin, creates all services).

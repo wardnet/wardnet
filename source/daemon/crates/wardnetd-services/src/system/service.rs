@@ -8,6 +8,7 @@ use wardnet_common::api::SystemStatusResponse;
 
 use crate::auth_context;
 use crate::error::AppError;
+use crate::system::SystemPowerOps;
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 
 /// How long the restart handler waits before cancelling the shutdown
@@ -16,6 +17,10 @@ use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 /// connections. Anything longer isn't needed; anything shorter
 /// occasionally cuts the response short on a busy connection.
 const RESTART_GRACE: Duration = Duration::from_millis(500);
+
+/// Same grace window for `request_reboot` / `request_shutdown` —
+/// lets the 204 flush before we ask logind to take the host down.
+const POWER_GRACE: Duration = Duration::from_millis(500);
 
 /// System-wide status and health information.
 ///
@@ -40,6 +45,19 @@ pub trait SystemService: Send + Sync {
     /// actual `exit(0)` after a short grace period so the HTTP
     /// response completes before the socket closes. Admin-only.
     async fn request_restart(&self) -> Result<(), AppError>;
+
+    /// Ask the host to reboot (Pi-level, not just the daemon).
+    ///
+    /// Symmetric with [`Self::request_restart`]: returns immediately,
+    /// then a spawned task waits ~500 ms for the response to flush
+    /// before invoking the wired [`SystemPowerOps::reboot`]. systemd
+    /// drives the actual shutdown sequence and SIGTERMs wardnetd as
+    /// part of `shutdown.target`. Admin-only.
+    async fn request_reboot(&self) -> Result<(), AppError>;
+
+    /// Ask the host to power off. Same shape as [`Self::request_reboot`]
+    /// but invokes [`SystemPowerOps::poweroff`]. Admin-only.
+    async fn request_shutdown(&self) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`SystemService`] backed by [`SystemConfigRepository`].
@@ -61,6 +79,7 @@ pub struct SystemServiceImpl {
     started_at: Instant,
     sysinfo: tokio::sync::Mutex<System>,
     shutdown_token: CancellationToken,
+    power_ops: Arc<dyn SystemPowerOps>,
 }
 
 impl SystemServiceImpl {
@@ -69,6 +88,7 @@ impl SystemServiceImpl {
         tunnel_repo: Arc<dyn TunnelRepository>,
         started_at: Instant,
         shutdown_token: CancellationToken,
+        power_ops: Arc<dyn SystemPowerOps>,
     ) -> Self {
         Self {
             system_config,
@@ -76,6 +96,7 @@ impl SystemServiceImpl {
             started_at,
             sysinfo: tokio::sync::Mutex::new(System::new_all()),
             shutdown_token,
+            power_ops,
         }
     }
 }
@@ -163,6 +184,48 @@ impl SystemService for SystemServiceImpl {
             // back up on a Pi install; on the dev mock the process
             // exits cleanly and the operator re-runs `make run-dev`.
             token.cancel();
+        });
+        Ok(())
+    }
+
+    async fn request_reboot(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::warn!(
+            action = "reboot",
+            grace_ms = POWER_GRACE.as_millis(),
+            "host reboot requested via API — invoking systemctl reboot in {grace_ms}ms",
+            grace_ms = POWER_GRACE.as_millis(),
+        );
+        let ops = self.power_ops.clone();
+        // systemd drives the rest of the shutdown sequence: it sends
+        // SIGTERM to wardnetd as part of `shutdown.target`, our
+        // existing `shutdown_signal` handler runs, and the unit stops
+        // before the host reboots. We never touch `shutdown_token`
+        // here — single source of truth for the actual shutdown is
+        // systemd, not the daemon.
+        tokio::spawn(async move {
+            tokio::time::sleep(POWER_GRACE).await;
+            if let Err(e) = ops.reboot().await {
+                tracing::error!(error = %e, "host reboot invocation failed: error={e}");
+            }
+        });
+        Ok(())
+    }
+
+    async fn request_shutdown(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::warn!(
+            action = "shutdown",
+            grace_ms = POWER_GRACE.as_millis(),
+            "host shutdown requested via API — invoking systemctl poweroff in {grace_ms}ms",
+            grace_ms = POWER_GRACE.as_millis(),
+        );
+        let ops = self.power_ops.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(POWER_GRACE).await;
+            if let Err(e) = ops.poweroff().await {
+                tracing::error!(error = %e, "host poweroff invocation failed: error={e}");
+            }
         });
         Ok(())
     }

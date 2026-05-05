@@ -1,5 +1,4 @@
-import { WardnetApiError, type WardnetClient } from "../client.js";
-import type { ApiError } from "../types/api.js";
+import { type WardnetClient } from "../client.js";
 import type { SystemStatusResponse } from "../types/system.js";
 
 /** System information service for the Wardnet daemon. */
@@ -24,14 +23,51 @@ export class SystemService {
    * `make run-dev`.
    */
   async restart(): Promise<void> {
-    const res = await fetch(`${this.client.baseUrl}/system/restart`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) {
-      const requestId = res.headers.get("X-Request-Id") ?? undefined;
-      const body = (await res.json().catch(() => ({ error: res.statusText }))) as ApiError;
-      throw new WardnetApiError(res.status, res.statusText, body, requestId);
-    }
+    await this.postNoContent("/system/restart");
+  }
+
+  /**
+   * Ask the host (Pi) to reboot.
+   *
+   * Resolves once the server has accepted the request (HTTP 204);
+   * the actual reboot fires a few hundred milliseconds later via
+   * `systemctl reboot --no-block`. Callers should treat the daemon
+   * as unreachable for the next 30–60 seconds and surface an
+   * appropriate progress UI to the user.
+   *
+   * Throws [`WardnetApiError`] on a non-2xx response — for example
+   * if the request was not authenticated (401), the user is not an
+   * admin (403), or the polkit migration has not been applied so
+   * logind refused the action (500).
+   */
+  async reboot(): Promise<void> {
+    await this.postNoContent("/system/reboot");
+  }
+
+  /**
+   * Ask the host (Pi) to power off.
+   *
+   * Resolves once the server has accepted the request (HTTP 204);
+   * the actual poweroff fires a few hundred milliseconds later via
+   * `systemctl poweroff --no-block`. Internet for managed devices
+   * stays unavailable until the operator powers the Pi back on
+   * manually — there is no automatic recovery.
+   *
+   * Throws [`WardnetApiError`] on a non-2xx response.
+   */
+  async shutdown(): Promise<void> {
+    await this.postNoContent("/system/shutdown");
+  }
+
+  /**
+   * Shared POST helper for endpoints that return `204 No Content`.
+   *
+   * Routes through `client.request<void>` so subclassed clients
+   * (e.g. `AuthedClient` in the e2e harness, which overrides
+   * `request` to attach a `Bearer` token) get a chance to inject
+   * their headers. The client handles the empty body for 204.
+   */
+  private async postNoContent(path: string): Promise<void> {
+    await this.client.request<void>(path, { method: "POST" });
   }
 }

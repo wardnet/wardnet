@@ -63,6 +63,12 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/fixtures/{name}", get(handlers::fixtures::get_fixture))
         .route("/postupgrade/state", get(handlers::postupgrade::get_state))
+        .route(
+            "/power/systemctl-invocations",
+            get(handlers::power::get_systemctl_invocations),
+        )
+        .route("/power/polkit-rule", get(handlers::power::get_polkit_rule))
+        .route("/power/pkcheck", get(handlers::power::get_pkcheck))
         .with_state(state)
 }
 
