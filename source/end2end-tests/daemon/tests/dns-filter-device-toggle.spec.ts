@@ -6,17 +6,17 @@ import {
   API_BASE_URL,
   AuthedClient,
   TEST_DEBIAN_AGENT,
-  acquireLeaseInRange,
   ensureAdminAndLogin,
-  findDeviceByIp,
+  findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
   waitForReady,
 } from "./helpers.js";
 
-// Pool used by dhcp.spec.ts; dns-filter-device-toggle re-acquires the
-// lease here so we don't depend on prior-spec ordering for the agent
-// having an in-pool address.
+// `dhcp.spec.ts` runs first under singleFork and leases test_debian an
+// address in this pool; we look up the device from there rather than
+// re-trigger `dhclient renew` (which races with the daemon's DHCP
+// runner and times out).
 const POOL_START = "10.91.0.100";
 const POOL_END = "10.91.0.150";
 
@@ -45,9 +45,13 @@ describe("dns filter — per-device kill switch", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    if (!(await dns.getConfig()).config.enabled) {
-      await dns.toggle({ enabled: true });
-    }
+    // DNS state is already on by the time this spec runs — dhcp.spec.ts
+    // and dns-config.spec.ts both touch DNS earlier under singleFork.
+    // Re-toggling here races against the runner mid-cycle (toggle
+    // succeeds in the DB, server.start fails with EADDRINUSE because the
+    // runner already restarted it). Just sanity-check.
+    const cfg = (await dns.getConfig()).config;
+    expect(cfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
 
     // Drop leftover blocklists from a prior failed run on the same
     // wardnet_state volume.
@@ -58,11 +62,11 @@ describe("dns filter — per-device kill switch", () => {
       }
     }
 
-    // Re-acquire the lease so the spec works even if dhcp.spec.ts is
-    // skipped or run out of order. Idempotent: already-leased
-    // dhclients see a lease in the pool and short-circuit.
-    const ip = await acquireLeaseInRange(TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
-    const device = await findDeviceByIp(authed, ip);
+    // Look up the daemon's device record for test_debian (it has been
+    // leased an in-pool address by `dhcp.spec.ts` running first under
+    // singleFork — re-running dhclient here would race with the
+    // daemon's DHCP runner).
+    const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     deviceId = device.id;
 
     // Reset to defaults: enabled=true, no explicit profiles, so the

@@ -6,14 +6,15 @@ import {
   API_BASE_URL,
   AuthedClient,
   TEST_DEBIAN_AGENT,
-  acquireLeaseInRange,
   ensureAdminAndLogin,
-  findDeviceByIp,
+  findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
   waitForReady,
 } from "./helpers.js";
 
+// See `dns-filter-device-toggle.spec.ts` for why we look up the device
+// rather than re-acquiring the lease.
 const POOL_START = "10.91.0.100";
 const POOL_END = "10.91.0.150";
 
@@ -41,9 +42,10 @@ describe("dns filter — global default profile", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    if (!(await dns.getConfig()).config.enabled) {
-      await dns.toggle({ enabled: true });
-    }
+    // DNS is already on under singleFork; re-toggling here races against
+    // the runner restart cycle. Sanity-check only.
+    const dnsCfg = (await dns.getConfig()).config;
+    expect(dnsCfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
 
     // Snapshot the pre-spec default so afterAll can restore it,
     // even if some previous test changed it.
@@ -67,8 +69,7 @@ describe("dns filter — global default profile", () => {
     // The spec exercises *unassigned* devices — make sure the test
     // device has no explicit profile_ids so the global default is
     // what determines its filtering.
-    const ip = await acquireLeaseInRange(TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
-    const device = await findDeviceByIp(authed, ip);
+    const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     await dnsFilter.updateDeviceSettings(device.id, { enabled: true, profile_ids: [] });
 
     // Make the canary blockable under Ad Blocking (the seed default).

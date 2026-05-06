@@ -6,14 +6,15 @@ import {
   API_BASE_URL,
   AuthedClient,
   TEST_DEBIAN_AGENT,
-  acquireLeaseInRange,
   ensureAdminAndLogin,
-  findDeviceByIp,
+  findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
   waitForReady,
 } from "./helpers.js";
 
+// See `dns-filter-device-toggle.spec.ts` for why we look up the device
+// rather than re-acquiring the lease.
 const POOL_START = "10.91.0.100";
 const POOL_END = "10.91.0.150";
 
@@ -41,9 +42,10 @@ describe("dns filter — per-device profile swap", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    if (!(await dns.getConfig()).config.enabled) {
-      await dns.toggle({ enabled: true });
-    }
+    // DNS is already on under singleFork; re-toggling here races against
+    // the runner restart cycle. Sanity-check only.
+    const cfg = (await dns.getConfig()).config;
+    expect(cfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
 
     // Clean leftover blocklists / custom profiles from prior runs so
     // they don't combine with the new ones to produce the wrong
@@ -61,8 +63,7 @@ describe("dns filter — per-device profile swap", () => {
       }
     }
 
-    const ip = await acquireLeaseInRange(TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
-    const device = await findDeviceByIp(authed, ip);
+    const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     deviceId = device.id;
     await dnsFilter.updateDeviceSettings(deviceId, { enabled: true, profile_ids: [] });
 

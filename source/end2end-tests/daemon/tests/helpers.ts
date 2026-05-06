@@ -318,6 +318,39 @@ export async function findDeviceByIp(
 }
 
 /**
+ * Poll `DeviceService.list` until a device appears with an IPv4 inside the
+ * given inclusive range. Used by the per-device DNS-filter specs that need
+ * the daemon's UUID for `test_debian` — earlier specs (notably
+ * `dhcp.spec.ts`) have already driven the agent through DHCP, so we don't
+ * re-trigger `dhclient renew` here (that path has been observed to race
+ * with the daemon's DHCP runner under singleFork). Throws on timeout.
+ */
+export async function findDeviceByIpRange(
+  client: WardnetClient,
+  startInclusive: string,
+  endInclusive: string,
+  timeoutMs = 30_000,
+): Promise<Device> {
+  const devices = new DeviceService(client);
+  const lo = ipToInt(startInclusive);
+  const hi = ipToInt(endInclusive);
+  const deadline = Date.now() + timeoutMs;
+  let last: Device[] = [];
+  while (Date.now() < deadline) {
+    last = (await devices.list()).devices;
+    const match = last.find((d) => {
+      const v = ipToInt(d.last_ip);
+      return v >= lo && v <= hi;
+    });
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `no device with last_ip in ${startInclusive}-${endInclusive} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
+  );
+}
+
+/**
  * Poll `JobsService.get` until the job reaches a terminal state, or
  * throw on timeout. Returns the final `Job` so callers can assert on
  * `status === "SUCCEED"` and surface `error` on failure paths.
