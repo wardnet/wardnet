@@ -23,7 +23,8 @@ export interface DnsConfig {
   dnssec_enabled: boolean;
   rebinding_protection: boolean;
   rate_limit_per_second: number;
-  ad_blocking_enabled: boolean;
+  /** Global emergency stop for DNS filtering. Renamed from `ad_blocking_enabled`. */
+  dns_filtering_enabled: boolean;
   query_log_enabled: boolean;
   query_log_retention_days: number;
 }
@@ -43,7 +44,7 @@ export interface UpdateDnsConfigRequest {
   dnssec_enabled?: boolean;
   rebinding_protection?: boolean;
   rate_limit_per_second?: number;
-  ad_blocking_enabled?: boolean;
+  dns_filtering_enabled?: boolean;
   query_log_enabled?: boolean;
   query_log_retention_days?: number;
 }
@@ -66,136 +67,21 @@ export interface DnsCacheFlushResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Ad Blocking — domain types
-// ---------------------------------------------------------------------------
-
-/** A URL-sourced domain blocklist. */
-export interface Blocklist {
-  id: string;
-  name: string;
-  url: string;
-  enabled: boolean;
-  entry_count: number;
-  last_updated: string | null;
-  cron_schedule: string;
-  last_error: string | null;
-  last_error_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/** An allowlist entry that overrides blocklist matches. */
-export interface AllowlistEntry {
-  id: string;
-  domain: string;
-  reason: string | null;
-  created_at: string;
-}
-
-/** A user-created AdGuard-syntax filter rule. */
-export interface CustomFilterRule {
-  id: string;
-  rule_text: string;
-  enabled: boolean;
-  comment: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// ---------------------------------------------------------------------------
-// Ad Blocking — API request/response types
-// ---------------------------------------------------------------------------
-
-export interface ListBlocklistsResponse {
-  blocklists: Blocklist[];
-}
-
-export interface CreateBlocklistRequest {
-  name: string;
-  url: string;
-  cron_schedule: string;
-  enabled: boolean;
-}
-
-export interface CreateBlocklistResponse {
-  blocklist: Blocklist;
-  message: string;
-}
-
-export interface UpdateBlocklistRequest {
-  name?: string;
-  url?: string;
-  cron_schedule?: string;
-  enabled?: boolean;
-}
-
-export interface UpdateBlocklistResponse {
-  blocklist: Blocklist;
-  message: string;
-}
-
-export interface DeleteBlocklistResponse {
-  message: string;
-}
-
-// Response for POST /api/dns/blocklists/{id}/update is now
-// `JobDispatchedResponse` from ./jobs.ts — the handler dispatches a
-// background job and the client polls `/api/jobs/:id` for progress.
-
-export interface ListAllowlistResponse {
-  entries: AllowlistEntry[];
-}
-
-export interface CreateAllowlistRequest {
-  domain: string;
-  reason?: string;
-}
-
-export interface CreateAllowlistResponse {
-  entry: AllowlistEntry;
-  message: string;
-}
-
-export interface DeleteAllowlistResponse {
-  message: string;
-}
-
-export interface ListFilterRulesResponse {
-  rules: CustomFilterRule[];
-}
-
-export interface CreateFilterRuleRequest {
-  rule_text: string;
-  comment?: string;
-  enabled: boolean;
-}
-
-export interface CreateFilterRuleResponse {
-  rule: CustomFilterRule;
-  message: string;
-}
-
-export interface UpdateFilterRuleRequest {
-  rule_text?: string;
-  comment?: string;
-  enabled?: boolean;
-}
-
-export interface UpdateFilterRuleResponse {
-  rule: CustomFilterRule;
-  message: string;
-}
-
-export interface DeleteFilterRuleResponse {
-  message: string;
-}
-
-// ---------------------------------------------------------------------------
 // Query log + stats
 // ---------------------------------------------------------------------------
 
-/** Result classification for a DNS query. */
-export type DnsQueryResult = "forwarded" | "cached" | "blocked" | "local" | "recursive" | "error";
+/** Result classification for a DNS query.
+ *
+ *  `blocked_skipped` is recorded when a query *would* have been blocked but the
+ *  per-device kill switch (or global emergency stop) suppressed the block. */
+export type DnsQueryResult =
+  | "forwarded"
+  | "cached"
+  | "blocked"
+  | "blocked_skipped"
+  | "local"
+  | "recursive"
+  | "error";
 
 /** A single entry in the persisted DNS query log. */
 export interface DnsQueryLogEntry {

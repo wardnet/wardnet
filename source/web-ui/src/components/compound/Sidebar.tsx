@@ -22,8 +22,8 @@ const adminLinks: NavItem[] = [
   { to: "/devices", label: "Devices" },
   { to: "/tunnels", label: "Tunnels" },
   { to: "/dhcp", label: "DHCP" },
-  { to: "/dns", label: "DNS" },
-  { to: "/ad-blocking", label: "Ad blocking" },
+  { to: "/dns", label: "DNS", end: true },
+  { to: "/dns/filter", label: "DNS Filtering" },
   { to: "/settings", label: "Settings" },
 ];
 

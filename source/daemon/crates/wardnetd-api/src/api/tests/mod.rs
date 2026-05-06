@@ -2,7 +2,7 @@ mod auth;
 mod backup;
 mod devices;
 mod dhcp;
-mod dns;
+mod dns_filter;
 mod info;
 mod jobs;
 mod middleware;

@@ -52,3 +52,5 @@ tokio = { workspace = true, features = ["test-util"] }
 async-trait.workspace = true
 # https://crates.io/crates/sqlx
 sqlx.workspace = true
+# https://crates.io/crates/hickory-proto — RecordType used by stub DnsFilterService
+hickory-proto.workspace = true

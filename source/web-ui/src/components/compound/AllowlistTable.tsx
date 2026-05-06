@@ -1,6 +1,13 @@
 import type { ColumnDef } from "@tanstack/react-table";
+import { MoreHorizontalIcon } from "lucide-react";
 import { Button } from "@/components/core/ui/button";
 import { DataTable } from "@/components/core/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/core/ui/dropdown-menu";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { timeAgo } from "@/lib/utils";
 import type { AllowlistEntry } from "@wardnet/js";
@@ -10,20 +17,26 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
     {
       accessorKey: "domain",
       header: "Domain",
-      cell: ({ row }) => <span className="font-mono text-sm">{row.original.domain}</span>,
+      cell: ({ row }) => (
+        <span className="block truncate font-mono text-sm" title={row.original.domain}>
+          {row.original.domain}
+        </span>
+      ),
     },
     {
       accessorKey: "reason",
       header: "Reason",
       meta: { className: "hidden sm:table-cell" },
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{row.original.reason ?? "\u2014"}</span>
+        <span className="block truncate text-muted-foreground" title={row.original.reason ?? ""}>
+          {row.original.reason ?? "\u2014"}
+        </span>
       ),
     },
     {
       accessorKey: "created_at",
       header: "Added",
-      meta: { className: "hidden md:table-cell" },
+      meta: { className: "hidden w-32 md:table-cell" },
       cell: ({ row }) => (
         <span className="text-muted-foreground">{timeAgo(row.original.created_at)}</span>
       ),
@@ -31,15 +44,26 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
     {
       id: "actions",
       header: "",
-      meta: { className: "text-right" },
+      meta: { className: "w-12 text-right" },
       cell: ({ row }) => (
-        <Button
-          variant="tertiary"
-          className="text-destructive hover:text-destructive"
-          onClick={() => onDelete(row.original.id)}
-        >
-          Remove
-        </Button>
+        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Actions for ${row.original.domain}`}
+              >
+                <MoreHorizontalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(row.original.id)}>
+                Remove
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       ),
     },
   ];
@@ -69,10 +93,12 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button onClick={onAdd}>Add domain</Button>
+        <Button variant="outline" onClick={onAdd}>
+          Add domain
+        </Button>
       </div>
 
-      <DataTable columns={columns} data={entries} />
+      <DataTable columns={columns} data={entries} fixedLayout />
     </div>
   );
 }

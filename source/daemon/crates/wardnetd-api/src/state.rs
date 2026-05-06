@@ -4,9 +4,9 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
-    AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService,
-    JobService, LogService, RoutingService, SystemService, TunnelService, UpdateService,
-    VpnProviderService,
+    AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
+    DnsFilterService, DnsService, JobService, LogService, RoutingService, SystemService,
+    TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -24,6 +24,7 @@ struct Inner {
     device_service: Arc<dyn DeviceService>,
     dhcp_service: Arc<dyn DhcpService>,
     dns_service: Arc<dyn DnsService>,
+    dns_filter_service: Arc<dyn DnsFilterService>,
     discovery_service: Arc<dyn DeviceDiscoveryService>,
     log_service: Arc<dyn LogService>,
     provider_service: Arc<dyn VpnProviderService>,
@@ -46,6 +47,7 @@ impl AppState {
         device_service: Arc<dyn DeviceService>,
         dhcp_service: Arc<dyn DhcpService>,
         dns_service: Arc<dyn DnsService>,
+        dns_filter_service: Arc<dyn DnsFilterService>,
         discovery_service: Arc<dyn DeviceDiscoveryService>,
         log_service: Arc<dyn LogService>,
         provider_service: Arc<dyn VpnProviderService>,
@@ -65,6 +67,7 @@ impl AppState {
                 device_service,
                 dhcp_service,
                 dns_service,
+                dns_filter_service,
                 discovery_service,
                 log_service,
                 provider_service,
@@ -106,6 +109,13 @@ impl AppState {
     #[must_use]
     pub fn dns_service(&self) -> &dyn DnsService {
         self.inner.dns_service.as_ref()
+    }
+
+    /// Access the DNS filter service (profiles, blocklists, allowlist,
+    /// custom rules, per-device settings — issue #221).
+    #[must_use]
+    pub fn dns_filter_service(&self) -> &dyn DnsFilterService {
+        self.inner.dns_filter_service.as_ref()
     }
 
     #[must_use]

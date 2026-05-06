@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DnsService, JobsService, WardnetClient } from "@wardnet/js";
+import { DnsFilterService, DnsService, JobsService, WardnetClient } from "@wardnet/js";
 
 import {
+  AD_BLOCKING_PROFILE_ID,
   API_BASE_URL,
   AuthedClient,
   TEST_DEBIAN_AGENT,
@@ -23,6 +24,7 @@ const TARGET_DOMAIN = "example.com";
 describe("dns allowlist", () => {
   let authed: AuthedClient;
   let dns: DnsService;
+  let dnsFilter: DnsFilterService;
   let jobs: JobsService;
   let blocklistId: string | undefined;
   let allowlistEntryId: string | undefined;
@@ -32,6 +34,7 @@ describe("dns allowlist", () => {
     await waitForReady(client);
     authed = await ensureAdminAndLogin(client);
     dns = new DnsService(authed);
+    dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
     if (!(await dns.getConfig()).config.enabled) {
@@ -40,27 +43,27 @@ describe("dns allowlist", () => {
 
     // Clean leftover allowlist entries / blocklists from prior runs
     // on the same wardnet_state volume.
-    const allow = await dns.listAllowlist();
+    const allow = await dnsFilter.listAllowlist(AD_BLOCKING_PROFILE_ID);
     for (const e of allow.entries) {
       if (e.domain === TARGET_DOMAIN) {
-        await dns.deleteAllowlistEntry(e.id);
+        await dnsFilter.deleteAllowlistEntry(AD_BLOCKING_PROFILE_ID, e.id);
       }
     }
-    const lists = await dns.listBlocklists();
+    const lists = await dnsFilter.listBlocklists(AD_BLOCKING_PROFILE_ID);
     for (const b of lists.blocklists) {
       if (b.name === BLOCKLIST_NAME || b.url === BLOCKLIST_URL) {
-        await dns.deleteBlocklist(b.id);
+        await dnsFilter.deleteBlocklist(AD_BLOCKING_PROFILE_ID, b.id);
       }
     }
 
-    const created = await dns.createBlocklist({
+    const created = await dnsFilter.createBlocklist(AD_BLOCKING_PROFILE_ID, {
       name: BLOCKLIST_NAME,
       url: BLOCKLIST_URL,
       cron_schedule: CRON_NEVER,
       enabled: true,
     });
     blocklistId = created.blocklist.id;
-    const dispatched = await dns.updateBlocklistNow(blocklistId);
+    const dispatched = await dnsFilter.refreshBlocklist(AD_BLOCKING_PROFILE_ID, blocklistId);
     const job = await waitForJob(jobs, dispatched.job_id, 30_000);
     expect(job.status, `job error: ${job.error ?? "(none)"}`).toBe("SUCCEED");
   }, 90_000);
@@ -68,14 +71,14 @@ describe("dns allowlist", () => {
   afterAll(async () => {
     if (allowlistEntryId) {
       try {
-        await dns.deleteAllowlistEntry(allowlistEntryId);
+        await dnsFilter.deleteAllowlistEntry(AD_BLOCKING_PROFILE_ID, allowlistEntryId);
       } catch {
         // ignore
       }
     }
     if (blocklistId) {
       try {
-        await dns.deleteBlocklist(blocklistId);
+        await dnsFilter.deleteBlocklist(AD_BLOCKING_PROFILE_ID, blocklistId);
       } catch {
         // ignore
       }
@@ -92,19 +95,18 @@ describe("dns allowlist", () => {
     // false-pass ("allowlist works because nothing was blocked") is
     // possible if the fixture didn't load.
     await expect
-      .poll(
-        async () =>
-          (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs
-            .length,
-        { interval: 250, timeout: 10_000 },
-      )
+      .poll(async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs.length, {
+        interval: 250,
+        timeout: 10_000,
+      })
       .toBe(0);
 
-    const created = await dns.createAllowlistEntry({
+    const created = await dnsFilter.createAllowlistEntry(AD_BLOCKING_PROFILE_ID, {
       domain: TARGET_DOMAIN,
       reason: "e2e dns-allowlist spec",
     });
     allowlistEntryId = created.entry.id;
+    expect(created.entry.profile_id).toBe(AD_BLOCKING_PROFILE_ID);
 
     // Cached NXDOMAIN from the block phase would mask the allowlist
     // override (DnsCache.get serves stale negative answers within
@@ -113,20 +115,17 @@ describe("dns allowlist", () => {
     await dns.flushCache();
 
     await expect
-      .poll(
-        async () =>
-          (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs
-            .length,
-        { interval: 500, timeout: 15_000 },
-      )
+      .poll(async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs.length, {
+        interval: 500,
+        timeout: 15_000,
+      })
       .toBeGreaterThan(0);
   });
 
   it("re-blocks the domain when the allowlist entry is removed", async () => {
-    expect(allowlistEntryId, "previous test created an allowlist entry")
-      .toBeDefined();
+    expect(allowlistEntryId, "previous test created an allowlist entry").toBeDefined();
 
-    await dns.deleteAllowlistEntry(allowlistEntryId!);
+    await dnsFilter.deleteAllowlistEntry(AD_BLOCKING_PROFILE_ID, allowlistEntryId!);
     allowlistEntryId = undefined;
 
     // Same caching subtlety as above, in reverse: a cached real
@@ -134,12 +133,10 @@ describe("dns allowlist", () => {
     await dns.flushCache();
 
     await expect
-      .poll(
-        async () =>
-          (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs
-            .length,
-        { interval: 250, timeout: 10_000 },
-      )
+      .poll(async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, TARGET_DOMAIN)).addrs.length, {
+        interval: 250,
+        timeout: 10_000,
+      })
       .toBe(0);
   });
 });

@@ -7,12 +7,14 @@ use crate::dns::{
     AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, DnsQueryLogEntry,
     UpstreamDns,
 };
+use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
 use crate::tunnel::Tunnel;
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
+use uuid::Uuid;
 
 /// Login request body.
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -472,7 +474,7 @@ pub struct UpdateDnsConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_per_second: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ad_blocking_enabled: Option<bool>,
+    pub dns_filtering_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_log_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -658,6 +660,117 @@ pub struct UpdateFilterRuleResponse {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeleteFilterRuleResponse {
     pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Filter — Profiles
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/filter/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListProfilesResponse {
+    pub profiles: Vec<DnsFilterProfile>,
+}
+
+/// Response for GET /api/dns/filter/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetProfileResponse {
+    pub profile: DnsFilterProfile,
+}
+
+/// Request body for POST /api/dns/filter/profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateProfileRequest {
+    pub name: String,
+}
+
+/// Response for POST /api/dns/filter/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateProfileResponse {
+    pub profile: DnsFilterProfile,
+    pub message: String,
+}
+
+/// Request body for PUT /api/dns/filter/profiles/{id}.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateProfileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Response for PUT /api/dns/filter/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateProfileResponse {
+    pub profile: DnsFilterProfile,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/filter/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteProfileResponse {
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Filter — Per-device settings
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/filter/devices/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetDeviceFilterSettingsResponse {
+    pub settings: DeviceDnsFilterSettings,
+}
+
+/// Request body for PUT /api/dns/filter/devices/{id}.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDeviceFilterSettingsRequest {
+    pub enabled: bool,
+    pub profile_ids: Vec<Uuid>,
+}
+
+/// Response for PUT /api/dns/filter/devices/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDeviceFilterSettingsResponse {
+    pub settings: DeviceDnsFilterSettings,
+    pub message: String,
+}
+
+/// Response for GET /api/dns/filter/devices.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListDeviceFilterSettingsResponse {
+    pub devices: Vec<DeviceDnsFilterSettings>,
+}
+
+/// Query params for GET /api/dns/filter/devices.
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+pub struct ListDeviceFilterSettingsParams {
+    /// When `Some(false)`, restrict to devices where the kill switch is off.
+    /// When `None` (default), return every device with explicit settings or
+    /// profile assignments.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+// ---------------------------------------------------------------------------
+// DNS Filter — Global config
+// ---------------------------------------------------------------------------
+
+/// Response for GET /api/dns/filter/config.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsFilterConfigResponse {
+    pub config: DnsFilterConfig,
+}
+
+/// Request body for PUT /api/dns/filter/config.
+///
+/// `default_profile_id` uses double-`Option` semantics: omitted from JSON =
+/// no change, `null` = clear the default, `"<uuid>"` = set.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDnsFilterConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_profile_id: Option<Option<Uuid>>,
 }
 
 // ---------------------------------------------------------------------------

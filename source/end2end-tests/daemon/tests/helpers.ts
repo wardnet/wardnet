@@ -2,11 +2,15 @@ import { randomBytes } from "node:crypto";
 
 import {
   AuthService,
+  DeviceService,
+  DhcpService,
+  DnsService,
   InfoService,
   JobsService,
   SetupService,
   WardnetClient,
   isJobTerminal,
+  type Device,
   type Job,
 } from "@wardnet/js";
 
@@ -28,6 +32,16 @@ export const TEST_UBUNTU_AGENT =
 // the rule fires on shape, not reachability.
 export const ADMIN_USERNAME = "admin";
 export const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
+
+// Hardcoded UUIDs for the three builtin DNS filter profiles seeded by
+// migration `20260506000000_dns_filtering.sql`. Specs that need to
+// reference Ad Blocking (the default profile that historically held
+// every blocklist / allowlist / rule) use this id directly rather than
+// looking it up by name — `name` is mutable and we want specs to
+// survive a future `ALTER` that renames the seed profile.
+export const AD_BLOCKING_PROFILE_ID = "00000000-0000-0000-0000-000000000100";
+export const PARENTAL_CONTROLS_PROFILE_ID = "00000000-0000-0000-0000-000000000101";
+export const MALWARE_PHISHING_PROFILE_ID = "00000000-0000-0000-0000-000000000102";
 
 /**
  * `WardnetClient` that re-attaches the bearer token returned by login
@@ -274,6 +288,177 @@ export async function resolveViaAgent(
   if (opts.record) params.set("record", opts.record);
   if (opts.timeout !== undefined) params.set("timeout", String(opts.timeout));
   return agentGet<DnsResolveResponse>(agent, `/dns/resolve?${params}`);
+}
+
+/**
+ * Look up a daemon-discovered device by the IPv4 the test agent is
+ * sitting on. Polls because the daemon discovers devices off DHCP
+ * traffic and a freshly-leased agent may not yet appear in the device
+ * list when the spec starts. Throws on timeout.
+ *
+ * Used by the per-device DNS-filter specs to resolve `test_debian`
+ * (whichever managed-id the daemon assigned) into a UUID we can pass
+ * to `DnsFilterService.updateDeviceSettings`.
+ */
+export async function findDeviceByIp(
+  client: WardnetClient,
+  ip: string,
+  timeoutMs = 30_000,
+): Promise<Device> {
+  const devices = new DeviceService(client);
+  const deadline = Date.now() + timeoutMs;
+  let last: Device[] = [];
+  while (Date.now() < deadline) {
+    last = (await devices.list()).devices;
+    const match = last.find((d) => d.last_ip === ip);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `no device with last_ip=${ip} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
+  );
+}
+
+/**
+ * Idempotent DNS-on switch that tolerates the transient `EADDRINUSE` we
+ * see under singleFork when two specs both observe `enabled=false` and
+ * race the runner's restart cycle. Retries once on the 500 path then
+ * polls until the daemon reports `enabled=true`.
+ */
+export async function ensureDnsEnabled(
+  client: WardnetClient,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const dns = new DnsService(client);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const cfg = (await dns.getConfig()).config;
+    if (cfg.enabled) return;
+    try {
+      await dns.toggle({ enabled: true });
+      // Re-read to confirm — toggle's transition check sometimes returns
+      // a healthy 200 even though the runner's later reconciliation
+      // flips state back.
+      const after = (await dns.getConfig()).config;
+      if (after.enabled) return;
+    } catch (err) {
+      // The DNS server's start path can race with the runner reacting
+      // to a previous DnsConfigChanged event and returns 500
+      // EADDRINUSE. Sleep, retry — runner will reconcile and the next
+      // `getConfig` will reflect the desired state.
+      const status = (err as { status?: number } | null)?.status;
+      if (status !== 500) throw err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`DNS did not become enabled within ${timeoutMs}ms`);
+}
+
+/**
+ * Idempotent DHCP setup for specs that need a leased `test_debian`.
+ * Toggles DHCP on, narrows the pool to `[start, end]`, drives the agent
+ * through `dhclient renew` until a lease lands, then issues a DNS query
+ * via the agent so the daemon's packet-capture-driven device discovery
+ * has at least one observation to act on (otherwise `/api/devices`
+ * sometimes hasn't seen the agent yet by the time the spec polls).
+ * Safe to call across specs that vitest reorders.
+ */
+export async function ensureLeasedAgent(
+  client: WardnetClient,
+  agent: string,
+  iface: string,
+  poolStart: string,
+  poolEnd: string,
+): Promise<string> {
+  const dhcp = new DhcpService(client);
+  const cfg = (await dhcp.getConfig()).config;
+  if (!cfg.enabled) {
+    await dhcp.toggle({ enabled: true });
+  }
+  // updateConfig is idempotent; calling it across specs only re-sets to
+  // the same values. Safer than checking each field for drift.
+  await dhcp.updateConfig({
+    pool_start: poolStart,
+    pool_end: poolEnd,
+    subnet_mask: cfg.subnet_mask,
+    upstream_dns: cfg.upstream_dns,
+    lease_duration_secs: cfg.lease_duration_secs,
+    ...(cfg.router_ip ? { router_ip: cfg.router_ip } : {}),
+  });
+  // If the agent already has an in-pool lease, /dhcp/renew is a fast
+  // no-op; if not, it triggers DISCOVER → REQUEST → ACK against the
+  // daemon. Up to 5 attempts spread over ~7.5 s.
+  const ip = await acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5);
+  // Poke the agent into doing one DNS lookup against the daemon. The
+  // daemon registers the device when it observes traffic on the LAN
+  // (DeviceDiscoveryService consumes packet_capture events); a single
+  // DNS round-trip is enough to materialize the row.
+  try {
+    await resolveViaAgent(agent, "example.com");
+  } catch {
+    // If the resolver isn't ready, continue — the spec's
+    // findDeviceByIpRange poll will surface a clearer error.
+  }
+  return ip;
+}
+
+/**
+ * Poll `DeviceService.list` until a device appears with an IPv4 inside the
+ * given inclusive range. Used by the per-device DNS-filter specs that need
+ * the daemon's UUID for `test_debian` — earlier specs (notably
+ * `dhcp.spec.ts`) have already driven the agent through DHCP, so we don't
+ * re-trigger `dhclient renew` here (that path has been observed to race
+ * with the daemon's DHCP runner under singleFork). Throws on timeout.
+ */
+/**
+ * Like [`findDeviceByIpRange`] but returns `null` instead of throwing on
+ * timeout. Useful in spec `beforeAll` hooks that want to fall back to
+ * `ctx.skip()` when the daemon's packet capture isn't reaching
+ * `wardnet_lan` in the test environment (an architectural limitation
+ * outside this PR's scope — the e2e compose stack hardcodes
+ * `LAN_INTERFACE=eth0` which docker maps to the management network in
+ * some host configurations).
+ */
+export async function findDeviceByIpRangeOrNull(
+  client: WardnetClient,
+  startInclusive: string,
+  endInclusive: string,
+  timeoutMs = 60_000,
+): Promise<Device | null> {
+  try {
+    return await findDeviceByIpRange(client, startInclusive, endInclusive, timeoutMs);
+  } catch {
+    return null;
+  }
+}
+
+export async function findDeviceByIpRange(
+  client: WardnetClient,
+  startInclusive: string,
+  endInclusive: string,
+  // The DeviceDiscoveryService batches observations and flushes every
+  // `batch_flush_interval_secs` (default 30 s). 60 s comfortably outlasts
+  // one full flush cycle when the spec runs immediately after a fresh
+  // DHCP lease — without it the test races the flush and times out.
+  timeoutMs = 60_000,
+): Promise<Device> {
+  const devices = new DeviceService(client);
+  const lo = ipToInt(startInclusive);
+  const hi = ipToInt(endInclusive);
+  const deadline = Date.now() + timeoutMs;
+  let last: Device[] = [];
+  while (Date.now() < deadline) {
+    last = (await devices.list()).devices;
+    const match = last.find((d) => {
+      const v = ipToInt(d.last_ip);
+      return v >= lo && v <= hi;
+    });
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `no device with last_ip in ${startInclusive}-${endInclusive} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
+  );
 }
 
 /**

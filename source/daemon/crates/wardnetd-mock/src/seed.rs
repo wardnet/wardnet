@@ -34,6 +34,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     let tunnel_repo = factory.tunnel();
     let tunnel_metrics_repo = factory.tunnel_metrics();
     let dns_repo = factory.dns();
+    let dns_filter_repo = factory.dns_filter();
+    // Hardcoded id of the migration-seeded "Ad Blocking" builtin profile.
+    let ad_blocking_profile_id = "00000000-0000-0000-0000-000000000100".to_owned();
     let dhcp_repo = factory.dhcp();
 
     let now = Utc::now();
@@ -269,17 +272,19 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // are seeded by migrations (both disabled); we leave those alone so no
     // real HTTP fetch is scheduled.
     // ------------------------------------------------------------------
-    dns_repo
+    dns_filter_repo
         .create_allowlist_entry(&AllowlistRow {
             id: Uuid::new_v4().to_string(),
+            profile_id: ad_blocking_profile_id.clone(),
             domain: "example.com".to_owned(),
             reason: Some("demo allowlist entry".to_owned()),
         })
         .await?;
 
-    dns_repo
+    dns_filter_repo
         .create_custom_rule(&CustomRuleRow {
             id: Uuid::new_v4().to_string(),
+            profile_id: ad_blocking_profile_id.clone(),
             rule_text: "||tracker.example.net^".to_owned(),
             enabled: true,
             comment: Some("demo custom rule".to_owned()),

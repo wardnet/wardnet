@@ -34,18 +34,32 @@ async fn populate_inserts_expected_demo_data() {
     let tunnels = factory.tunnel().find_all().await.unwrap();
     assert_eq!(tunnels.len(), 2);
 
-    let blocklists = factory.dns().list_blocklists().await.unwrap();
-    // Migrations seed two default blocklists (both disabled); seed() adds none.
+    // After issue #221 the filter sources are profile-scoped — assert the
+    // demo allowlist + custom rule landed in the Ad Blocking builtin profile.
+    let ad_blocking_id: uuid::Uuid = "00000000-0000-0000-0000-000000000100".parse().unwrap();
+    let dns_filter_repo = factory.dns_filter();
+    let blocklists = dns_filter_repo
+        .list_blocklists(ad_blocking_id)
+        .await
+        .unwrap();
+    // The legacy DNS migration seeded two disabled blocklists; the Stage 7
+    // migration backfills them into the Ad Blocking profile. seed() adds none.
     assert_eq!(blocklists.len(), 2);
     assert!(
         blocklists.iter().all(|b| !b.enabled),
         "seeded blocklists should be disabled so no HTTP fetch is scheduled"
     );
 
-    let allowlist = factory.dns().list_allowlist().await.unwrap();
+    let allowlist = dns_filter_repo
+        .list_allowlist(ad_blocking_id)
+        .await
+        .unwrap();
     assert_eq!(allowlist.len(), 1);
 
-    let custom_rules = factory.dns().list_custom_rules().await.unwrap();
+    let custom_rules = dns_filter_repo
+        .list_custom_rules(ad_blocking_id)
+        .await
+        .unwrap();
     assert_eq!(custom_rules.len(), 1);
 }
 

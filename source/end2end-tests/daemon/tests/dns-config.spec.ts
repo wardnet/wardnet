@@ -85,7 +85,7 @@ describe("dns config", () => {
           protocol: "udp",
         },
       ],
-      ad_blocking_enabled: true,
+      dns_filtering_enabled: true,
     });
     expect(updated.config.cache_size).toBe(5_000);
     expect(updated.config.cache_ttl_min_secs).toBe(30);
@@ -97,7 +97,7 @@ describe("dns config", () => {
         protocol: "udp",
       },
     ]);
-    expect(updated.config.ad_blocking_enabled).toBe(true);
+    expect(updated.config.dns_filtering_enabled).toBe(true);
 
     // Independent re-read confirms persistence (not just the
     // synchronous response shape).

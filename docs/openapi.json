@@ -2798,20 +2798,145 @@
         ]
       }
     },
-    "/api/dns/allowlist": {
+    "/api/dns/cache/flush": {
+      "post": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Flush the DNS resolver cache. Admin only.",
+        "operationId": "flush_cache",
+        "responses": {
+          "200": {
+            "description": "Cache flushed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsCacheFlushResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/config": {
       "get": {
         "tags": [
           "dns"
         ],
-        "description": "List every entry in the DNS allowlist. Allowlisted domains bypass blocklist entries and always resolve. Admin only.",
-        "operationId": "list_allowlist",
+        "description": "Return the current DNS server configuration. Admin only.",
+        "operationId": "get_config",
         "responses": {
           "200": {
-            "description": "List of allowlist entries",
+            "description": "Current DNS configuration",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListAllowlistResponse"
+                  "$ref": "#/components/schemas/DnsConfigResponse"
                 }
               }
             }
@@ -2922,29 +3047,29 @@
           }
         ]
       },
-      "post": {
+      "put": {
         "tags": [
           "dns"
         ],
-        "description": "Add a domain to the DNS allowlist so it is never blocked, regardless of blocklist contents. Admin only.",
-        "operationId": "create_allowlist_entry",
+        "description": "Partially update DNS server configuration. Admin only.",
+        "operationId": "update_config",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateAllowlistRequest"
+                "$ref": "#/components/schemas/UpdateDnsConfigRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Allowlist entry created",
+          "200": {
+            "description": "Updated DNS configuration",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateAllowlistResponse"
+                  "$ref": "#/components/schemas/DnsConfigResponse"
                 }
               }
             }
@@ -3088,18 +3213,2218 @@
         ]
       }
     },
-    "/api/dns/allowlist/{id}": {
+    "/api/dns/config/toggle": {
+      "post": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Enable or disable the DNS server. Admin only.",
+        "operationId": "toggle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleDnsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated DNS configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/config": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Read the global DNS filter config (emergency stop + default profile pointer). Admin only.",
+        "operationId": "get_filter_config",
+        "responses": {
+          "200": {
+            "description": "Filter config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsFilterConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Update the global DNS filter config. Admin only.",
+        "operationId": "update_filter_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDnsFilterConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsFilterConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/devices": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "List devices with explicit DNS filter settings or profile assignments. Use `?enabled=false` to filter to devices where the per-device kill switch is off. Admin only.",
+        "operationId": "list_device_settings",
+        "parameters": [
+          {
+            "name": "enabled",
+            "in": "query",
+            "description": "When `Some(false)`, restrict to devices where the kill switch is off.\nWhen `None` (default), return every device with explicit settings or\nprofile assignments.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDeviceFilterSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/devices/{device_id}": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Get a device's DNS filter settings. Returns the default (enabled, no explicit profiles) for devices that have never been configured. Admin only.",
+        "operationId": "get_device_settings",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "description": "Device id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDeviceFilterSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Update a device's DNS filter settings (kill switch + profile assignments). Admin only.",
+        "operationId": "update_device_settings",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "description": "Device id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDeviceFilterSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDeviceFilterSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/profiles": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "List every DNS filter profile. Admin only.",
+        "operationId": "list_profiles",
+        "responses": {
+          "200": {
+            "description": "Profiles list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProfilesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Create a new DNS filter profile. Admin only.",
+        "operationId": "create_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Profile created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/profiles/{profile_id}": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Fetch a single DNS filter profile. Admin only.",
+        "operationId": "get_profile",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Rename a DNS filter profile. Admin only.",
+        "operationId": "update_profile",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "dns"
         ],
-        "description": "Remove a domain from the DNS allowlist. If the domain is also listed by an active blocklist, it will start being blocked again. Admin only.",
+        "description": "Delete a non-builtin DNS filter profile. Returns 409 for builtin profiles (Ad Blocking, Parental Controls, Malware & Phishing). Admin only.",
+        "operationId": "delete_profile",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Profile is builtin and cannot be deleted"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/profiles/{profile_id}/allowlist": {
+      "get": {
+        "tags": [
+          "dns"
+        ],
+        "description": "List allowlist entries scoped to a profile. Admin only.",
+        "operationId": "list_allowlist",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allowlist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAllowlistResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Add a domain to the profile's allowlist. Admin only.",
+        "operationId": "create_allowlist_entry",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAllowlistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Allowlist entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAllowlistResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/dns/filter/profiles/{profile_id}/allowlist/{id}": {
+      "delete": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Remove a domain from a profile's allowlist. Admin only.",
         "operationId": "delete_allowlist_entry",
         "parameters": [
           {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "id",
             "in": "path",
-            "description": "Allowlist entry ID",
+            "description": "Allowlist entry id",
             "required": true,
             "schema": {
               "type": "string",
@@ -3257,16 +5582,28 @@
         ]
       }
     },
-    "/api/dns/blocklists": {
+    "/api/dns/filter/profiles/{profile_id}/blocklists": {
       "get": {
         "tags": [
           "dns"
         ],
-        "description": "List every configured DNS blocklist source, along with its enabled flag, last-updated timestamp, and entry count. Admin only.",
+        "description": "List every blocklist scoped to a profile. Admin only.",
         "operationId": "list_blocklists",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "List of blocklists",
+            "description": "Blocklists",
             "content": {
               "application/json": {
                 "schema": {
@@ -3309,6 +5646,38 @@
           },
           "403": {
             "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3385,8 +5754,20 @@
         "tags": [
           "dns"
         ],
-        "description": "Register a new DNS blocklist source (URL + format) that the daemon will periodically fetch and compile into the filter. Admin only.",
+        "description": "Create a blocklist under a profile. Admin only.",
         "operationId": "create_blocklist",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3504,6 +5885,38 @@
               }
             }
           },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -3547,18 +5960,28 @@
         ]
       }
     },
-    "/api/dns/blocklists/{id}": {
+    "/api/dns/filter/profiles/{profile_id}/blocklists/{id}": {
       "put": {
         "tags": [
           "dns"
         ],
-        "description": "Update an existing DNS blocklist (URL, label, enabled flag, or refresh interval). Admin only.",
+        "description": "Update a blocklist within a profile. Admin only.",
         "operationId": "update_blocklist",
         "parameters": [
           {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "id",
             "in": "path",
-            "description": "Blocklist ID",
+            "description": "Blocklist id",
             "required": true,
             "schema": {
               "type": "string",
@@ -3761,13 +6184,23 @@
         "tags": [
           "dns"
         ],
-        "description": "Delete a DNS blocklist by ID. Any entries contributed by this blocklist are removed from the active filter. Admin only.",
+        "description": "Delete a blocklist from a profile. Admin only.",
         "operationId": "delete_blocklist",
         "parameters": [
           {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "id",
             "in": "path",
-            "description": "Blocklist ID",
+            "description": "Blocklist id",
             "required": true,
             "schema": {
               "type": "string",
@@ -3925,18 +6358,28 @@
         ]
       }
     },
-    "/api/dns/blocklists/{id}/update": {
+    "/api/dns/filter/profiles/{profile_id}/blocklists/{id}/refresh": {
       "post": {
         "tags": [
           "dns"
         ],
-        "description": "Trigger an immediate refresh of a blocklist. Dispatches a background job that fetches, parses, and stores the blocklist, then returns 202 Accepted with the job id so the client can poll /api/jobs/{id} for progress. Admin only.",
-        "operationId": "update_blocklist_now",
+        "description": "Trigger an immediate blocklist refresh job. Admin only.",
+        "operationId": "refresh_blocklist",
         "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
           {
             "name": "id",
             "in": "path",
-            "description": "Blocklist ID",
+            "description": "Blocklist id",
             "required": true,
             "schema": {
               "type": "string",
@@ -3946,7 +6389,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Background update job dispatched",
+            "description": "Refresh job dispatched",
             "content": {
               "application/json": {
                 "schema": {
@@ -4094,145 +6537,32 @@
         ]
       }
     },
-    "/api/dns/cache/flush": {
-      "post": {
-        "tags": [
-          "dns"
-        ],
-        "description": "Flush the DNS resolver cache, clearing every cached record so subsequent queries resolve against upstream. Returns the count of entries that were cleared. Admin only.",
-        "operationId": "flush_cache",
-        "responses": {
-          "200": {
-            "description": "Cache flushed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DnsCacheFlushResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/dns/config": {
+    "/api/dns/filter/profiles/{profile_id}/rules": {
       "get": {
         "tags": [
           "dns"
         ],
-        "description": "Return the current DNS filter configuration (enabled flag, cache size, upstream resolvers). Admin only.",
-        "operationId": "get_config",
+        "description": "List a profile's custom filter rules. Admin only.",
+        "operationId": "list_custom_rules",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Current DNS configuration",
+            "description": "Filter rules",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DnsConfigResponse"
+                  "$ref": "#/components/schemas/ListFilterRulesResponse"
                 }
               }
             }
@@ -4271,6 +6601,38 @@
           },
           "403": {
             "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4343,29 +6705,41 @@
           }
         ]
       },
-      "put": {
+      "post": {
         "tags": [
           "dns"
         ],
-        "description": "Update the DNS filter configuration (cache size, upstream resolvers, and related options). Does not toggle the enabled flag — use the /api/dns/config/toggle endpoint for that. Admin only.",
-        "operationId": "update_config",
+        "description": "Add a custom filter rule to a profile. Admin only.",
+        "operationId": "create_custom_rule",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateDnsConfigRequest"
+                "$ref": "#/components/schemas/CreateFilterRuleRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Updated DNS configuration",
+          "201": {
+            "description": "Filter rule created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DnsConfigResponse"
+                  "$ref": "#/components/schemas/CreateFilterRuleResponse"
                 }
               }
             }
@@ -4436,6 +6810,38 @@
           },
           "403": {
             "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4509,18 +6915,40 @@
         ]
       }
     },
-    "/api/dns/config/toggle": {
-      "post": {
+    "/api/dns/filter/profiles/{profile_id}/rules/{id}": {
+      "put": {
         "tags": [
           "dns"
         ],
-        "description": "Enable or disable the DNS filter server. In addition to persisting the enabled flag, this starts or stops the live DNS server process so the change takes effect immediately. Admin only.",
-        "operationId": "toggle",
+        "description": "Update a custom filter rule. Admin only.",
+        "operationId": "update_custom_rule",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Rule id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ToggleDnsRequest"
+                "$ref": "#/components/schemas/UpdateFilterRuleRequest"
               }
             }
           },
@@ -4528,11 +6956,11 @@
         },
         "responses": {
           "200": {
-            "description": "Updated DNS configuration",
+            "description": "Updated rule",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DnsConfigResponse"
+                  "$ref": "#/components/schemas/UpdateFilterRuleResponse"
                 }
               }
             }
@@ -4603,6 +7031,215 @@
           },
           "403": {
             "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "dns"
+        ],
+        "description": "Delete a custom filter rule from a profile. Admin only.",
+        "operationId": "delete_custom_rule",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "description": "Profile id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Rule id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rule deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteFilterRuleResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4681,7 +7318,7 @@
         "tags": [
           "dns"
         ],
-        "description": "Paginated DNS query log. Filterable by domain (substring), client IP (exact), and result. Newest entries first. Admin only.",
+        "description": "Paginated DNS query log. Admin only.",
         "operationId": "list_query_log",
         "parameters": [
           {
@@ -4894,680 +7531,12 @@
         ]
       }
     },
-    "/api/dns/rules": {
-      "get": {
-        "tags": [
-          "dns"
-        ],
-        "description": "List every custom DNS filter rule (allow, block, or rewrite) configured by the admin. Custom rules are evaluated alongside blocklists and allowlists. Admin only.",
-        "operationId": "list_filter_rules",
-        "responses": {
-          "200": {
-            "description": "List of custom filter rules",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListFilterRulesResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "dns"
-        ],
-        "description": "Create a custom DNS filter rule — a named allow/block/rewrite entry the admin maintains alongside the imported blocklists. Admin only.",
-        "operationId": "create_filter_rule",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateFilterRuleRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Filter rule created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateFilterRuleResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed or invalid request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/dns/rules/{id}": {
-      "put": {
-        "tags": [
-          "dns"
-        ],
-        "description": "Update a custom DNS filter rule in place (pattern, action, enabled flag). Admin only.",
-        "operationId": "update_filter_rule",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Filter rule ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateFilterRuleRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated filter rule",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateFilterRuleResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed or invalid request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": [
-          "dns"
-        ],
-        "description": "Delete a custom DNS filter rule by ID. Admin only.",
-        "operationId": "delete_filter_rule",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Filter rule ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Filter rule deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteFilterRuleResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
     "/api/dns/stats": {
       "get": {
         "tags": [
           "dns"
         ],
-        "description": "Aggregated DNS statistics for the last `hours` hours (default 24, max 168). Returns totals, top domains, top blocked, top clients (with device labels) and a queries-over-time series. Admin only.",
+        "description": "Aggregated DNS statistics for a recent window. Admin only.",
         "operationId": "get_stats",
         "parameters": [
           {
@@ -5740,7 +7709,7 @@
         "tags": [
           "dns"
         ],
-        "description": "Return live DNS server status and cache statistics (running flag, cache size/capacity, cache hit rate). Admin only.",
+        "description": "Return live DNS server status and cache statistics. Admin only.",
         "operationId": "status",
         "responses": {
           "200": {
@@ -9654,9 +11623,10 @@
     "schemas": {
       "AllowlistEntry": {
         "type": "object",
-        "description": "An allowlist entry that overrides blocklist matches.",
+        "description": "An allowlist entry, scoped to a DNS filter profile, that overrides\nblocklist matches.",
         "required": [
           "id",
+          "profile_id",
           "domain",
           "created_at"
         ],
@@ -9669,6 +11639,10 @@
             "type": "string"
           },
           "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profile_id": {
             "type": "string",
             "format": "uuid"
           },
@@ -9850,9 +11824,10 @@
       },
       "Blocklist": {
         "type": "object",
-        "description": "A URL-sourced domain blocklist for ad blocking.",
+        "description": "A URL-sourced domain blocklist scoped to a DNS filter profile.",
         "required": [
           "id",
+          "profile_id",
           "name",
           "url",
           "enabled",
@@ -9906,6 +11881,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "profile_id": {
+            "type": "string",
+            "format": "uuid"
           },
           "updated_at": {
             "type": "string",
@@ -10134,6 +12113,34 @@
           }
         }
       },
+      "CreateProfileRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/dns/filter/profiles.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateProfileResponse": {
+        "type": "object",
+        "description": "Response for POST /api/dns/filter/profiles.",
+        "required": [
+          "profile",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/DnsFilterProfile"
+          }
+        }
+      },
       "CreateTunnelRequest": {
         "type": "object",
         "description": "Request body for POST /api/tunnels (import .conf file).",
@@ -10178,9 +12185,10 @@
       },
       "CustomFilterRule": {
         "type": "object",
-        "description": "A user-created AdGuard-syntax filter rule.",
+        "description": "A user-created AdGuard-syntax filter rule, scoped to a DNS filter profile.",
         "required": [
           "id",
+          "profile_id",
           "rule_text",
           "enabled",
           "created_at",
@@ -10201,6 +12209,10 @@
             "type": "boolean"
           },
           "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profile_id": {
             "type": "string",
             "format": "uuid"
           },
@@ -10252,6 +12264,18 @@
       "DeleteFilterRuleResponse": {
         "type": "object",
         "description": "Response for DELETE /api/dns/rules/{id}.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "DeleteProfileResponse": {
+        "type": "object",
+        "description": "Response for DELETE /api/dns/filter/profiles/{id}.",
         "required": [
           "message"
         ],
@@ -10349,6 +12373,37 @@
           },
           "device": {
             "$ref": "#/components/schemas/DeviceWithStatus"
+          }
+        }
+      },
+      "DeviceDnsFilterSettings": {
+        "type": "object",
+        "description": "Per-device DNS filtering settings.\n\n`enabled = false` is the kill switch; the device's queries skip filtering\nentirely. When `enabled = true` and `profile_ids` is empty, the device\ninherits the global default profile from [`DnsFilterConfig`].",
+        "required": [
+          "device_id",
+          "enabled",
+          "profile_ids",
+          "updated_at"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "profile_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Explicit profile assignments. Empty means \"follow the default profile\"."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -10673,14 +12728,11 @@
           "dnssec_enabled",
           "rebinding_protection",
           "rate_limit_per_second",
-          "ad_blocking_enabled",
+          "dns_filtering_enabled",
           "query_log_enabled",
           "query_log_retention_days"
         ],
         "properties": {
-          "ad_blocking_enabled": {
-            "type": "boolean"
-          },
           "cache_size": {
             "type": "integer",
             "format": "int32",
@@ -10695,6 +12747,10 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "dns_filtering_enabled": {
+            "type": "boolean",
+            "description": "Global DNS filtering emergency stop. When `false`, every query\nshort-circuits to `Pass` regardless of per-device or per-profile\nstate — the kill switch above the kill switch."
           },
           "dnssec_enabled": {
             "type": "boolean"
@@ -10738,6 +12794,70 @@
         "properties": {
           "config": {
             "$ref": "#/components/schemas/DnsConfig"
+          }
+        }
+      },
+      "DnsFilterConfig": {
+        "type": "object",
+        "description": "Global DNS filtering configuration.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "default_profile_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Profile applied to devices with no explicit assignment. `None` means\nunassigned devices skip filtering."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Global emergency stop. When `false`, every query short-circuits to\n`Pass` regardless of profile state."
+          }
+        }
+      },
+      "DnsFilterConfigResponse": {
+        "type": "object",
+        "description": "Response for GET /api/dns/filter/config.",
+        "required": [
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DnsFilterConfig"
+          }
+        }
+      },
+      "DnsFilterProfile": {
+        "type": "object",
+        "description": "A named bundle of DNS filter sources (blocklists, allowlist, custom rules).\n\nBuiltin profiles cannot be deleted — the API responds with `409 Conflict`\nwhen an admin tries.",
+        "required": [
+          "id",
+          "name",
+          "builtin",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -10810,6 +12930,7 @@
           "forwarded",
           "cached",
           "blocked",
+          "blocked_skipped",
           "local",
           "recursive",
           "error"
@@ -10991,6 +13112,30 @@
           "passphrase": {
             "type": "string",
             "description": "Passphrase chosen by the admin. Never logged, never persisted —\nlives only in the memory of the request that produced the bundle."
+          }
+        }
+      },
+      "GetDeviceFilterSettingsResponse": {
+        "type": "object",
+        "description": "Response for GET /api/dns/filter/devices/{id}.",
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/DeviceDnsFilterSettings"
+          }
+        }
+      },
+      "GetProfileResponse": {
+        "type": "object",
+        "description": "Response for GET /api/dns/filter/profiles/{id}.",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/DnsFilterProfile"
           }
         }
       },
@@ -11342,6 +13487,21 @@
           }
         }
       },
+      "ListDeviceFilterSettingsResponse": {
+        "type": "object",
+        "description": "Response for GET /api/dns/filter/devices.",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceDnsFilterSettings"
+            }
+          }
+        }
+      },
       "ListDevicesResponse": {
         "type": "object",
         "description": "Response for GET /api/devices (admin).",
@@ -11398,6 +13558,21 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CustomFilterRule"
+            }
+          }
+        }
+      },
+      "ListProfilesResponse": {
+        "type": "object",
+        "description": "Response for GET /api/dns/filter/profiles.",
+        "required": [
+          "profiles"
+        ],
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DnsFilterProfile"
             }
           }
         }
@@ -12538,6 +14713,42 @@
           }
         }
       },
+      "UpdateDeviceFilterSettingsRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/dns/filter/devices/{id}.",
+        "required": [
+          "enabled",
+          "profile_ids"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "profile_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "UpdateDeviceFilterSettingsResponse": {
+        "type": "object",
+        "description": "Response for PUT /api/dns/filter/devices/{id}.",
+        "required": [
+          "settings",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeviceDnsFilterSettings"
+          }
+        }
+      },
       "UpdateDeviceRequest": {
         "type": "object",
         "description": "Request body for PUT /api/devices/:id (admin).",
@@ -12621,12 +14832,6 @@
         "type": "object",
         "description": "Request body for PUT /api/dns/config.",
         "properties": {
-          "ad_blocking_enabled": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
           "cache_size": {
             "type": [
               "integer",
@@ -12650,6 +14855,12 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "dns_filtering_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "dnssec_enabled": {
             "type": [
@@ -12699,6 +14910,25 @@
             "items": {
               "$ref": "#/components/schemas/UpstreamDnsRequest"
             }
+          }
+        }
+      },
+      "UpdateDnsFilterConfigRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/dns/filter/config.\n\n`default_profile_id` uses double-`Option` semantics: omitted from JSON =\nno change, `null` = clear the default, `\"<uuid>\"` = set.",
+        "properties": {
+          "default_profile_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },
@@ -12813,6 +15043,34 @@
           "failed",
           "rolled_back"
         ]
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/dns/filter/profiles/{id}.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateProfileResponse": {
+        "type": "object",
+        "description": "Response for PUT /api/dns/filter/profiles/{id}.",
+        "required": [
+          "profile",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/DnsFilterProfile"
+          }
+        }
       },
       "UpdateStatus": {
         "type": "object",

@@ -36,10 +36,10 @@ use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
 use wardnetd_services::dhcp::runner::DhcpRunner;
-use wardnetd_services::dns::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
-use wardnetd_services::dns::filter::DnsFilter;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
+use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
+use wardnetd_services::dns_filter::runner::DnsFilterRunner;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
@@ -354,24 +354,27 @@ async fn run(
         &root_span,
     );
 
-    // Build and start DNS server and runner. The blocklist fetcher was
-    // constructed earlier as a backend; the runner reuses the same instance
-    // for its periodic cron-driven downloads.
-    let dns_filter = Arc::new(tokio::sync::RwLock::new(DnsFilter::empty()));
+    // Build and start DNS server, the slim DnsRunner (server lifecycle
+    // only), and the new DnsFilterRunner (blocklist cron + filter rebuilds
+    // driven by `WardnetEvent::DnsFilterChanged` / `DeviceIpChanged`).
     let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = Arc::new(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
-            Arc::clone(&dns_filter),
+            services.dns_filter.clone(),
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
-        services.dns_repo.clone(),
-        dns_filter,
-        blocklist_fetcher,
         services.event_publisher.as_ref(),
+        &root_span,
+    );
+    let dns_filter_runner = DnsFilterRunner::start(
+        services.dns_filter.clone(),
+        services.dns_filter_repo.clone(),
+        blocklist_fetcher,
+        services.event_publisher.clone(),
         &root_span,
         Duration::from_mins(1),
     );
@@ -428,6 +431,7 @@ async fn run(
         services.device.clone(),
         services.dhcp.clone(),
         services.dns.clone(),
+        services.dns_filter.clone(),
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),
@@ -491,6 +495,7 @@ async fn run(
     monitor.shutdown().await;
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
+    dns_filter_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;

@@ -12,6 +12,7 @@ pub mod backup;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
+pub mod dns_filter;
 pub mod logging;
 pub mod routing;
 pub mod system;
@@ -28,7 +29,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_data::RepositoryFactory;
-use wardnetd_data::repository::{DnsRepository, QueryLogRow};
+use wardnetd_data::repository::{DnsFilterRepository, DnsRepository, QueryLogRow};
 
 use crate::dns::log_sink::DnsLogSink;
 
@@ -39,6 +40,7 @@ use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
 use crate::dns::DnsServiceImpl;
+use crate::dns_filter::DnsFilterServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
@@ -52,6 +54,7 @@ pub use crate::backup::BackupService;
 pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult};
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
+pub use crate::dns_filter::DnsFilterService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::routing::RoutingService;
@@ -71,7 +74,7 @@ pub struct Backends {
     pub packet_capture: Arc<dyn device::PacketCapture>,
     pub hostname_resolver: Arc<dyn device::HostnameResolver>,
     pub secret_store: Arc<dyn wardnetd_data::secret_store::SecretStore>,
-    pub blocklist_fetcher: Arc<dyn dns::blocklist_downloader::BlocklistFetcher>,
+    pub blocklist_fetcher: Arc<dyn dns_filter::blocklist_downloader::BlocklistFetcher>,
     pub update: UpdateBackends,
     /// Path to the operator-supplied `wardnet.toml` — threaded through
     /// so `BackupService` knows which file to snapshot into a bundle
@@ -109,6 +112,7 @@ pub struct Services {
     pub device: Arc<dyn DeviceService>,
     pub dhcp: Arc<dyn DhcpService>,
     pub dns: Arc<dyn DnsService>,
+    pub dns_filter: Arc<dyn DnsFilterService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
@@ -119,6 +123,7 @@ pub struct Services {
     pub event_publisher: Arc<dyn EventPublisher>,
     pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
+    pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
     /// Shared sink the DNS server writes to and the WS handler subscribes
     /// from. Live for the lifetime of the daemon.
     pub dns_log_sink: Arc<DnsLogSink>,
@@ -222,6 +227,7 @@ fn create_services(
     let system_config_repo = repo_factory.system_config();
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
+    let dns_filter_repo = repo_factory.dns_filter();
     let tunnel_repo = repo_factory.tunnel();
     let tunnel_metrics_repo = repo_factory.tunnel_metrics();
     let update_repo = repo_factory.update();
@@ -255,9 +261,15 @@ fn create_services(
         dns_repo.clone(),
         device_repo.clone(),
         event_publisher.clone(),
+        Some(dns_log_sink.clone()),
+    ));
+
+    let dns_filter_service: Arc<dyn DnsFilterService> = Arc::new(DnsFilterServiceImpl::new(
+        dns_filter_repo.clone(),
+        device_repo.clone(),
+        event_publisher.clone(),
         job_service.clone(),
         backends.blocklist_fetcher.clone(),
-        Some(dns_log_sink.clone()),
     ));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
@@ -323,6 +335,7 @@ fn create_services(
         device: device_service,
         dhcp: dhcp_service,
         dns: dns_service,
+        dns_filter: dns_filter_service,
         log: log_service,
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,
@@ -333,6 +346,7 @@ fn create_services(
         event_publisher,
         jobs: job_service,
         dns_repo,
+        dns_filter_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
     }

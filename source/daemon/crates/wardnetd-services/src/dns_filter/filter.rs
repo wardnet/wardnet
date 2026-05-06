@@ -1,24 +1,13 @@
-//! DNS filter engine.
+//! Per-source DNS filter.
 //!
-//! Takes blocklist domains, allowlist domains, and custom `AdGuard`-syntax rules
-//! and answers queries with a [`FilterAction`] (Pass / Block / Rewrite).
+//! A [`DnsFilter`] owns the parsed rules contributed by ONE filter source
+//! (a blocklist, an allowlist, or a custom-rules set scoped to a profile).
+//! It returns a [`MatchOutcome`] from [`DnsFilter::check`] which a caller
+//! aggregates across the rest of a profile's filters.
 //!
-//! ## Two-tier evaluation
-//!
-//! - **Fast path**: plain domain blocks and allows live in `HashSet<String>`;
-//!   subdomain match via parent walk. This handles the bulk of blocklist
-//!   entries (hundreds of thousands).
-//! - **Slow path**: any rule with modifiers, wildcards, or regex goes into
-//!   `Vec<ParsedRule>` evaluated linearly.
-//!
-//! Evaluation order mirrors `AdGuard` precedence:
-//!
-//! 1. `$dnsrewrite` (highest — returns immediately)
-//! 2. `$important` exception (`@@...$important`)
-//! 3. `$important` block
-//! 4. Plain exception (`@@...`, or allowlist fast-path)
-//! 5. Plain block (rule or blocklist fast-path)
-//! 6. Pass
+//! This is the rebuild atom: when a single blocklist is re-downloaded, the
+//! runner swaps just that one filter via `ArcSwap`, and every profile holding
+//! an `Arc<ArcSwap<DnsFilter>>` to it transparently sees the new state.
 
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -26,21 +15,20 @@ use std::net::IpAddr;
 use hickory_proto::rr::RecordType;
 use wardnet_common::dns::FilterAction;
 
-use super::filter_parser::{self, ParsedRule, RuleModifiers};
+use crate::dns::filter_parser::{self, ParsedRule, RuleModifiers};
 
-/// Inputs required to build a [`DnsFilter`]. Assembled by the service layer
-/// from repository state.
+/// Inputs required to build a [`DnsFilter`].
 #[derive(Debug, Clone, Default)]
-pub struct FilterInputs {
-    /// Deduplicated, lowercased domains from all enabled blocklists.
+pub struct DnsFilterInputs {
+    /// Deduplicated, lowercased domains from one blocklist's enabled rows.
     pub blocked_domains: Vec<String>,
-    /// Domains from the allowlist.
+    /// Allowlist domains contributed by one source.
     pub allowlist: Vec<String>,
-    /// Raw rule text lines from enabled custom filter rules.
+    /// Raw rule text from one custom-rules source.
     pub custom_rules: Vec<String>,
 }
 
-/// Aggregate counts, exposed via `/api/dns/status` in later stages.
+/// Aggregate counts; useful for `/api/dns/status`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FilterStats {
     pub blocked_count: usize,
@@ -48,10 +36,45 @@ pub struct FilterStats {
     pub complex_count: usize,
 }
 
-/// The filter engine.
-///
-/// Built from [`FilterInputs`]. Swapped atomically behind an `Arc<RwLock<…>>`
-/// on reload (see `DnsRunner`).
+/// Outcome of evaluating a single [`DnsFilter`] against a query. The
+/// containing profile aggregates these across filters using the natural
+/// [`MatchKind`] precedence: `ImportantAllow` beats `ImportantBlock`
+/// beats `Allow` beats `Block`. `Rewrite` short-circuits and is returned
+/// to the service directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchOutcome {
+    None,
+    Match(MatchKind),
+    Rewrite { ip: IpAddr },
+}
+
+/// Precedence-ordered match kind. Larger rank wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchKind {
+    Block,
+    Allow,
+    ImportantBlock,
+    ImportantAllow,
+}
+
+impl MatchKind {
+    #[must_use]
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Block => 1,
+            Self::Allow => 2,
+            Self::ImportantBlock => 3,
+            Self::ImportantAllow => 4,
+        }
+    }
+
+    #[must_use]
+    pub fn blocks(self) -> bool {
+        matches!(self, Self::Block | Self::ImportantBlock)
+    }
+}
+
+/// One filter source's compiled rules. Cheap to swap; expensive to build.
 #[derive(Debug, Default)]
 pub struct DnsFilter {
     blocked_domains: HashSet<String>,
@@ -60,12 +83,8 @@ pub struct DnsFilter {
 }
 
 impl DnsFilter {
-    /// Build a filter from the given inputs.
-    ///
-    /// Invalid custom rules are logged at `warn` and skipped — a single bad
-    /// rule must never take down filtering for the rest.
     #[must_use]
-    pub fn build(inputs: FilterInputs) -> Self {
+    pub fn build(inputs: DnsFilterInputs) -> Self {
         let mut blocked_domains: HashSet<String> = inputs
             .blocked_domains
             .into_iter()
@@ -108,13 +127,11 @@ impl DnsFilter {
         }
     }
 
-    /// Build an empty filter — used at bootstrap before the first rebuild.
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
 
-    /// Whether the filter has no rules at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.blocked_domains.is_empty()
@@ -122,7 +139,6 @@ impl DnsFilter {
             && self.complex.is_empty()
     }
 
-    /// Return aggregate counts.
     #[must_use]
     pub fn stats(&self) -> FilterStats {
         FilterStats {
@@ -132,9 +148,10 @@ impl DnsFilter {
         }
     }
 
-    /// Evaluate the filter for a single query.
+    /// Evaluate this source against a query and return the strongest
+    /// outcome it contributes.
     #[must_use]
-    pub fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> FilterAction {
+    pub fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> MatchOutcome {
         let d = normalize(domain);
         let mut best: Option<MatchKind> = None;
 
@@ -146,17 +163,13 @@ impl DnsFilter {
                 continue;
             }
 
-            // $dnsrewrite wins immediately.
             if let Some(ip) = rule.modifiers().rewrite_to {
-                return FilterAction::Rewrite { ip };
+                return MatchOutcome::Rewrite { ip };
             }
 
-            let kind = classify(rule);
-            upgrade(&mut best, kind);
+            upgrade(&mut best, classify(rule));
         }
 
-        // Fast-path matches: always "plain" (no modifiers), so they map to
-        // MatchKind::Allow / MatchKind::Block.
         if matches_subdomain(&d, &self.allowed_domains) {
             upgrade(&mut best, MatchKind::Allow);
         }
@@ -164,37 +177,18 @@ impl DnsFilter {
             upgrade(&mut best, MatchKind::Block);
         }
 
-        match best {
-            Some(k) if k.blocks() => FilterAction::Block,
+        best.map_or(MatchOutcome::None, MatchOutcome::Match)
+    }
+
+    /// Convenience for tests/single-source legacy callers — translate
+    /// [`MatchOutcome`] back into a [`FilterAction`].
+    #[must_use]
+    pub fn check_action(&self, domain: &str, qtype: RecordType, client: IpAddr) -> FilterAction {
+        match self.check(domain, qtype, client) {
+            MatchOutcome::Rewrite { ip } => FilterAction::Rewrite { ip },
+            MatchOutcome::Match(kind) if kind.blocks() => FilterAction::Block,
             _ => FilterAction::Pass,
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MatchKind {
-    Block,
-    Allow,
-    ImportantBlock,
-    ImportantAllow,
-}
-
-impl MatchKind {
-    fn rank(self) -> u8 {
-        match self {
-            Self::Block => 1,
-            Self::Allow => 2,
-            Self::ImportantBlock => 3,
-            Self::ImportantAllow => 4,
-        }
-    }
-
-    fn blocks(self) -> bool {
-        matches!(self, Self::Block | Self::ImportantBlock)
     }
 }
 
@@ -239,7 +233,6 @@ fn modifiers_apply(mods: &RuleModifiers, qtype: RecordType, client: IpAddr) -> b
     true
 }
 
-/// Returns true when `domain` is `rule_domain` itself or a subdomain of it.
 fn is_subdomain_of(domain: &str, rule_domain: &str) -> bool {
     if domain == rule_domain {
         return true;
@@ -251,7 +244,6 @@ fn is_subdomain_of(domain: &str, rule_domain: &str) -> bool {
     domain.ends_with(rule_domain) && domain.as_bytes()[prefix_len] == b'.'
 }
 
-/// Walk a domain and its parents, checking each against the set.
 fn matches_subdomain(domain: &str, set: &HashSet<String>) -> bool {
     if set.contains(domain) {
         return true;
@@ -267,6 +259,6 @@ fn matches_subdomain(domain: &str, set: &HashSet<String>) -> bool {
     false
 }
 
-fn normalize(s: &str) -> String {
+pub(crate) fn normalize(s: &str) -> String {
     s.trim_end_matches('.').to_ascii_lowercase()
 }

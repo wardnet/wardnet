@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DnsService, JobsService, WardnetClient } from "@wardnet/js";
+import { DnsFilterService, DnsService, JobsService, WardnetClient } from "@wardnet/js";
 
 import {
+  AD_BLOCKING_PROFILE_ID,
   API_BASE_URL,
   AuthedClient,
   TEST_DEBIAN_AGENT,
@@ -36,6 +37,7 @@ const ALLOW_RULE_TEXT = `@@||${OVERRIDE_DOMAIN}^`;
 describe("dns custom filter rules", () => {
   let authed: AuthedClient;
   let dns: DnsService;
+  let dnsFilter: DnsFilterService;
   let jobs: JobsService;
   let blocklistId: string | undefined;
   let rewriteRuleId: string | undefined;
@@ -46,6 +48,7 @@ describe("dns custom filter rules", () => {
     await waitForReady(client);
     authed = await ensureAdminAndLogin(client);
     dns = new DnsService(authed);
+    dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
     if (!(await dns.getConfig()).config.enabled) {
@@ -54,16 +57,16 @@ describe("dns custom filter rules", () => {
 
     // Drop leftover state from a prior run — name match for our
     // blocklist, rule_text match for our custom rules.
-    const existingLists = await dns.listBlocklists();
+    const existingLists = await dnsFilter.listBlocklists(AD_BLOCKING_PROFILE_ID);
     for (const b of existingLists.blocklists) {
       if (b.name === BLOCKLIST_NAME || b.url === BLOCKLIST_URL) {
-        await dns.deleteBlocklist(b.id);
+        await dnsFilter.deleteBlocklist(AD_BLOCKING_PROFILE_ID, b.id);
       }
     }
-    const existingRules = await dns.listFilterRules();
+    const existingRules = await dnsFilter.listFilterRules(AD_BLOCKING_PROFILE_ID);
     for (const r of existingRules.rules) {
       if (r.rule_text === REWRITE_RULE_TEXT || r.rule_text === ALLOW_RULE_TEXT) {
-        await dns.deleteFilterRule(r.id);
+        await dnsFilter.deleteFilterRule(AD_BLOCKING_PROFILE_ID, r.id);
       }
     }
   }, 60_000);
@@ -72,7 +75,7 @@ describe("dns custom filter rules", () => {
     for (const id of [rewriteRuleId, allowRuleId]) {
       if (id) {
         try {
-          await dns.deleteFilterRule(id);
+          await dnsFilter.deleteFilterRule(AD_BLOCKING_PROFILE_ID, id);
         } catch {
           // ignore
         }
@@ -80,7 +83,7 @@ describe("dns custom filter rules", () => {
     }
     if (blocklistId) {
       try {
-        await dns.deleteBlocklist(blocklistId);
+        await dnsFilter.deleteBlocklist(AD_BLOCKING_PROFILE_ID, blocklistId);
       } catch {
         // ignore
       }
@@ -93,12 +96,13 @@ describe("dns custom filter rules", () => {
   });
 
   it("applies a $dnsrewrite custom rule", async () => {
-    const created = await dns.createFilterRule({
+    const created = await dnsFilter.createFilterRule(AD_BLOCKING_PROFILE_ID, {
       rule_text: REWRITE_RULE_TEXT,
       enabled: true,
       comment: "e2e dns-rules: rewrite",
     });
     rewriteRuleId = created.rule.id;
+    expect(created.rule.profile_id).toBe(AD_BLOCKING_PROFILE_ID);
     expect(created.rule.enabled).toBe(true);
 
     // The rewrite path bypasses upstream entirely — the daemon
@@ -119,27 +123,25 @@ describe("dns custom filter rules", () => {
   it("@@-rule overrides a blocklist match", async () => {
     // Stand up the blocklist that puts OVERRIDE_DOMAIN into the
     // blocked set; verify the block before installing the @@-rule.
-    const created = await dns.createBlocklist({
+    const created = await dnsFilter.createBlocklist(AD_BLOCKING_PROFILE_ID, {
       name: BLOCKLIST_NAME,
       url: BLOCKLIST_URL,
       cron_schedule: CRON_NEVER,
       enabled: true,
     });
     blocklistId = created.blocklist.id;
-    const dispatched = await dns.updateBlocklistNow(blocklistId);
+    const dispatched = await dnsFilter.refreshBlocklist(AD_BLOCKING_PROFILE_ID, blocklistId);
     const job = await waitForJob(jobs, dispatched.job_id, 30_000);
     expect(job.status, `job error: ${job.error ?? "(none)"}`).toBe("SUCCEED");
 
     await expect
-      .poll(
-        async () =>
-          (await resolveViaAgent(TEST_DEBIAN_AGENT, OVERRIDE_DOMAIN)).addrs
-            .length,
-        { interval: 250, timeout: 10_000 },
-      )
+      .poll(async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, OVERRIDE_DOMAIN)).addrs.length, {
+        interval: 250,
+        timeout: 10_000,
+      })
       .toBe(0);
 
-    const allow = await dns.createFilterRule({
+    const allow = await dnsFilter.createFilterRule(AD_BLOCKING_PROFILE_ID, {
       rule_text: ALLOW_RULE_TEXT,
       enabled: true,
       comment: "e2e dns-rules: allow override",
@@ -152,12 +154,10 @@ describe("dns custom filter rules", () => {
     await dns.flushCache();
 
     await expect
-      .poll(
-        async () =>
-          (await resolveViaAgent(TEST_DEBIAN_AGENT, OVERRIDE_DOMAIN)).addrs
-            .length,
-        { interval: 500, timeout: 15_000 },
-      )
+      .poll(async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, OVERRIDE_DOMAIN)).addrs.length, {
+        interval: 500,
+        timeout: 15_000,
+      })
       .toBeGreaterThan(0);
   });
 });

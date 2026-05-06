@@ -1,7 +1,5 @@
-pub mod blocklist_downloader;
 pub mod cache;
 pub mod cron_parse;
-pub mod filter;
 pub mod filter_parser;
 pub mod log_sink;
 pub mod query_log_runner;
@@ -9,9 +7,7 @@ pub mod runner;
 pub mod server;
 pub mod service;
 
-pub use blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 pub use cache::DnsCache;
-pub use filter::DnsFilter;
 pub use log_sink::{DnsLogSink, row_to_event};
 pub use query_log_runner::DnsQueryLogRunner;
 pub use runner::DnsRunner;
