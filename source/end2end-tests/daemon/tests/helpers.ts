@@ -356,11 +356,12 @@ export async function ensureDnsEnabled(
 
 /**
  * Idempotent DHCP setup for specs that need a leased `test_debian`.
- * Toggles DHCP on, narrows the pool to `[start, end]`, and drives the
- * agent through `dhclient renew` until a lease in that range lands.
- * No-op for the toggle/pool when DHCP is already wired up; safe to call
- * across specs that vitest reorders (dns-filter specs sometimes execute
- * before `dhcp.spec.ts` under singleFork).
+ * Toggles DHCP on, narrows the pool to `[start, end]`, drives the agent
+ * through `dhclient renew` until a lease lands, then issues a DNS query
+ * via the agent so the daemon's packet-capture-driven device discovery
+ * has at least one observation to act on (otherwise `/api/devices`
+ * sometimes hasn't seen the agent yet by the time the spec polls).
+ * Safe to call across specs that vitest reorders.
  */
 export async function ensureLeasedAgent(
   client: WardnetClient,
@@ -387,7 +388,18 @@ export async function ensureLeasedAgent(
   // If the agent already has an in-pool lease, /dhcp/renew is a fast
   // no-op; if not, it triggers DISCOVER → REQUEST → ACK against the
   // daemon. Up to 5 attempts spread over ~7.5 s.
-  return acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5);
+  const ip = await acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5);
+  // Poke the agent into doing one DNS lookup against the daemon. The
+  // daemon registers the device when it observes traffic on the LAN
+  // (DeviceDiscoveryService consumes packet_capture events); a single
+  // DNS round-trip is enough to materialize the row.
+  try {
+    await resolveViaAgent(agent, "example.com");
+  } catch {
+    // If the resolver isn't ready, continue — the spec's
+    // findDeviceByIpRange poll will surface a clearer error.
+  }
+  return ip;
 }
 
 /**
@@ -402,7 +414,11 @@ export async function findDeviceByIpRange(
   client: WardnetClient,
   startInclusive: string,
   endInclusive: string,
-  timeoutMs = 30_000,
+  // The DeviceDiscoveryService batches observations and flushes every
+  // `batch_flush_interval_secs` (default 30 s). 60 s comfortably outlasts
+  // one full flush cycle when the spec runs immediately after a fresh
+  // DHCP lease — without it the test races the flush and times out.
+  timeoutMs = 60_000,
 ): Promise<Device> {
   const devices = new DeviceService(client);
   const lo = ipToInt(startInclusive);
