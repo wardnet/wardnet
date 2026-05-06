@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import {
   AuthService,
   DeviceService,
+  DnsService,
   InfoService,
   JobsService,
   SetupService,
@@ -315,6 +316,41 @@ export async function findDeviceByIp(
   throw new Error(
     `no device with last_ip=${ip} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
   );
+}
+
+/**
+ * Idempotent DNS-on switch that tolerates the transient `EADDRINUSE` we
+ * see under singleFork when two specs both observe `enabled=false` and
+ * race the runner's restart cycle. Retries once on the 500 path then
+ * polls until the daemon reports `enabled=true`.
+ */
+export async function ensureDnsEnabled(
+  client: WardnetClient,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const dns = new DnsService(client);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const cfg = (await dns.getConfig()).config;
+    if (cfg.enabled) return;
+    try {
+      await dns.toggle({ enabled: true });
+      // Re-read to confirm — toggle's transition check sometimes returns
+      // a healthy 200 even though the runner's later reconciliation
+      // flips state back.
+      const after = (await dns.getConfig()).config;
+      if (after.enabled) return;
+    } catch (err) {
+      // The DNS server's start path can race with the runner reacting
+      // to a previous DnsConfigChanged event and returns 500
+      // EADDRINUSE. Sleep, retry — runner will reconcile and the next
+      // `getConfig` will reflect the desired state.
+      const status = (err as { status?: number } | null)?.status;
+      if (status !== 500) throw err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`DNS did not become enabled within ${timeoutMs}ms`);
 }
 
 /**

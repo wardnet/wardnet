@@ -7,6 +7,7 @@ import {
   AuthedClient,
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
+  ensureDnsEnabled,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -45,13 +46,9 @@ describe("dns filter — per-device kill switch", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    // DNS state is already on by the time this spec runs — dhcp.spec.ts
-    // and dns-config.spec.ts both touch DNS earlier under singleFork.
-    // Re-toggling here races against the runner mid-cycle (toggle
-    // succeeds in the DB, server.start fails with EADDRINUSE because the
-    // runner already restarted it). Just sanity-check.
-    const cfg = (await dns.getConfig()).config;
-    expect(cfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
+    // Vitest doesn't guarantee dhcp/dns-config run before this spec under
+    // singleFork; toggle on if needed (with retry — see helpers).
+    await ensureDnsEnabled(authed);
 
     // Drop leftover blocklists from a prior failed run on the same
     // wardnet_state volume.

@@ -7,6 +7,7 @@ import {
   AuthedClient,
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
+  ensureDnsEnabled,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -42,10 +43,7 @@ describe("dns filter — global default profile", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    // DNS is already on under singleFork; re-toggling here races against
-    // the runner restart cycle. Sanity-check only.
-    const dnsCfg = (await dns.getConfig()).config;
-    expect(dnsCfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
+    await ensureDnsEnabled(authed);
 
     // Snapshot the pre-spec default so afterAll can restore it,
     // even if some previous test changed it.

@@ -7,6 +7,7 @@ import {
   AuthedClient,
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
+  ensureDnsEnabled,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -42,10 +43,7 @@ describe("dns filter — per-device profile swap", () => {
     dnsFilter = new DnsFilterService(authed);
     jobs = new JobsService(authed);
 
-    // DNS is already on under singleFork; re-toggling here races against
-    // the runner restart cycle. Sanity-check only.
-    const cfg = (await dns.getConfig()).config;
-    expect(cfg.enabled, "DNS server should be on by the time this spec runs").toBe(true);
+    await ensureDnsEnabled(authed);
 
     // Clean leftover blocklists / custom profiles from prior runs so
     // they don't combine with the new ones to produce the wrong
