@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { StatusBadge } from "@/components/compound/StatusBadge";
+import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
@@ -81,6 +82,7 @@ export default function DeviceDetail() {
 
       <DeviceIdentityCard device={device} />
       <DeviceSettingsCard device={device} currentRule={data.current_rule} />
+      <DeviceDnsFilterCard device={device} />
       <DeviceNetworkCard device={device} />
     </div>
   );

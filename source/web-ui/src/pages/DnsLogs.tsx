@@ -34,6 +34,9 @@ interface RowShape {
 
 const RESULT_BADGE: Record<string, "default" | "destructive" | "secondary" | "outline"> = {
   blocked: "destructive",
+  // Suppressed by the per-device kill switch / global stop. Outline tone
+  // signals "would-have-blocked" without the alarming red.
+  blocked_skipped: "outline",
   upstream_error: "destructive",
   forwarded: "secondary",
   cache_hit: "outline",
@@ -41,6 +44,10 @@ const RESULT_BADGE: Record<string, "default" | "destructive" | "secondary" | "ou
   rewritten: "default",
   local: "default",
   recursive: "default",
+};
+
+const RESULT_LABEL: Record<string, string> = {
+  blocked_skipped: "blocked (skipped)",
 };
 
 function fmtTime(ts: string): string {
@@ -171,7 +178,7 @@ export default function DnsLogs() {
         meta: { className: "w-28" },
         cell: ({ row }) => (
           <Badge variant={RESULT_BADGE[row.original.result] ?? "secondary"}>
-            {row.original.result}
+            {RESULT_LABEL[row.original.result] ?? row.original.result}
           </Badge>
         ),
       },
@@ -244,6 +251,7 @@ export default function DnsLogs() {
                   <SelectItem value="any">Any result</SelectItem>
                   <SelectItem value="forwarded">Forwarded</SelectItem>
                   <SelectItem value="blocked">Blocked</SelectItem>
+                  <SelectItem value="blocked_skipped">Blocked (skipped)</SelectItem>
                   <SelectItem value="cache_hit">Cache hit</SelectItem>
                   <SelectItem value="rewritten">Rewritten</SelectItem>
                   <SelectItem value="upstream_error">Upstream error</SelectItem>

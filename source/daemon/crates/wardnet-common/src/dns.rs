@@ -54,7 +54,10 @@ pub struct DnsConfig {
     pub dnssec_enabled: bool,
     pub rebinding_protection: bool,
     pub rate_limit_per_second: u32,
-    pub ad_blocking_enabled: bool,
+    /// Global DNS filtering emergency stop. When `false`, every query
+    /// short-circuits to `Pass` regardless of per-device or per-profile
+    /// state — the kill switch above the kill switch.
+    pub dns_filtering_enabled: bool,
     pub query_log_enabled: bool,
     pub query_log_retention_days: u32,
 }
@@ -84,7 +87,7 @@ impl Default for DnsConfig {
             dnssec_enabled: false,
             rebinding_protection: true,
             rate_limit_per_second: 0,
-            ad_blocking_enabled: true,
+            dns_filtering_enabled: true,
             query_log_enabled: true,
             query_log_retention_days: 7,
         }
@@ -127,10 +130,11 @@ pub struct DnsZone {
     pub updated_at: DateTime<Utc>,
 }
 
-/// A URL-sourced domain blocklist for ad blocking.
+/// A URL-sourced domain blocklist scoped to a DNS filter profile.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Blocklist {
     pub id: Uuid,
+    pub profile_id: Uuid,
     pub name: String,
     pub url: String,
     pub enabled: bool,
@@ -148,19 +152,22 @@ pub struct Blocklist {
     pub updated_at: DateTime<Utc>,
 }
 
-/// An allowlist entry that overrides blocklist matches.
+/// An allowlist entry, scoped to a DNS filter profile, that overrides
+/// blocklist matches.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AllowlistEntry {
     pub id: Uuid,
+    pub profile_id: Uuid,
     pub domain: String,
     pub reason: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
-/// A user-created AdGuard-syntax filter rule.
+/// A user-created AdGuard-syntax filter rule, scoped to a DNS filter profile.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CustomFilterRule {
     pub id: Uuid,
+    pub profile_id: Uuid,
     pub rule_text: String,
     pub enabled: bool,
     pub comment: Option<String>,
@@ -186,8 +193,12 @@ pub enum DnsQueryResult {
     Forwarded,
     /// Answered from cache.
     Cached,
-    /// Blocked by ad filter.
+    /// Blocked by the DNS filter.
     Blocked,
+    /// Filter would have blocked the query, but the per-device kill switch
+    /// (or the global emergency stop) suppressed the block. Surfaced in the
+    /// query log so admins can see what filtering would catch.
+    BlockedSkipped,
     /// Answered by a custom local record or zone.
     Local,
     /// Resolved recursively from root servers.

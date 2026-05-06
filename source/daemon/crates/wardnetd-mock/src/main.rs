@@ -28,8 +28,8 @@ use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRoute
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
-use wardnetd_services::dns::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
+use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
@@ -251,6 +251,7 @@ async fn run(
         services.device.clone(),
         services.dhcp.clone(),
         services.dns.clone(),
+        services.dns_filter.clone(),
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),

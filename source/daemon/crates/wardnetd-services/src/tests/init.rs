@@ -246,7 +246,7 @@ impl crate::update::applier::BinaryApplier for StubBinaryApplier {
 
 struct StubBlocklistFetcher;
 #[async_trait::async_trait]
-impl crate::dns::blocklist_downloader::BlocklistFetcher for StubBlocklistFetcher {
+impl crate::dns_filter::blocklist_downloader::BlocklistFetcher for StubBlocklistFetcher {
     async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
         unimplemented!("init tests never dispatch a blocklist refresh")
     }

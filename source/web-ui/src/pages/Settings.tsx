@@ -4,6 +4,7 @@ import type { RestorePreviewResponse } from "@wardnet/js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { BackupCard } from "@/components/features/BackupCard";
+import { DnsFilterSettingsCard } from "@/components/features/DnsFilterSettingsCard";
 import { PowerCard } from "@/components/features/PowerCard";
 import { RestartProgressDialog } from "@/components/features/RestartProgressDialog";
 import { ShutdownProgressDialog } from "@/components/features/ShutdownProgressDialog";
@@ -131,6 +132,8 @@ export default function Settings() {
           onToggleAutoUpdate={(enabled) => saveConfig.mutate({ auto_update_enabled: enabled })}
           onChangeChannel={(channel) => saveConfig.mutate({ channel })}
         />
+
+        <DnsFilterSettingsCard />
 
         <BackupCard
           isExporting={exportBackup.isPending}

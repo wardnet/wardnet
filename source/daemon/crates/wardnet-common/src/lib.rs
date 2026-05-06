@@ -5,6 +5,7 @@ pub mod config;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
+pub mod dns_filter;
 pub mod event;
 pub mod jobs;
 pub mod routing;

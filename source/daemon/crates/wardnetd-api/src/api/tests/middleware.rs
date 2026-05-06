@@ -23,9 +23,9 @@ use wardnetd_services::error::AppError;
 use wardnetd_services::{AuthService, DeviceService};
 
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubProviderService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::auth_context;
 
@@ -72,6 +72,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -383,6 +384,7 @@ fn make_state_with_device(
         Arc::new(device_svc),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

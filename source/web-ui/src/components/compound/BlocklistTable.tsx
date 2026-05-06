@@ -24,12 +24,22 @@ function createColumns(
     {
       accessorKey: "name",
       header: "Name",
+      // No explicit width — this column takes the remaining horizontal
+      // space; long URLs truncate via the inner spans (see fixedLayout
+      // note on the DataTable below).
       cell: ({ row }) => (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium">{row.original.name}</span>
-          <span className="font-mono text-xs text-muted-foreground">{row.original.url}</span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate font-medium">{row.original.name}</span>
+          <span
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={row.original.url}
+          >
+            {row.original.url}
+          </span>
           {row.original.last_error && (
-            <span className="text-xs text-destructive">{row.original.last_error}</span>
+            <span className="truncate text-xs text-destructive" title={row.original.last_error}>
+              {row.original.last_error}
+            </span>
           )}
         </div>
       ),
@@ -37,7 +47,7 @@ function createColumns(
     {
       accessorKey: "entry_count",
       header: "Entries",
-      meta: { className: "hidden sm:table-cell" },
+      meta: { className: "hidden w-24 sm:table-cell" },
       cell: ({ row }) => (
         <span className="tabular-nums">{row.original.entry_count.toLocaleString()}</span>
       ),
@@ -45,7 +55,7 @@ function createColumns(
     {
       accessorKey: "last_updated",
       header: "Last updated",
-      meta: { className: "hidden md:table-cell" },
+      meta: { className: "hidden w-32 md:table-cell" },
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {row.original.last_updated ? timeAgo(row.original.last_updated) : "Never"}
@@ -55,6 +65,7 @@ function createColumns(
     {
       accessorKey: "enabled",
       header: "Status",
+      meta: { className: "w-28" },
       cell: ({ row }) => (
         <StatusBadge tone={row.original.enabled ? "success" : "neutral"}>
           {row.original.enabled ? "Enabled" : "Disabled"}
@@ -64,7 +75,7 @@ function createColumns(
     {
       id: "actions",
       header: "",
-      meta: { className: "text-right" },
+      meta: { className: "w-12 text-right" },
       cell: ({ row }) => {
         const blocklist = row.original;
         const isRefreshing = refreshingId === blocklist.id;
@@ -133,10 +144,16 @@ export function BlocklistTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button onClick={onAdd}>Add blocklist</Button>
+        <Button variant="outline" onClick={onAdd}>
+          Add blocklist
+        </Button>
       </div>
 
-      <DataTable columns={columns} data={blocklists} onRowClick={onEdit} />
+      {/* fixedLayout pins the auxiliary column widths (`w-24` / `w-32` /
+          `w-28` / `w-12`) so the Name column absorbs all remaining width.
+          Long URLs in the Name cell truncate (see inner spans) instead
+          of forcing the table wider than its container. */}
+      <DataTable columns={columns} data={blocklists} onRowClick={onEdit} fixedLayout />
     </div>
   );
 }

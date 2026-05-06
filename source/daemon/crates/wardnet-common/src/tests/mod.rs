@@ -4,6 +4,7 @@ mod config;
 mod device;
 mod dhcp;
 mod dns;
+mod dns_filter;
 mod event;
 mod routing;
 mod tunnel;

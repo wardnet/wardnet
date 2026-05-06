@@ -3,6 +3,7 @@ pub mod api_key;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
+pub mod dns_filter;
 pub mod session;
 pub mod sqlite;
 pub mod system_config;
@@ -15,15 +16,19 @@ pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{
-    AllowlistRow, BlocklistRow, BlocklistUpdate, BucketSize, CustomRuleRow, CustomRuleUpdate,
-    DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow, TopClientRow,
-    TopDomainRow,
+    BucketSize, DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow,
+    TopClientRow, TopDomainRow,
+};
+pub use dns_filter::{
+    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
+    DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
 };
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsRepository, SqliteSessionRepository, SqliteSystemConfigRepository,
-    SqliteTunnelMetricsRepository, SqliteTunnelRepository, SqliteUpdateRepository,
+    SqliteDnsFilterRepository, SqliteDnsRepository, SqliteSessionRepository,
+    SqliteSystemConfigRepository, SqliteTunnelMetricsRepository, SqliteTunnelRepository,
+    SqliteUpdateRepository,
 };
 pub use system_config::SystemConfigRepository;
 pub use tunnel::{TunnelRepository, TunnelRow};

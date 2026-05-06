@@ -193,8 +193,8 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::DnsServerStarted { .. }
         | WardnetEvent::DnsServerStopped { .. }
         | WardnetEvent::DnsConfigChanged { .. }
-        | WardnetEvent::DnsBlocklistUpdated { .. }
-        | WardnetEvent::DnsFiltersChanged { .. }
+        | WardnetEvent::DnsFilterBlocklistUpdated { .. }
+        | WardnetEvent::DnsFilterChanged { .. }
         | WardnetEvent::UpdateAvailable { .. }
         | WardnetEvent::UpdateProgress { .. }
         | WardnetEvent::UpdateCompleted { .. }

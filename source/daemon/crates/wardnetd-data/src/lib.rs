@@ -13,12 +13,12 @@ use std::sync::Arc;
 use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 
 use repository::{
-    AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsRepository,
-    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
-    SqliteDhcpRepository, SqliteDnsRepository, SqliteSessionRepository,
-    SqliteSystemConfigRepository, SqliteTunnelMetricsRepository, SqliteTunnelRepository,
-    SqliteUpdateRepository, SystemConfigRepository, TunnelMetricsRepository, TunnelRepository,
-    UpdateRepository,
+    AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsFilterRepository,
+    DnsRepository, SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository,
+    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsFilterRepository, SqliteDnsRepository,
+    SqliteSessionRepository, SqliteSystemConfigRepository, SqliteTunnelMetricsRepository,
+    SqliteTunnelRepository, SqliteUpdateRepository, SystemConfigRepository,
+    TunnelMetricsRepository, TunnelRepository, UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -33,6 +33,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn system_config(&self) -> Arc<dyn SystemConfigRepository>;
     fn dhcp(&self) -> Arc<dyn DhcpRepository>;
     fn dns(&self) -> Arc<dyn DnsRepository>;
+    fn dns_filter(&self) -> Arc<dyn DnsFilterRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
     fn tunnel_metrics(&self) -> Arc<dyn TunnelMetricsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
@@ -127,6 +128,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn dns(&self) -> Arc<dyn DnsRepository> {
         Arc::new(SqliteDnsRepository::new(self.pool.clone()))
+    }
+
+    fn dns_filter(&self) -> Arc<dyn DnsFilterRepository> {
+        Arc::new(SqliteDnsFilterRepository::new(self.pool.clone()))
     }
 
     fn tunnel(&self) -> Arc<dyn TunnelRepository> {

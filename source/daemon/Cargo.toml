@@ -108,6 +108,8 @@ wireguard-control = "1"
 ipnetwork = "0.20"
 # https://crates.io/crates/tokio-util
 tokio-util = { version = "0.7", features = ["rt"] }
+# https://crates.io/crates/arc-swap — atomic Arc replacement for hot-path filter cache
+arc-swap = "1"
 # https://crates.io/crates/pnet
 pnet = "0.35"
 # https://crates.io/crates/sysinfo

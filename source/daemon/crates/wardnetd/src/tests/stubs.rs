@@ -467,75 +467,6 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     async fn get_dns_config(&self) -> Result<wardnet_common::dns::DnsConfig, AppError> {
         unimplemented!()
     }
-    async fn list_blocklists(
-        &self,
-    ) -> Result<wardnet_common::api::ListBlocklistsResponse, AppError> {
-        unimplemented!()
-    }
-    async fn create_blocklist(
-        &self,
-        _req: wardnet_common::api::CreateBlocklistRequest,
-    ) -> Result<wardnet_common::api::CreateBlocklistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn update_blocklist(
-        &self,
-        _id: uuid::Uuid,
-        _req: wardnet_common::api::UpdateBlocklistRequest,
-    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn delete_blocklist(
-        &self,
-        _id: uuid::Uuid,
-    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn update_blocklist_now(
-        &self,
-        _id: uuid::Uuid,
-    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
-        unimplemented!()
-    }
-    async fn list_allowlist(&self) -> Result<wardnet_common::api::ListAllowlistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn create_allowlist_entry(
-        &self,
-        _req: wardnet_common::api::CreateAllowlistRequest,
-    ) -> Result<wardnet_common::api::CreateAllowlistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn delete_allowlist_entry(
-        &self,
-        _id: uuid::Uuid,
-    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, AppError> {
-        unimplemented!()
-    }
-    async fn list_filter_rules(
-        &self,
-    ) -> Result<wardnet_common::api::ListFilterRulesResponse, AppError> {
-        unimplemented!()
-    }
-    async fn create_filter_rule(
-        &self,
-        _req: wardnet_common::api::CreateFilterRuleRequest,
-    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, AppError> {
-        unimplemented!()
-    }
-    async fn update_filter_rule(
-        &self,
-        _id: uuid::Uuid,
-        _req: wardnet_common::api::UpdateFilterRuleRequest,
-    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, AppError> {
-        unimplemented!()
-    }
-    async fn delete_filter_rule(
-        &self,
-        _id: uuid::Uuid,
-    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, AppError> {
-        unimplemented!()
-    }
     async fn list_query_log(
         &self,
         _params: wardnet_common::api::ListQueryLogParams,
@@ -557,10 +488,190 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     async fn flush_query_log(&self) -> Result<u64, AppError> {
         unimplemented!()
     }
-    async fn load_filter_inputs(
+}
+
+// ---------------------------------------------------------------------------
+// StubDnsFilterService
+// ---------------------------------------------------------------------------
+
+pub struct StubDnsFilterService;
+
+#[async_trait]
+impl wardnetd_services::DnsFilterService for StubDnsFilterService {
+    async fn check(
         &self,
-    ) -> Result<wardnetd_services::dns::filter::FilterInputs, AppError> {
+        _domain: &str,
+        _qtype: hickory_proto::rr::RecordType,
+        _client: std::net::IpAddr,
+    ) -> wardnetd_services::dns_filter::service::CheckOutcome {
+        wardnetd_services::dns_filter::service::CheckOutcome {
+            action: wardnet_common::dns::FilterAction::Pass,
+            would_have_blocked: false,
+        }
+    }
+    async fn rebuild_all(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn list_profiles(&self) -> Result<wardnet_common::api::ListProfilesResponse, AppError> {
         unimplemented!()
+    }
+    async fn get_profile(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetProfileResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_profile(
+        &self,
+        _r: wardnet_common::api::CreateProfileRequest,
+    ) -> Result<wardnet_common::api::CreateProfileResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_profile(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateProfileRequest,
+    ) -> Result<wardnet_common::api::UpdateProfileResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_profile(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteProfileResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_blocklists(
+        &self,
+        _profile_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::ListBlocklistsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _profile_id: uuid::Uuid,
+        _r: wardnet_common::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_common::api::CreateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_blocklist(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_blocklist(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_allowlist(
+        &self,
+        _profile_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::ListAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _profile_id: uuid::Uuid,
+        _r: wardnet_common::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_common::api::CreateAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_custom_rules(
+        &self,
+        _profile_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::ListFilterRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_custom_rule(
+        &self,
+        _profile_id: uuid::Uuid,
+        _r: wardnet_common::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_custom_rule(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_custom_rule(
+        &self,
+        _profile_id: uuid::Uuid,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_device_settings(
+        &self,
+        _params: wardnet_common::api::ListDeviceFilterSettingsParams,
+    ) -> Result<wardnet_common::api::ListDeviceFilterSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_device_settings(
+        &self,
+        _device_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetDeviceFilterSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_device_settings(
+        &self,
+        _device_id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateDeviceFilterSettingsRequest,
+    ) -> Result<wardnet_common::api::UpdateDeviceFilterSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_filter_config(
+        &self,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_filter_config(
+        &self,
+        _r: wardnet_common::api::UpdateDnsFilterConfigRequest,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn rebuild_blocklist_filter(&self, _id: uuid::Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn rebuild_profile(&self, _id: uuid::Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn rebuild_device(&self, _id: uuid::Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn rebuild_default_context(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn handle_device_ip_changed(
+        &self,
+        _device_id: uuid::Uuid,
+        _old_ip: &str,
+        _new_ip: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
     }
 }
 
@@ -721,6 +832,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService),
         Arc::new(StubProviderService),

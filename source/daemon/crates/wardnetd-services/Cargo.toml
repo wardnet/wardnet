@@ -25,6 +25,8 @@ wardnetd-data.workspace = true
 tokio.workspace = true
 # https://crates.io/crates/tokio-util
 tokio-util.workspace = true
+# https://crates.io/crates/arc-swap — atomic Arc replacement for hot-path filter cache
+arc-swap.workspace = true
 # https://crates.io/crates/axum
 axum.workspace = true
 # https://crates.io/crates/tower

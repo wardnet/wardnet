@@ -15,9 +15,9 @@ use wardnet_common::api::SystemStatusResponse;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
-    StubTunnelService,
+    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubProviderService,
+    StubRoutingService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -125,6 +125,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -373,6 +374,7 @@ async fn recent_errors_returns_populated_errors() {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(MockLogServiceWithErrors) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -494,6 +496,7 @@ async fn download_logs_returns_text_when_log_exists() {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(MockLogServiceWithContent {
             content: "2026-04-13T00:00:00Z  INFO test hello world".to_owned(),
@@ -584,6 +587,7 @@ async fn download_logs_formats_non_json_lines_as_is() {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(MockLogServicePlainText) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -658,6 +662,7 @@ async fn download_logs_finds_dated_file() {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(MockLogServiceDated) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -732,6 +737,7 @@ async fn download_logs_no_file_returns_500() {
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(StubDiscoveryService),
         Arc::new(MockLogServiceNoFile) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

@@ -1,19 +1,25 @@
+//! HTTP fetcher + refresh path for DNS filter blocklists.
+//!
+//! Moved from `dns/blocklist_downloader.rs` as part of issue #221. After
+//! the rename, blocklists are profile-scoped — the refresh helper now
+//! talks to [`DnsFilterRepository`] and emits
+//! [`WardnetEvent::DnsFilterBlocklistUpdated`].
+
 use wardnet_common::dns::Blocklist;
 use wardnet_common::event::WardnetEvent;
-use wardnetd_data::repository::DnsRepository;
+use wardnetd_data::repository::DnsFilterRepository;
 
 use crate::dns::filter_parser::{self, ParsedRule};
 use crate::event::EventPublisher;
 use crate::jobs::ProgressReporter;
 
 /// Abstraction over HTTP client for downloading blocklists.
-/// Uses a trait so tests can inject a mock.
 #[async_trait::async_trait]
 pub trait BlocklistFetcher: Send + Sync {
     async fn fetch(&self, url: &str) -> anyhow::Result<String>;
 }
 
-/// Production HTTP fetcher using reqwest.
+/// Production HTTP fetcher using `reqwest`.
 pub struct HttpBlocklistFetcher {
     client: reqwest::Client,
 }
@@ -48,23 +54,13 @@ impl BlocklistFetcher for HttpBlocklistFetcher {
     }
 }
 
-/// Fetch a blocklist from its upstream URL, parse the body, and bulk-replace
-/// the stored domains. Clears the stored `last_error` on success, records it
-/// on failure. On success publishes a [`WardnetEvent::DnsBlocklistUpdated`]
-/// so the DNS runner rebuilds its in-memory filter.
-///
-/// The optional [`ProgressReporter`] is used by the manual (job-dispatched)
-/// path; the periodic cron path passes `None`. Progress is reported at
-/// coarse milestones (fetch, parse, store, publish) — byte-level progress
-/// during the HTTP read is a future improvement.
-///
-/// Errors returned here propagate to the job executor, which records them as
-/// the job's terminal error. In parallel, the helper also stamps the
-/// blocklist's `last_error` column in the DB so the UI row shows the failure
-/// even after the job is GC'd.
+/// Fetch a blocklist, parse, bulk-replace, and emit
+/// [`WardnetEvent::DnsFilterBlocklistUpdated`]. The DNS filter runner
+/// rebuilds the affected per-source [`crate::dns_filter::DnsFilter`] in
+/// response.
 pub async fn refresh_blocklist(
     blocklist: &Blocklist,
-    dns_repo: &dyn DnsRepository,
+    repo: &dyn DnsFilterRepository,
     fetcher: &dyn BlocklistFetcher,
     events: &dyn EventPublisher,
     reporter: Option<&ProgressReporter>,
@@ -78,7 +74,7 @@ pub async fn refresh_blocklist(
         Err(e) => {
             let msg = format!("download failed: {e}");
             tracing::error!(blocklist_id = %blocklist.id, error = %e, "blocklist download failed");
-            let _ = dns_repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
+            let _ = repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
             return Err(e);
         }
     };
@@ -90,17 +86,12 @@ pub async fn refresh_blocklist(
     let domains = parse_blocklist_body(&body);
     let count = domains.len() as u64;
 
-    // A blocklist response with zero parseable domains is almost always a
-    // user error (wrong URL, HTML landing page, unsupported format, a 302
-    // that reqwest silently followed to an unrelated page). Fail loudly
-    // rather than wiping the currently-stored domains — preserving prior
-    // state keeps the filter working if the upstream is transiently broken.
     if count == 0 {
         let msg =
             "parsed 0 domains from response (check the URL — it may redirect to an HTML page)"
                 .to_owned();
         tracing::error!(blocklist_id = %blocklist.id, "{msg}");
-        let _ = dns_repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
+        let _ = repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
         return Err(anyhow::anyhow!(msg));
     }
 
@@ -108,21 +99,18 @@ pub async fn refresh_blocklist(
         r.set_progress(80).await;
     }
 
-    if let Err(e) = dns_repo
-        .replace_blocklist_domains(blocklist.id, &domains)
-        .await
-    {
+    if let Err(e) = repo.replace_blocklist_domains(blocklist.id, &domains).await {
         let msg = format!("failed to store domains: {e}");
         tracing::error!(blocklist_id = %blocklist.id, error = %e, "failed to store blocklist domains");
-        let _ = dns_repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
+        let _ = repo.set_blocklist_error(blocklist.id, Some(&msg)).await;
         return Err(e);
     }
 
-    if let Err(e) = dns_repo.set_blocklist_error(blocklist.id, None).await {
+    if let Err(e) = repo.set_blocklist_error(blocklist.id, None).await {
         tracing::warn!(blocklist_id = %blocklist.id, error = %e, "failed to clear blocklist error");
     }
 
-    events.publish(WardnetEvent::DnsBlocklistUpdated {
+    events.publish(WardnetEvent::DnsFilterBlocklistUpdated {
         blocklist_id: blocklist.id,
         entry_count: count,
         timestamp: chrono::Utc::now(),
@@ -143,11 +131,6 @@ pub async fn refresh_blocklist(
 }
 
 /// Parse a blocklist body into deduplicated, lowercased domains.
-///
-/// Lines that parse to a plain `DomainBlock` (no modifiers) are included. Lines
-/// that fail to parse or produce complex rules are silently skipped — this is
-/// expected for hosts-file headers, comments, and regex rules in standard
-/// blocklists.
 #[must_use]
 pub fn parse_blocklist_body(body: &str) -> Vec<String> {
     let mut domains = std::collections::HashSet::new();

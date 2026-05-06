@@ -102,14 +102,15 @@ fn dhcp_lease_expired_tagged() {
 }
 
 #[test]
-fn dns_filters_changed_tagged() {
-    let event = WardnetEvent::DnsFiltersChanged {
+fn dns_filter_changed_tagged() {
+    let event = WardnetEvent::DnsFilterChanged {
+        change: super::super::event::DnsFilterChange::GlobalToggle,
         timestamp: "2026-04-15T00:00:00Z".parse().unwrap(),
     };
     let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("\"type\":\"dns_filters_changed\""));
+    assert!(json.contains("\"type\":\"dns_filter_changed\""));
     let back: WardnetEvent = serde_json::from_str(&json).unwrap();
-    assert!(matches!(back, WardnetEvent::DnsFiltersChanged { .. }));
+    assert!(matches!(back, WardnetEvent::DnsFilterChanged { .. }));
 }
 
 #[test]

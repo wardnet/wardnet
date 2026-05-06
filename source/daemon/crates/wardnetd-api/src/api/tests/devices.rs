@@ -18,8 +18,9 @@ use wardnet_common::routing::RoutingTarget;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDhcpServer, StubDhcpService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubLogService, StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsServer, StubDnsService,
+    StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
+    StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -318,6 +319,7 @@ fn build_state_with_dhcp(
         Arc::new(device_svc),
         Arc::new(dhcp_svc),
         Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
         Arc::new(discovery_svc),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

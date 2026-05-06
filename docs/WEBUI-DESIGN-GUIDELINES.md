@@ -404,7 +404,15 @@ Used for utilization indicators (DHCP pool usage).
 **Rules**
 - Switch fill color to `--color-warning-fg` above 80% utilization, `--color-danger-fg` above 95%.
 
-### 3.11 Sheet (side drawer)
+### 3.11 Sheet (side drawer) *(deprecated for entity create/edit flows)*
+
+> **Deprecated** for entity creation and editing. New work prefers the in-place
+> patterns documented in [§4.5 Edit in place](#45-edit-in-place) and
+> [§4.6 Add](#46-add). The sheet primitive remains available for transient,
+> non-entity flows (filters, presenters, lightweight pickers) where dismissal
+> via Escape/backdrop is the right affordance, but new pages should not adopt
+> it for create-or-edit forms — the post-#325 device detail page and #221
+> DNS Filtering rebuild both use card-based in-place edit instead.
 
 Right-side panel for creating or editing a single record. Used in place of a full-page form when the surrounding context still matters (e.g., editing a device while the device list stays visible behind the sheet).
 
@@ -641,6 +649,69 @@ The same field rules apply inside sheets, modals, settings rows, and inline edit
 - Code-like inputs (WireGuard config, AdGuard rules) use `font-mono` and switch to a multi-line `<Textarea>` if more than ~100 characters are likely.
 - Don't use placeholder text as a label. Placeholders show example values, never field names.
 - Group related fields with a small heading or a `--color-border-subtle` divider rather than nesting them in a sub-card. Sheets and modals are already a contained surface — don't double-frame.
+
+### 4.8 Edit in place
+
+Established by the post-#325 device detail page (`DeviceIdentityCard`,
+`DeviceSettingsCard`, `DeviceNetworkCard`) and adopted by the #221 DNS Filtering
+rebuild. Use this pattern for editing an existing entity that has its own
+detail page.
+
+**Pattern**:
+- Each editable concern lives in its own `<Card>`. Cards have a `<CardTitle>`
+  and an "Edit" `<CardAction>` button shown only in read mode.
+- **Read mode** — `<CardContent>` renders a 2-column grid of label/value
+  pairs (`text-xs uppercase tracking-wide text-muted-foreground` over
+  `text-sm`). No inputs, no save button.
+- **Edit mode** — same `<CardContent>`, but value cells become inputs/selects.
+  A `<CardFooter>` appears with a right-aligned `Cancel` (ghost) and `Save`
+  (primary) pair. Destructive actions live at the left side of the same
+  footer (see [§4.5](#45-destructive-actions)).
+- The toggle is local: clicking Edit calls `startEdit()` which snapshots the
+  persisted values into draft state, then sets `editing = true`. Cancel
+  discards the draft; Save calls the mutation and clears `editing` on
+  success.
+- The form does not navigate. The user stays on the same URL — context (page
+  title, breadcrumbs, sibling cards) remains visible the whole time.
+
+**Rules**:
+- One card opens at a time per page. There is no formal lock — but the
+  read-mode "Edit" button on sibling cards stays available, since cards
+  represent independent slices.
+- Save button stays disabled while pending and uses gerund copy ("Saving…").
+- Errors render via `<ApiErrorAlert>` inside the card body, not toast.
+- Builtin / read-only entities omit the "Edit" affordance entirely. Don't
+  show a disabled Edit button — render it absent.
+
+### 4.9 Add
+
+Two variants. The decision rule is structural:
+
+- **Routed-add** — the new entity has its own detail page. Clicking "Add"
+  navigates to a dedicated `/.../<resource>/new` route that renders a single
+  card in edit mode. Save POSTs the entity and navigates to its detail
+  page (`/<resource>/<id>`). Cancel navigates back to the list. Used by:
+  DNS filter profiles (`/dns/filter/profiles/new`).
+- **Inline-add** — the new entity is a sub-resource of the page you're on
+  (no separate detail page). Clicking "Add" reveals a dashed-border card
+  inline above the existing list/table, in the same `<Card>` as the list
+  itself. Cancel collapses the form. Save adds the entity and collapses
+  the form. Used by: profile blocklists, allowlist entries, custom rules
+  on the DNS filter profile detail page.
+
+**Rules**:
+- Choose by structure, not by form size: if there's a detail page,
+  routed-add; otherwise inline-add. Don't routed-add a sub-resource that
+  has no detail page just because the form is long.
+- Both variants reuse the [§4.8](#48-edit-in-place) edit-mode card layout
+  (Cancel / Save footer, ApiErrorAlert in body). They differ only in
+  *where* the form renders.
+- Inline-add forms render one at a time per section. Opening Add cancels
+  any in-progress inline Edit on the same section, and vice versa.
+- Empty states use the [§4.2.2](#422-manually-populated-empty-illustration--cta)
+  CTA placeholder; the placeholder's button reuses the same `onAdd`
+  handler. The empty CTA replaces the list-top "Add" button — don't show
+  both.
 
 ---
 

@@ -10,6 +10,7 @@ import {
   InfoService,
   DhcpService,
   DnsService,
+  DnsFilterService,
   DnsLogStreamService,
   JobsService,
   LogService,
@@ -28,6 +29,7 @@ export const setupService = new SetupService(client);
 export const infoService = new InfoService(client);
 export const dhcpService = new DhcpService(client);
 export const dnsService = new DnsService(client);
+export const dnsFilterService = new DnsFilterService(client);
 export const dnsLogStreamService = new DnsLogStreamService(client, window.location.origin);
 export const jobsService = new JobsService(client);
 export const logService = new LogService(client, window.location.origin);

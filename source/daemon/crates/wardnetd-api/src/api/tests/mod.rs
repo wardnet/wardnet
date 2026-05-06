@@ -2,7 +2,6 @@ mod auth;
 mod backup;
 mod devices;
 mod dhcp;
-mod dns;
 mod info;
 mod jobs;
 mod middleware;

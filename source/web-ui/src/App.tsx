@@ -14,7 +14,9 @@ import Settings from "@/pages/Settings";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
 import DnsLogs from "@/pages/DnsLogs";
-import AdBlocking from "@/pages/AdBlocking";
+import DnsFilter from "@/pages/DnsFilter";
+import DnsFilterProfile from "@/pages/DnsFilterProfile";
+import DnsFilterProfileNew from "@/pages/DnsFilterProfileNew";
 import MyDevice from "@/pages/MyDevice";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
@@ -133,10 +135,26 @@ export default function App() {
           }
         />
         <Route
-          path="ad-blocking"
+          path="dns/filter"
           element={
             <AdminRoute>
-              <AdBlocking />
+              <DnsFilter />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="dns/filter/profiles/new"
+          element={
+            <AdminRoute>
+              <DnsFilterProfileNew />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="dns/filter/profiles/:id"
+          element={
+            <AdminRoute>
+              <DnsFilterProfile />
             </AdminRoute>
           }
         />

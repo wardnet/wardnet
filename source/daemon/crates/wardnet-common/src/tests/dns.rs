@@ -141,7 +141,7 @@ fn dns_config_default_values() {
     assert_eq!(config.resolution_mode, DnsResolutionMode::Forwarding);
     assert_eq!(config.upstream_servers.len(), 2);
     assert_eq!(config.cache_size, 10_000);
-    assert!(config.ad_blocking_enabled);
+    assert!(config.dns_filtering_enabled);
     assert!(config.rebinding_protection);
     assert!(!config.dnssec_enabled);
     assert_eq!(config.query_log_retention_days, 7);
@@ -188,7 +188,7 @@ fn update_dns_config_request_full_deserialization() {
         "dnssec_enabled": true,
         "rebinding_protection": false,
         "rate_limit_per_second": 100,
-        "ad_blocking_enabled": false,
+        "dns_filtering_enabled": false,
         "query_log_enabled": false,
         "query_log_retention_days": 14
     }"#;
@@ -265,6 +265,7 @@ fn dns_zone_round_trip() {
 fn blocklist_round_trip() {
     let blocklist = Blocklist {
         id: Uuid::new_v4(),
+        profile_id: Uuid::nil(),
         name: "Steven Black".to_owned(),
         url: "https://example.com/hosts".to_owned(),
         enabled: true,
@@ -286,6 +287,7 @@ fn blocklist_round_trip() {
 fn allowlist_entry_round_trip() {
     let entry = AllowlistEntry {
         id: Uuid::new_v4(),
+        profile_id: Uuid::nil(),
         domain: "safe.example.com".to_owned(),
         reason: Some("Work-related".to_owned()),
         created_at: Utc::now(),
@@ -300,6 +302,7 @@ fn allowlist_entry_round_trip() {
 fn custom_filter_rule_round_trip() {
     let rule = CustomFilterRule {
         id: Uuid::new_v4(),
+        profile_id: Uuid::nil(),
         rule_text: "||ads.example.com^".to_owned(),
         enabled: true,
         comment: Some("Block example ads".to_owned()),
@@ -379,6 +382,7 @@ fn list_blocklists_response_round_trip() {
     let resp = ListBlocklistsResponse {
         blocklists: vec![Blocklist {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             name: "Test".to_owned(),
             url: "https://example.com/list".to_owned(),
             enabled: true,
@@ -417,6 +421,7 @@ fn create_blocklist_response_round_trip() {
     let resp = CreateBlocklistResponse {
         blocklist: Blocklist {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             name: "Test".to_owned(),
             url: "https://example.com".to_owned(),
             enabled: true,
@@ -458,6 +463,7 @@ fn update_blocklist_response_round_trip() {
     let resp = UpdateBlocklistResponse {
         blocklist: Blocklist {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             name: "Test".to_owned(),
             url: "https://example.com".to_owned(),
             enabled: false,
@@ -491,6 +497,7 @@ fn list_allowlist_response_round_trip() {
     let resp = ListAllowlistResponse {
         entries: vec![AllowlistEntry {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             domain: "safe.example.com".to_owned(),
             reason: None,
             created_at: Utc::now(),
@@ -528,6 +535,7 @@ fn create_allowlist_response_round_trip() {
     let resp = CreateAllowlistResponse {
         entry: AllowlistEntry {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             domain: "x.com".to_owned(),
             reason: None,
             created_at: Utc::now(),
@@ -554,6 +562,7 @@ fn list_filter_rules_response_round_trip() {
     let resp = ListFilterRulesResponse {
         rules: vec![CustomFilterRule {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             rule_text: "||ads.example.com^".to_owned(),
             enabled: true,
             comment: None,
@@ -584,6 +593,7 @@ fn create_filter_rule_response_round_trip() {
     let resp = CreateFilterRuleResponse {
         rule: CustomFilterRule {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             rule_text: "||ads.com^".to_owned(),
             enabled: true,
             comment: None,
@@ -611,6 +621,7 @@ fn update_filter_rule_response_round_trip() {
     let resp = UpdateFilterRuleResponse {
         rule: CustomFilterRule {
             id: Uuid::new_v4(),
+            profile_id: Uuid::nil(),
             rule_text: "||x.com^".to_owned(),
             enabled: false,
             comment: None,

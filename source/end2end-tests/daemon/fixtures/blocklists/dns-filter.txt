@@ -1,0 +1,13 @@
+# Blocklist consumed by the per-device / per-profile DNS-filter specs
+# (`dns-filter-device-toggle`, `dns-filter-profile-swap`,
+# `dns-filter-default-profile`). All three specs install this list
+# under the Ad Blocking builtin profile (or a clone of it) and verify
+# that toggling the per-device kill switch / swapping a device's
+# profile / changing the global default flips the resolver answer
+# between NXDOMAIN and a real upstream response.
+#
+# www.iana.org is real (RFC 7042 example domain) so we can tell
+# "filter active" (NXDOMAIN) from "filter bypassed" (real upstream
+# answer) from the resolver response alone — same trick the older
+# dns-blocklists.txt fixture uses.
+0.0.0.0 www.iana.org

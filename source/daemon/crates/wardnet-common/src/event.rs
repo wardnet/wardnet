@@ -115,7 +115,9 @@ pub enum WardnetEvent {
     DnsConfigChanged {
         timestamp: DateTime<Utc>,
     },
-    DnsBlocklistUpdated {
+    /// A blocklist's domain set changed (re-download or manual replace).
+    /// Listeners rebuild only the matching `DnsFilter`.
+    DnsFilterBlocklistUpdated {
         blocklist_id: Uuid,
         entry_count: u64,
         timestamp: DateTime<Utc>,
@@ -124,9 +126,12 @@ pub enum WardnetEvent {
         table: u32,
         timestamp: DateTime<Utc>,
     },
-    /// Filter inputs (blocklists, allowlist, custom rules) changed via CRUD or
-    /// blocklist refresh — runner should rebuild the in-memory `DnsFilter`.
-    DnsFiltersChanged {
+    /// DNS filtering state changed. The umbrella event for profile content,
+    /// profile membership, device assignment, default-profile changes, and
+    /// the global emergency stop. The `change` payload tells the listener
+    /// which slice of state to rebuild.
+    DnsFilterChanged {
+        change: DnsFilterChange,
         timestamp: DateTime<Utc>,
     },
     UpdateAvailable {
@@ -150,4 +155,26 @@ pub enum WardnetEvent {
         error: String,
         timestamp: DateTime<Utc>,
     },
+}
+
+/// What kind of DNS filtering change happened. Carried by
+/// [`WardnetEvent::DnsFilterChanged`] so listeners can rebuild only the
+/// affected slice of the in-memory filter pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DnsFilterChange {
+    /// A profile's filter sources (blocklists, allowlist, rules) changed.
+    /// Rebuild only that profile's compiled `DnsFilterProfile`.
+    ProfileContent { profile_id: Uuid },
+    /// Profile metadata changed (e.g. renamed, created, deleted).
+    /// Listeners may need to refresh their profile-id lookup.
+    ProfileMembership { profile_id: Uuid },
+    /// A device's profile assignment or `enabled` flag changed.
+    /// Rebuild only that device's per-IP cache entry.
+    DeviceAssignment { device_id: Uuid },
+    /// The global default profile pointer changed.
+    /// Rebuild the "default context" used for unassigned devices.
+    DefaultProfile,
+    /// The global emergency-stop flag flipped.
+    GlobalToggle,
 }

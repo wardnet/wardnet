@@ -2,11 +2,13 @@ import { randomBytes } from "node:crypto";
 
 import {
   AuthService,
+  DeviceService,
   InfoService,
   JobsService,
   SetupService,
   WardnetClient,
   isJobTerminal,
+  type Device,
   type Job,
 } from "@wardnet/js";
 
@@ -28,6 +30,16 @@ export const TEST_UBUNTU_AGENT =
 // the rule fires on shape, not reachability.
 export const ADMIN_USERNAME = "admin";
 export const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
+
+// Hardcoded UUIDs for the three builtin DNS filter profiles seeded by
+// migration `20260506000000_dns_filtering.sql`. Specs that need to
+// reference Ad Blocking (the default profile that historically held
+// every blocklist / allowlist / rule) use this id directly rather than
+// looking it up by name — `name` is mutable and we want specs to
+// survive a future `ALTER` that renames the seed profile.
+export const AD_BLOCKING_PROFILE_ID = "00000000-0000-0000-0000-000000000100";
+export const PARENTAL_CONTROLS_PROFILE_ID = "00000000-0000-0000-0000-000000000101";
+export const MALWARE_PHISHING_PROFILE_ID = "00000000-0000-0000-0000-000000000102";
 
 /**
  * `WardnetClient` that re-attaches the bearer token returned by login
@@ -274,6 +286,35 @@ export async function resolveViaAgent(
   if (opts.record) params.set("record", opts.record);
   if (opts.timeout !== undefined) params.set("timeout", String(opts.timeout));
   return agentGet<DnsResolveResponse>(agent, `/dns/resolve?${params}`);
+}
+
+/**
+ * Look up a daemon-discovered device by the IPv4 the test agent is
+ * sitting on. Polls because the daemon discovers devices off DHCP
+ * traffic and a freshly-leased agent may not yet appear in the device
+ * list when the spec starts. Throws on timeout.
+ *
+ * Used by the per-device DNS-filter specs to resolve `test_debian`
+ * (whichever managed-id the daemon assigned) into a UUID we can pass
+ * to `DnsFilterService.updateDeviceSettings`.
+ */
+export async function findDeviceByIp(
+  client: WardnetClient,
+  ip: string,
+  timeoutMs = 30_000,
+): Promise<Device> {
+  const devices = new DeviceService(client);
+  const deadline = Date.now() + timeoutMs;
+  let last: Device[] = [];
+  while (Date.now() < deadline) {
+    last = (await devices.list()).devices;
+    const match = last.find((d) => d.last_ip === ip);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `no device with last_ip=${ip} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
+  );
 }
 
 /**
