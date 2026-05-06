@@ -8,6 +8,7 @@ import {
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
   ensureDnsEnabled,
+  ensureLeasedAgent,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -59,10 +60,9 @@ describe("dns filter — per-device kill switch", () => {
       }
     }
 
-    // Look up the daemon's device record for test_debian (it has been
-    // leased an in-pool address by `dhcp.spec.ts` running first under
-    // singleFork — re-running dhclient here would race with the
-    // daemon's DHCP runner).
+    // Vitest may run this spec before dhcp.spec.ts; ensure the agent has
+    // an in-pool lease so the daemon has a device row to address.
+    await ensureLeasedAgent(authed, TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
     const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     deviceId = device.id;
 

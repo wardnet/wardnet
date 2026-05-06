@@ -8,6 +8,7 @@ import {
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
   ensureDnsEnabled,
+  ensureLeasedAgent,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -67,6 +68,7 @@ describe("dns filter — global default profile", () => {
     // The spec exercises *unassigned* devices — make sure the test
     // device has no explicit profile_ids so the global default is
     // what determines its filtering.
+    await ensureLeasedAgent(authed, TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
     const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     await dnsFilter.updateDeviceSettings(device.id, { enabled: true, profile_ids: [] });
 

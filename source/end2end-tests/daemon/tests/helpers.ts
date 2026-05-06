@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import {
   AuthService,
   DeviceService,
+  DhcpService,
   DnsService,
   InfoService,
   JobsService,
@@ -351,6 +352,42 @@ export async function ensureDnsEnabled(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`DNS did not become enabled within ${timeoutMs}ms`);
+}
+
+/**
+ * Idempotent DHCP setup for specs that need a leased `test_debian`.
+ * Toggles DHCP on, narrows the pool to `[start, end]`, and drives the
+ * agent through `dhclient renew` until a lease in that range lands.
+ * No-op for the toggle/pool when DHCP is already wired up; safe to call
+ * across specs that vitest reorders (dns-filter specs sometimes execute
+ * before `dhcp.spec.ts` under singleFork).
+ */
+export async function ensureLeasedAgent(
+  client: WardnetClient,
+  agent: string,
+  iface: string,
+  poolStart: string,
+  poolEnd: string,
+): Promise<string> {
+  const dhcp = new DhcpService(client);
+  const cfg = (await dhcp.getConfig()).config;
+  if (!cfg.enabled) {
+    await dhcp.toggle({ enabled: true });
+  }
+  // updateConfig is idempotent; calling it across specs only re-sets to
+  // the same values. Safer than checking each field for drift.
+  await dhcp.updateConfig({
+    pool_start: poolStart,
+    pool_end: poolEnd,
+    subnet_mask: cfg.subnet_mask,
+    upstream_dns: cfg.upstream_dns,
+    lease_duration_secs: cfg.lease_duration_secs,
+    ...(cfg.router_ip ? { router_ip: cfg.router_ip } : {}),
+  });
+  // If the agent already has an in-pool lease, /dhcp/renew is a fast
+  // no-op; if not, it triggers DISCOVER → REQUEST → ACK against the
+  // daemon. Up to 5 attempts spread over ~7.5 s.
+  return acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5);
 }
 
 /**

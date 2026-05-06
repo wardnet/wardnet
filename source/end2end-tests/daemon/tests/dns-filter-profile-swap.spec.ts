@@ -8,6 +8,7 @@ import {
   TEST_DEBIAN_AGENT,
   ensureAdminAndLogin,
   ensureDnsEnabled,
+  ensureLeasedAgent,
   findDeviceByIpRange,
   resolveViaAgent,
   waitForJob,
@@ -61,6 +62,7 @@ describe("dns filter — per-device profile swap", () => {
       }
     }
 
+    await ensureLeasedAgent(authed, TEST_DEBIAN_AGENT, "eth0", POOL_START, POOL_END);
     const device = await findDeviceByIpRange(authed, POOL_START, POOL_END);
     deviceId = device.id;
     await dnsFilter.updateDeviceSettings(deviceId, { enabled: true, profile_ids: [] });
