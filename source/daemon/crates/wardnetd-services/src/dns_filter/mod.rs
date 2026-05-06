@@ -22,3 +22,6 @@ pub use filter::{DnsFilter, DnsFilterInputs, FilterStats};
 pub use filter_profile::RuntimeDnsFilterProfile;
 pub use runner::DnsFilterRunner;
 pub use service::{DnsFilterService, DnsFilterServiceImpl};
+
+#[cfg(test)]
+mod tests;
