@@ -37,6 +37,12 @@ jobs:
       # create`. Top-level stays read-only so Scorecard's
       # Token-Permissions check doesn't flag the workflow.
       contents: write
+      # OIDC token + attestation upload for `actions/attest-build-provenance`.
+      # Keyless Sigstore signing binds each artefact to this workflow file,
+      # ref, and commit SHA — Scorecard's Signed-Releases check looks for
+      # this in addition to the minisign signature.
+      id-token: write
+      attestations: write
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
@@ -155,6 +161,19 @@ jobs:
           cp docs/openapi.json release-staging/openapi.json
           sha256sum release-staging/openapi.json | awk '{print $1}' \
             > release-staging/openapi.json.sha256
+
+      - name: Attest SLSA build provenance
+        # Keyless Sigstore signing — binds each subject to this workflow
+        # file, ref, and commit SHA. Attestations surface under the
+        # release's "Attestations" tab on GitHub and are verifiable via
+        # `gh attestation verify`. Complements the minisign signature:
+        # minisign anchors authenticity even without GitHub; provenance
+        # proves build integrity even if the minisign key is rotated.
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            release-staging/*.tar.gz
+            release-staging/openapi.json
 
       - name: Create GitHub Release
         env:
