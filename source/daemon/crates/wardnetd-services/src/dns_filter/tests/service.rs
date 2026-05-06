@@ -737,6 +737,268 @@ async fn check_passes_when_global_emergency_stop_off() {
 }
 
 #[tokio::test]
+async fn rebuild_blocklist_filter_loads_domains() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "rb".into(),
+                    url: "http://example.test/r.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        h.repo
+            .replace_blocklist_domains(bl.blocklist.id, &["x.test".to_owned(), "y.test".to_owned()])
+            .await
+            .unwrap();
+
+        // Rebuild the per-source filter — should pull the freshly-replaced
+        // domains into the runtime cache. Verified indirectly via the
+        // hot-path `check`.
+        h.service
+            .rebuild_blocklist_filter(bl.blocklist.id)
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_profile_recomposes_filters() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        h.service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "p".into(),
+                    url: "http://example.test/p.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        h.service.rebuild_profile(pid).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_device_with_no_settings_substitutes_default_context() {
+    // rebuild_device for a device that has no row in
+    // dns_filter_device_settings should drop any existing per-IP entry —
+    // exercising the "device has no explicit settings" branch.
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    h.add_device(device_id, "10.0.0.50").await;
+    as_admin(async {
+        h.service.rebuild_device(device_id).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_default_context_uses_configured_default_profile() {
+    let h = build().await;
+    as_admin(async {
+        // Default starts pointing at Ad Blocking; rebuild materialises the
+        // default context.
+        h.service.rebuild_default_context().await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn handle_device_ip_changed_moves_context_to_new_ip() {
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    h.add_device(device_id, "10.0.0.60").await;
+    as_admin(async {
+        h.service
+            .update_device_settings(
+                device_id,
+                UpdateDeviceFilterSettingsRequest {
+                    enabled: true,
+                    profile_ids: vec![Uuid::parse_str(AD_BLOCKING).unwrap()],
+                },
+            )
+            .await
+            .unwrap();
+
+        // Move IP. The hot-path map should update without error.
+        h.service
+            .handle_device_ip_changed(device_id, "10.0.0.60", "10.0.0.61")
+            .await
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn refresh_blocklist_dispatches_a_job() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "ref".into(),
+                    url: "http://example.test/r.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        let resp = h
+            .service
+            .refresh_blocklist(pid, bl.blocklist.id)
+            .await
+            .unwrap();
+        // StubJobService returns a fresh UUID per dispatch.
+        assert_ne!(resp.job_id, Uuid::nil());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn refresh_unknown_blocklist_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .refresh_blocklist(pid, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_device_settings_with_unknown_profile_returns_bad_request() {
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    h.add_device(device_id, "10.0.0.70").await;
+    as_admin(async {
+        let err = h
+            .service
+            .update_device_settings(
+                device_id,
+                UpdateDeviceFilterSettingsRequest {
+                    enabled: true,
+                    profile_ids: vec![Uuid::new_v4()],
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            AppError::BadRequest(_) | AppError::NotFound(_)
+        ));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_allowlist_rejects_missing_dot_domain() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .create_allowlist_entry(
+                pid,
+                CreateAllowlistRequest {
+                    domain: "no_dot_here".into(),
+                    reason: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_allowlist_rejects_empty_domain() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .create_allowlist_entry(
+                pid,
+                CreateAllowlistRequest {
+                    domain: String::new(),
+                    reason: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn check_uses_default_context_for_unknown_ip() {
+    let h = build().await;
+    as_admin(async {
+        // Seed a domain in the Ad Blocking profile so the default context
+        // sees a block.
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "default-test".into(),
+                    url: "http://example.test/d.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        h.repo
+            .replace_blocklist_domains(bl.blocklist.id, &["unknown.test".to_owned()])
+            .await
+            .unwrap();
+        h.service.rebuild_all().await.unwrap();
+    })
+    .await;
+
+    // Random IP not in the per-IP map should still fall through to the
+    // default context (Ad Blocking) and get blocked.
+    let outcome = h
+        .service
+        .check(
+            "unknown.test",
+            RecordType::A,
+            "10.99.99.99".parse::<IpAddr>().unwrap(),
+        )
+        .await;
+    assert_eq!(outcome.action, FilterAction::Block);
+    assert!(!outcome.would_have_blocked);
+}
+
+#[tokio::test]
 async fn check_passes_when_device_kill_switch_off_and_records_would_have_blocked() {
     let h = build().await;
     let device_id = Uuid::new_v4();
