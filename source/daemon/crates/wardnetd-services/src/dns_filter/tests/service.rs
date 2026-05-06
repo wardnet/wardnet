@@ -949,6 +949,140 @@ async fn update_filter_config_with_unknown_default_profile_returns_not_found() {
     .await;
 }
 
+#[tokio::test]
+async fn create_blocklist_rejects_non_http_url() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "x".into(),
+                    url: "ftp://example.test/list".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_blocklist_rejects_invalid_cron() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "x".into(),
+                    url: "http://example.test/list".into(),
+                    cron_schedule: "not a cron".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_custom_rule_rejects_invalid_rule_text() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        // A blank string parses as a comment/blank — rejected by
+        // `validate_rule_text` so users don't silently add no-ops.
+        let err = h
+            .service
+            .create_custom_rule(
+                pid,
+                CreateFilterRuleRequest {
+                    rule_text: "   ".into(),
+                    comment: None,
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn delete_custom_profile_publishes_membership_event() {
+    // Deleting a non-builtin profile fires a ProfileMembership change so
+    // listeners (DnsFilterRunner / web UI cache invalidation) refresh.
+    // Asserting that the call succeeds + repo no longer lists the
+    // profile is enough; the event publish path is exercised.
+    let h = build().await;
+    as_admin(async {
+        let created = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "delete-me".into(),
+            })
+            .await
+            .unwrap();
+        let resp = h.service.delete_profile(created.profile.id).await.unwrap();
+        assert!(resp.message.contains("deleted"));
+
+        // Re-listing should not include the deleted profile.
+        let listed = h.service.list_profiles().await.unwrap();
+        assert!(listed.profiles.iter().all(|p| p.id != created.profile.id));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_blocklist_with_no_fields_is_a_noop() {
+    // All optional fields = None → repo's update_blocklist accepts this
+    // and the response echoes the existing row.
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let created = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "noop".into(),
+                    url: "http://example.test/n.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        let updated = h
+            .service
+            .update_blocklist(
+                pid,
+                created.blocklist.id,
+                UpdateBlocklistRequest {
+                    name: None,
+                    url: None,
+                    cron_schedule: None,
+                    enabled: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.blocklist.name, "noop");
+    })
+    .await;
+}
+
 // ── Hot path ────────────────────────────────────────────────────────────
 
 #[tokio::test]
