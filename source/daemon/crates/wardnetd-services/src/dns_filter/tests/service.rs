@@ -708,6 +708,247 @@ async fn update_filter_config_double_option_semantics() {
     .await;
 }
 
+// ── Additional error / edge paths ───────────────────────────────────────
+
+#[tokio::test]
+async fn list_blocklists_unknown_profile_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h.service.list_blocklists(Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn list_allowlist_unknown_profile_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h.service.list_allowlist(Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn list_custom_rules_unknown_profile_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h
+            .service
+            .list_custom_rules(Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn delete_blocklist_unknown_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .delete_blocklist(pid, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn delete_allowlist_unknown_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .delete_allowlist_entry(pid, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn delete_custom_rule_unknown_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .delete_custom_rule(pid, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_rejects_empty_name() {
+    let h = build().await;
+    as_admin(async {
+        // Create a non-builtin then try to rename to empty.
+        let created = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "Original".into(),
+            })
+            .await
+            .unwrap();
+        let err = h
+            .service
+            .update_profile(
+                created.profile.id,
+                UpdateProfileRequest {
+                    name: Some(String::new()),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_unknown_id_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h
+            .service
+            .update_profile(
+                Uuid::new_v4(),
+                UpdateProfileRequest {
+                    name: Some("X".into()),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn get_profile_unknown_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h.service.get_profile(Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn get_device_settings_for_unconfigured_device_returns_defaults() {
+    // Device with no row in dns_filter_device_settings should surface as
+    // the default `enabled=true, profile_ids=[]` settings — that's what
+    // the UI relies on when the user opens the device detail page for
+    // the first time.
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    h.add_device(device_id, "10.0.0.80").await;
+    as_admin(async {
+        let resp = h.service.get_device_settings(device_id).await.unwrap();
+        assert!(resp.settings.enabled);
+        assert!(resp.settings.profile_ids.is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn list_device_settings_filtered_by_enabled_false() {
+    let h = build().await;
+    let on_device = Uuid::new_v4();
+    let off_device = Uuid::new_v4();
+    h.add_device(on_device, "10.0.0.81").await;
+    h.add_device(off_device, "10.0.0.82").await;
+    as_admin(async {
+        h.service
+            .update_device_settings(
+                on_device,
+                UpdateDeviceFilterSettingsRequest {
+                    enabled: true,
+                    profile_ids: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        h.service
+            .update_device_settings(
+                off_device,
+                UpdateDeviceFilterSettingsRequest {
+                    enabled: false,
+                    profile_ids: vec![],
+                },
+            )
+            .await
+            .unwrap();
+
+        let only_off = h
+            .service
+            .list_device_settings(ListDeviceFilterSettingsParams {
+                enabled: Some(false),
+            })
+            .await
+            .unwrap();
+        assert!(only_off.devices.iter().any(|s| s.device_id == off_device));
+        assert!(only_off.devices.iter().all(|s| !s.enabled));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_blocklist_under_unknown_profile_returns_not_found() {
+    let h = build().await;
+    as_admin(async {
+        let err = h
+            .service
+            .create_blocklist(
+                Uuid::new_v4(),
+                CreateBlocklistRequest {
+                    name: "x".into(),
+                    url: "http://example.test/x.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_filter_config_with_unknown_default_profile_returns_not_found() {
+    // Setting default_profile_id to a profile that doesn't exist should
+    // reject; otherwise unassigned devices would silently filter against
+    // a missing profile.
+    let h = build().await;
+    as_admin(async {
+        let err = h
+            .service
+            .update_filter_config(UpdateDnsFilterConfigRequest {
+                enabled: None,
+                default_profile_id: Some(Some(Uuid::new_v4())),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            AppError::NotFound(_) | AppError::BadRequest(_)
+        ));
+    })
+    .await;
+}
+
 // ── Hot path ────────────────────────────────────────────────────────────
 
 #[tokio::test]
