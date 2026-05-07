@@ -223,13 +223,19 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError> {
+        // Documented exception to the auth-guard rule (`.agents/auth.md`):
+        // by definition no admin exists when this is called, so there's no
+        // session to authenticate. The 409 guard below is the actual gate
+        // — we use `admins.exists()` directly rather than the legacy
+        // `setup_completed` system_config key. That key was the previous
+        // signal but it was a separate write from `admin_repo.create()`,
+        // so a crash between the two could leave the system in a state
+        // where an admin exists but the key is `false` (or vice versa) —
+        // the 409 check would then disagree with reality. Reading the
+        // admin row directly removes that race entirely.
+
         // Guard: setup can only run once.
-        let completed = self
-            .system_config
-            .is_setup_completed()
-            .await
-            .map_err(AppError::Internal)?;
-        if completed {
+        if self.admins.exists().await.map_err(AppError::Internal)? {
             return Err(AppError::Conflict("setup already completed".to_owned()));
         }
 
@@ -263,24 +269,21 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        self.system_config
-            .set_setup_completed(true)
-            .await
-            .map_err(AppError::Internal)?;
-
-        // Atomically advance the wizard to the next step. Without this a
-        // page reload between admin creation and the frontend's advance
-        // call would land the operator back on step 1, where POST /api/setup
-        // now 409s — UX dead-end. Only advance if we're still at "admin"
-        // so re-runs don't rewind from a later step (which advance_wizard
-        // would reject anyway, but skipping the call avoids a noisy error
-        // path on installs that bootstrap an admin from config.toml).
-        let current = self
+        // Advance the wizard to the next step in a single write. The
+        // `setup_completed` key is no longer maintained by this method —
+        // `is_setup_completed()` is now derived from
+        // `wizard_step == Completed` (see below). If this write fails
+        // after admin creation, the 409 guard above still fires on
+        // retry (the admin row exists), and the operator can recover
+        // by hitting POST /api/setup/advance from the wizard UI.
+        if self
             .system_config
             .get_wizard_step()
             .await
-            .map_err(AppError::Internal)?;
-        if current.as_deref() == Some(WizardStep::Admin.as_storage_str()) || current.is_none() {
+            .map_err(AppError::Internal)?
+            .as_deref()
+            == Some(WizardStep::Admin.as_storage_str())
+        {
             self.system_config
                 .set_wizard_step(WizardStep::Network.as_storage_str())
                 .await
@@ -293,10 +296,14 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
-        self.system_config
-            .is_setup_completed()
-            .await
-            .map_err(AppError::Internal)
+        // Derived from `wizard_step == Completed` so this matches the
+        // value the API surfaces in `SetupStatusResponse.setup_completed`.
+        // The legacy `setup_completed` key in `system_config` is no
+        // longer written by `setup_admin` (it would race against the
+        // wizard_step write); it's kept only as a migration signal that
+        // `bootstrap_system_config` reads on first boot of an upgraded
+        // install.
+        Ok(self.wizard_state().await?.setup_completed())
     }
 
     async fn wizard_state(&self) -> Result<WizardState, AppError> {
