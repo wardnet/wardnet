@@ -35,12 +35,25 @@ export default function Step1Admin() {
       await setup.mutateAsync({ username, password });
       // Auto-login so the rest of the wizard runs as an authenticated admin.
       await login(username, password);
-      // Now advance the wizard so the stepper moves on.
+      // The daemon's setup_admin already advances wizard_step to "network"
+      // atomically, but we re-issue advance here to be defensive against
+      // server versions that don't yet ship that change.
       await advance.mutateAsync({ to_step: "network" });
       await queryClient.refetchQueries({ queryKey: ["setup", "status"] });
     } catch (err) {
       if (err instanceof WardnetApiError && err.status === 409) {
-        setError("Setup has already been completed.");
+        // Admin already exists (e.g. operator hard-refreshed mid-flow).
+        // Try logging in with the credentials they just typed; if those
+        // are right, the wizard's status query will pick up the
+        // already-advanced state on refetch.
+        try {
+          await login(username, password);
+          await queryClient.refetchQueries({ queryKey: ["setup", "status"] });
+        } catch {
+          setError(
+            "An admin already exists for this Wardnet, but those credentials don't match. Sign in from /login instead.",
+          );
+        }
       } else if (err instanceof WardnetApiError) {
         setError(err.body.error);
       } else {

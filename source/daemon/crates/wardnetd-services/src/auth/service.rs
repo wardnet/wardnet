@@ -268,6 +268,25 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Atomically advance the wizard to the next step. Without this a
+        // page reload between admin creation and the frontend's advance
+        // call would land the operator back on step 1, where POST /api/setup
+        // now 409s — UX dead-end. Only advance if we're still at "admin"
+        // so re-runs don't rewind from a later step (which advance_wizard
+        // would reject anyway, but skipping the call avoids a noisy error
+        // path on installs that bootstrap an admin from config.toml).
+        let current = self
+            .system_config
+            .get_wizard_step()
+            .await
+            .map_err(AppError::Internal)?;
+        if current.as_deref() == Some(WizardStep::Admin.as_storage_str()) || current.is_none() {
+            self.system_config
+                .set_wizard_step(WizardStep::Network.as_storage_str())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+
         tracing::info!(username = %username, "setup completed: admin account created for username={username}");
 
         Ok(())

@@ -280,3 +280,36 @@ async fn advance_wizard_allows_idempotent_same_step() {
 
     assert_eq!(state.step, WizardStep::Network);
 }
+
+// -- setup_admin advances wizard atomically -------------------------------
+
+#[tokio::test]
+async fn setup_admin_advances_wizard_to_network() {
+    // Fresh install: no admin, wizard_step starts at "admin". After
+    // setup_admin succeeds the wizard must already be on "network" so a
+    // page reload between admin creation and the frontend's advance call
+    // doesn't dead-end on Step 1.
+    let (svc, store) = make_service(false, &[("wizard_step", "admin")]);
+
+    svc.setup_admin("adminuser", "password123").await.unwrap();
+
+    assert_eq!(
+        store.get("wizard_step").await.unwrap().as_deref(),
+        Some("network")
+    );
+}
+
+#[tokio::test]
+async fn setup_admin_advances_when_wizard_step_unset() {
+    // Some install paths (config-bootstrapped admin pre-dating this feature)
+    // may not have a wizard_step row yet. The atomic advance must still
+    // happen.
+    let (svc, store) = make_service(false, &[]);
+
+    svc.setup_admin("adminuser", "password123").await.unwrap();
+
+    assert_eq!(
+        store.get("wizard_step").await.unwrap().as_deref(),
+        Some("network")
+    );
+}
