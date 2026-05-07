@@ -244,13 +244,15 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               </div>
             </>
           )}
-          <Button
-            variant="secondary"
-            onClick={handleValidate}
-            disabled={!credsReady || validateCreds.isPending}
-          >
-            {validateCreds.isPending ? "Validating…" : "Validate credentials"}
-          </Button>
+          <div className="flex justify-end">
+            <Button
+              variant="secondary"
+              onClick={handleValidate}
+              disabled={!credsReady || validateCreds.isPending}
+            >
+              {validateCreds.isPending ? "Validating…" : "Validate credentials"}
+            </Button>
+          </div>
           {validateCreds.isError && (
             <ApiErrorAlert error={validateCreds.error} fallback="Validation failed" />
           )}
