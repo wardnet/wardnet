@@ -15,7 +15,7 @@ use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::routing::RoutingTarget;
 use wardnet_common::tunnel::Tunnel;
 
-use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::ObservationResult;
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
@@ -54,6 +54,19 @@ impl AuthService for StubAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        Ok(WizardState {
+            step: WizardStep::Completed,
+            mode: None,
+        })
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: WizardStep,
+        _mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        unimplemented!()
     }
 }
 

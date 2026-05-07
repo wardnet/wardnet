@@ -50,6 +50,18 @@ impl AuthService for AlwaysAuthService {
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         unimplemented!()
     }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock auth service that always rejects.
@@ -69,6 +81,18 @@ impl AuthService for NeverAuthService {
         unimplemented!()
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
 }

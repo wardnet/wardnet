@@ -258,10 +258,140 @@ pub struct UpdateDeviceRequest {
     pub admin_locked: Option<bool>,
 }
 
+/// Linear stage in the first-run setup wizard.
+///
+/// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
+/// → Completed`. `setup_completed` (in [`SetupStatusResponse`] and the
+/// `SetupGuard` redirect logic) is derived from `wizard_step == Completed`,
+/// so existing installs that already finished setup are not re-routed
+/// through the new wizard after an upgrade.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WizardStep {
+    /// Step 1 — create the first admin user (unauthenticated).
+    Admin,
+    /// Step 2 — confirm OS network state (read-only).
+    Network,
+    /// Step 3 — DHCP onboarding (primary or locked-router).
+    Dhcp,
+    /// Step 4 — discover upstream router MAC.
+    RouterMac,
+    /// Step 5 — first VPN tunnel (skippable).
+    Tunnel,
+    /// Step 6 — pick the global default routing policy.
+    Policy,
+    /// Step 7 — wizard finished; the dashboard takes over.
+    Completed,
+}
+
+/// Branch of the DHCP onboarding flow chosen at step 3.
+///
+/// `Primary` runs Wardnet's built-in DHCP server. `LockedRouter` keeps the
+/// upstream ISP router as the LAN's DHCP server and configures opted-in
+/// devices statically with Wardnet as their gateway/DNS.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WizardMode {
+    Primary,
+    LockedRouter,
+}
+
+impl WizardStep {
+    /// Stable lowercase identifier persisted in the `system_config` table.
+    #[must_use]
+    pub fn as_storage_str(&self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Network => "network",
+            Self::Dhcp => "dhcp",
+            Self::RouterMac => "router_mac",
+            Self::Tunnel => "tunnel",
+            Self::Policy => "policy",
+            Self::Completed => "completed",
+        }
+    }
+
+    /// Parse a `system_config` value back into a [`WizardStep`].
+    ///
+    /// Unknown strings are treated as a corrupted DB and fall back to
+    /// [`WizardStep::Admin`] so the user re-enters the wizard rather than
+    /// landing in an undefined state.
+    #[must_use]
+    pub fn from_storage_str(s: &str) -> Self {
+        match s {
+            "network" => Self::Network,
+            "dhcp" => Self::Dhcp,
+            "router_mac" => Self::RouterMac,
+            "tunnel" => Self::Tunnel,
+            "policy" => Self::Policy,
+            "completed" => Self::Completed,
+            _ => Self::Admin,
+        }
+    }
+
+    /// Linear ordinal used for "no going backwards" validation.
+    #[must_use]
+    pub fn ordinal(&self) -> u8 {
+        match self {
+            Self::Admin => 0,
+            Self::Network => 1,
+            Self::Dhcp => 2,
+            Self::RouterMac => 3,
+            Self::Tunnel => 4,
+            Self::Policy => 5,
+            Self::Completed => 6,
+        }
+    }
+}
+
+impl WizardMode {
+    /// Stable lowercase identifier persisted in the `system_config` table.
+    #[must_use]
+    pub fn as_storage_str(&self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::LockedRouter => "locked_router",
+        }
+    }
+
+    /// Parse a `system_config` value back into a [`WizardMode`].
+    /// Unknown strings yield `None`.
+    #[must_use]
+    pub fn from_storage_str(s: &str) -> Option<Self> {
+        match s {
+            "primary" => Some(Self::Primary),
+            "locked_router" => Some(Self::LockedRouter),
+            _ => None,
+        }
+    }
+}
+
 /// Response for GET /api/setup/status.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupStatusResponse {
+    /// Derived: `wizard_step == Completed`. Kept for `SetupGuard`
+    /// backwards-compat — clients that haven't been updated still get a
+    /// boolean they understand.
     pub setup_completed: bool,
+    pub wizard_step: WizardStep,
+    /// `None` until step 3 picks a branch.
+    pub wizard_mode: Option<WizardMode>,
+}
+
+/// Request body for POST /api/setup/advance.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AdvanceWizardRequest {
+    pub to_step: WizardStep,
+    /// Set when transitioning into [`WizardStep::Dhcp`] so the daemon
+    /// knows which onboarding branch to take.
+    pub wizard_mode: Option<WizardMode>,
+}
+
+/// Response for POST /api/setup/advance.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AdvanceWizardResponse {
+    pub wizard_step: WizardStep,
+    pub wizard_mode: Option<WizardMode>,
 }
 
 /// Request body for POST /api/setup.

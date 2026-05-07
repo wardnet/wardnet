@@ -6,11 +6,28 @@ use async_trait::async_trait;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use wardnet_common::api::{WizardMode, WizardStep};
 
+use crate::auth_context;
 use crate::error::AppError;
 use wardnetd_data::repository::{
     AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
 };
+
+/// Snapshot of the setup-wizard progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WizardState {
+    pub step: WizardStep,
+    pub mode: Option<WizardMode>,
+}
+
+impl WizardState {
+    /// Derived view used by the API and `SetupGuard`.
+    #[must_use]
+    pub fn setup_completed(&self) -> bool {
+        self.step == WizardStep::Completed
+    }
+}
 
 /// Successful login result returned to the API layer.
 pub struct LoginResult {
@@ -46,6 +63,27 @@ pub trait AuthService: Send + Sync {
 
     /// Check whether the initial setup wizard has been completed.
     async fn is_setup_completed(&self) -> Result<bool, AppError>;
+
+    /// Read the current setup-wizard state.
+    ///
+    /// Unauthenticated — `GET /api/setup/status` is exposed without a session
+    /// so the web UI's `SetupGuard` can decide whether to redirect a fresh
+    /// browser to the wizard. Documented exception to the
+    /// `auth_context::require_admin()?` rule (see `.agents/auth.md`).
+    async fn wizard_state(&self) -> Result<WizardState, AppError>;
+
+    /// Advance the wizard to the requested step.
+    ///
+    /// Validates that:
+    /// - Step transitions only move forward (no rewinds).
+    /// - `mode` is either left unchanged or set when first reaching
+    ///   [`WizardStep::Dhcp`].
+    /// - Reaching [`WizardStep::Completed`] requires an admin to exist.
+    async fn advance_wizard(
+        &self,
+        to_step: WizardStep,
+        mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError>;
 }
 
 /// Default implementation of [`AuthService`] backed by repository traits.
@@ -240,5 +278,81 @@ impl AuthService for AuthServiceImpl {
             .is_setup_completed()
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        // Documented exception: this is exposed via the unauthenticated
+        // `GET /api/setup/status` endpoint, so it deliberately does not
+        // call `auth_context::require_*()`.
+        let step = self
+            .system_config
+            .get_wizard_step()
+            .await
+            .map_err(AppError::Internal)?
+            .map_or(WizardStep::Admin, |s| WizardStep::from_storage_str(&s));
+
+        let mode = self
+            .system_config
+            .get_wizard_mode()
+            .await
+            .map_err(AppError::Internal)?
+            .and_then(|s| WizardMode::from_storage_str(&s));
+
+        Ok(WizardState { step, mode })
+    }
+
+    async fn advance_wizard(
+        &self,
+        to_step: WizardStep,
+        mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        auth_context::require_admin()?;
+
+        let current = self.wizard_state().await?;
+
+        if to_step.ordinal() < current.step.ordinal() {
+            return Err(AppError::BadRequest(format!(
+                "wizard cannot rewind from {} to {}",
+                current.step.as_storage_str(),
+                to_step.as_storage_str()
+            )));
+        }
+
+        if to_step == WizardStep::Completed {
+            // Sanity-check: can't finish setup without an admin.
+            let admin_exists = self.admins.exists().await.map_err(AppError::Internal)?;
+            if !admin_exists {
+                return Err(AppError::BadRequest(
+                    "cannot complete wizard before an admin is created".to_owned(),
+                ));
+            }
+        }
+
+        // Only update mode when explicitly provided, so callers don't need to
+        // re-send it on every step.
+        let new_mode = mode.or(current.mode);
+
+        self.system_config
+            .set_wizard_step(to_step.as_storage_str())
+            .await
+            .map_err(AppError::Internal)?;
+        if let Some(m) = new_mode {
+            self.system_config
+                .set_wizard_mode(m.as_storage_str())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+
+        tracing::info!(
+            from = current.step.as_storage_str(),
+            to = to_step.as_storage_str(),
+            mode = ?new_mode,
+            "wizard advanced"
+        );
+
+        Ok(WizardState {
+            step: to_step,
+            mode: new_mode,
+        })
     }
 }

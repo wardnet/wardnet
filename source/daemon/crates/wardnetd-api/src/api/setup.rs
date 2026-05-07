@@ -4,26 +4,32 @@ use axum::http::StatusCode;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use wardnet_common::api::{ApiError, SetupRequest, SetupResponse, SetupStatusResponse};
+use wardnet_common::api::{
+    AdvanceWizardRequest, AdvanceWizardResponse, ApiError, SetupRequest, SetupResponse,
+    SetupStatusResponse,
+};
 
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
 /// Register setup wizard routes onto the given [`OpenApiRouter`].
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
-    router.routes(routes!(setup_status)).routes(routes!(setup))
+    router
+        .routes(routes!(setup_status))
+        .routes(routes!(setup))
+        .routes(routes!(setup_advance))
 }
 
 #[utoipa::path(
     get,
     path = "/api/setup/status",
     tag = "setup",
-    description = "Report whether the initial setup wizard has been completed (i.e. \
-                   whether any admin account exists). No authentication required — the \
-                   web UI calls this before rendering to decide whether to redirect \
-                   the user to the setup page.",
+    description = "Report the current setup-wizard state. \
+                   `setup_completed` is derived from `wizard_step == \"completed\"`. \
+                   No authentication required — the web UI calls this before \
+                   rendering to decide whether to redirect to the wizard.",
     responses(
-        (status = 200, description = "Whether initial setup is complete", body = SetupStatusResponse),
+        (status = 200, description = "Current wizard state", body = SetupStatusResponse),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
     security(()),
@@ -31,8 +37,12 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 pub async fn setup_status(
     State(state): State<AppState>,
 ) -> Result<Json<SetupStatusResponse>, AppError> {
-    let setup_completed = state.auth_service().is_setup_completed().await?;
-    Ok(Json(SetupStatusResponse { setup_completed }))
+    let state = state.auth_service().wizard_state().await?;
+    Ok(Json(SetupStatusResponse {
+        setup_completed: state.setup_completed(),
+        wizard_step: state.step,
+        wizard_mode: state.mode,
+    }))
 }
 
 #[utoipa::path(
@@ -68,4 +78,38 @@ pub async fn setup(
             message: "Admin account created. You can now log in.".to_owned(),
         }),
     ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/setup/advance",
+    tag = "setup",
+    description = "Advance the setup wizard to a new step. Admin-authenticated — \
+                   the web UI auto-logs the operator in immediately after \
+                   `POST /api/setup` and uses normal admin auth from then on. \
+                   Step transitions only move forward; \
+                   `wizard_mode` is recorded when the operator picks the DHCP \
+                   onboarding branch at step 3.",
+    request_body = AdvanceWizardRequest,
+    responses(
+        (status = 200, description = "Wizard state after advance", body = AdvanceWizardResponse),
+        (status = 400, description = "Invalid transition", body = ApiError),
+        (status = 401, description = "Unauthenticated", body = ApiError),
+        (status = 403, description = "Forbidden", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError),
+    ),
+)]
+pub async fn setup_advance(
+    State(state): State<AppState>,
+    Json(body): Json<AdvanceWizardRequest>,
+) -> Result<Json<AdvanceWizardResponse>, AppError> {
+    let new_state = state
+        .auth_service()
+        .advance_wizard(body.to_step, body.wizard_mode)
+        .await?;
+
+    Ok(Json(AdvanceWizardResponse {
+        wizard_step: new_state.step,
+        wizard_mode: new_state.mode,
+    }))
 }

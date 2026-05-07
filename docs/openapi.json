@@ -9019,16 +9019,87 @@
         ]
       }
     },
+    "/api/setup/advance": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "description": "Advance the setup wizard to a new step. Admin-authenticated — the web UI auto-logs the operator in immediately after `POST /api/setup` and uses normal admin auth from then on. Step transitions only move forward; `wizard_mode` is recorded when the operator picks the DHCP onboarding branch at step 3.",
+        "operationId": "setup_advance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvanceWizardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Wizard state after advance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvanceWizardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/setup/status": {
       "get": {
         "tags": [
           "setup"
         ],
-        "description": "Report whether the initial setup wizard has been completed (i.e. whether any admin account exists). No authentication required — the web UI calls this before rendering to decide whether to redirect the user to the setup page.",
+        "description": "Report the current setup-wizard state. `setup_completed` is derived from `wizard_step == \"completed\"`. No authentication required — the web UI calls this before rendering to decide whether to redirect to the wizard.",
         "operationId": "setup_status",
         "responses": {
           "200": {
-            "description": "Whether initial setup is complete",
+            "description": "Current wizard state",
             "content": {
               "application/json": {
                 "schema": {
@@ -11621,6 +11692,51 @@
   },
   "components": {
     "schemas": {
+      "AdvanceWizardRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/setup/advance.",
+        "required": [
+          "to_step"
+        ],
+        "properties": {
+          "to_step": {
+            "$ref": "#/components/schemas/WizardStep"
+          },
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode",
+                "description": "Set when transitioning into [`WizardStep::Dhcp`] so the daemon\nknows which onboarding branch to take."
+              }
+            ]
+          }
+        }
+      },
+      "AdvanceWizardResponse": {
+        "type": "object",
+        "description": "Response for POST /api/setup/advance.",
+        "required": [
+          "wizard_step"
+        ],
+        "properties": {
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode"
+              }
+            ]
+          },
+          "wizard_step": {
+            "$ref": "#/components/schemas/WizardStep"
+          }
+        }
+      },
       "AllowlistEntry": {
         "type": "object",
         "description": "An allowlist entry, scoped to a DNS filter profile, that overrides\nblocklist matches.",
@@ -14273,11 +14389,27 @@
         "type": "object",
         "description": "Response for GET /api/setup/status.",
         "required": [
-          "setup_completed"
+          "setup_completed",
+          "wizard_step"
         ],
         "properties": {
           "setup_completed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Derived: `wizard_step == Completed`. Kept for `SetupGuard`\nbackwards-compat — clients that haven't been updated still get a\nboolean they understand."
+          },
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode",
+                "description": "`None` until step 3 picks a branch."
+              }
+            ]
+          },
+          "wizard_step": {
+            "$ref": "#/components/schemas/WizardStep"
           }
         }
       },
@@ -15242,6 +15374,27 @@
             "description": "Whether the credentials are valid."
           }
         }
+      },
+      "WizardMode": {
+        "type": "string",
+        "description": "Branch of the DHCP onboarding flow chosen at step 3.\n\n`Primary` runs Wardnet's built-in DHCP server. `LockedRouter` keeps the\nupstream ISP router as the LAN's DHCP server and configures opted-in\ndevices statically with Wardnet as their gateway/DNS.",
+        "enum": [
+          "primary",
+          "locked_router"
+        ]
+      },
+      "WizardStep": {
+        "type": "string",
+        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ Completed`. `setup_completed` (in [`SetupStatusResponse`] and the\n`SetupGuard` redirect logic) is derived from `wizard_step == Completed`,\nso existing installs that already finished setup are not re-routed\nthrough the new wizard after an upgrade.",
+        "enum": [
+          "admin",
+          "network",
+          "dhcp",
+          "router_mac",
+          "tunnel",
+          "policy",
+          "completed"
+        ]
       }
     },
     "securitySchemes": {

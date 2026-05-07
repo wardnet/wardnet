@@ -29,8 +29,9 @@ use wardnet_common::api::{
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
     RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
+use wardnet_common::api::{WizardMode, WizardStep};
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
-use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::packet_capture::ObservedDevice;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
@@ -101,6 +102,19 @@ impl AuthService for StubAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        Ok(WizardState {
+            step: WizardStep::Completed,
+            mode: None,
+        })
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: WizardStep,
+        _mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        unimplemented!()
     }
 }
 
