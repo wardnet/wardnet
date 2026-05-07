@@ -3,7 +3,10 @@
 //! Covers the lifecycle (start / stop / running flag), config update,
 //! cache flush, and the small helper functions (`record_query`,
 //! `duration_to_ms`, `upstream_label`). The full hot-path through
-//! `handle_query` is exercised via the e2e suite.
+//! `handle_query` and the stop-drains-in-flight-handlers race are
+//! exercised via the e2e suite (`dns-config.spec.ts`) — the toggle path
+//! there does a synchronous start→stop→start cycle that this race
+//! breaks without the fix.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -76,6 +79,35 @@ async fn stop_when_not_running_is_a_noop() {
 
     server.stop().await.unwrap();
     assert!(!server.is_running());
+}
+
+#[tokio::test]
+async fn restart_after_stop_works() {
+    // Each `start()` must create a fresh `TaskTracker`. If the tracker
+    // is reused without recreation, the second `tracker.spawn(...)` after
+    // a `tracker.close()` would panic. Toggling the server quickly off
+    // and on (the dns-config e2e path) needs this to be safe.
+    let server =
+        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+
+    server.start().await.unwrap();
+    server.stop().await.unwrap();
+
+    // The drained tracker has been replaced; start() must succeed again.
+    server.start().await.unwrap();
+    assert!(server.is_running());
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn stop_is_idempotent_after_drain() {
+    let server =
+        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+
+    server.start().await.unwrap();
+    server.stop().await.unwrap();
+    // Second stop on an already-stopped server is documented as a no-op.
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]

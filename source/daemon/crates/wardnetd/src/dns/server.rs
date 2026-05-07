@@ -16,6 +16,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_services::DnsFilterService;
@@ -69,6 +70,10 @@ pub struct UdpDnsServer {
     running: Arc<AtomicBool>,
     cancel: Mutex<CancellationToken>,
     handle: Mutex<Option<JoinHandle<()>>>,
+    // Per-query handlers are tracked so `stop()` can await them. Without
+    // this, the spawned handlers keep Arc clones of the bound UDP socket
+    // alive past `stop()` and the next `start()` races EADDRINUSE.
+    query_tracker: Mutex<Option<TaskTracker>>,
     local_addr: Arc<std::sync::Mutex<Option<SocketAddr>>>,
     log_sink: Option<Arc<DnsLogSink>>,
 }
@@ -95,6 +100,7 @@ impl UdpDnsServer {
             running: Arc::new(AtomicBool::new(false)),
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
+            query_tracker: Mutex::new(None),
             local_addr: Arc::new(std::sync::Mutex::new(None)),
             log_sink: None,
         }
@@ -139,10 +145,16 @@ impl DnsServer for UdpDnsServer {
         let cancel = new_cancel.clone();
         *self.cancel.lock().await = new_cancel;
 
+        // Fresh TaskTracker per start session: closed and replaced on each
+        // stop, so a previous session's drained tracker doesn't leak into
+        // the next.
+        let tracker = TaskTracker::new();
+        *self.query_tracker.lock().await = Some(tracker.clone());
+
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, config, cache, dns_filter, log_sink, cancel).await;
+            server_loop(socket, config, cache, dns_filter, log_sink, cancel, tracker).await;
             running.store(false, Ordering::SeqCst);
         });
 
@@ -157,6 +169,14 @@ impl DnsServer for UdpDnsServer {
         self.cancel.lock().await.cancel();
         if let Some(handle) = self.handle.lock().await.take() {
             handle.await.ok();
+        }
+        // Drain any in-flight per-query handlers before returning. Each
+        // handler holds an Arc clone of the bound UDP socket; without
+        // this drain those clones outlive `stop()` and the next `start()`
+        // races EADDRINUSE.
+        if let Some(tracker) = self.query_tracker.lock().await.take() {
+            tracker.close();
+            tracker.wait().await;
         }
         Ok(())
     }
@@ -182,6 +202,7 @@ impl DnsServer for UdpDnsServer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn server_loop(
     socket: Arc<dyn DnsSocket>,
     config: Arc<RwLock<DnsConfig>>,
@@ -189,6 +210,7 @@ async fn server_loop(
     dns_filter: Arc<dyn DnsFilterService>,
     log_sink: Option<Arc<DnsLogSink>>,
     cancel: CancellationToken,
+    tracker: TaskTracker,
 ) {
     let mut buf = vec![0u8; 4096];
 
@@ -215,7 +237,10 @@ async fn server_loop(
                         let resolver = Arc::clone(&resolver);
                         let log_sink = log_sink.clone();
 
-                        tokio::spawn(async move {
+                        // Tracker.spawn keeps the Arc<DnsSocket> clone in
+                        // this task observable to `stop()`, which awaits
+                        // the tracker before returning.
+                        tracker.spawn(async move {
                             if let Err(e) = handle_query(
                                 &packet,
                                 src,
