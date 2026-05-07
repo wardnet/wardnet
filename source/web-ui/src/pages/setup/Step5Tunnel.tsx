@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Button } from "@/components/core/ui/button";
-import { CreateTunnelSheet } from "@/components/features/CreateTunnelSheet";
+import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useTunnels } from "@/hooks/useTunnels";
 
 /**
  * Step 5 — first VPN tunnel (optional).
  *
- * Inlines `CreateTunnelSheet` (the same sheet used on the Tunnels
- * page) so the operator can import a tunnel without leaving the
- * wizard — `SetupGuard` would bounce them straight back here if
- * they tried to navigate to `/tunnels` before finishing setup.
+ * Inlines `CreateTunnelInline` (the same component the Tunnels page
+ * uses) directly inside the auth card so the operator can import a
+ * tunnel without leaving the wizard — `SetupGuard` would bounce them
+ * straight back here if they tried to navigate to `/tunnels` before
+ * finishing setup.
  *
  * The Skip button always advances to step 6; step 6's picker
  * defaults to "direct" when no tunnels exist.
@@ -18,9 +19,13 @@ import { useTunnels } from "@/hooks/useTunnels";
 export default function Step5Tunnel() {
   const advance = useAdvanceWizard();
   const { data: tunnels } = useTunnels();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const tunnelCount = tunnels?.tunnels.length ?? 0;
   const hasTunnel = tunnelCount > 0;
+
+  if (adding) {
+    return <CreateTunnelInline onClose={() => setAdding(false)} embedded />;
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -45,7 +50,7 @@ export default function Step5Tunnel() {
       )}
 
       <div className="flex flex-col gap-2">
-        <Button variant="outline" onClick={() => setSheetOpen(true)} className="h-12 w-full">
+        <Button variant="outline" onClick={() => setAdding(true)} className="h-12 w-full">
           {hasTunnel ? "Add another tunnel" : "Add tunnel"}
         </Button>
         <Button
@@ -56,8 +61,6 @@ export default function Step5Tunnel() {
           {advance.isPending ? "Saving…" : hasTunnel ? "Continue" : "Skip for now"}
         </Button>
       </div>
-
-      <CreateTunnelSheet open={sheetOpen} onOpenChange={setSheetOpen} />
     </div>
   );
 }

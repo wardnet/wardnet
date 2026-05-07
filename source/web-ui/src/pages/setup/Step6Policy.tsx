@@ -1,23 +1,33 @@
 import { useState } from "react";
 import { Button } from "@/components/core/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/core/ui/select";
+import { RoutingSelector } from "@/components/compound/RoutingSelector";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@/hooks/useDefaultPolicy";
 import { useTunnels } from "@/hooks/useTunnels";
+import type { RoutingTarget } from "@wardnet/js";
 
 /**
  * Step 6 — pick the global default routing policy.
  *
- * Picker enumerates `["Direct", ...tunnels]` and auto-selects Direct
- * when no tunnels exist. Persists via `PUT /api/system/default-policy`
- * before advancing to the confirmation step.
+ * Reuses the same `RoutingSelector` compound that powers the per-device
+ * routing dropdown so the wizard's "default" picker visually matches what
+ * the operator will see on Devices later. The selector deals in
+ * `RoutingTarget` shapes (`{type: "direct"}` | `{type: "tunnel", ...}`);
+ * the daemon stores `default_policy` as a plain string (`"direct"` or a
+ * tunnel UUID) so we adapt at the edges.
  */
+function policyToTarget(policy: string): RoutingTarget {
+  if (policy === "direct") return { type: "direct" };
+  return { type: "tunnel", tunnel_id: policy };
+}
+
+function targetToPolicy(target: RoutingTarget): string {
+  if (target.type === "tunnel") return target.tunnel_id;
+  // `default` collapses to direct here — the wizard never offers it
+  // and the selector never emits it.
+  return "direct";
+}
+
 export default function Step6Policy() {
   const advance = useAdvanceWizard();
   const setDefault = useSetDefaultPolicy();
@@ -25,13 +35,13 @@ export default function Step6Policy() {
   const { data: tunnels } = useTunnels();
   const tunnelList = tunnels?.tunnels ?? [];
 
-  // Default to whatever the daemon already has; fall back to "direct".
-  // The user's pick (when set) takes precedence over the persisted value.
-  const [override, setOverride] = useState<string | null>(null);
-  const policy = override ?? current?.policy ?? "direct";
+  // Selector value derives from the operator's pick first; only fall back
+  // to the persisted policy or "direct" if they haven't changed it yet.
+  const [override, setOverride] = useState<RoutingTarget | null>(null);
+  const target = override ?? policyToTarget(current?.policy ?? "direct");
 
   async function handleContinue() {
-    await setDefault.mutateAsync(policy);
+    await setDefault.mutateAsync(targetToPolicy(target));
     await advance.mutateAsync({ to_step: "completed" });
   }
 
@@ -46,19 +56,7 @@ export default function Step6Policy() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Select value={policy} onValueChange={setOverride}>
-          <SelectTrigger className="h-12">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="direct">Direct (no VPN)</SelectItem>
-            {tunnelList.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                Tunnel — {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <RoutingSelector value={target} onChange={setOverride} tunnels={tunnelList} isAdmin />
         {tunnelList.length === 0 && (
           <p className="text-xs text-muted-foreground">
             No tunnels configured — defaulting to direct routing. You can change this from Settings

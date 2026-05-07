@@ -2,7 +2,7 @@ import { useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { TunnelGrid } from "@/components/compound/TunnelGrid";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
-import { CreateTunnelSheet } from "@/components/features/CreateTunnelSheet";
+import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useTunnels, useDeleteTunnel } from "@/hooks/useTunnels";
 import { useProviders } from "@/hooks/useProviders";
 import { Button } from "@/components/core/ui/button";
@@ -15,7 +15,7 @@ export default function Tunnels() {
   const tunnels = data?.tunnels ?? [];
   const providers = providerData?.providers ?? [];
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const tunnelToDelete = tunnels.find((t) => t.id === deleteId);
 
   const hasTunnels = tunnels.length > 0;
@@ -25,9 +25,17 @@ export default function Tunnels() {
       <PageHeader
         title="Tunnels"
         actions={
-          hasTunnels ? <Button onClick={() => setCreateOpen(true)}>Add tunnel</Button> : undefined
+          hasTunnels && !creating ? (
+            <Button onClick={() => setCreating(true)}>Add tunnel</Button>
+          ) : undefined
         }
       />
+
+      {creating && (
+        <div className="mb-4">
+          <CreateTunnelInline onClose={() => setCreating(false)} />
+        </div>
+      )}
 
       <TunnelGrid
         tunnels={tunnels}
@@ -35,10 +43,8 @@ export default function Tunnels() {
         isLoading={isLoading}
         isError={isError}
         onDelete={setDeleteId}
-        onAdd={() => setCreateOpen(true)}
+        onAdd={creating ? undefined : () => setCreating(true)}
       />
-
-      <CreateTunnelSheet open={createOpen} onOpenChange={setCreateOpen} />
 
       <ConfirmDialog
         open={!!deleteId}
