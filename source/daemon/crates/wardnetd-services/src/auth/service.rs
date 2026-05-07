@@ -276,14 +276,19 @@ impl AuthService for AuthServiceImpl {
         // after admin creation, the 409 guard above still fires on
         // retry (the admin row exists), and the operator can recover
         // by hitting POST /api/setup/advance from the wizard UI.
-        if self
+        //
+        // Only advance from "admin" or unset state; if wizard_step is
+        // already further along (e.g. an operator hit advance manually
+        // before the frontend got to it) we leave it alone — same-step
+        // advances are idempotent in `advance_wizard`, but rewinding
+        // explicitly past `Network` would just hit advance_wizard's
+        // ordinal check.
+        let current = self
             .system_config
             .get_wizard_step()
             .await
-            .map_err(AppError::Internal)?
-            .as_deref()
-            == Some(WizardStep::Admin.as_storage_str())
-        {
+            .map_err(AppError::Internal)?;
+        if current.as_deref() == Some(WizardStep::Admin.as_storage_str()) || current.is_none() {
             self.system_config
                 .set_wizard_step(WizardStep::Network.as_storage_str())
                 .await

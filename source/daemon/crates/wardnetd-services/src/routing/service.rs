@@ -1378,6 +1378,62 @@ impl RoutingService for RoutingServiceImpl {
         }
 
         tracing::info!(policy, "default routing policy updated");
+
+        // Re-apply every device whose *stored DB rule* is
+        // RoutingTarget::Default. The cached `applied` entry holds the
+        // already-resolved target (e.g. Direct) which apply_rule's
+        // phase-1 short-circuit compares against — without this walk,
+        // already-routed devices keep flowing through the *previous*
+        // policy until something else (IP change, tunnel up/down)
+        // triggers a re-apply. The policy switch is supposed to take
+        // effect immediately, not "next time something happens to the
+        // device", so iterate now.
+        //
+        // Errors per device are logged and swallowed — one device
+        // failing to re-route shouldn't abort the policy change for
+        // the rest. apply_rule already falls back to direct on its
+        // own internal failures.
+        let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
+        let mut reapplied = 0u32;
+        for device in &devices {
+            let rule = match self
+                .devices
+                .find_rule_for_device(&device.id.to_string())
+                .await
+            {
+                Ok(Some(rule)) => rule,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        device_id = %device.id,
+                        "failed to load routing rule while re-applying default policy"
+                    );
+                    continue;
+                }
+            };
+            if !matches!(rule.target, RoutingTarget::Default) {
+                continue;
+            }
+            if let Err(e) = self
+                .apply_rule(device.id, &device.last_ip, &RoutingTarget::Default)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device.id,
+                    "failed to re-apply default policy for device"
+                );
+            } else {
+                reapplied += 1;
+            }
+        }
+        tracing::info!(
+            reapplied,
+            total_devices = devices.len(),
+            "re-applied default routing policy across devices"
+        );
+
         Ok(())
     }
 

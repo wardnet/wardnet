@@ -1999,3 +1999,111 @@ async fn set_default_policy_changes_resolution_of_default_target() {
         "Default → Tunnel should add an ip rule for the new device: {nl_after_tunnel:?}"
     );
 }
+
+#[tokio::test]
+async fn set_default_policy_reapplies_already_routed_default_devices() {
+    // Device with a stored DB rule of RoutingTarget::Default. Under
+    // policy="direct" it routes Direct (no ip rule). The moment the
+    // operator switches the policy to a tunnel, the device must
+    // re-route through the tunnel — without this the cached `applied`
+    // entry holds Direct and apply_rule's phase-1 short-circuit would
+    // keep the old route until something else (IP change / tunnel
+    // bounce) happened to the device.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    // Initial apply under policy="direct" → no ip rule.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+    {
+        let nl = ts.netlink_calls.lock().await;
+        assert!(
+            !nl.iter().any(|c| c.starts_with("add_ip_rule:192.168.1.10")),
+            "Default → Direct should not add an ip rule: {nl:?}"
+        );
+    }
+
+    // Flip the policy. Internally this should walk devices with a
+    // Default DB rule and re-apply, picking up the new tunnel.
+    as_admin(ts.routing.set_default_policy(&tunnel_id_1().to_string()))
+        .await
+        .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.iter().any(|c| c.starts_with("add_ip_rule:192.168.1.10")),
+        "Default → Tunnel should re-route the existing device: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn set_default_policy_does_not_touch_explicit_targets() {
+    // A device with an explicit Tunnel target (not Default) must NOT
+    // be re-applied when the default policy changes — its rule didn't
+    // depend on the policy.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Direct,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    // Apply the explicit Direct rule (no kernel state needed).
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Direct),
+    )
+    .await
+    .unwrap();
+
+    let baseline = ts.netlink_calls.lock().await.len();
+    drop(ts.netlink_calls.lock().await);
+
+    // Flip the default policy — should NOT re-apply explicit-Direct
+    // devices.
+    as_admin(ts.routing.set_default_policy(&tunnel_id_1().to_string()))
+        .await
+        .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    // No new add_ip_rule for the explicit-Direct device.
+    let new_rules: Vec<_> = nl
+        .iter()
+        .skip(baseline)
+        .filter(|c| c.starts_with("add_ip_rule:192.168.1.10"))
+        .collect();
+    assert!(
+        new_rules.is_empty(),
+        "policy change must not re-apply devices with explicit targets: {nl:?}"
+    );
+}
