@@ -23,9 +23,11 @@ export interface RouterInstruction {
    */
   steps: string[];
   /**
-   * Link to the manufacturer's official guide for the same operation.
-   * Optional — many ISP-supplied routers have no public KB and the
-   * embedded steps are all the operator gets.
+   * Link to the manufacturer's general support landing. Optional — many
+   * ISP-supplied routers have no public KB and the embedded steps are
+   * all the operator gets. We deliberately point at the support landing
+   * rather than a deep DHCP article URL: vendors rotate those routinely
+   * and a 404 in the wizard is worse than a one-extra-click landing.
    */
   kb_url?: string;
   /**
@@ -63,7 +65,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       'Set "DHCP" to "Disabled" and save.',
       "Reboot the hub.",
     ],
-    kb_url: "https://www.vodafone.co.uk/help-and-information/broadband",
+    kb_url: "https://www.vodafone.co.uk/help-and-information",
   },
   {
     id: "bt-smart-hub",
@@ -85,7 +87,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       "Disable the DHCP server and save.",
       "Reboot the hub.",
     ],
-    kb_url: "https://www.sky.com/help/articles/router",
+    kb_url: "https://www.sky.com/help",
   },
   {
     id: "virgin-media-hub",
@@ -96,7 +98,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       'Open "Advanced Settings" → "Modem mode" and enable it.',
       "The hub reboots; from now on it stops handing out leases.",
     ],
-    kb_url: "https://www.virginmedia.com/help/virgin-media-hub-modem-mode",
+    kb_url: "https://www.virginmedia.com/help",
   },
   {
     id: "asus",
@@ -106,7 +108,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       'Go to "LAN" → "DHCP Server" tab.',
       'Set "Enable the DHCP Server" to "No" and click "Apply".',
     ],
-    kb_url: "https://www.asus.com/support/FAQ/1042388/",
+    kb_url: "https://www.asus.com/support/",
   },
   {
     id: "netgear",
@@ -117,7 +119,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       'Untick "Use Router as DHCP Server" and apply.',
       "The router restarts to apply the change.",
     ],
-    kb_url: "https://kb.netgear.com/000059922/",
+    kb_url: "https://www.netgear.com/support/home/",
   },
   {
     id: "tp-link",

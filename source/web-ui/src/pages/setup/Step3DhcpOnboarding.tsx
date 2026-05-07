@@ -108,7 +108,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
                   rel="noreferrer"
                   className="text-xs text-primary hover:underline"
                 >
-                  Manufacturer's official guide ↗
+                  {router.name} support page ↗
                 </a>
               )}
             </div>
