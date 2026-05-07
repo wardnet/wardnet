@@ -54,7 +54,13 @@ export type {
 } from "./types/system.js";
 
 // Types — network
-export type { DhcpSource, NetworkStatusResponse } from "./types/network.js";
+export type {
+  DhcpSource,
+  DiscoverGatewayMacRequest,
+  DiscoverGatewayMacResponse,
+  NetworkStatusResponse,
+  RouterMacSource,
+} from "./types/network.js";
 
 // Types — setup
 export type {

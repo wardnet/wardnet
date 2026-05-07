@@ -17,3 +17,25 @@ export interface NetworkStatusResponse {
   gateway: string | null;
   dhcp_source: DhcpSource;
 }
+
+/** How the upstream router MAC was obtained. */
+export type RouterMacSource = "arp" | "manual";
+
+/**
+ * Request body for POST /api/network/discover-gateway-mac.
+ *
+ * All fields optional. With `mac` set, the daemon skips the ARP probe
+ * and just persists the operator-supplied value. With `target_ip`
+ * set, the daemon probes that IP instead of the gateway from
+ * `GET /api/network/status`. Empty body → probe the gateway.
+ */
+export interface DiscoverGatewayMacRequest {
+  mac?: string | null;
+  target_ip?: string | null;
+}
+
+/** Response for POST /api/network/discover-gateway-mac. */
+export interface DiscoverGatewayMacResponse {
+  mac: string;
+  source: RouterMacSource;
+}

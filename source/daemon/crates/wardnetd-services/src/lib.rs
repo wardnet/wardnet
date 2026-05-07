@@ -99,6 +99,10 @@ pub struct Backends {
     /// parses `/proc/net/route` and `/etc/dhcpcd.conf.d/wardnet.conf`;
     /// the mock returns synthetic data.
     pub network_inspector: Arc<dyn system::NetworkInspector>,
+    /// Active LAN probe — the wizard's router-MAC step uses this to
+    /// auto-discover the upstream router via ARP. Real impl wraps
+    /// `pnet`'s datalink channel; the mock returns a synthetic MAC.
+    pub network_probe: Arc<dyn system::NetworkProbe>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -315,6 +319,7 @@ fn create_services(
         backends.shutdown_token.clone(),
         backends.power_ops.clone(),
         backends.network_inspector.clone(),
+        backends.network_probe.clone(),
     ));
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(

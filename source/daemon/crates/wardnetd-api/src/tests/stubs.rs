@@ -535,6 +535,12 @@ impl SystemService for StubSystemService {
     async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
         unimplemented!()
     }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubTunnelService;

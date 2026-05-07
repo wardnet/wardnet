@@ -46,6 +46,12 @@ impl SystemService for MockSystemService {
     async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
         unimplemented!()
     }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock system service that always returns an error.
@@ -80,6 +86,12 @@ impl SystemService for FailingSystemService {
         )))
     }
     async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
         unimplemented!()
     }
 }

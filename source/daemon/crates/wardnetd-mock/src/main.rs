@@ -24,6 +24,7 @@ use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCaptu
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
+use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
@@ -233,6 +234,7 @@ async fn run(
             interface: config.network.lan_interface.clone(),
             ip: lan_ip,
         }),
+        network_probe: Arc::new(NoopNetworkProbe),
     };
 
     let services = init_services_with_factory(

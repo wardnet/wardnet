@@ -199,6 +199,7 @@ fn stub_backends() -> Backends {
         shutdown_token: tokio_util::sync::CancellationToken::new(),
         power_ops: Arc::new(StubPowerOps),
         network_inspector: Arc::new(StubNetworkInspector),
+        network_probe: Arc::new(StubNetworkProbe),
     }
 }
 
@@ -212,6 +213,14 @@ impl crate::system::NetworkInspector for StubNetworkInspector {
             gateway: Some(std::net::Ipv4Addr::new(192, 168, 1, 254)),
             dhcp_source: wardnet_common::api::DhcpSource::Static,
         })
+    }
+}
+
+struct StubNetworkProbe;
+#[async_trait]
+impl crate::system::NetworkProbe for StubNetworkProbe {
+    async fn arp_probe(&self, _target_ip: std::net::Ipv4Addr) -> anyhow::Result<Option<String>> {
+        Ok(None)
     }
 }
 

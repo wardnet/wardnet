@@ -2,18 +2,20 @@ use axum::Json;
 use axum::extract::State;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use wardnet_common::api::NetworkStatusResponse;
+use wardnet_common::api::{
+    DiscoverGatewayMacRequest, DiscoverGatewayMacResponse, NetworkStatusResponse,
+};
 
 use crate::api::middleware::AdminAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
-/// Register network routes onto the given [`OpenApiRouter`]. Currently
-/// just `GET /api/network/status` — the DHCP self-probe and ARP
-/// discovery endpoints land in follow-up commits.
+/// Register network routes onto the given [`OpenApiRouter`].
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
-    router.routes(routes!(status))
+    router
+        .routes(routes!(status))
+        .routes(routes!(discover_gateway_mac))
 }
 
 #[utoipa::path(
@@ -40,5 +42,38 @@ pub async fn status(
     _auth: AdminAuth,
 ) -> Result<Json<NetworkStatusResponse>, AppError> {
     let response = state.system_service().network_status().await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/network/discover-gateway-mac",
+    tag = "network",
+    description = "Discover (or accept) the upstream router MAC address. \
+                   With an empty body, the daemon ARP-probes the LAN \
+                   gateway from `GET /api/network/status` and returns the \
+                   responder's MAC. Pass `mac` to skip the probe and \
+                   record an operator-supplied value (validated). Pass \
+                   `target_ip` to override the probe target. The result \
+                   is persisted in `system_config` so subsequent calls \
+                   are idempotent. Admin only.",
+    request_body = DiscoverGatewayMacRequest,
+    responses(
+        (status = 200, description = "MAC discovered or accepted", body = DiscoverGatewayMacResponse),
+        (status = 400, description = "Invalid MAC or no gateway to probe", body = wardnet_common::api::ApiError),
+        (status = 404, description = "ARP probe got no reply", body = wardnet_common::api::ApiError),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn discover_gateway_mac(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<DiscoverGatewayMacRequest>,
+) -> Result<Json<DiscoverGatewayMacResponse>, AppError> {
+    let response = state.system_service().discover_gateway_mac(body).await?;
     Ok(Json(response))
 }

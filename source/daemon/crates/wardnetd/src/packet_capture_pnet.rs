@@ -20,7 +20,7 @@ use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, P
 pub struct PnetCapture;
 
 /// Find a network interface by name.
-pub(crate) fn find_interface(name: &str) -> anyhow::Result<NetworkInterface> {
+pub fn find_interface(name: &str) -> anyhow::Result<NetworkInterface> {
     datalink::interfaces()
         .into_iter()
         .find(|iface| iface.name == name)
@@ -205,7 +205,8 @@ pub(crate) fn parse_frame(data: &[u8], own_mac: MacAddr) -> Option<ObservedDevic
 /// Build an ARP request Ethernet frame.
 ///
 /// Returns a `Vec<u8>` containing the complete Ethernet frame.
-pub(crate) fn build_arp_request(
+#[must_use]
+pub fn build_arp_request(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     target_ip: Ipv4Addr,

@@ -8032,6 +8032,161 @@
         ]
       }
     },
+    "/api/network/discover-gateway-mac": {
+      "post": {
+        "tags": [
+          "network"
+        ],
+        "description": "Discover (or accept) the upstream router MAC address. With an empty body, the daemon ARP-probes the LAN gateway from `GET /api/network/status` and returns the responder's MAC. Pass `mac` to skip the probe and record an operator-supplied value (validated). Pass `target_ip` to override the probe target. The result is persisted in `system_config` so subsequent calls are idempotent. Admin only.",
+        "operationId": "discover_gateway_mac",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverGatewayMacRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "MAC discovered or accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverGatewayMacResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid MAC or no gateway to probe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ARP probe got no reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/network/status": {
       "get": {
         "tags": [
@@ -13215,6 +13370,40 @@
           }
         }
       },
+      "DiscoverGatewayMacRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/network/discover-gateway-mac.\n\nAll fields optional. If `mac` is provided the daemon skips the ARP\nprobe and just persists the value (validated). Otherwise it probes\nthe gateway IP from `GET /api/network/status`; `target_ip` lets a\ncaller override that for testing or when the gateway differs from\nthe kernel's default route.",
+        "required": [
+          "target_ip"
+        ],
+        "properties": {
+          "mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_ip": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverGatewayMacResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/discover-gateway-mac.",
+        "required": [
+          "mac",
+          "source"
+        ],
+        "properties": {
+          "mac": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RouterMacSource"
+          }
+        }
+      },
       "DnsCacheFlushResponse": {
         "type": "object",
         "description": "Response for POST /api/dns/cache/flush.",
@@ -14574,6 +14763,14 @@
             "type": "string"
           }
         }
+      },
+      "RouterMacSource": {
+        "type": "string",
+        "description": "How the upstream router MAC was obtained.",
+        "enum": [
+          "arp",
+          "manual"
+        ]
       },
       "RoutingTarget": {
         "oneOf": [

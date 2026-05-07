@@ -441,6 +441,37 @@ pub struct NetworkStatusResponse {
     pub dhcp_source: DhcpSource,
 }
 
+/// How the upstream router MAC was obtained.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterMacSource {
+    /// Discovered via an ARP probe at the gateway address.
+    Arp,
+    /// Operator typed it into the wizard's manual-entry field.
+    Manual,
+}
+
+/// Request body for POST /api/network/discover-gateway-mac.
+///
+/// All fields optional. If `mac` is provided the daemon skips the ARP
+/// probe and just persists the value (validated). Otherwise it probes
+/// the gateway IP from `GET /api/network/status`; `target_ip` lets a
+/// caller override that for testing or when the gateway differs from
+/// the kernel's default route.
+#[derive(Debug, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoverGatewayMacRequest {
+    pub mac: Option<String>,
+    #[schema(value_type = String)]
+    pub target_ip: Option<std::net::Ipv4Addr>,
+}
+
+/// Response for POST /api/network/discover-gateway-mac.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoverGatewayMacResponse {
+    pub mac: String,
+    pub source: RouterMacSource,
+}
+
 /// Response for PUT /api/system/default-policy.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetDefaultPolicyResponse {

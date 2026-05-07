@@ -139,6 +139,12 @@ impl SystemService for MockSystemService {
     async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
         unimplemented!()
     }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -869,6 +875,12 @@ async fn restart_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
             unimplemented!()
         }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -963,6 +975,12 @@ async fn reboot_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
             unimplemented!()
         }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1055,6 +1073,12 @@ async fn shutdown_surfaces_service_error_as_500() {
         async fn network_status(
             &self,
         ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
             unimplemented!()
         }
     }

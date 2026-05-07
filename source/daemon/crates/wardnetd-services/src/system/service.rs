@@ -4,12 +4,36 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use sysinfo::System;
 use tokio_util::sync::CancellationToken;
-use wardnet_common::api::{NetworkStatusResponse, SystemStatusResponse};
+use wardnet_common::api::{
+    DiscoverGatewayMacRequest, DiscoverGatewayMacResponse, NetworkStatusResponse, RouterMacSource,
+    SystemStatusResponse,
+};
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::system::{NetworkInspector, SystemPowerOps};
+use crate::system::{NetworkInspector, NetworkProbe, SystemPowerOps};
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
+
+/// Loose colon-separated 6-octet MAC validator (e.g. `AA:BB:CC:DD:EE:FF`).
+/// Accepts upper or lower case; canonicalises to upper for storage.
+fn normalise_mac(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let bytes: Vec<&str> = trimmed.split(':').collect();
+    if bytes.len() != 6 {
+        return None;
+    }
+    let mut out = String::with_capacity(17);
+    for (i, byte) in bytes.iter().enumerate() {
+        if byte.len() != 2 || !byte.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        if i > 0 {
+            out.push(':');
+        }
+        out.push_str(&byte.to_uppercase());
+    }
+    Some(out)
+}
 
 /// How long the restart handler waits before cancelling the shutdown
 /// token. Lets the HTTP response flush so the client sees
@@ -45,6 +69,19 @@ pub trait SystemService: Send + Sync {
     /// Powers the wizard's network step (read-only confirmation) and
     /// the post-install Settings page.
     async fn network_status(&self) -> Result<NetworkStatusResponse, AppError>;
+
+    /// Discover (or accept) the upstream router MAC and persist it.
+    ///
+    /// If `request.mac` is set the value is validated and stored as
+    /// the `manual` source. Otherwise an ARP probe is sent at
+    /// `request.target_ip` (falling back to the gateway from
+    /// [`Self::network_status`]); a successful reply is stored as the
+    /// `arp` source. Auto-discovery returning no reply surfaces as
+    /// `AppError::NotFound` so the UI can drop into manual entry.
+    async fn discover_gateway_mac(
+        &self,
+        request: DiscoverGatewayMacRequest,
+    ) -> Result<DiscoverGatewayMacResponse, AppError>;
 
     /// Ask the daemon to exit cleanly so the supervisor (systemd on a
     /// Pi install, the operator on dev) brings it back up.
@@ -89,9 +126,11 @@ pub struct SystemServiceImpl {
     shutdown_token: CancellationToken,
     power_ops: Arc<dyn SystemPowerOps>,
     network_inspector: Arc<dyn NetworkInspector>,
+    network_probe: Arc<dyn NetworkProbe>,
 }
 
 impl SystemServiceImpl {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         system_config: Arc<dyn SystemConfigRepository>,
         tunnel_repo: Arc<dyn TunnelRepository>,
@@ -99,6 +138,7 @@ impl SystemServiceImpl {
         shutdown_token: CancellationToken,
         power_ops: Arc<dyn SystemPowerOps>,
         network_inspector: Arc<dyn NetworkInspector>,
+        network_probe: Arc<dyn NetworkProbe>,
     ) -> Self {
         Self {
             system_config,
@@ -108,6 +148,7 @@ impl SystemServiceImpl {
             shutdown_token,
             power_ops,
             network_inspector,
+            network_probe,
         }
     }
 }
@@ -189,6 +230,79 @@ impl SystemService for SystemServiceImpl {
             ip: snap.ip,
             gateway: snap.gateway,
             dhcp_source: snap.dhcp_source,
+        })
+    }
+
+    async fn discover_gateway_mac(
+        &self,
+        request: DiscoverGatewayMacRequest,
+    ) -> Result<DiscoverGatewayMacResponse, AppError> {
+        auth_context::require_admin()?;
+
+        // Manual path: validate the operator's input and persist as-is.
+        if let Some(raw) = request.mac.as_deref() {
+            let normalised = normalise_mac(raw).ok_or_else(|| {
+                AppError::BadRequest(format!(
+                    "MAC address must be six colon-separated hex octets, got {raw}"
+                ))
+            })?;
+            self.system_config
+                .set_router_mac(&normalised)
+                .await
+                .map_err(AppError::Internal)?;
+            return Ok(DiscoverGatewayMacResponse {
+                mac: normalised,
+                source: RouterMacSource::Manual,
+            });
+        }
+
+        // Auto path: figure out which IP to probe. Prefer the explicit
+        // hint, fall back to the inspector's gateway.
+        let target_ip = if let Some(ip) = request.target_ip {
+            ip
+        } else {
+            let snap = self
+                .network_inspector
+                .inspect()
+                .await
+                .map_err(AppError::Internal)?;
+            snap.gateway.ok_or_else(|| {
+                AppError::BadRequest(
+                    "no default gateway detected; supply target_ip or fall back to manual entry"
+                        .to_owned(),
+                )
+            })?
+        };
+
+        let mac = self
+            .network_probe
+            .arp_probe(target_ip)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!(
+                    "no ARP reply from {target_ip}; manual entry required"
+                ))
+            })?;
+
+        let normalised = normalise_mac(&mac).ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!("ARP probe returned malformed MAC: {mac}"))
+        })?;
+
+        self.system_config
+            .set_router_mac(&normalised)
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(
+            mac = %normalised,
+            target = %target_ip,
+            "discovered upstream router MAC via ARP"
+        );
+
+        Ok(DiscoverGatewayMacResponse {
+            mac: normalised,
+            source: RouterMacSource::Arp,
         })
     }
 
