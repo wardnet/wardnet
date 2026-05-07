@@ -17,12 +17,15 @@ after merge). Everything else is mechanical.
 
 ## Versioning model — three independent tracks
 
-- **`./CALVER`** — user-facing version (`YYYY.MM.DD`). Becomes the
-  git tag (`v<CALVER>`), the release tarball / image filenames, the
-  `release_version` field in `/api/info`, the OpenAPI spec's
-  `info.version`, and the version line in the web UI. CalVer must
+- **`./CALVER`** — user-facing version, shape `YYYY.MM.NN`. Becomes
+  the git tag (`v<CALVER>`), the release tarball / image filenames,
+  the `release_version` field in `/api/info`, the OpenAPI spec's
+  `info.version`, and the version line in the web UI. `NN` is an
+  **in-month counter starting at `00`**, not day-of-month — multiple
+  releases the same day just bump `NN`, and a single release later
+  in the month doesn't skip ahead to that day's number. CalVer must
   match `^[0-9]{4}\.[0-9]{2}\.[0-9]{2}([-.+].+)?$` — `make
-  check-version` enforces it.
+  check-version` enforces the regex but not the counter semantics.
 - **`./VERSION`** — daemon Cargo workspace SemVer. Required by
   Cargo's strict parser; not surfaced to users. `make sync-version`
   propagates it to `source/daemon/Cargo.toml`,
@@ -32,9 +35,12 @@ after merge). Everything else is mechanical.
   shipped real changes since its last release. Skip in a typical
   daemon-only point release.
 
-For a typical point release: bump `CALVER` (e.g. `2026.05.00` →
-`2026.05.01`) and patch-bump `VERSION` (`0.1.0` → `0.1.1`). Evaluate
-the SDK separately:
+For a typical point release: bump `CALVER` to the next free counter
+slot in the current month (e.g. `2026.05.00` → `2026.05.01`) and
+patch-bump `VERSION` (`0.1.0` → `0.1.1`). Feature-heavy releases
+warrant a SemVer minor bump (`0.1.x` → `0.2.0`) — the daemon
+SemVer is invisible to users but signals API/build-graph changes
+to consumers of the workspace. Evaluate the SDK separately:
 
 ```sh
 git diff v<previous>..origin/main -- source/sdk/wardnet-js
