@@ -89,23 +89,58 @@ export async function waitForReady(
 
 /**
  * Idempotent admin bootstrap. Runs the setup wizard if no admin
- * exists yet, then logs in and returns an authed client. Safe to call
- * across spec files in any order — the wizard endpoint is a no-op
- * once `setup_completed` flips.
+ * exists yet, walks the wizard to completion, then logs in and
+ * returns an authed client. Safe to call across spec files in any
+ * order — the advance endpoints accept a same-step transition so a
+ * second pass is a no-op.
+ *
+ * `setup_completed` in the API is derived from
+ * `wizard_step === "completed"`, so we drive every step explicitly:
+ * admin → network → dhcp → router_mac → tunnel → policy → completed.
+ * Specs that don't care about the wizard get the same shape of
+ * authed client they had before this change.
  */
 export async function ensureAdminAndLogin(
   client: WardnetClient,
 ): Promise<AuthedClient> {
   const setup = new SetupService(client);
   const status = await setup.getStatus();
-  if (!status.setup_completed) {
+  if (status.wizard_step === "admin") {
     await setup.setup({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
   }
   const login = await new AuthService(client).login({
     username: ADMIN_USERNAME,
     password: ADMIN_PASSWORD,
   });
-  return new AuthedClient(API_BASE_URL, login.token);
+  const authed = new AuthedClient(API_BASE_URL, login.token);
+  await drainWizard(authed);
+  return authed;
+}
+
+/**
+ * Walk the setup wizard from its current step to `completed`. No-op
+ * if the wizard is already done. Each advance is admin-authenticated
+ * so the caller must pass an authed client.
+ */
+async function drainWizard(authed: AuthedClient): Promise<void> {
+  const setup = new SetupService(authed);
+  const order: ReadonlyArray<
+    "admin" | "network" | "dhcp" | "router_mac" | "tunnel" | "policy" | "completed"
+  > = ["admin", "network", "dhcp", "router_mac", "tunnel", "policy", "completed"];
+
+  for (let safety = 0; safety < order.length; safety += 1) {
+    const status = await setup.getStatus();
+    if (status.wizard_step === "completed") return;
+    const idx = order.indexOf(status.wizard_step);
+    const next = order[idx + 1] ?? "completed";
+    await setup.advance({
+      to_step: next,
+      // Record a deterministic mode at step 3 so locked-router specs
+      // can override; default is primary.
+      wizard_mode: status.wizard_step === "dhcp" ? "primary" : undefined,
+    });
+  }
+  throw new Error("drainWizard: exceeded maximum step transitions");
 }
 
 /** Shape returned by `wardnet-test-agent client serve`'s /interfaces. */
