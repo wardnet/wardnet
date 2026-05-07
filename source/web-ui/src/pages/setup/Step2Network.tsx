@@ -25,8 +25,8 @@ export default function Step2Network() {
       <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
         <p>
           If you supplied <code>--static-ip</code> when running <code>install.sh</code>, your LAN
-          address is already pinned. Otherwise the Pi is using whatever IP your router handed out
-          and you may want to re-run <code>install.sh</code> with a fixed CIDR (e.g.{" "}
+          address is already pinned. Otherwise this host is using whatever IP your router handed
+          out, and you may want to re-run <code>install.sh</code> with a fixed CIDR (e.g.{" "}
           <code>--static-ip 192.168.1.2/24</code>).
         </p>
       </div>
