@@ -111,6 +111,16 @@ impl UdpDnsServer {
         self.log_sink = Some(sink);
         self
     }
+
+    /// Return the local address the server is bound to, if `start()` has
+    /// run. Tests use this to discover the ephemeral port the kernel
+    /// picked for a `127.0.0.1:0` bind so they can fire UDP traffic at
+    /// the running server.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn local_addr(&self) -> Option<SocketAddr> {
+        self.local_addr.lock().ok().and_then(|g| *g)
+    }
 }
 
 #[async_trait]

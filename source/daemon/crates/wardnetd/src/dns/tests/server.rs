@@ -111,6 +111,45 @@ async fn stop_is_idempotent_after_drain() {
 }
 
 #[tokio::test]
+async fn stop_drains_the_per_query_spawn() {
+    // Drive a real UDP query through the loop so the server's recv branch
+    // actually fires `tracker.spawn(...)`, then assert `stop()` returns
+    // cleanly (the drain awaits the spawned handler regardless of how it
+    // exits — cache miss → filter pass → upstream forward error in the
+    // sandboxed test env). Without sending traffic, the per-query path is
+    // never executed and the drain is a vacuous no-op.
+    let server =
+        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+
+    server.start().await.unwrap();
+    let bound = server
+        .local_addr()
+        .expect("server should be bound after start");
+
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind should succeed");
+    // Minimal valid DNS query: id=0x1234, RD=1, QDCOUNT=1, one A query
+    // for `example.com.`. Hand-rolled to avoid pulling extra deps into
+    // the test for one packet.
+    let query: &[u8] = &[
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    client
+        .send_to(query, bound)
+        .await
+        .expect("send should succeed");
+
+    // Give the server loop a chance to recv and spawn the handler before
+    // we tear it down. A short sleep is enough — `stop()` then drains.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    server.stop().await.unwrap();
+    assert!(!server.is_running());
+}
+
+#[tokio::test]
 async fn flush_cache_returns_zero_on_empty() {
     let server =
         UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
