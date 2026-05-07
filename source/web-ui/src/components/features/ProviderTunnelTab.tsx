@@ -244,7 +244,12 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               </div>
             </>
           )}
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {validateCreds.data && !validateCreds.data.valid && (
+              <p className="flex-1 text-right text-sm text-destructive">
+                {validateCreds.data.message}
+              </p>
+            )}
             <Button
               variant="secondary"
               onClick={handleValidate}
@@ -255,9 +260,6 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           </div>
           {validateCreds.isError && (
             <ApiErrorAlert error={validateCreds.error} fallback="Validation failed" />
-          )}
-          {validateCreds.data && !validateCreds.data.valid && (
-            <p className="text-sm text-destructive">{validateCreds.data.message}</p>
           )}
         </>
       )}
