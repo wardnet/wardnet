@@ -8,8 +8,10 @@ use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::system::SystemPowerOps;
+use crate::system::{NetworkInspector, NetworkSnapshot, SystemPowerOps};
 use crate::{SystemService, SystemServiceImpl};
+use std::net::Ipv4Addr;
+use wardnet_common::api::DhcpSource;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig};
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
@@ -150,7 +152,22 @@ fn build_service_with_power_ops(
         Instant::now(),
         tokio_util::sync::CancellationToken::new(),
         power_ops,
+        Arc::new(StaticNetworkInspector),
     )
+}
+
+struct StaticNetworkInspector;
+
+#[async_trait]
+impl NetworkInspector for StaticNetworkInspector {
+    async fn inspect(&self) -> anyhow::Result<NetworkSnapshot> {
+        Ok(NetworkSnapshot {
+            interface: "eth0".to_owned(),
+            ip: Ipv4Addr::new(192, 168, 1, 1),
+            gateway: Some(Ipv4Addr::new(192, 168, 1, 254)),
+            dhcp_source: DhcpSource::Static,
+        })
+    }
 }
 
 // -- Tests ----------------------------------------------------------------

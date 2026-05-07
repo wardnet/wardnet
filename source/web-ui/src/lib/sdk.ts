@@ -6,6 +6,7 @@ import {
   TunnelService,
   ProviderService,
   SystemService,
+  NetworkService,
   SetupService,
   InfoService,
   DhcpService,
@@ -25,6 +26,7 @@ export const deviceService = new DeviceService(client);
 export const tunnelService = new TunnelService(client);
 export const providerService = new ProviderService(client);
 export const systemService = new SystemService(client);
+export const networkService = new NetworkService(client);
 export const setupService = new SetupService(client);
 export const infoService = new InfoService(client);
 export const dhcpService = new DhcpService(client);

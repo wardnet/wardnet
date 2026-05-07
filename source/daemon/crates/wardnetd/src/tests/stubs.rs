@@ -215,6 +215,9 @@ impl SystemService for StubSystemService {
     async fn request_shutdown(&self) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

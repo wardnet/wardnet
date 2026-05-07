@@ -8,6 +8,7 @@ export { DeviceService } from "./services/devices.js";
 export { TunnelService } from "./services/tunnels.js";
 export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
+export { NetworkService } from "./services/network.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
@@ -51,6 +52,9 @@ export type {
   SetDefaultPolicyResponse,
   SystemStatusResponse,
 } from "./types/system.js";
+
+// Types — network
+export type { DhcpSource, NetworkStatusResponse } from "./types/network.js";
 
 // Types — setup
 export type {

@@ -1,17 +1,18 @@
 import { Button } from "@/components/core/ui/button";
 import { useAdvanceWizard } from "@/hooks/useSetup";
+import { useNetworkStatus } from "@/hooks/useNetwork";
 
 /**
  * Step 2 — confirm the OS network state.
  *
- * For the v1 wizard this is a read-only acknowledgement: the LAN
- * IP was set up at install time via `install.sh --static-ip`. A
- * later commit adds GET /api/network/status so this step can show
- * the live IP and a remediation panel when the IP is still
- * DHCP-derived.
+ * Reads `GET /api/network/status` to show the LAN interface, IP, and
+ * gateway as currently seen by the kernel. Surfaces a remediation
+ * panel pointing back at `install.sh --static-ip` whenever the IP is
+ * still DHCP-derived; otherwise just confirms the values.
  */
 export default function Step2Network() {
   const advance = useAdvanceWizard();
+  const { data, isLoading, isError } = useNetworkStatus();
 
   return (
     <div className="flex flex-col gap-5">
@@ -22,14 +23,42 @@ export default function Step2Network() {
           reboots.
         </p>
       </div>
-      <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-        <p>
-          If you supplied <code>--static-ip</code> when running <code>install.sh</code>, your LAN
-          address is already pinned. Otherwise this host is using whatever IP your router handed
-          out, and you may want to re-run <code>install.sh</code> with a fixed CIDR (e.g.{" "}
-          <code>--static-ip 192.168.1.2/24</code>).
-        </p>
-      </div>
+
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+        <dt className="text-muted-foreground">Interface</dt>
+        <dd className="font-mono">{isLoading ? "…" : isError ? "—" : (data?.interface ?? "—")}</dd>
+        <dt className="text-muted-foreground">IP address</dt>
+        <dd className="font-mono">{isLoading ? "…" : isError ? "—" : (data?.ip ?? "—")}</dd>
+        <dt className="text-muted-foreground">Gateway</dt>
+        <dd className="font-mono">
+          {isLoading ? "…" : isError ? "—" : (data?.gateway ?? "not detected")}
+        </dd>
+        <dt className="text-muted-foreground">Source</dt>
+        <dd>
+          {isLoading
+            ? "…"
+            : isError
+              ? "—"
+              : data?.dhcp_source === "static"
+                ? "Static (install.sh)"
+                : data?.dhcp_source === "dhcp"
+                  ? "DHCP (router-assigned)"
+                  : "Unknown"}
+        </dd>
+      </dl>
+
+      {data?.dhcp_source !== "static" && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+          <p className="font-medium text-foreground">Your IP isn't pinned</p>
+          <p className="mt-1 text-muted-foreground">
+            The router is currently leasing this address — it may change on the next reboot. Re-run{" "}
+            <code>install.sh</code> with <code>--static-ip {data?.ip ?? "&lt;cidr&gt;"}/24</code>{" "}
+            (or another IP from your subnet) to write <code>/etc/dhcpcd.conf.d/wardnet.conf</code>{" "}
+            and pin it. You can continue without this, but devices may need reconfiguring later.
+          </p>
+        </div>
+      )}
+
       <Button
         onClick={() => advance.mutate({ to_step: "dhcp" })}
         disabled={advance.isPending}

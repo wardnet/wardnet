@@ -198,6 +198,20 @@ fn stub_backends() -> Backends {
         host_id: "init-test-host".to_owned(),
         shutdown_token: tokio_util::sync::CancellationToken::new(),
         power_ops: Arc::new(StubPowerOps),
+        network_inspector: Arc::new(StubNetworkInspector),
+    }
+}
+
+struct StubNetworkInspector;
+#[async_trait]
+impl crate::system::NetworkInspector for StubNetworkInspector {
+    async fn inspect(&self) -> anyhow::Result<crate::system::NetworkSnapshot> {
+        Ok(crate::system::NetworkSnapshot {
+            interface: "eth0".to_owned(),
+            ip: std::net::Ipv4Addr::new(192, 168, 1, 1),
+            gateway: Some(std::net::Ipv4Addr::new(192, 168, 1, 254)),
+            dhcp_source: wardnet_common::api::DhcpSource::Static,
+        })
     }
 }
 

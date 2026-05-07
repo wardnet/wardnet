@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use sysinfo::System;
 use tokio_util::sync::CancellationToken;
-use wardnet_common::api::SystemStatusResponse;
+use wardnet_common::api::{NetworkStatusResponse, SystemStatusResponse};
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::system::SystemPowerOps;
+use crate::system::{NetworkInspector, SystemPowerOps};
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 
 /// How long the restart handler waits before cancelling the shutdown
@@ -37,6 +37,14 @@ pub trait SystemService: Send + Sync {
 
     /// Build a status response with version, uptime, entity counts, and host resource usage.
     async fn status(&self) -> Result<SystemStatusResponse, AppError>;
+
+    /// Read the LAN interface's current address + default gateway and
+    /// classify whether the IP came from DHCP or a Wardnet-managed
+    /// static config.
+    ///
+    /// Powers the wizard's network step (read-only confirmation) and
+    /// the post-install Settings page.
+    async fn network_status(&self) -> Result<NetworkStatusResponse, AppError>;
 
     /// Ask the daemon to exit cleanly so the supervisor (systemd on a
     /// Pi install, the operator on dev) brings it back up.
@@ -80,6 +88,7 @@ pub struct SystemServiceImpl {
     sysinfo: tokio::sync::Mutex<System>,
     shutdown_token: CancellationToken,
     power_ops: Arc<dyn SystemPowerOps>,
+    network_inspector: Arc<dyn NetworkInspector>,
 }
 
 impl SystemServiceImpl {
@@ -89,6 +98,7 @@ impl SystemServiceImpl {
         started_at: Instant,
         shutdown_token: CancellationToken,
         power_ops: Arc<dyn SystemPowerOps>,
+        network_inspector: Arc<dyn NetworkInspector>,
     ) -> Self {
         Self {
             system_config,
@@ -97,6 +107,7 @@ impl SystemServiceImpl {
             sysinfo: tokio::sync::Mutex::new(System::new_all()),
             shutdown_token,
             power_ops,
+            network_inspector,
         }
     }
 }
@@ -163,6 +174,21 @@ impl SystemService for SystemServiceImpl {
             cpu_usage_percent,
             memory_used_bytes,
             memory_total_bytes,
+        })
+    }
+
+    async fn network_status(&self) -> Result<NetworkStatusResponse, AppError> {
+        auth_context::require_admin()?;
+        let snap = self
+            .network_inspector
+            .inspect()
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(NetworkStatusResponse {
+            interface: snap.interface,
+            ip: snap.ip,
+            gateway: snap.gateway,
+            dhcp_source: snap.dhcp_source,
         })
     }
 

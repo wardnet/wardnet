@@ -43,6 +43,9 @@ impl SystemService for MockSystemService {
     async fn request_shutdown(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock system service that always returns an error.
@@ -75,6 +78,9 @@ impl SystemService for FailingSystemService {
         Err(AppError::Internal(anyhow::anyhow!(
             "simulated service failure"
         )))
+    }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
     }
 }
 

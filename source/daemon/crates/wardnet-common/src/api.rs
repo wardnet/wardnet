@@ -410,6 +410,37 @@ pub struct SetDefaultPolicyRequest {
     pub policy: String,
 }
 
+/// How the LAN interface acquired its current IP address.
+///
+/// Returned by `GET /api/network/status` so the wizard's network step
+/// can show a remediation panel when the host is still relying on
+/// DHCP — install.sh writes `/etc/dhcpcd.conf.d/wardnet.conf` when the
+/// operator passes `--static-ip`, which flips this to `Static`.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DhcpSource {
+    /// `/etc/dhcpcd.conf.d/wardnet.conf` is present — install.sh pinned
+    /// the address.
+    Static,
+    /// No Wardnet drop-in found — the host is using whatever the
+    /// upstream router handed out.
+    Dhcp,
+    /// Couldn't determine. Treated like `Dhcp` for remediation purposes
+    /// but called out separately so the operator knows we're unsure.
+    Unknown,
+}
+
+/// Response for GET /api/network/status.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NetworkStatusResponse {
+    pub interface: String,
+    #[schema(value_type = String)]
+    pub ip: std::net::Ipv4Addr,
+    #[schema(value_type = String)]
+    pub gateway: Option<std::net::Ipv4Addr>,
+    pub dhcp_source: DhcpSource,
+}
+
 /// Response for PUT /api/system/default-policy.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetDefaultPolicyResponse {

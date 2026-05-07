@@ -8032,6 +8032,131 @@
         ]
       }
     },
+    "/api/network/status": {
+      "get": {
+        "tags": [
+          "network"
+        ],
+        "description": "Read the LAN interface's current address + default gateway and classify whether the IP came from DHCP or a Wardnet-managed static config (install.sh --static-ip writes /etc/dhcpcd.conf.d/wardnet.conf, which flips dhcp_source to \"static\"). Powers the wizard's network step and the Settings page. Admin only.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Current LAN interface state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/providers": {
       "get": {
         "tags": [
@@ -13038,6 +13163,15 @@
           }
         }
       },
+      "DhcpSource": {
+        "type": "string",
+        "description": "How the LAN interface acquired its current IP address.\n\nReturned by `GET /api/network/status` so the wizard's network step\ncan show a remediation panel when the host is still relying on\nDHCP — install.sh writes `/etc/dhcpcd.conf.d/wardnet.conf` when the\noperator passes `--static-ip`, which flips this to `Static`.",
+        "enum": [
+          "static",
+          "dhcp",
+          "unknown"
+        ]
+      },
       "DhcpStatus": {
         "type": "string",
         "description": "Whether a device's IP is managed by the wardnet DHCP server.",
@@ -14126,6 +14260,30 @@
             "type": "string"
           },
           "token": {
+            "type": "string"
+          }
+        }
+      },
+      "NetworkStatusResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/status.",
+        "required": [
+          "interface",
+          "ip",
+          "gateway",
+          "dhcp_source"
+        ],
+        "properties": {
+          "dhcp_source": {
+            "$ref": "#/components/schemas/DhcpSource"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "interface": {
+            "type": "string"
+          },
+          "ip": {
             "type": "string"
           }
         }

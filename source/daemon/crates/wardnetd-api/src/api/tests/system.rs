@@ -136,6 +136,9 @@ impl SystemService for MockSystemService {
     async fn request_shutdown(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -861,6 +864,11 @@ async fn restart_surfaces_service_error_as_500() {
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Ok(())
         }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -950,6 +958,11 @@ async fn reboot_surfaces_service_error_as_500() {
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Ok(())
         }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1038,6 +1051,11 @@ async fn shutdown_surfaces_service_error_as_500() {
         }
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Err(AppError::Internal(anyhow::anyhow!("polkit denied")))
+        }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
         }
     }
 
