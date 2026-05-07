@@ -20,7 +20,14 @@ export default function Setup() {
   const { data, isLoading } = useSetupStatus();
 
   return (
-    <div className="rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur-sm dark:bg-card/95">
+    // `min-h-[36rem]` keeps the card a stable size across steps so the
+    // surrounding hero (logo + subtitle in AuthLayout) doesn't bounce
+    // up and down as content varies in height. Short steps simply
+    // leave empty space below their action button rather than letting
+    // the card collapse; tall steps (DHCP onboarding, the inline
+    // tunnel form) extend naturally past the min-height — downward
+    // growth is far less jarring than the card shrinking step-to-step.
+    <div className="min-h-[36rem] rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur-sm dark:bg-card/95">
       {isLoading || !data ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
