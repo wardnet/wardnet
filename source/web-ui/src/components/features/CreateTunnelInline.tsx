@@ -25,25 +25,21 @@ interface CreateTunnelInlineProps {
  * paste vs. provider sheet) are unchanged — only the chrome moved.
  */
 export function CreateTunnelInline({ onClose, embedded = false }: CreateTunnelInlineProps) {
+  // Tab styling matches the DHCP page (`Dhcp.tsx`) — natural-width
+  // buttons rather than the stretched-flex variant the sheet used.
   const body = (
-    <>
-      <Tabs defaultValue="manual">
-        <TabsList className="w-full">
-          <TabsTrigger value="manual" className="flex-1">
-            Manual
-          </TabsTrigger>
-          <TabsTrigger value="provider" className="flex-1">
-            Provider
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="manual" className="mt-4">
-          <ManualTunnelTab onSuccess={onClose} />
-        </TabsContent>
-        <TabsContent value="provider" className="mt-4">
-          <ProviderTunnelTab onSuccess={onClose} />
-        </TabsContent>
-      </Tabs>
-    </>
+    <Tabs defaultValue="manual">
+      <TabsList>
+        <TabsTrigger value="manual">Manual</TabsTrigger>
+        <TabsTrigger value="provider">Provider</TabsTrigger>
+      </TabsList>
+      <TabsContent value="manual" className="mt-4">
+        <ManualTunnelTab onSuccess={onClose} />
+      </TabsContent>
+      <TabsContent value="provider" className="mt-4">
+        <ProviderTunnelTab onSuccess={onClose} />
+      </TabsContent>
+    </Tabs>
   );
 
   if (embedded) {

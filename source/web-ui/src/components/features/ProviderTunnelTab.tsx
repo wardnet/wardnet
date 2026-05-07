@@ -342,9 +342,11 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             <ApiErrorAlert error={setupTunnel.error} fallback="Setup failed" />
           )}
 
-          <Button onClick={handleSetup} disabled={setupTunnel.isPending} className="w-full">
-            {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
-          </Button>
+          <div className="flex justify-end">
+            <Button onClick={handleSetup} disabled={setupTunnel.isPending}>
+              {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
+            </Button>
+          </div>
         </>
       )}
     </div>
