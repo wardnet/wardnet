@@ -222,6 +222,9 @@ impl crate::system::NetworkProbe for StubNetworkProbe {
     async fn arp_probe(&self, _target_ip: std::net::Ipv4Addr) -> anyhow::Result<Option<String>> {
         Ok(None)
     }
+    async fn dhcp_self_probe(&self) -> anyhow::Result<crate::system::DhcpProbeOutcome> {
+        Ok(crate::system::DhcpProbeOutcome::default())
+    }
 }
 
 struct StubReleaseSource;

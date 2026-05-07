@@ -541,6 +541,11 @@ impl SystemService for StubSystemService {
     ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
         unimplemented!()
     }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubTunnelService;

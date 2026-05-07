@@ -22,3 +22,15 @@ export function useDiscoverGatewayMac() {
     mutationFn: (body: DiscoverGatewayMacRequest = {}) => networkService.discoverGatewayMac(body),
   });
 }
+
+/**
+ * Send a DHCPDISCOVER and find out who responded.
+ *
+ * Used by the wizard's primary-mode step 3 after the operator says
+ * they've disabled DHCP on their upstream router.
+ */
+export function useDhcpSelfProbe() {
+  return useMutation({
+    mutationFn: () => networkService.dhcpSelfProbe(),
+  });
+}

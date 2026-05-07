@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/core/ui/select";
 import { useAdvanceWizard } from "@/hooks/useSetup";
+import { useDhcpSelfProbe } from "@/hooks/useNetwork";
 import { ROUTER_INSTRUCTIONS, findRouterInstruction } from "@/lib/router-instructions";
 
 /**
@@ -16,21 +17,33 @@ import { ROUTER_INSTRUCTIONS, findRouterInstruction } from "@/lib/router-instruc
  *
  * Branches on the operator's chosen `mode`:
  *
- * - `primary`: Wardnet runs DHCP. Render the router-specific
- *   disable-DHCP guide and a "DHCP self-probe" affordance (currently
- *   stubbed; the daemon endpoint lands in a follow-up commit).
- * - `locked_router`: ISP router keeps running DHCP. Show the per-device
- *   manual-config instructions and a "devices using Wardnet" counter
- *   (also stubbed).
+ * - `primary`: Wardnet runs DHCP. The operator picks their router,
+ *   follows the disable-DHCP steps, and clicks "Probe LAN". The
+ *   daemon broadcasts a DHCPDISCOVER and reports back which servers
+ *   replied; only after a clean (Wardnet-only) probe can the wizard
+ *   advance.
+ * - `locked_router`: ISP router keeps running DHCP. Operators
+ *   manually configure each opted-in device — there's nothing to
+ *   probe, so the step jumps straight to Continue.
  *
- * Whichever branch advances, the wizard records `wizard_mode` so later
- * steps know which UX variant to show.
+ * The `wizard_mode` selection is recorded on advance so later steps
+ * know which UX variant to render.
  */
 export default function Step3DhcpOnboarding({ initialMode }: { initialMode: WizardMode | null }) {
   const advance = useAdvanceWizard();
+  const probe = useDhcpSelfProbe();
   const [mode, setMode] = useState<WizardMode>(initialMode ?? "primary");
   const [routerId, setRouterId] = useState<string>(ROUTER_INSTRUCTIONS[0].id);
   const router = findRouterInstruction(routerId);
+
+  const probeResult = probe.data;
+  const probeClean =
+    mode === "primary" && probeResult?.wardnet_responded && !probeResult.foreign_responded;
+  const probeBlocked = mode === "primary" && probeResult?.foreign_responded;
+
+  function handleContinue() {
+    advance.mutate({ to_step: "router_mac", wizard_mode: mode });
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -113,10 +126,24 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
               )}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            Wardnet will probe the LAN once you continue to confirm no other DHCP server is
-            responding.
-          </p>
+          <div className="flex items-center justify-end gap-3">
+            {probe.isError && (
+              <p className="flex-1 text-sm text-destructive">Probe failed — try again.</p>
+            )}
+            {probeBlocked && (
+              <p className="flex-1 text-sm text-destructive">
+                A foreign DHCP server responded
+                {probeResult?.foreign_server_ip ? ` (${probeResult.foreign_server_ip})` : ""}.
+                Re-check the disable-DHCP steps.
+              </p>
+            )}
+            {probeClean && (
+              <p className="flex-1 text-sm text-foreground">Only Wardnet responded — good.</p>
+            )}
+            <Button variant="secondary" onClick={() => probe.mutate()} disabled={probe.isPending}>
+              {probe.isPending ? "Probing…" : probeResult ? "Probe again" : "Probe LAN"}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -134,11 +161,15 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       )}
 
       <Button
-        onClick={() => advance.mutate({ to_step: "router_mac", wizard_mode: mode })}
-        disabled={advance.isPending}
+        onClick={handleContinue}
+        disabled={advance.isPending || (mode === "primary" && !probeClean)}
         className="h-12 w-full"
       >
-        {advance.isPending ? "Saving…" : "Continue"}
+        {advance.isPending
+          ? "Saving…"
+          : mode === "primary" && !probeClean
+            ? "Run a clean probe to continue"
+            : "Continue"}
       </Button>
     </div>
   );

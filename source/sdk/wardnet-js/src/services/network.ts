@@ -1,5 +1,6 @@
 import type { WardnetClient } from "../client.js";
 import type {
+  DhcpSelfProbeResponse,
   DiscoverGatewayMacRequest,
   DiscoverGatewayMacResponse,
   NetworkStatusResponse,
@@ -32,6 +33,20 @@ export class NetworkService {
     return this.client.request<DiscoverGatewayMacResponse>("/network/discover-gateway-mac", {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Send a DHCPDISCOVER from a synthetic MAC and report which DHCP
+   * servers responded.
+   *
+   * Used by the wizard's primary-mode step 3 to verify Wardnet now
+   * owns the LAN's DHCP after the operator disabled it on the
+   * upstream router.
+   */
+  async dhcpSelfProbe(): Promise<DhcpSelfProbeResponse> {
+    return this.client.request<DhcpSelfProbeResponse>("/network/dhcp-self-probe", {
+      method: "POST",
     });
   }
 }

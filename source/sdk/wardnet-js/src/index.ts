@@ -55,6 +55,7 @@ export type {
 
 // Types — network
 export type {
+  DhcpSelfProbeResponse,
   DhcpSource,
   DiscoverGatewayMacRequest,
   DiscoverGatewayMacResponse,

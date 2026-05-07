@@ -39,3 +39,18 @@ export interface DiscoverGatewayMacResponse {
   mac: string;
   source: RouterMacSource;
 }
+
+/**
+ * Response for POST /api/network/dhcp-self-probe.
+ *
+ * `wardnet_responded === true && foreign_responded === false` means
+ * the LAN is correctly owned by Wardnet's DHCP server.
+ * `foreign_responded === true` means another DHCP server is still
+ * answering — the wizard re-shows the disable-DHCP guide and points
+ * at `foreign_server_ip`.
+ */
+export interface DhcpSelfProbeResponse {
+  wardnet_responded: boolean;
+  foreign_responded: boolean;
+  foreign_server_ip: string | null;
+}

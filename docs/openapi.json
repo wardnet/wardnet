@@ -8032,6 +8032,131 @@
         ]
       }
     },
+    "/api/network/dhcp-self-probe": {
+      "post": {
+        "tags": [
+          "network"
+        ],
+        "description": "Broadcast a DHCPDISCOVER from a synthetic MAC and report whether Wardnet (and any foreign DHCP server) responded with an OFFER. The wizard's primary-mode step 3 calls this after the operator says they've disabled DHCP on their router; a foreign-only response tells the UI to re-show the disable-DHCP guide. Admin only.",
+        "operationId": "dhcp_self_probe",
+        "responses": {
+          "200": {
+            "description": "Probe complete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DhcpSelfProbeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/network/discover-gateway-mac": {
       "post": {
         "tags": [
@@ -13315,6 +13440,26 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DhcpSelfProbeResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/dhcp-self-probe.\n\nThe wizard's primary-mode step 3 uses this to verify Wardnet now\nowns LAN DHCP after the operator disabled it on their router:\n\n- `wardnet_responded == true && foreign_responded == false` → ready\n  to advance.\n- `foreign_responded == true` → re-show the disable-DHCP guide;\n  `foreign_server_ip` lets the wizard call out which device is\n  still answering.",
+        "required": [
+          "wardnet_responded",
+          "foreign_responded",
+          "foreign_server_ip"
+        ],
+        "properties": {
+          "foreign_responded": {
+            "type": "boolean"
+          },
+          "foreign_server_ip": {
+            "type": "string"
+          },
+          "wardnet_responded": {
+            "type": "boolean"
           }
         }
       },

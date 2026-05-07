@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use sysinfo::System;
 use tokio_util::sync::CancellationToken;
 use wardnet_common::api::{
-    DiscoverGatewayMacRequest, DiscoverGatewayMacResponse, NetworkStatusResponse, RouterMacSource,
-    SystemStatusResponse,
+    DhcpSelfProbeResponse, DiscoverGatewayMacRequest, DiscoverGatewayMacResponse,
+    NetworkStatusResponse, RouterMacSource, SystemStatusResponse,
 };
 
 use crate::auth_context;
@@ -69,6 +69,16 @@ pub trait SystemService: Send + Sync {
     /// Powers the wizard's network step (read-only confirmation) and
     /// the post-install Settings page.
     async fn network_status(&self) -> Result<NetworkStatusResponse, AppError>;
+
+    /// Send a DHCPDISCOVER from a synthetic MAC and report whether
+    /// Wardnet (and any foreign DHCP server) responded.
+    ///
+    /// The wizard's primary-mode DHCP-onboarding step calls this after
+    /// the operator says they've disabled DHCP on their router; a
+    /// foreign-only response tells the UI to re-show the disable-DHCP
+    /// guide and a Wardnet-only response means the LAN is correctly
+    /// owned.
+    async fn dhcp_self_probe(&self) -> Result<DhcpSelfProbeResponse, AppError>;
 
     /// Discover (or accept) the upstream router MAC and persist it.
     ///
@@ -230,6 +240,48 @@ impl SystemService for SystemServiceImpl {
             ip: snap.ip,
             gateway: snap.gateway,
             dhcp_source: snap.dhcp_source,
+        })
+    }
+
+    async fn dhcp_self_probe(&self) -> Result<DhcpSelfProbeResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let snap = self
+            .network_inspector
+            .inspect()
+            .await
+            .map_err(AppError::Internal)?;
+        let our_ip = snap.ip;
+
+        let outcome = self
+            .network_probe
+            .dhcp_self_probe()
+            .await
+            .map_err(AppError::Internal)?;
+
+        let mut wardnet_responded = false;
+        let mut foreign_server_ip: Option<std::net::Ipv4Addr> = None;
+        for ip in outcome.responders {
+            if ip == our_ip {
+                wardnet_responded = true;
+            } else if foreign_server_ip.is_none() {
+                foreign_server_ip = Some(ip);
+            }
+        }
+
+        let foreign_responded = foreign_server_ip.is_some();
+
+        tracing::info!(
+            wardnet_responded,
+            foreign_responded,
+            ?foreign_server_ip,
+            "dhcp self-probe complete"
+        );
+
+        Ok(DhcpSelfProbeResponse {
+            wardnet_responded,
+            foreign_responded,
+            foreign_server_ip,
         })
     }
 

@@ -145,6 +145,11 @@ impl SystemService for MockSystemService {
     ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
         unimplemented!()
     }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -881,6 +886,11 @@ async fn restart_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
             unimplemented!()
         }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -981,6 +991,11 @@ async fn reboot_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
             unimplemented!()
         }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1079,6 +1094,11 @@ async fn shutdown_surfaces_service_error_as_500() {
             &self,
             _request: wardnet_common::api::DiscoverGatewayMacRequest,
         ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
             unimplemented!()
         }
     }

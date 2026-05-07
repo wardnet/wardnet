@@ -8,7 +8,9 @@ use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::system::{NetworkInspector, NetworkProbe, NetworkSnapshot, SystemPowerOps};
+use crate::system::{
+    DhcpProbeOutcome, NetworkInspector, NetworkProbe, NetworkSnapshot, SystemPowerOps,
+};
 use crate::{SystemService, SystemServiceImpl};
 use std::net::Ipv4Addr;
 use std::sync::Mutex;
@@ -172,12 +174,12 @@ impl NetworkInspector for StaticNetworkInspector {
     }
 }
 
-/// Network probe whose ARP reply is configurable per test. The default
-/// always returns a fixed MAC; calls land in `targets` so tests can
-/// assert which IP was probed.
+/// Network probe whose responses are configurable per test. The default
+/// answers ARP with a fixed MAC and returns no DHCP responders.
 struct StaticNetworkProbe {
     response: Option<String>,
     targets: Mutex<Vec<Ipv4Addr>>,
+    dhcp_responders: Vec<Ipv4Addr>,
 }
 
 impl Default for StaticNetworkProbe {
@@ -185,6 +187,7 @@ impl Default for StaticNetworkProbe {
         Self {
             response: Some("AA:BB:CC:DD:EE:FF".to_owned()),
             targets: Mutex::new(Vec::new()),
+            dhcp_responders: Vec::new(),
         }
     }
 }
@@ -194,6 +197,12 @@ impl NetworkProbe for StaticNetworkProbe {
     async fn arp_probe(&self, target_ip: Ipv4Addr) -> anyhow::Result<Option<String>> {
         self.targets.lock().unwrap().push(target_ip);
         Ok(self.response.clone())
+    }
+
+    async fn dhcp_self_probe(&self) -> anyhow::Result<DhcpProbeOutcome> {
+        Ok(DhcpProbeOutcome {
+            responders: self.dhcp_responders.clone(),
+        })
     }
 }
 

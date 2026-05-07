@@ -52,6 +52,11 @@ impl SystemService for MockSystemService {
     ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
         unimplemented!()
     }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock system service that always returns an error.
@@ -92,6 +97,11 @@ impl SystemService for FailingSystemService {
         &self,
         _request: wardnet_common::api::DiscoverGatewayMacRequest,
     ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
     }
 }

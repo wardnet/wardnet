@@ -472,6 +472,24 @@ pub struct DiscoverGatewayMacResponse {
     pub source: RouterMacSource,
 }
 
+/// Response for POST /api/network/dhcp-self-probe.
+///
+/// The wizard's primary-mode step 3 uses this to verify Wardnet now
+/// owns LAN DHCP after the operator disabled it on their router:
+///
+/// - `wardnet_responded == true && foreign_responded == false` → ready
+///   to advance.
+/// - `foreign_responded == true` → re-show the disable-DHCP guide;
+///   `foreign_server_ip` lets the wizard call out which device is
+///   still answering.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DhcpSelfProbeResponse {
+    pub wardnet_responded: bool,
+    pub foreign_responded: bool,
+    #[schema(value_type = String)]
+    pub foreign_server_ip: Option<std::net::Ipv4Addr>,
+}
+
 /// Response for PUT /api/system/default-policy.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetDefaultPolicyResponse {

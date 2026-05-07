@@ -3,7 +3,8 @@ use axum::extract::State;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::api::{
-    DiscoverGatewayMacRequest, DiscoverGatewayMacResponse, NetworkStatusResponse,
+    DhcpSelfProbeResponse, DiscoverGatewayMacRequest, DiscoverGatewayMacResponse,
+    NetworkStatusResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -16,6 +17,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(status))
         .routes(routes!(discover_gateway_mac))
+        .routes(routes!(dhcp_self_probe))
 }
 
 #[utoipa::path(
@@ -75,5 +77,32 @@ pub async fn discover_gateway_mac(
     Json(body): Json<DiscoverGatewayMacRequest>,
 ) -> Result<Json<DiscoverGatewayMacResponse>, AppError> {
     let response = state.system_service().discover_gateway_mac(body).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/network/dhcp-self-probe",
+    tag = "network",
+    description = "Broadcast a DHCPDISCOVER from a synthetic MAC and report \
+                   whether Wardnet (and any foreign DHCP server) responded \
+                   with an OFFER. The wizard's primary-mode step 3 calls \
+                   this after the operator says they've disabled DHCP on \
+                   their router; a foreign-only response tells the UI to \
+                   re-show the disable-DHCP guide. Admin only.",
+    responses(
+        (status = 200, description = "Probe complete", body = DhcpSelfProbeResponse),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn dhcp_self_probe(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<DhcpSelfProbeResponse>, AppError> {
+    let response = state.system_service().dhcp_self_probe().await?;
     Ok(Json(response))
 }
