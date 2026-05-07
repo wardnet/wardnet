@@ -210,6 +210,14 @@ impl RoutingService for MockRoutingService {
     ) -> Result<(), AppError> {
         Ok(())
     }
+
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn default_policy(&self) -> Result<String, AppError> {
+        Ok("direct".to_owned())
+    }
 }
 
 // -- Helper ---------------------------------------------------------------

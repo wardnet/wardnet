@@ -284,7 +284,9 @@ async fn init_services_with_factory_builds_every_service() {
         lan_ip,
         started_at,
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // Verify every service handle is populated (Arc::strong_count >= 1 means
     // the Arc is alive; construction alone is the thing under test).
@@ -322,7 +324,9 @@ async fn init_services_with_factory_respects_disabled_provider() {
         Ipv4Addr::new(10, 0, 0, 1),
         Instant::now(),
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // Wiring still succeeds even when the built-in provider is disabled.
     assert!(Arc::strong_count(&services.vpn_provider) >= 1);
@@ -402,7 +406,9 @@ async fn init_services_with_broadcast_lan_ip_falls_back_to_default_subnet() {
         Ipv4Addr::new(192, 168, 99, 1),
         Instant::now(),
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // discovery service exists regardless — the fallback path does not panic.
     assert!(Arc::strong_count(&services.discovery) >= 1);

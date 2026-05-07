@@ -236,7 +236,8 @@ async fn run(
         lan_ip,
         started_at,
         log_service.clone(),
-    );
+    )
+    .await?;
 
     // No-op DHCP and DNS servers — services and handlers treat them
     // opaquely so the UI gets consistent start/stop semantics.

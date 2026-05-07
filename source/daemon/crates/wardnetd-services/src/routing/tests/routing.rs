@@ -19,7 +19,7 @@ use crate::{RoutingService, TunnelService};
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::tunnel::TunnelRow;
-use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
+use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
 
 /// Run a future under admin auth context (required by all routing service methods).
 async fn as_admin<F: std::future::Future>(f: F) -> F::Output {
@@ -187,6 +187,53 @@ impl TunnelRepository for MockTunnelRepo {
     }
 
     async fn count_active(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
+// -- Mock SystemConfigRepository ----------------------------------------------
+
+/// In-memory key-value mock used by routing tests to back
+/// `set_default_policy` / `get_default_policy`.
+struct MockSystemConfigRepo {
+    store: Mutex<HashMap<String, String>>,
+}
+
+impl MockSystemConfigRepo {
+    fn new(initial: &[(&str, &str)]) -> Self {
+        let mut map = HashMap::new();
+        for (k, v) in initial {
+            map.insert((*k).to_owned(), (*v).to_owned());
+        }
+        Self {
+            store: Mutex::new(map),
+        }
+    }
+}
+
+#[async_trait]
+impl SystemConfigRepository for MockSystemConfigRepo {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.store.lock().await.get(key).cloned())
+    }
+
+    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.store
+            .lock()
+            .await
+            .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
         Ok(0)
     }
 }
@@ -631,12 +678,18 @@ fn setup_with_devices_and_tunnel(
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
+    let system_config: Arc<dyn SystemConfigRepository> = Arc::new(MockSystemConfigRepo::new(&[(
+        "default_policy",
+        &default_policy,
+    )]));
+
     let routing = RoutingServiceImpl::new(
         device_repo,
         tunnel_repo,
         tunnel_svc,
         netlink,
         nftables,
+        system_config,
         default_policy,
         "eth0".to_owned(),
     );
@@ -700,12 +753,16 @@ fn setup_with_orphaned_rules(
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
+    let system_config: Arc<dyn SystemConfigRepository> =
+        Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
+
     let routing = RoutingServiceImpl::new(
         device_repo,
         tunnel_repo,
         tunnel_svc,
         netlink,
         nftables,
+        system_config,
         "direct".to_owned(),
         "eth0".to_owned(),
     );
@@ -760,12 +817,16 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
+    let system_config: Arc<dyn SystemConfigRepository> =
+        Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
+
     let routing = RoutingServiceImpl::new(
         device_repo,
         tunnel_repo,
         tunnel_svc,
         netlink,
         nftables,
+        system_config,
         "direct".to_owned(),
         "eth0".to_owned(),
     );
@@ -1850,5 +1911,91 @@ async fn flush_stale_connections_skips_remove_when_add_rst_fails() {
     assert!(
         nl.contains(&"flush_conntrack:192.168.1.10".to_owned()),
         "expected conntrack flush even when RST add failed: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn set_default_policy_persists_and_updates_in_memory() {
+    let ts = setup();
+
+    // Initial in-memory + persisted policy is "direct".
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct"
+    );
+
+    let tunnel_uuid = "10000000-0000-0000-0000-000000000099";
+    as_admin(ts.routing.set_default_policy(tunnel_uuid))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        tunnel_uuid
+    );
+}
+
+#[tokio::test]
+async fn set_default_policy_rejects_invalid_value() {
+    let ts = setup();
+
+    let err = as_admin(ts.routing.set_default_policy("not-a-uuid"))
+        .await
+        .expect_err("invalid policy should be rejected");
+
+    assert!(matches!(err, AppError::BadRequest(_)));
+    // In-memory state unchanged.
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct"
+    );
+}
+
+#[tokio::test]
+async fn set_default_policy_changes_resolution_of_default_target() {
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        HashMap::new(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    // First apply with default policy = "direct" — RoutingTarget::Default
+    // resolves to Direct, so no ip rule is added.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+
+    let nl_after_direct = ts.netlink_calls.lock().await.clone();
+    assert!(
+        !nl_after_direct
+            .iter()
+            .any(|c| c.starts_with("add_ip_rule:192.168.1.10")),
+        "Default → Direct should not add an ip rule: {nl_after_direct:?}"
+    );
+
+    // Switch the policy to a tunnel UUID — Default should now resolve to
+    // that tunnel on the next apply.
+    as_admin(ts.routing.set_default_policy(&tunnel_id_1().to_string()))
+        .await
+        .unwrap();
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_2(), "192.168.1.20", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+
+    let nl_after_tunnel = ts.netlink_calls.lock().await.clone();
+    assert!(
+        nl_after_tunnel
+            .iter()
+            .any(|c| c.starts_with("add_ip_rule:192.168.1.20")),
+        "Default → Tunnel should add an ip rule for the new device: {nl_after_tunnel:?}"
     );
 }

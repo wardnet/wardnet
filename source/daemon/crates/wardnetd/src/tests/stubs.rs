@@ -362,6 +362,12 @@ impl RoutingService for StubRoutingService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn default_policy(&self) -> Result<String, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
