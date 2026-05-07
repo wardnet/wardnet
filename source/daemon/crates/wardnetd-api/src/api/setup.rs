@@ -9,6 +9,8 @@ use wardnet_common::api::{
     SetupStatusResponse,
 };
 
+use crate::api::middleware::AdminAuth;
+use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
@@ -94,13 +96,16 @@ pub async fn setup(
     responses(
         (status = 200, description = "Wizard state after advance", body = AdvanceWizardResponse),
         (status = 400, description = "Invalid transition", body = ApiError),
-        (status = 401, description = "Unauthenticated", body = ApiError),
-        (status = 403, description = "Forbidden", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
     ),
 )]
 pub async fn setup_advance(
     State(state): State<AppState>,
+    _auth: AdminAuth,
     Json(body): Json<AdvanceWizardRequest>,
 ) -> Result<Json<AdvanceWizardResponse>, AppError> {
     let new_state = state

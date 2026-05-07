@@ -57,7 +57,10 @@ impl AuthService for MockSetupAuthService {
         Ok(None)
     }
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
+        // Authenticate any Bearer token to a stable admin id so the
+        // setup_advance tests can drive the endpoint behind the
+        // AdminAuth extractor without standing up a real session.
+        Ok(Some(Uuid::nil()))
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
         match &self.setup_result {
@@ -251,6 +254,7 @@ async fn setup_advance_persists_step_and_mode() {
         .method("POST")
         .uri("/api/setup/advance")
         .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer test-key")
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
 
@@ -261,4 +265,27 @@ async fn setup_advance_persists_step_and_mode() {
     let json: AdvanceWizardResponse = serde_json::from_slice(&resp_body).unwrap();
     assert_eq!(json.wizard_step, WizardStep::Dhcp);
     assert_eq!(json.wizard_mode, Some(WizardMode::Primary));
+}
+
+#[tokio::test]
+async fn setup_advance_rejects_unauthenticated() {
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
+    let app = setup_app(state);
+
+    let body = serde_json::json!({
+        "to_step": "dhcp",
+        "wizard_mode": "primary",
+    });
+
+    // No Authorization header — AdminAuth should reject before the
+    // service ever sees the call.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/setup/advance")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
