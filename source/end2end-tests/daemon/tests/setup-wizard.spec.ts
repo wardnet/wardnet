@@ -18,13 +18,20 @@ import {
 /**
  * End-to-end coverage for the first-run setup wizard.
  *
- * These specs deliberately don't use the shared `ensureAdminAndLogin`
- * helper — they exercise the raw API surface (status / setup /
- * advance / network endpoints) so a regression in any of those is
- * visible at the e2e layer. Specs are ordered, so they share a
- * single wizard lifecycle: the wizard hits "completed" by the end of
- * "primary path" and stays there for the locked-router smoke
- * (which then can't rewind, by design).
+ * This spec runs in the same process as every other spec under a
+ * single forked vitest worker (see `vitest.config.ts`), so it's NOT
+ * the first thing to touch the daemon — `dhcp-*.spec.ts` files
+ * sort earlier and call `ensureAdminAndLogin` (which now drains the
+ * wizard to `completed`). Every test in here is therefore written to
+ * be valid in *any* wizard state, with the actual primary-path
+ * walk runtime-skipped unless the daemon happens to be fresh.
+ *
+ * The deterministic primary-path coverage is in
+ * `auth/tests/wizard.rs` (`advance_wizard_persists_step_and_mode`).
+ * What this spec adds at the e2e layer is "the over-the-wire
+ * surface still answers the way the daemon-level tests imply it
+ * should" — so a future regression in serialization, auth wiring,
+ * or routing matches the failure shape we assert here.
  */
 describe("setup wizard", () => {
   const client = new WardnetClient({ baseUrl: API_BASE_URL });
@@ -35,16 +42,20 @@ describe("setup wizard", () => {
     await waitForReady(client);
   }, 120_000);
 
-  it("starts on the admin step with derived setup_completed=false", async () => {
+  it("returns a coherent setup_completed / wizard_step shape", async () => {
     const status = await setup.getStatus();
-    // We may be running after an earlier spec already advanced; just
-    // assert the response shape is well-formed and the derived flag
-    // matches the step.
     expect(status.wizard_step).toBeTruthy();
+    // The API derives `setup_completed` from `wizard_step === "completed"`.
+    // Pin the invariant so a future refactor that splits them surfaces
+    // here.
     expect(status.setup_completed).toBe(status.wizard_step === "completed");
   });
 
-  it("creates the first admin via POST /api/setup", async () => {
+  it("ensures an admin exists and logs in", async () => {
+    // Idempotent: if no admin exists yet (fresh daemon, or this spec
+    // is running first in process order), create one. Otherwise just
+    // log in with the process-scoped credentials shared via
+    // `helpers.ts`.
     const status = await setup.getStatus();
     if (status.wizard_step === "admin") {
       await setup.setup({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
@@ -57,6 +68,10 @@ describe("setup wizard", () => {
   });
 
   it("rejects a second admin creation with 409", async () => {
+    // Admin must exist now — either created by the previous test or
+    // pre-existing from another spec. POST /api/setup checks
+    // `admins.exists()` directly post-fix, so the 409 here is the
+    // canonical "setup of step 1 is done" signal.
     let caught: unknown;
     try {
       await setup.setup({ username: "extra", password: "password123" });
@@ -67,15 +82,30 @@ describe("setup wizard", () => {
     expect((caught as { status?: number }).status).toBe(409);
   });
 
-  it("walks the wizard primary path through to completed", async () => {
+  it("walks the primary path through to completed", async (ctx) => {
+    // Only meaningful from a fresh "admin" state — when other specs
+    // have already drained the wizard, every advance to an earlier
+    // step would 400 as a rewind. The deterministic walk is in
+    // `wizard.rs::advance_wizard_persists_step_and_mode`; skip cleanly
+    // here so this spec stays useful in fresh runs without failing
+    // the typical mixed run.
+    const start = await setup.getStatus();
+    if (start.wizard_step !== "admin" && start.wizard_step !== "network") {
+      ctx.skip();
+      return;
+    }
+
     const authedSetup = new SetupService(authed);
     const order = ["network", "dhcp", "router_mac", "tunnel", "policy", "completed"] as const;
-
     let mode: "primary" | "locked_router" | undefined;
-    for (const step of order) {
+
+    // Walk only from the current step forward — same-step advances
+    // are idempotent so we can safely include `network` even when we
+    // start there.
+    const startIdx = start.wizard_step === "admin" ? 0 : 1;
+    for (const step of order.slice(startIdx)) {
       const next = await authedSetup.advance({
         to_step: step,
-        // Record the primary branch at step 3; later steps inherit it.
         wizard_mode: step === "dhcp" ? "primary" : undefined,
       });
       expect(next.wizard_step).toBe(step);
@@ -89,11 +119,20 @@ describe("setup wizard", () => {
     expect(final.wizard_mode).toBe("primary");
   });
 
-  it("rejects a rewind to an earlier step", async () => {
+  it("rejects rewinding the wizard with 400", async (ctx) => {
+    // Need a wizard that's at least one step past `admin` to have
+    // somewhere to rewind from. After the walk above (and after most
+    // other spec files run), the wizard is at `completed` — perfect.
+    // If we somehow start at `admin`, no rewind target exists.
+    const status = await setup.getStatus();
+    if (status.wizard_step === "admin") {
+      ctx.skip();
+      return;
+    }
     const authedSetup = new SetupService(authed);
     let caught: unknown;
     try {
-      await authedSetup.advance({ to_step: "network" });
+      await authedSetup.advance({ to_step: "admin" });
     } catch (e) {
       caught = e;
     }
@@ -101,11 +140,10 @@ describe("setup wizard", () => {
     expect((caught as { status?: number }).status).toBe(400);
   });
 
-  it("exposes network status now that the wizard is done", async () => {
+  it("exposes the LAN interface state via GET /api/network/status", async () => {
     const status = await new NetworkService(authed).getStatus();
     expect(status.interface).toBeTruthy();
     expect(status.ip).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-    // Mock inspector reports static; real daemon may report either.
     expect(["static", "dhcp", "unknown"]).toContain(status.dhcp_source);
   });
 
@@ -114,28 +152,19 @@ describe("setup wizard", () => {
     // Bootstrap migration seeds from config.toml — defaults to "direct".
     expect(policy.policy).toBe("direct");
   });
-});
 
-/**
- * Locked-router smoke. Runs after the primary-path spec finishes the
- * wizard, so we can't actually re-enter step 3; instead this asserts
- * the immutable surface — that the API exposes `locked_router` as a
- * valid `wizard_mode` and that a fresh-install client could reach it
- * via advance({wizard_mode: "locked_router"}).
- *
- * The full re-run-from-fresh path is covered by the daemon-level
- * unit tests in `wizard.rs` (`advance_wizard_persists_step_and_mode`),
- * which are deterministic in a way the shared e2e harness isn't.
- */
-describe("setup wizard — locked-router smoke", () => {
-  const client = new WardnetClient({ baseUrl: API_BASE_URL });
-
-  it("accepts locked_router as a valid wizard_mode in the OpenAPI surface", async () => {
-    // The compiler enforces this at the type level — the spec exists
-    // mainly so a future commit can't accidentally drop the variant
-    // from the public API without breaking the e2e build.
-    const valid: ("primary" | "locked_router")[] = ["primary", "locked_router"];
-    expect(valid).toContain("locked_router");
-    expect(client).toBeTruthy();
+  it("publishes locked_router as a valid wizard_mode in the OpenAPI schema", async () => {
+    // Fetch the live OpenAPI doc from the daemon and assert the public
+    // schema still exposes both `wizard_mode` variants. Catches the
+    // case where a future commit drops the variant from
+    // wardnet_common::api::WizardMode without anyone noticing the
+    // public API contract changed.
+    const spec = await authed.request<{ components?: { schemas?: Record<string, unknown> } }>(
+      "/openapi.json",
+    );
+    const schemas = spec.components?.schemas ?? {};
+    const wizardMode = schemas["WizardMode"] as { enum?: string[] } | undefined;
+    expect(wizardMode).toBeTruthy();
+    expect(wizardMode?.enum).toEqual(expect.arrayContaining(["primary", "locked_router"]));
   });
 });

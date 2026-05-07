@@ -121,6 +121,10 @@ export async function ensureAdminAndLogin(
  * Walk the setup wizard from its current step to `completed`. No-op
  * if the wizard is already done. Each advance is admin-authenticated
  * so the caller must pass an authed client.
+ *
+ * The safety bound is `order.length + 1` (one slot of headroom over
+ * the worst case) so a future step inserted into the wizard order
+ * doesn't silently throw before the rewrite gets here.
  */
 async function drainWizard(authed: AuthedClient): Promise<void> {
   const setup = new SetupService(authed);
@@ -128,7 +132,7 @@ async function drainWizard(authed: AuthedClient): Promise<void> {
     "admin" | "network" | "dhcp" | "router_mac" | "tunnel" | "policy" | "completed"
   > = ["admin", "network", "dhcp", "router_mac", "tunnel", "policy", "completed"];
 
-  for (let safety = 0; safety < order.length; safety += 1) {
+  for (let safety = 0; safety <= order.length; safety += 1) {
     const status = await setup.getStatus();
     if (status.wizard_step === "completed") return;
     const idx = order.indexOf(status.wizard_step);
