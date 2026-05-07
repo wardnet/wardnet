@@ -46,7 +46,11 @@ export type {
 export type { LoginRequest, LoginResponse } from "./types/auth.js";
 
 // Types — system
-export type { SystemStatusResponse } from "./types/system.js";
+export type {
+  SetDefaultPolicyRequest,
+  SetDefaultPolicyResponse,
+  SystemStatusResponse,
+} from "./types/system.js";
 
 // Types — setup
 export type {

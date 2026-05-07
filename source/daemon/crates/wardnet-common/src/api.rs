@@ -401,6 +401,21 @@ pub struct SetupRequest {
     pub password: String,
 }
 
+/// Request body for PUT /api/system/default-policy.
+///
+/// `policy` is either the literal string `"direct"` or a tunnel UUID.
+/// The service layer validates the format and rejects anything else.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDefaultPolicyRequest {
+    pub policy: String,
+}
+
+/// Response for PUT /api/system/default-policy.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDefaultPolicyResponse {
+    pub policy: String,
+}
+
 // Redact `password` — same rationale as `LoginRequest`.
 impl std::fmt::Debug for SetupRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

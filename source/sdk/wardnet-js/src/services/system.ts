@@ -1,5 +1,9 @@
 import { type WardnetClient } from "../client.js";
-import type { SystemStatusResponse } from "../types/system.js";
+import type {
+  SetDefaultPolicyRequest,
+  SetDefaultPolicyResponse,
+  SystemStatusResponse,
+} from "../types/system.js";
 
 /** System information service for the Wardnet daemon. */
 export class SystemService {
@@ -57,6 +61,24 @@ export class SystemService {
    */
   async shutdown(): Promise<void> {
     await this.postNoContent("/system/shutdown");
+  }
+
+  /** Read the global default routing policy (`"direct"` or a tunnel UUID). */
+  async getDefaultPolicy(): Promise<SetDefaultPolicyResponse> {
+    return this.client.request<SetDefaultPolicyResponse>("/system/default-policy");
+  }
+
+  /**
+   * Set the global default routing policy.
+   *
+   * `policy` is either the literal string `"direct"` or a tunnel UUID.
+   * The server rejects anything else with a 400 response.
+   */
+  async setDefaultPolicy(body: SetDefaultPolicyRequest): Promise<SetDefaultPolicyResponse> {
+    return this.client.request<SetDefaultPolicyResponse>("/system/default-policy", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
   }
 
   /**
