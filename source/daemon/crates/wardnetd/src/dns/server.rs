@@ -68,6 +68,12 @@ pub struct UdpDnsServer {
     bind_addr: SocketAddr,
     injected_socket: Option<Arc<dyn DnsSocket>>,
     running: Arc<AtomicBool>,
+    // Serializes `start()` / `stop()` so concurrent callers (the API
+    // toggle handler runs synchronously *and* the `DnsRunner` reacts to
+    // the same `DnsConfigChanged` event) can't both pass the
+    // `running == false` check and race to bind 0.0.0.0:53. Without this
+    // the loser hits EADDRINUSE.
+    lifecycle: Mutex<()>,
     cancel: Mutex<CancellationToken>,
     handle: Mutex<Option<JoinHandle<()>>>,
     // Per-query handlers are tracked so `stop()` can await them. Without
@@ -98,6 +104,7 @@ impl UdpDnsServer {
             bind_addr,
             injected_socket: None,
             running: Arc::new(AtomicBool::new(false)),
+            lifecycle: Mutex::new(()),
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
             query_tracker: Mutex::new(None),
@@ -126,6 +133,10 @@ impl UdpDnsServer {
 #[async_trait]
 impl DnsServer for UdpDnsServer {
     async fn start(&self) -> anyhow::Result<()> {
+        // Hold the lifecycle guard across the whole start: the
+        // running-flag check is otherwise racy against another caller
+        // (handler vs runner) doing the same check + bind concurrently.
+        let _lifecycle = self.lifecycle.lock().await;
         if self.running.load(Ordering::SeqCst) {
             tracing::warn!("DNS server already running");
             return Ok(());
@@ -173,6 +184,9 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn stop(&self) -> anyhow::Result<()> {
+        // Same lifecycle guard as `start()` so a concurrent start() can't
+        // pass running=false while we're tearing the listener down.
+        let _lifecycle = self.lifecycle.lock().await;
         if !self.running.load(Ordering::SeqCst) {
             return Ok(());
         }

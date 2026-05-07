@@ -150,6 +150,47 @@ async fn stop_drains_the_per_query_spawn() {
 }
 
 #[tokio::test]
+async fn concurrent_start_calls_dont_race_to_bind() {
+    // Two concurrent `start()` calls used to both pass the
+    // `running == false` check and both proceed to `UdpSocket::bind`,
+    // racing on the same address. The loser hit EADDRINUSE. The
+    // lifecycle Mutex serializes them: the first sets `running = true`,
+    // the second sees it under the same lock and returns Ok with a warn.
+    //
+    // Reproduces the second race surfaced by the dns-config e2e
+    // (`flushCache returns a count and a message`) — the API toggle
+    // handler calls start() synchronously and the DnsRunner reacts to
+    // the same DnsConfigChanged event in parallel.
+    //
+    // Probe-and-drop a UdpSocket to discover a port that's free *right
+    // now*, then re-use that port for both start() calls. With the bug,
+    // one of the two binds would race the other and fail. With the fix,
+    // only one bind happens (the second start sees running=true under
+    // the lifecycle lock and returns immediately).
+    let probe = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("probe bind should succeed");
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    let bind = SocketAddr::from(([127, 0, 0, 1], port));
+
+    let server = Arc::new(UdpDnsServer::with_bind_addr(
+        DnsConfig::default(),
+        bind,
+        stub_filter(),
+    ));
+
+    let s1 = Arc::clone(&server);
+    let s2 = Arc::clone(&server);
+    let (r1, r2) = tokio::join!(s1.start(), s2.start());
+    r1.expect("first concurrent start should succeed");
+    r2.expect("second concurrent start should be a no-op (server already running)");
+
+    assert!(server.is_running());
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn flush_cache_returns_zero_on_empty() {
     let server =
         UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
