@@ -84,11 +84,7 @@ export default function Step4RouterMac() {
         </form>
       )}
 
-      <Button
-        onClick={handleContinue}
-        disabled={advance.isPending}
-        className="h-12 w-full"
-      >
+      <Button onClick={handleContinue} disabled={advance.isPending} className="h-12 w-full">
         {advance.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
       </Button>
     </div>

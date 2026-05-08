@@ -2,14 +2,13 @@ use async_trait::async_trait;
 
 /// Abstraction over firewall operations for Wardnet policy routing.
 ///
-/// Manages NAT masquerade (postrouting) and DNS redirect (prerouting) rules
-/// for tunnel interfaces and routed devices. Enables mocking in tests.
-/// The production implementation uses nftables via the `nft` command.
+/// Manages NAT masquerade (postrouting) rules for tunnel interfaces and
+/// transient TCP-reset rules used during routing changes. Enables mocking
+/// in tests. The production implementation uses nftables via the `nft`
+/// command.
 #[async_trait]
 pub trait FirewallManager: Send + Sync {
     /// Initialize the firewall table and base chains (idempotent).
-    ///
-    /// Creates the necessary table structure for masquerade and DNS redirect rules.
     async fn init_wardnet_table(&self) -> anyhow::Result<()>;
 
     /// Flush all Wardnet-managed rules (keeps the table and chains intact).
@@ -21,11 +20,12 @@ pub trait FirewallManager: Send + Sync {
     /// Remove the masquerade rule for the given tunnel interface.
     async fn remove_masquerade(&self, interface: &str) -> anyhow::Result<()>;
 
-    /// Add a DNS redirect rule for a device, rewriting its DNS traffic to the tunnel's DNS server.
-    async fn add_dns_redirect(&self, device_ip: &str, dns_ip: &str) -> anyhow::Result<()>;
-
-    /// Remove the DNS redirect rule for the given device IP.
-    async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()>;
+    /// One-shot startup cleanup: enumerate the prerouting chain and delete
+    /// every rule whose comment matches the legacy `wardnet:dns:*` DNS
+    /// redirect pattern. Idempotent; logs one info line per removal.
+    /// Without this, daemons upgraded across the issue #342 fix would
+    /// keep the bypass until the host reboots.
+    async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()>;
 
     /// Add a temporary rule that rejects TCP packets from a device with TCP RST.
     ///

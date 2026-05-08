@@ -179,6 +179,23 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             }
         }
 
+        WardnetEvent::TunnelDnsOverrideChanged { tunnel_id, .. } => {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.rebuild_dns_upstream_snapshot(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    tunnel_id = %tunnel_id,
+                    "failed to rebuild DNS upstream snapshot for tunnel {tunnel_id}: {e}"
+                );
+            }
+        }
+
         // Events that do not affect routing. `TunnelConnecting` /
         // `TunnelReconnecting` are status signals only — the kernel iface
         // is still configured in both states, so existing routing rules

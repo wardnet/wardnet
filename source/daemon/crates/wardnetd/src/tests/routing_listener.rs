@@ -191,6 +191,22 @@ impl RoutingService for MockRoutingService {
     async fn default_policy(&self) -> Result<String, AppError> {
         Ok("direct".to_owned())
     }
+
+    fn dns_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<
+            std::collections::HashMap<std::net::IpAddr, wardnet_common::dns::UpstreamId>,
+        >,
+    > {
+        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+            std::collections::HashMap::new(),
+        ))
+    }
+
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +293,24 @@ impl RoutingService for FailingRoutingService {
 
     async fn default_policy(&self) -> Result<String, AppError> {
         Err(AppError::Internal(anyhow::anyhow!("default_policy failed")))
+    }
+
+    fn dns_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<
+            std::collections::HashMap<std::net::IpAddr, wardnet_common::dns::UpstreamId>,
+        >,
+    > {
+        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+            std::collections::HashMap::new(),
+        ))
+    }
+
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "rebuild_dns_upstream_snapshot failed"
+        )))
     }
 }
 

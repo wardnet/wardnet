@@ -138,6 +138,11 @@ pub struct Services {
     pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
+    /// Tunnel repository — exposed so the DNS server can resolve
+    /// `UpstreamId::Tunnel(_)` entries from the routing snapshot into a
+    /// concrete (interface name, DNS upstream) pair without going through
+    /// the auth-gated tunnel service. See issue #342.
+    pub tunnel_repo: Arc<dyn wardnetd_data::repository::TunnelRepository>,
     /// Shared sink the DNS server writes to and the WS handler subscribes
     /// from. Live for the lifetime of the daemon.
     pub dns_log_sink: Arc<DnsLogSink>,
@@ -405,7 +410,7 @@ fn create_services(
 
     let routing_service = build_routing_service(
         device_repo,
-        tunnel_repo,
+        tunnel_repo.clone(),
         tunnel_service.clone(),
         backends.policy_router,
         backends.firewall,
@@ -448,6 +453,7 @@ fn create_services(
         jobs: job_service,
         dns_repo,
         dns_filter_repo,
+        tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
     }

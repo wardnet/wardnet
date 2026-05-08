@@ -129,6 +129,22 @@ export interface TunnelTestResponse {
   result: TunnelTestResult;
 }
 
+/** Request body for PUT /api/tunnels/:id/dns-override. */
+export interface UpdateTunnelDnsOverrideRequest {
+  /**
+   * `true` routes tunneled-device DNS through wardnet (so the ad-blocking
+   * filter still runs) using the tunnel's DNS server as upstream with
+   * `SO_BINDTODEVICE`. `false` falls back to the system-wide upstream
+   * pool. See issue #342.
+   */
+  override_default_dns: boolean;
+}
+
+/** Response for PUT /api/tunnels/:id/dns-override. */
+export interface UpdateTunnelDnsOverrideResponse {
+  tunnel: Tunnel;
+}
+
 /** Response for GET /api/providers. */
 export interface ListProvidersResponse {
   providers: ProviderInfo[];

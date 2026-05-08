@@ -51,8 +51,7 @@ async fn noop_firewall_manager_all_methods_ok() {
     f.flush_wardnet_table().await.unwrap();
     f.add_masquerade("wg_mock0").await.unwrap();
     f.remove_masquerade("wg_mock0").await.unwrap();
-    f.add_dns_redirect("10.0.0.2", "1.1.1.1").await.unwrap();
-    f.remove_dns_redirect("10.0.0.2").await.unwrap();
+    f.cleanup_legacy_dns_redirects().await.unwrap();
     f.add_tcp_reset_reject("10.0.0.2").await.unwrap();
     f.remove_tcp_reset_reject("10.0.0.2").await.unwrap();
     f.check_tools_available().await.unwrap();

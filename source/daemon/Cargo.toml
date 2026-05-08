@@ -142,6 +142,10 @@ cron = "0.16"
 hickory-proto = "0.26"
 # https://crates.io/crates/hickory-resolver
 hickory-resolver = "0.26"
+# https://crates.io/crates/socket2 — raw socket2 wrapper used to set
+# SO_BINDTODEVICE on per-tunnel DNS upstream sockets so tunneled-device
+# queries egress via the tunnel interface instead of leaking to the ISP.
+socket2 = { version = "0.6", features = ["all"] }
 
 # https://crates.io/crates/rtnetlink
 rtnetlink = "0.21"

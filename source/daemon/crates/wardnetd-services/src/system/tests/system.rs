@@ -115,6 +115,9 @@ impl TunnelRepository for MockTunnelRepo {
     async fn update_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_dns_override(&self, _id: &str, _value: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn update_stats(
         &self,
         _id: &str,

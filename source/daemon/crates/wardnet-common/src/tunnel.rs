@@ -37,6 +37,12 @@ pub struct Tunnel {
     pub bytes_tx: u64,
     pub bytes_rx: u64,
     pub created_at: DateTime<Utc>,
+    /// When `true`, devices routed through this tunnel resolve DNS via
+    /// wardnet's DNS server (so the ad-blocking filter still runs) and
+    /// wardnet forwards those queries to the tunnel's DNS server with
+    /// `SO_BINDTODEVICE`. When `false`, the per-tunnel DNS server (if
+    /// any) is ignored and the system-wide upstream pool is used.
+    pub override_default_dns: bool,
 }
 
 use crate::wireguard_config::WgPeerConfig;
@@ -48,4 +54,6 @@ pub struct TunnelConfig {
     pub dns: Vec<String>,
     pub listen_port: Option<u16>,
     pub peer: WgPeerConfig,
+    /// See [`Tunnel::override_default_dns`].
+    pub override_default_dns: bool,
 }

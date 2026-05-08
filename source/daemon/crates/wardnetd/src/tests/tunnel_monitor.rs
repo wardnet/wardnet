@@ -79,6 +79,13 @@ impl TunnelService for MockTunnelService {
     ) -> Result<wardnet_common::api::TunnelDevicesResponse, AppError> {
         unimplemented!()
     }
+    async fn set_dns_override(
+        &self,
+        _id: Uuid,
+        _value: bool,
+    ) -> Result<wardnet_common::tunnel::Tunnel, AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }

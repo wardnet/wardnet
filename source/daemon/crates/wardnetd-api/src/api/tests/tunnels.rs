@@ -119,6 +119,7 @@ impl TunnelService for MockTunnelService {
             bytes_tx: 0,
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
+            override_default_dns: false,
         };
         Ok(CreateTunnelResponse {
             tunnel,
@@ -159,6 +160,13 @@ impl TunnelService for MockTunnelService {
         Ok(wardnet_common::api::TunnelDevicesResponse {
             devices: Vec::new(),
         })
+    }
+
+    async fn set_dns_override(&self, id: Uuid, value: bool) -> Result<Tunnel, AppError> {
+        let tunnel = self.get_tunnel(id).await?;
+        let mut updated = tunnel;
+        updated.override_default_dns = value;
+        Ok(updated)
     }
 
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
@@ -234,6 +242,7 @@ fn sample_tunnel() -> Tunnel {
         bytes_tx: 0,
         bytes_rx: 0,
         created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
+        override_default_dns: false,
     }
 }
 
@@ -284,6 +293,10 @@ fn tunnel_router(state: AppState) -> Router {
         .route(
             "/api/tunnels/{id}/test",
             axum::routing::post(crate::api::tunnels::test_tunnel),
+        )
+        .route(
+            "/api/tunnels/{id}/dns-override",
+            axum::routing::put(crate::api::tunnels::update_tunnel_dns_override),
         )
         .with_state(state)
 }

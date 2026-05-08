@@ -8,12 +8,18 @@
 //! there does a synchronous start→stop→start cycle that this race
 //! breaks without the fix.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
+use async_trait::async_trait;
 use hickory_proto::rr::RecordType;
-use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns};
+use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns, UpstreamId};
+use wardnet_common::tunnel::{Tunnel, TunnelConfig};
+use wardnetd_data::repository::TunnelRepository;
+use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_services::dns::server::DnsServer;
 
 use crate::dns::server::{UdpDnsServer, duration_to_ms, upstream_label};
@@ -27,14 +33,79 @@ fn stub_filter() -> Arc<dyn wardnetd_services::DnsFilterService> {
     Arc::new(StubDnsFilterService)
 }
 
+fn empty_routing_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
+    Arc::new(ArcSwap::from_pointee(HashMap::new()))
+}
+
+fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
+    struct Stub;
+    #[async_trait]
+    impl TunnelRepository for Stub {
+        async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
+            Ok(vec![])
+        }
+        async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Tunnel>> {
+            Ok(None)
+        }
+        async fn find_config_by_id(&self, _id: &str) -> anyhow::Result<Option<TunnelConfig>> {
+            Ok(None)
+        }
+        async fn insert(&self, _row: &TunnelRow) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_dns_override(&self, _id: &str, _value: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_stats(
+            &self,
+            _id: &str,
+            _bytes_tx: i64,
+            _bytes_rx: i64,
+            _last_handshake: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn next_interface_index(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+        async fn count(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+        async fn count_active(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+    }
+    Arc::new(Stub)
+}
+
+/// Build a DNS server with empty routing snapshot + stub tunnel repo —
+/// the lifecycle/cache tests in this file don't exercise per-tunnel
+/// forwarding, so the snapshot stays empty and `find_by_id` is never
+/// called. The dedicated upstream-selection tests live in their own
+/// module and inject a populated snapshot directly.
+fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
+    UdpDnsServer::with_bind_addr(
+        config,
+        bind_addr,
+        stub_filter(),
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn start_sets_running_flag() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -44,8 +115,7 @@ async fn start_sets_running_flag() {
 
 #[tokio::test]
 async fn stop_clears_running_flag() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -61,8 +131,7 @@ async fn stop_clears_running_flag() {
 
 #[tokio::test]
 async fn second_start_is_a_noop() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     // Second start is documented as a no-op (warns + returns Ok).
@@ -74,8 +143,7 @@ async fn second_start_is_a_noop() {
 
 #[tokio::test]
 async fn stop_when_not_running_is_a_noop() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.stop().await.unwrap();
     assert!(!server.is_running());
@@ -87,8 +155,7 @@ async fn restart_after_stop_works() {
     // is reused without recreation, the second `tracker.spawn(...)` after
     // a `tracker.close()` would panic. Toggling the server quickly off
     // and on (the dns-config e2e path) needs this to be safe.
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     server.stop().await.unwrap();
@@ -101,8 +168,7 @@ async fn restart_after_stop_works() {
 
 #[tokio::test]
 async fn stop_is_idempotent_after_drain() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     server.stop().await.unwrap();
@@ -118,8 +184,7 @@ async fn stop_drains_the_per_query_spawn() {
     // exits — cache miss → filter pass → upstream forward error in the
     // sandboxed test env). Without sending traffic, the per-query path is
     // never executed and the drain is a vacuous no-op.
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     let bound = server
@@ -174,11 +239,7 @@ async fn concurrent_start_calls_dont_race_to_bind() {
     drop(probe);
     let bind = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let server = Arc::new(UdpDnsServer::with_bind_addr(
-        DnsConfig::default(),
-        bind,
-        stub_filter(),
-    ));
+    let server = Arc::new(build_test_server(DnsConfig::default(), bind));
 
     let s1 = Arc::clone(&server);
     let s2 = Arc::clone(&server);
@@ -192,8 +253,7 @@ async fn concurrent_start_calls_dont_race_to_bind() {
 
 #[tokio::test]
 async fn flush_cache_returns_zero_on_empty() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
     server.start().await.unwrap();
 
     let flushed = server.flush_cache().await;
@@ -204,8 +264,7 @@ async fn flush_cache_returns_zero_on_empty() {
 
 #[tokio::test]
 async fn update_config_works_before_and_after_start() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     // Pre-start: should not panic.
     server
@@ -232,13 +291,12 @@ async fn update_config_works_before_and_after_start() {
 async fn empty_upstream_servers_falls_back_to_cloudflare() {
     // build_resolver inside the server treats `upstream_servers = []` as
     // "use Cloudflare" — exercising the start path under that fallback.
-    let server = UdpDnsServer::with_bind_addr(
+    let server = build_test_server(
         DnsConfig {
             upstream_servers: vec![],
             ..DnsConfig::default()
         },
         loopback_ephemeral(),
-        stub_filter(),
     );
 
     server.start().await.unwrap();

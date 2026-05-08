@@ -23,4 +23,12 @@ export interface Tunnel {
   bytes_tx: number;
   bytes_rx: number;
   created_at: string;
+  /**
+   * When true, devices routed through this tunnel resolve DNS via wardnet's
+   * DNS server (so the ad-blocking filter still runs) and wardnet forwards
+   * those queries to the tunnel's DNS server with `SO_BINDTODEVICE`. When
+   * false, the per-tunnel DNS server (if any) is ignored and the
+   * system-wide upstream pool is used. See issue #342.
+   */
+  override_default_dns: boolean;
 }

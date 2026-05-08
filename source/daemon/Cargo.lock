@@ -5300,6 +5300,7 @@ name = "wardnetd"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "axum",
  "chrono",
@@ -5323,6 +5324,7 @@ dependencies = [
  "rtnetlink",
  "serde",
  "serde_json",
+ "socket2",
  "sysinfo",
  "tempfile",
  "tokio",
@@ -5346,6 +5348,7 @@ name = "wardnetd-api"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "axum",
  "axum-extra",

@@ -8,7 +8,7 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
     TunnelDetailResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
-    TunnelTestResponse,
+    TunnelTestResponse, UpdateTunnelDnsOverrideRequest, UpdateTunnelDnsOverrideResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -24,6 +24,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(get_tunnel_metrics))
         .routes(routes!(list_tunnel_devices))
         .routes(routes!(test_tunnel))
+        .routes(routes!(update_tunnel_dns_override))
 }
 
 #[utoipa::path(
@@ -226,4 +227,39 @@ pub async fn test_tunnel(
 ) -> Result<Json<TunnelTestResponse>, AppError> {
     let result = state.tunnel_service().test_tunnel(id).await?;
     Ok(Json(TunnelTestResponse { result }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/tunnels/{id}/dns-override",
+    tag = "tunnels",
+    description = "Toggle the per-tunnel `override_default_dns` flag. When true, \
+                   tunneled-device DNS queries are filtered by wardnet's ad-blocking \
+                   pipeline and forwarded via a SO_BINDTODEVICE-bound socket on the \
+                   tunnel interface. When false, those queries fall back to the \
+                   system-wide upstream pool. Replaces the legacy nftables prerouting \
+                   DNAT bypass — see issue #342. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    request_body = UpdateTunnelDnsOverrideRequest,
+    responses(
+        (status = 200, description = "DNS override updated", body = UpdateTunnelDnsOverrideResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn update_tunnel_dns_override(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateTunnelDnsOverrideRequest>,
+) -> Result<Json<UpdateTunnelDnsOverrideResponse>, AppError> {
+    let tunnel = state
+        .tunnel_service()
+        .set_dns_override(id, body.override_default_dns)
+        .await?;
+    Ok(Json(UpdateTunnelDnsOverrideResponse { tunnel }))
 }

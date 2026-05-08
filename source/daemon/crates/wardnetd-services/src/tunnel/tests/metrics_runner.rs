@@ -62,6 +62,9 @@ impl TunnelService for CountingTunnelService {
     async fn list_tunnel_devices(&self, _id: Uuid) -> Result<TunnelDevicesResponse, AppError> {
         unimplemented!()
     }
+    async fn set_dns_override(&self, _id: Uuid, _value: bool) -> Result<Tunnel, AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -164,6 +167,9 @@ async fn runner_swallows_maintenance_errors() {
             unimplemented!()
         }
         async fn list_tunnel_devices(&self, _id: Uuid) -> Result<TunnelDevicesResponse, AppError> {
+            unimplemented!()
+        }
+        async fn set_dns_override(&self, _id: Uuid, _value: bool) -> Result<Tunnel, AppError> {
             unimplemented!()
         }
         async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
