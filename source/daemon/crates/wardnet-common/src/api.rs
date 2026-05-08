@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
@@ -94,6 +95,38 @@ pub struct SystemStatusResponse {
     pub cpu_usage_percent: f32,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
+    /// Classification of the previous daemon shutdown plus its
+    /// acknowledgement timestamp. The web UI uses this to surface a
+    /// persistent banner after an unclean shutdown until an admin
+    /// dismisses it.
+    pub last_shutdown: LastShutdownStatus,
+}
+
+/// How the previous daemon shutdown ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LastShutdownState {
+    /// No prior shutdown has been recorded — first-ever boot.
+    Unknown,
+    /// Daemon recorded a graceful shutdown marker before exit.
+    Graceful,
+    /// Daemon was interrupted (crash, power loss, SIGKILL); the
+    /// "running" marker survived into the next boot.
+    Unclean,
+}
+
+/// Classification of the previous daemon shutdown.
+///
+/// `at` is the timestamp the previous run last touched the database
+/// (graceful exit time, or last heartbeat for unclean events). It is
+/// `None` only for `unknown` (first-ever boot). `acknowledged_at` is
+/// set by `POST /api/system/shutdown/acknowledge`; the banner is
+/// considered dismissed iff `acknowledged_at >= at`.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct LastShutdownStatus {
+    pub state: LastShutdownState,
+    pub at: Option<DateTime<Utc>>,
+    pub acknowledged_at: Option<DateTime<Utc>>,
 }
 
 /// Response from the public info endpoint.

@@ -229,6 +229,15 @@ impl SystemService for StubSystemService {
     ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
     }
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

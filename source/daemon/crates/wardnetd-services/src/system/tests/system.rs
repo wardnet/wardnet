@@ -1,9 +1,12 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use wardnet_common::api::LastShutdownState;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -13,11 +16,10 @@ use crate::system::{
 };
 use crate::{SystemService, SystemServiceImpl};
 use std::net::Ipv4Addr;
-use std::sync::Mutex;
 use wardnet_common::api::DhcpSource;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig};
 use wardnetd_data::repository::tunnel::TunnelRow;
-use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
+use wardnetd_data::repository::{LastShutdownInfo, SystemConfigRepository, TunnelRepository};
 
 // -- Mock repositories ----------------------------------------------------
 
@@ -26,6 +28,31 @@ struct MockSystemConfigRepo {
     devices: i64,
     tunnels: i64,
     db_size: u64,
+    last_shutdown: Mutex<LastShutdownInfo>,
+    graceful_calls: AtomicUsize,
+    ack_calls: AtomicUsize,
+}
+
+impl MockSystemConfigRepo {
+    fn new(devices: i64, tunnels: i64, db_size: u64) -> Self {
+        Self {
+            devices,
+            tunnels,
+            db_size,
+            last_shutdown: Mutex::new(LastShutdownInfo {
+                state: LastShutdownState::Unknown,
+                at: None,
+                acknowledged_at: None,
+            }),
+            graceful_calls: AtomicUsize::new(0),
+            ack_calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn with_last_shutdown(self, info: LastShutdownInfo) -> Self {
+        *self.last_shutdown.lock().unwrap() = info;
+        self
+    }
 }
 
 #[async_trait]
@@ -44,6 +71,25 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     }
     async fn db_size_bytes(&self) -> anyhow::Result<u64> {
         Ok(self.db_size)
+    }
+    async fn detect_previous_shutdown(&self) -> anyhow::Result<LastShutdownInfo> {
+        Ok(self.last_shutdown.lock().unwrap().clone())
+    }
+    async fn record_graceful_shutdown(&self) -> anyhow::Result<()> {
+        self.graceful_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    async fn record_heartbeat(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn read_last_shutdown(&self) -> anyhow::Result<LastShutdownInfo> {
+        Ok(self.last_shutdown.lock().unwrap().clone())
+    }
+    async fn acknowledge_last_shutdown(&self) -> anyhow::Result<()> {
+        self.ack_calls.fetch_add(1, Ordering::SeqCst);
+        let mut info = self.last_shutdown.lock().unwrap();
+        info.acknowledged_at = Some(Utc::now());
+        Ok(())
     }
 }
 
@@ -144,17 +190,30 @@ fn build_service_with_power_ops(
     power_ops: Arc<dyn SystemPowerOps>,
 ) -> SystemServiceImpl {
     SystemServiceImpl::new(
-        Arc::new(MockSystemConfigRepo {
-            devices,
-            tunnels,
-            db_size,
-        }),
+        Arc::new(MockSystemConfigRepo::new(devices, tunnels, db_size)),
         Arc::new(MockTunnelRepo {
             active: active_tunnels,
         }),
         Instant::now(),
         tokio_util::sync::CancellationToken::new(),
         power_ops,
+        Arc::new(StaticNetworkInspector),
+        Arc::new(StaticNetworkProbe::default()),
+    )
+}
+
+fn build_service_with_repo(
+    repo: Arc<MockSystemConfigRepo>,
+    active_tunnels: i64,
+) -> SystemServiceImpl {
+    SystemServiceImpl::new(
+        repo,
+        Arc::new(MockTunnelRepo {
+            active: active_tunnels,
+        }),
+        Instant::now(),
+        tokio_util::sync::CancellationToken::new(),
+        Arc::new(RecordingPowerOps::default()),
         Arc::new(StaticNetworkInspector),
         Arc::new(StaticNetworkProbe::default()),
     )
@@ -690,5 +749,100 @@ async fn discover_gateway_mac_anonymous_forbidden() {
             target_ip: None,
         })
         .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- last_shutdown / record_graceful / acknowledge ------------------------
+
+#[tokio::test]
+async fn status_includes_last_shutdown_unknown() {
+    let svc = build_service(0, 0, 0, 0);
+    let resp = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
+    assert_eq!(resp.last_shutdown.state, LastShutdownState::Unknown);
+    assert!(resp.last_shutdown.at.is_none());
+    assert!(resp.last_shutdown.acknowledged_at.is_none());
+}
+
+#[tokio::test]
+async fn status_includes_last_shutdown_unclean() {
+    let at: DateTime<Utc> = Utc::now();
+    let repo = Arc::new(
+        MockSystemConfigRepo::new(0, 0, 0).with_last_shutdown(LastShutdownInfo {
+            state: LastShutdownState::Unclean,
+            at: Some(at),
+            acknowledged_at: None,
+        }),
+    );
+    let svc = build_service_with_repo(repo, 0);
+
+    let resp = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
+    assert_eq!(resp.last_shutdown.state, LastShutdownState::Unclean);
+    assert_eq!(resp.last_shutdown.at, Some(at));
+}
+
+#[tokio::test]
+async fn record_graceful_shutdown_calls_repo() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo.clone(), 0);
+
+    auth_context::with_context(admin_ctx(), svc.record_graceful_shutdown())
+        .await
+        .unwrap();
+    assert_eq!(repo.graceful_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn record_graceful_shutdown_anonymous_forbidden() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo.clone(), 0);
+
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.record_graceful_shutdown()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(repo.graceful_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn acknowledge_last_shutdown_calls_repo() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo.clone(), 0);
+
+    auth_context::with_context(admin_ctx(), svc.acknowledge_last_shutdown())
+        .await
+        .unwrap();
+    assert_eq!(repo.ack_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn acknowledge_last_shutdown_anonymous_forbidden() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo.clone(), 0);
+
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.acknowledge_last_shutdown()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    assert_eq!(repo.ack_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn record_heartbeat_admin_succeeds() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo, 0);
+
+    auth_context::with_context(admin_ctx(), svc.record_heartbeat())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn record_heartbeat_anonymous_forbidden() {
+    let repo = Arc::new(MockSystemConfigRepo::new(0, 0, 0));
+    let svc = build_service_with_repo(repo, 0);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.record_heartbeat()).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }

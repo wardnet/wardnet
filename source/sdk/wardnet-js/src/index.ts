@@ -48,6 +48,8 @@ export type { LoginRequest, LoginResponse } from "./types/auth.js";
 
 // Types — system
 export type {
+  LastShutdownState,
+  LastShutdownStatus,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
