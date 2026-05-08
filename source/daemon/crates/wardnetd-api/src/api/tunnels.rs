@@ -8,10 +8,11 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
     TunnelDetailResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
+    TunnelTestResponse,
 };
 
 use crate::api::middleware::AdminAuth;
-use crate::api::responses::{AuthErrors, BadRequest, NotFound};
+use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound, UpstreamUnavailable};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
@@ -22,6 +23,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(get_tunnel, delete_tunnel))
         .routes(routes!(get_tunnel_metrics))
         .routes(routes!(list_tunnel_devices))
+        .routes(routes!(test_tunnel))
 }
 
 #[utoipa::path(
@@ -193,4 +195,35 @@ pub async fn delete_tunnel(
 ) -> Result<Json<DeleteTunnelResponse>, AppError> {
     let response = state.tunnel_service().delete_tunnel(id).await?;
     Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/tunnels/{id}/test",
+    tag = "tunnels",
+    description = "Run an exit-IP / country probe through this tunnel. The daemon \
+                   brings the tunnel up if needed, waits for a fresh handshake, sends \
+                   one HTTP probe through the tunnel interface, and reports the exit \
+                   IP, ISO-3166 alpha-2 country code, and probe latency. Restores \
+                   the prior up/down state when finished. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 200, description = "Tunnel test result", body = TunnelTestResponse),
+        AuthErrors,
+        NotFound,
+        Conflict,
+        UpstreamUnavailable,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn test_tunnel(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TunnelTestResponse>, AppError> {
+    let result = state.tunnel_service().test_tunnel(id).await?;
+    Ok(Json(TunnelTestResponse { result }))
 }

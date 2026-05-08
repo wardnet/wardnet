@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
-    TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
+    TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse, TunnelTestResult,
 };
 use wardnet_common::tunnel::Tunnel;
 
@@ -47,6 +47,9 @@ impl TunnelService for CountingTunnelService {
         unimplemented!()
     }
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
+        unimplemented!()
+    }
+    async fn test_tunnel(&self, _id: Uuid) -> Result<TunnelTestResult, AppError> {
         unimplemented!()
     }
     async fn get_metrics(
@@ -148,6 +151,9 @@ async fn runner_swallows_maintenance_errors() {
             unimplemented!()
         }
         async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
+            unimplemented!()
+        }
+        async fn test_tunnel(&self, _id: Uuid) -> Result<TunnelTestResult, AppError> {
             unimplemented!()
         }
         async fn get_metrics(

@@ -267,6 +267,13 @@ impl TunnelService for MockTunnelService {
             .ok_or_else(|| AppError::NotFound("tunnel not found".to_owned()))
     }
 
+    async fn test_tunnel(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
+        unimplemented!("not used in routing tests")
+    }
+
     async fn get_metrics(
         &self,
         _id: Uuid,

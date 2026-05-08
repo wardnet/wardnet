@@ -11707,6 +11707,239 @@
         ]
       }
     },
+    "/api/tunnels/{id}/test": {
+      "post": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "Run an exit-IP / country probe through this tunnel. The daemon brings the tunnel up if needed, waits for a fresh handshake, sends one HTTP probe through the tunnel interface, and reports the exit IP, ISO-3166 alpha-2 country code, and probe latency. Restores the prior up/down state when finished. Admin only.",
+        "operationId": "test_tunnel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel test result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelTestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream service unavailable or unreachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/update/check": {
       "post": {
         "tags": [
@@ -15767,6 +16000,48 @@
           },
           "label": {
             "type": "string"
+          }
+        }
+      },
+      "TunnelTestResponse": {
+        "type": "object",
+        "description": "Response envelope for `POST /api/tunnels/{id}/test`.",
+        "required": [
+          "result"
+        ],
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/TunnelTestResult"
+          }
+        }
+      },
+      "TunnelTestResult": {
+        "type": "object",
+        "description": "Result payload of `POST /api/tunnels/{id}/test`.\n\nThe daemon brings the tunnel up if needed, sends a single HTTP probe\nthrough the tunnel interface, and reports the exit IP, ISO-3166 alpha-2\ncountry code, and round-trip latency in milliseconds.",
+        "required": [
+          "tunnel_id",
+          "exit_ip",
+          "country_code",
+          "latency_ms"
+        ],
+        "properties": {
+          "country_code": {
+            "type": "string",
+            "description": "ISO-3166 alpha-2 country code reported by the probe service."
+          },
+          "exit_ip": {
+            "type": "string",
+            "description": "Public IP observed at the tunnel exit."
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Round-trip latency of the probe call, in milliseconds.",
+            "minimum": 0
+          },
+          "tunnel_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

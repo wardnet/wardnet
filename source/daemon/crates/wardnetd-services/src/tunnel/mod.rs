@@ -1,8 +1,10 @@
+pub mod exit_probe;
 pub mod interface;
 pub mod key_store;
 pub mod metrics_runner;
 pub mod service;
 
+pub use exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 pub use interface::{CreateTunnelParams, TunnelConfig, TunnelInterface, TunnelStats};
 pub use key_store::{KeyStore, KeyStoreAdapter};
 pub use metrics_runner::{DEFAULT_ROLLUP_INTERVAL, TunnelMetricsRunner};

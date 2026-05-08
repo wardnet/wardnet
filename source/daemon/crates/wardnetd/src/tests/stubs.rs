@@ -17,7 +17,7 @@ use wardnet_common::api::{
     ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
     ListTunnelsResponse, SetMyRuleResponse, SetupProviderRequest, SetupProviderResponse,
     SystemStatusResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
-    ValidateCredentialsRequest, ValidateCredentialsResponse,
+    TunnelTestResult, ValidateCredentialsRequest, ValidateCredentialsResponse,
 };
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::event::WardnetEvent;
@@ -297,6 +297,9 @@ impl TunnelService for StubTunnelService {
         Ok(ListTunnelsResponse { tunnels: vec![] })
     }
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
+        unimplemented!()
+    }
+    async fn test_tunnel(&self, _id: Uuid) -> Result<TunnelTestResult, AppError> {
         unimplemented!()
     }
     async fn get_metrics(

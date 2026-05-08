@@ -115,6 +115,8 @@ export type {
   TunnelMetricsRange,
   TunnelMetricsPoint,
   TunnelMetricsResponse,
+  TunnelTestResult,
+  TunnelTestResponse,
   ListProvidersResponse,
   ValidateCredentialsRequest,
   ValidateCredentialsResponse,

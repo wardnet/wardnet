@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListServersRequest,
-    ListTunnelsResponse, SetupProviderRequest, ValidateCredentialsRequest,
+    ListTunnelsResponse, SetupProviderRequest, TunnelTestResult, ValidateCredentialsRequest,
 };
 use wardnet_common::tunnel::{Tunnel, TunnelStatus};
 use wardnet_common::vpn_provider::{
@@ -187,6 +187,10 @@ impl TunnelService for MockTunnelService {
     }
 
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
+        Err(AppError::NotFound("not implemented in mock".to_owned()))
+    }
+
+    async fn test_tunnel(&self, _id: Uuid) -> Result<TunnelTestResult, AppError> {
         Err(AppError::NotFound("not implemented in mock".to_owned()))
     }
 

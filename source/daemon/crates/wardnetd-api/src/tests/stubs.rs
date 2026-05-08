@@ -577,6 +577,12 @@ impl TunnelService for StubTunnelService {
     async fn get_tunnel(&self, _id: Uuid) -> Result<Tunnel, AppError> {
         unimplemented!()
     }
+    async fn test_tunnel(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
+        unimplemented!()
+    }
     async fn get_metrics(
         &self,
         _id: Uuid,

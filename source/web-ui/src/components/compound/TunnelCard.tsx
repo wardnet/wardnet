@@ -1,11 +1,13 @@
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Button } from "@/components/core/ui/button";
 import { StatusBadge } from "./StatusBadge";
 import { formatBytes, timeAgo } from "@/lib/utils";
 import { countryFlag } from "@/lib/country";
-import type { Tunnel, TunnelStatus, ProviderInfo } from "@wardnet/js";
+import { useTestTunnel } from "@/hooks/useTunnels";
+import type { Tunnel, TunnelStatus, ProviderInfo, TunnelTestResult } from "@wardnet/js";
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
   switch (status) {
@@ -75,6 +77,29 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
   const provider = providers.find((p) => p.id === tunnel.provider);
   const flag = tunnel.country_code ? countryFlag(tunnel.country_code) : "";
 
+  const testTunnel = useTestTunnel();
+  const [testResult, setTestResult] = useState<TunnelTestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testedAt, setTestedAt] = useState<string | null>(null);
+
+  const onTestClick = (e: React.MouseEvent) => {
+    // Card is wrapped in <Link>; don't navigate when clicking Test.
+    e.preventDefault();
+    e.stopPropagation();
+    testTunnel.mutate(tunnel.id, {
+      onSuccess: (data) => {
+        setTestResult(data.result);
+        setTestError(null);
+        setTestedAt(new Date().toISOString());
+      },
+      onError: (err) => {
+        setTestResult(null);
+        setTestError(err instanceof Error ? err.message : "Tunnel test failed");
+        setTestedAt(new Date().toISOString());
+      },
+    });
+  };
+
   return (
     <Card className="transition-colors hover:bg-accent/30">
       <Link
@@ -133,7 +158,35 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         </CardContent>
       </Link>
       <CardContent className="pt-0">
-        <div className="flex justify-end">
+        {testResult && (
+          <div className="mb-3 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span aria-hidden>{countryFlag(testResult.country_code)}</span>
+              <span className="font-medium">{testResult.country_code.toUpperCase()}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-mono">{testResult.exit_ip}</span>
+              <span className="text-muted-foreground">·</span>
+              <span>{testResult.latency_ms} ms</span>
+            </div>
+            {testedAt && <p className="mt-0.5 text-muted-foreground">tested {timeAgo(testedAt)}</p>}
+          </div>
+        )}
+        {testError && !testResult && (
+          <div className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {testError}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={testTunnel.isPending} onClick={onTestClick}>
+            {testTunnel.isPending ? (
+              <>
+                <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
+                Testing
+              </>
+            ) : (
+              "Test"
+            )}
+          </Button>
           <Button
             variant="destructive"
             onClick={(e) => {

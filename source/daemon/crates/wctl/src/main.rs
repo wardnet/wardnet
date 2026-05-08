@@ -120,6 +120,11 @@ enum TunnelsCommand {
         /// Tunnel ID
         id: String,
     },
+    /// Probe a tunnel for its exit IP, country, and latency.
+    Test {
+        /// Tunnel ID
+        id: String,
+    },
 }
 
 fn main() {
@@ -148,6 +153,9 @@ fn main() {
             }
             TunnelsCommand::Remove { id } => {
                 println!("tunnels remove {id}: not yet implemented");
+            }
+            TunnelsCommand::Test { id } => {
+                println!("tunnels test {id}: not yet implemented");
             }
         },
         Commands::Update(cmd) => match cmd {

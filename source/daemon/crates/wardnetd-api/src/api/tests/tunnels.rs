@@ -13,6 +13,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
+    TunnelTestResult,
 };
 use wardnet_common::tunnel::{Tunnel, TunnelStatus};
 
@@ -72,15 +73,31 @@ impl AuthService for MockAuthService {
 /// Mock `TunnelService` with configurable tunnel list.
 struct MockTunnelService {
     tunnels: Vec<Tunnel>,
+    /// Optional one-shot override for `test_tunnel`. Used by the API tests
+    /// to drive the 200 / 404 / 409 / 502 path mappings deterministically.
+    /// The response is taken on the first call; later calls fall back to
+    /// the default behaviour (404).
+    test_response: std::sync::Mutex<Option<Result<TunnelTestResult, AppError>>>,
 }
 
 impl MockTunnelService {
     fn with_tunnels(tunnels: Vec<Tunnel>) -> Self {
-        Self { tunnels }
+        Self {
+            tunnels,
+            test_response: std::sync::Mutex::new(None),
+        }
     }
 
     fn empty() -> Self {
-        Self { tunnels: vec![] }
+        Self {
+            tunnels: vec![],
+            test_response: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn with_test_response(self, response: Result<TunnelTestResult, AppError>) -> Self {
+        *self.test_response.lock().unwrap() = Some(response);
+        self
     }
 }
 
@@ -158,6 +175,21 @@ impl TunnelService for MockTunnelService {
 
     async fn tear_down_internal(&self, _id: Uuid, _reason: &str) -> Result<(), AppError> {
         Ok(())
+    }
+
+    async fn test_tunnel(&self, id: Uuid) -> Result<TunnelTestResult, AppError> {
+        if let Some(response) = self.test_response.lock().unwrap().take() {
+            return response;
+        }
+        if !self.tunnels.iter().any(|t| t.id == id) {
+            return Err(AppError::NotFound(format!("tunnel {id} not found")));
+        }
+        Ok(TunnelTestResult {
+            tunnel_id: id,
+            exit_ip: "203.0.113.7".to_owned(),
+            country_code: "DE".to_owned(),
+            latency_ms: 42,
+        })
     }
 
     async fn delete_tunnel(&self, id: Uuid) -> Result<DeleteTunnelResponse, AppError> {
@@ -248,6 +280,10 @@ fn tunnel_router(state: AppState) -> Router {
         .route(
             "/api/tunnels/{id}/devices",
             get(crate::api::tunnels::list_tunnel_devices),
+        )
+        .route(
+            "/api/tunnels/{id}/test",
+            axum::routing::post(crate::api::tunnels::test_tunnel),
         )
         .with_state(state)
 }
@@ -674,6 +710,118 @@ async fn list_tunnel_devices_unauthorized_without_session() {
         .oneshot(
             Request::builder()
                 .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/devices")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/tunnels/:id/test
+// ---------------------------------------------------------------------------
+
+/// Send an authenticated empty-body POST request.
+async fn post_empty(app: Router, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Cookie", "wardnet_session=valid-token")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+#[tokio::test]
+async fn test_tunnel_returns_result() {
+    let tunnel = sample_tunnel();
+    let state = build_state(MockTunnelService::with_tunnels(vec![tunnel]));
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/test",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        json["result"]["tunnel_id"],
+        "00000000-0000-0000-0000-000000000010"
+    );
+    assert_eq!(json["result"]["exit_ip"], "203.0.113.7");
+    assert_eq!(json["result"]["country_code"], "DE");
+    assert_eq!(json["result"]["latency_ms"], 42);
+}
+
+#[tokio::test]
+async fn test_tunnel_not_found() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000099/test",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"], "not found");
+}
+
+#[tokio::test]
+async fn test_tunnel_conflict_when_in_flight() {
+    let state = build_state(MockTunnelService::empty().with_test_response(Err(
+        AppError::Conflict("test already in progress".to_owned()),
+    )));
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/test",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(json["error"], "conflict");
+}
+
+#[tokio::test]
+async fn test_tunnel_upstream_unavailable() {
+    let state = build_state(MockTunnelService::empty().with_test_response(Err(
+        AppError::UpstreamUnavailable("probe connect failed".to_owned()),
+    )));
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/test",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(json["error"], "upstream unavailable");
+}
+
+#[tokio::test]
+async fn test_tunnel_unauthorized_without_session() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/test")
                 .extension(connect_info())
                 .body(Body::empty())
                 .unwrap(),

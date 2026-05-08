@@ -62,3 +62,20 @@ export function useDeleteTunnel() {
     onError: () => toast.error("Failed to delete tunnel"),
   });
 }
+
+export function useTestTunnel() {
+  return useMutation({
+    mutationFn: (id: string) => tunnelService.test(id),
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Tunnel test failed";
+      // 409 surfaces as "conflict" / "test already in progress" — show a
+      // dedicated toast so a rapid double-click is obviously rate-limited
+      // rather than a generic failure.
+      if (/already|conflict/i.test(message)) {
+        toast.error("Test already in progress");
+      } else {
+        toast.error(message);
+      }
+    },
+  });
+}

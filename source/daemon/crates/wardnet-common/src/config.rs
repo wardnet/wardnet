@@ -288,6 +288,11 @@ pub struct TunnelConfig {
     /// `tunnel_metrics_intraday`. The 5-second poll loop decimates to
     /// this interval, accumulating the delta.
     pub metrics_sample_interval_secs: u64,
+    /// URL probed by the tunnel test endpoint to determine the exit IP and
+    /// country. The default is Cloudflare's `cdn-cgi/trace`, which returns a
+    /// `key=value` document including `ip=` and `loc=`. Overriding this
+    /// requires the same response shape.
+    pub test_probe_url: String,
 }
 
 impl Default for TunnelConfig {
@@ -297,6 +302,7 @@ impl Default for TunnelConfig {
             health_check_interval_secs: 10,
             stats_interval_secs: 5,
             metrics_sample_interval_secs: 300,
+            test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
         }
     }
 }

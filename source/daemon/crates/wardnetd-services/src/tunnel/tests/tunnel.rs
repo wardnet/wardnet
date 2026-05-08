@@ -16,6 +16,7 @@ use wardnet_common::routing::RoutingRule;
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::key_store::KeyStore;
 use crate::{TunnelService, TunnelServiceImpl};
@@ -410,6 +411,71 @@ impl TunnelInterface for MockTunnelInterface {
     }
 }
 
+// -- Mock TunnelExitProbe -------------------------------------------------
+
+enum ProbeBehavior {
+    Ok(ExitInfo),
+    Err(ProbeError),
+}
+
+struct MockTunnelExitProbe {
+    behavior: Mutex<ProbeBehavior>,
+    calls: Mutex<Vec<String>>,
+    delay_ms: std::sync::atomic::AtomicU64,
+}
+
+impl MockTunnelExitProbe {
+    fn new() -> Self {
+        Self {
+            behavior: Mutex::new(ProbeBehavior::Ok(ExitInfo {
+                ip: "198.51.100.7".to_owned(),
+                country_code: "SE".to_owned(),
+            })),
+            calls: Mutex::new(Vec::new()),
+            delay_ms: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    fn set_ok(&self, ip: &str, country_code: &str) {
+        *self.behavior.lock().unwrap() = ProbeBehavior::Ok(ExitInfo {
+            ip: ip.to_owned(),
+            country_code: country_code.to_owned(),
+        });
+    }
+
+    fn set_err(&self, err: ProbeError) {
+        *self.behavior.lock().unwrap() = ProbeBehavior::Err(err);
+    }
+
+    fn set_delay(&self, ms: u64) {
+        self.delay_ms.store(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn call_count(&self) -> usize {
+        self.calls.lock().unwrap().len()
+    }
+}
+
+#[async_trait]
+impl TunnelExitProbe for MockTunnelExitProbe {
+    async fn probe(&self, interface: &str) -> Result<ExitInfo, ProbeError> {
+        self.calls.lock().unwrap().push(interface.to_owned());
+        let delay_ms = self.delay_ms.load(std::sync::atomic::Ordering::SeqCst);
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        match &*self.behavior.lock().unwrap() {
+            ProbeBehavior::Ok(info) => Ok(info.clone()),
+            ProbeBehavior::Err(ProbeError::Connect(m)) => Err(ProbeError::Connect(m.clone())),
+            ProbeBehavior::Err(ProbeError::Parse(m)) => Err(ProbeError::Parse(m.clone())),
+            ProbeBehavior::Err(ProbeError::Timeout(ms)) => Err(ProbeError::Timeout(*ms)),
+            ProbeBehavior::Err(ProbeError::Unsupported(m)) => {
+                Err(ProbeError::Unsupported(m.clone()))
+            }
+        }
+    }
+}
+
 // -- Mock EventPublisher --------------------------------------------------
 
 /// Records published events for assertion.
@@ -594,6 +660,7 @@ struct TestHarness {
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
     metrics: Arc<MockMetricsRepo>,
+    exit_probe: Arc<MockTunnelExitProbe>,
 }
 
 fn build_harness() -> TestHarness {
@@ -604,12 +671,14 @@ fn build_harness() -> TestHarness {
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
+    let exit_probe = Arc::new(MockTunnelExitProbe::new());
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
+        exit_probe.clone(),
         keys.clone(),
         events.clone(),
         300,
@@ -622,6 +691,7 @@ fn build_harness() -> TestHarness {
         events,
         keys,
         metrics,
+        exit_probe,
     }
 }
 
@@ -632,12 +702,14 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let events = Arc::new(MockEventPublisher::new());
+    let exit_probe = Arc::new(MockTunnelExitProbe::new());
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         metrics_dyn,
         device_repo,
         tunnel_iface.clone(),
+        exit_probe.clone(),
         keys.clone(),
         events.clone(),
         300,
@@ -650,6 +722,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         events,
         keys,
         metrics,
+        exit_probe,
     }
 }
 
@@ -2006,4 +2079,229 @@ async fn run_metrics_maintenance_is_noop_with_empty_repo() {
     // relying on real data.
     let h = build_harness();
     h.svc.run_metrics_maintenance().await.unwrap();
+}
+
+// -- test_tunnel ----------------------------------------------------------
+
+/// Helper: import a tunnel and return its id.
+async fn imported_tunnel_id(h: &TestHarness) -> Uuid {
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    resp.tunnel.id
+}
+
+#[tokio::test]
+async fn test_tunnel_returns_result() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe.set_ok("203.0.113.7", "DE");
+    // `bring_up_internal` flips status to `connecting`; for the test we
+    // need `get_stats` to report a fresh handshake so the readiness gate
+    // clears immediately.
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id))
+        .await
+        .expect("test_tunnel should succeed");
+    assert_eq!(result.tunnel_id, id);
+    assert_eq!(result.exit_ip, "203.0.113.7");
+    assert_eq!(result.country_code, "DE");
+    assert_eq!(h.exit_probe.call_count(), 1);
+}
+
+#[tokio::test]
+async fn test_tunnel_tears_down_when_was_down() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id))
+        .await
+        .unwrap();
+
+    let torn_down = h.tunnel_iface.torn_down.lock().unwrap();
+    assert!(
+        !torn_down.is_empty(),
+        "expected tear_down call when starting from Down"
+    );
+}
+
+#[tokio::test]
+async fn test_tunnel_leaves_up_when_was_up() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    // Pre-mark the tunnel `up` so test_tunnel skips bring_up + tear_down.
+    h.tunnels
+        .update_status(&id.to_string(), "up")
+        .await
+        .unwrap();
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id))
+        .await
+        .unwrap();
+
+    let torn_down = h.tunnel_iface.torn_down.lock().unwrap();
+    assert!(
+        torn_down.is_empty(),
+        "expected no tear_down when tunnel was already up"
+    );
+    let brought_up = h.tunnel_iface.brought_up.lock().unwrap();
+    assert!(
+        brought_up.is_empty(),
+        "expected no bring_up when tunnel was already up"
+    );
+}
+
+#[tokio::test]
+async fn test_tunnel_returns_conflict_when_test_in_flight() {
+    let h = Arc::new(build_harness());
+    let id = imported_tunnel_id(&h).await;
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+    // Hold the first probe open long enough to overlap with the second.
+    h.exit_probe.set_delay(300);
+
+    // Spawn one in-flight call; before it finishes, kick off a second.
+    let h1 = h.clone();
+    let first = tokio::spawn(async move {
+        auth_context::with_context(admin_ctx(), h1.svc.test_tunnel(id)).await
+    });
+
+    // Yield long enough that the first call is past `acquire_in_flight`.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let second = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(
+        matches!(second, Err(AppError::Conflict(_))),
+        "expected Conflict on second concurrent call, got {second:?}"
+    );
+
+    // Drain the first call so the test doesn't leak a task.
+    first.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn test_tunnel_handshake_timeout_returns_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    // Default `MockTunnelInterface::get_stats` returns `Ok(None)`, which
+    // never satisfies the freshness check — the readiness gate must time
+    // out within its budget.
+    let started = std::time::Instant::now();
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(result, Err(AppError::UpstreamUnavailable(_))),
+        "expected UpstreamUnavailable on handshake timeout, got {result:?}"
+    );
+    // The poll budget is 3.5 s; allow generous slack so a slow CI host
+    // doesn't fail the assertion while still catching a runaway sleep.
+    assert!(
+        elapsed < std::time::Duration::from_secs(6),
+        "handshake timeout should not take more than ~3.5 s, took {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_tunnel_anonymous_forbidden() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    let result = auth_context::with_context(AuthContext::Anonymous, h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_connect_error_maps_to_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe
+        .set_err(ProbeError::Connect("dns failed".to_owned()));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_timeout_maps_to_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe.set_err(ProbeError::Timeout(1500));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_parse_error_maps_to_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe
+        .set_err(ProbeError::Parse("missing ip= field".to_owned()));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_unsupported_maps_to_internal() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe
+        .set_err(ProbeError::Unsupported("not on linux".to_owned()));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_get_stats_error_maps_to_internal() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    // `set_stats_error` makes `get_stats` return `Err`, which the
+    // handshake-readiness loop must surface as `Internal` rather than
+    // looping forever or falling through as a timeout.
+    h.tunnel_iface.set_stats_error();
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(
+        matches!(result, Err(AppError::Internal(_))),
+        "expected Internal on stats Err, got {result:?}"
+    );
 }

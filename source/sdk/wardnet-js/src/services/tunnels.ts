@@ -8,6 +8,7 @@ import type {
   TunnelDevicesResponse,
   TunnelMetricsRange,
   TunnelMetricsResponse,
+  TunnelTestResponse,
 } from "../types/api.js";
 
 /** Tunnel management service for the Wardnet daemon. */
@@ -48,6 +49,17 @@ export class TunnelService {
   async delete(id: string): Promise<DeleteTunnelResponse> {
     return this.client.request<DeleteTunnelResponse>(`/tunnels/${id}`, {
       method: "DELETE",
+    });
+  }
+
+  /**
+   * Probe the tunnel for its exit IP, country, and latency (admin only).
+   * The daemon brings the tunnel up if needed, runs a single HTTP probe
+   * through the tunnel, then restores the prior up/down state.
+   */
+  async test(id: string): Promise<TunnelTestResponse> {
+    return this.client.request<TunnelTestResponse>(`/tunnels/${id}/test`, {
+      method: "POST",
     });
   }
 }
