@@ -51,10 +51,14 @@ impl TunnelInterface for NoopTunnelInterface {
             interface = interface_name,
             "mock tunnel get_stats: interface={interface_name}",
         );
+        // Return `Some(now)` for `last_handshake` so the tunnel-test
+        // flow's handshake-readiness gate clears immediately under the
+        // mock daemon — there is no real kernel to confirm the
+        // handshake, so we simulate the success path.
         Ok(Some(TunnelStats {
             bytes_tx: 0,
             bytes_rx: 0,
-            last_handshake: None,
+            last_handshake: Some(chrono::Utc::now()),
         }))
     }
 

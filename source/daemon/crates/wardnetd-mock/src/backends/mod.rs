@@ -8,6 +8,7 @@
 //! Filenames are intentionally prefixed `noop_` to match the workspace
 //! coverage-ignore regex (see top-level `Makefile`).
 
+pub mod mock_exit_probe;
 pub mod noop_device;
 pub mod noop_dhcp;
 pub mod noop_dns;

@@ -31,6 +31,7 @@ use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::system::{PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps};
+use wardnetd::tunnel_exit_probe::ReqwestTunnelExitProbe;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_monitor::TunnelMonitor;
@@ -211,6 +212,9 @@ async fn run(
 
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
+        tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
+            config.tunnel.test_probe_url.clone(),
+        )),
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),

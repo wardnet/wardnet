@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,6 +9,7 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
     TunnelDevicesResponse, TunnelMetricsPoint, TunnelMetricsRange, TunnelMetricsResponse,
+    TunnelTestResult,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::{Tunnel, TunnelStatus};
@@ -17,6 +18,7 @@ use wardnet_common::wireguard_config;
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::tunnel::exit_probe::{ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{
     CreateTunnelParams, TunnelConfig as TiTunnelConfig, TunnelInterface,
 };
@@ -56,6 +58,18 @@ pub trait TunnelService: Send + Sync {
 
     /// Get a single tunnel by ID.
     async fn get_tunnel(&self, id: Uuid) -> Result<Tunnel, AppError>;
+
+    /// Run an exit-IP/country probe through the tunnel.
+    ///
+    /// Brings the tunnel up if it was `Down`, waits for a fresh
+    /// handshake, sends a single HTTP probe through the tunnel
+    /// interface, then restores the prior up/down state. Returns the
+    /// observed exit IP, ISO-3166 alpha-2 country code, and probe
+    /// latency.
+    ///
+    /// Returns `AppError::Conflict` if a test is already in flight for
+    /// the same tunnel id.
+    async fn test_tunnel(&self, id: Uuid) -> Result<TunnelTestResult, AppError>;
 
     /// Get throughput history for a tunnel over the requested range.
     ///
@@ -123,12 +137,18 @@ pub struct TunnelServiceImpl {
     metrics: Arc<dyn TunnelMetricsRepository>,
     devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     tunnel_interface: Arc<dyn TunnelInterface>,
+    exit_probe: Arc<dyn TunnelExitProbe>,
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
     /// In-memory tracking of the last counter snapshot and write
     /// time per tunnel. Used to decimate the 5-second poll into one
     /// `tunnel_metrics_intraday` row per `metrics_sample_interval_secs`.
     last_intraday_sample: Mutex<HashMap<Uuid, LastSample>>,
+    /// Tunnel ids with a `test_tunnel` call in progress. Each id is
+    /// inserted on entry and removed via the [`InFlightGuard`] RAII
+    /// guard. Concurrent calls for the same id return
+    /// `AppError::Conflict`.
+    tests_in_flight: Arc<std::sync::Mutex<HashSet<Uuid>>>,
     metrics_sample_interval_secs: u64,
 }
 
@@ -139,11 +159,13 @@ impl TunnelServiceImpl {
     /// built internally — callers outside this crate only need to hand
     /// in a secret store; the key-store facade never escapes the tunnel
     /// module.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
         metrics: Arc<dyn TunnelMetricsRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
+        exit_probe: Arc<dyn TunnelExitProbe>,
         secret_store: Arc<dyn SecretStore>,
         events: Arc<dyn EventPublisher>,
         metrics_sample_interval_secs: u64,
@@ -154,9 +176,11 @@ impl TunnelServiceImpl {
             metrics,
             devices,
             tunnel_interface,
+            exit_probe,
             keys,
             events,
             last_intraday_sample: Mutex::new(HashMap::new()),
+            tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
             metrics_sample_interval_secs,
         }
     }
@@ -167,11 +191,13 @@ impl TunnelServiceImpl {
     /// depend on the narrower interface — production code must go
     /// through [`Self::new`] with a [`SecretStore`].
     #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_key_store(
         tunnels: Arc<dyn TunnelRepository>,
         metrics: Arc<dyn TunnelMetricsRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
+        exit_probe: Arc<dyn TunnelExitProbe>,
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
         metrics_sample_interval_secs: u64,
@@ -181,9 +207,11 @@ impl TunnelServiceImpl {
             metrics,
             devices,
             tunnel_interface,
+            exit_probe,
             keys,
             events,
             last_intraday_sample: Mutex::new(HashMap::new()),
+            tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
             metrics_sample_interval_secs,
         }
     }
@@ -513,6 +541,102 @@ impl TunnelServiceImpl {
         );
     }
 
+    /// Try to claim the in-flight slot for this tunnel id. Returns
+    /// `None` and sets up `AppError::Conflict` for the caller when a
+    /// test is already in flight.
+    fn acquire_in_flight(&self, id: Uuid) -> Result<InFlightGuard, AppError> {
+        let mut guard = self
+            .tests_in_flight
+            .lock()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("tests_in_flight mutex poisoned")))?;
+        if !guard.insert(id) {
+            return Err(AppError::Conflict(format!(
+                "test already in progress for tunnel {id}"
+            )));
+        }
+        Ok(InFlightGuard {
+            set: self.tests_in_flight.clone(),
+            id,
+        })
+    }
+
+    /// Wait for a fresh handshake, then send a single exit probe.
+    ///
+    /// Returns the [`crate::tunnel::ExitInfo`] together with the
+    /// measured probe latency in milliseconds. Errors map to
+    /// [`AppError::UpstreamUnavailable`] for handshake/probe failures
+    /// (the user can retry) and [`AppError::Internal`] for unexpected
+    /// failures.
+    async fn run_test_probe(
+        &self,
+        interface_name: &str,
+    ) -> Result<(crate::tunnel::ExitInfo, u64), AppError> {
+        self.await_fresh_handshake(interface_name, std::time::Duration::from_millis(3500))
+            .await?;
+
+        let started = std::time::Instant::now();
+        let info = self
+            .exit_probe
+            .probe(interface_name)
+            .await
+            .map_err(|e| match e {
+                ProbeError::Timeout(ms) => {
+                    AppError::UpstreamUnavailable(format!("probe timed out after {ms} ms"))
+                }
+                ProbeError::Connect(msg) => {
+                    AppError::UpstreamUnavailable(format!("probe connect failed: {msg}"))
+                }
+                ProbeError::Parse(msg) => {
+                    AppError::UpstreamUnavailable(format!("probe parse failed: {msg}"))
+                }
+                ProbeError::Unsupported(msg) => {
+                    AppError::Internal(anyhow::anyhow!("probe unsupported: {msg}"))
+                }
+            })?;
+        let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Ok((info, latency_ms))
+    }
+
+    /// Block until the tunnel reports a recent handshake or `budget`
+    /// elapses. Polls `tunnel_interface.get_stats` every 100 ms and
+    /// considers a handshake "fresh" when its timestamp is within the
+    /// last 5 seconds — long enough to forgive small clock drift but
+    /// short enough that a stale value from a previous session won't
+    /// pass.
+    async fn await_fresh_handshake(
+        &self,
+        interface_name: &str,
+        budget: std::time::Duration,
+    ) -> Result<(), AppError> {
+        let deadline = tokio::time::Instant::now() + budget;
+        let freshness = chrono::Duration::seconds(5);
+        loop {
+            match self.tunnel_interface.get_stats(interface_name).await {
+                Ok(Some(stats)) => {
+                    if let Some(ts) = stats.last_handshake
+                        && (chrono::Utc::now() - ts) <= freshness
+                    {
+                        return Ok(());
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(AppError::Internal(anyhow::anyhow!(
+                        "failed to read tunnel stats while waiting for handshake: {e}"
+                    )));
+                }
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::UpstreamUnavailable(format!(
+                    "tunnel handshake did not complete within {} ms",
+                    budget.as_millis(),
+                )));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
     /// Core logic for tearing down a tunnel (no auth check).
     async fn tear_down_core(&self, id: Uuid, reason: &str) -> Result<(), AppError> {
         let tunnel = self.require_tunnel(id).await?;
@@ -547,6 +671,23 @@ impl TunnelServiceImpl {
         });
 
         Ok(())
+    }
+}
+
+/// RAII guard that releases the tunnel id from `tests_in_flight` when
+/// dropped. Constructed by [`TunnelServiceImpl::acquire_in_flight`]
+/// only when the slot was successfully claimed, so `Drop` can always
+/// remove unconditionally.
+struct InFlightGuard {
+    set: Arc<std::sync::Mutex<HashSet<Uuid>>>,
+    id: Uuid,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.set.lock() {
+            guard.remove(&self.id);
+        }
     }
 }
 
@@ -646,6 +787,50 @@ impl TunnelService for TunnelServiceImpl {
         auth_context::require_admin()?;
 
         self.require_tunnel(id).await
+    }
+
+    async fn test_tunnel(&self, id: Uuid) -> Result<TunnelTestResult, AppError> {
+        auth_context::require_admin()?;
+
+        // Claim the in-flight slot before any state changes so a
+        // double-click is rejected with 409 instead of starting a
+        // second concurrent bring-up.
+        let _guard = self.acquire_in_flight(id)?;
+
+        let tunnel = self.require_tunnel(id).await?;
+        let was_up_before = matches!(
+            tunnel.status,
+            TunnelStatus::Up | TunnelStatus::Connecting | TunnelStatus::Reconnecting,
+        );
+        let interface_name = tunnel.interface_name.clone();
+
+        // Bring the tunnel up if needed. `bring_up_core` is idempotent
+        // for the non-`Down` cases.
+        if !was_up_before {
+            self.bring_up_core(id).await?;
+        }
+
+        // Drive the probe to completion, capturing the result so we
+        // always tear down before returning when we brought the tunnel
+        // up ourselves.
+        let probe_outcome = self.run_test_probe(&interface_name).await;
+
+        if !was_up_before && let Err(e) = self.tear_down_core(id, "test completed").await {
+            tracing::warn!(
+                tunnel_id = %id,
+                error = %e,
+                "tunnel test: failed to tear down tunnel after probe; leaving best-effort"
+            );
+        }
+
+        let (exit_info, latency_ms) = probe_outcome?;
+
+        Ok(TunnelTestResult {
+            tunnel_id: id,
+            exit_ip: exit_info.ip,
+            country_code: exit_info.country_code,
+            latency_ms,
+        })
     }
 
     async fn list_tunnel_devices(&self, id: Uuid) -> Result<TunnelDevicesResponse, AppError> {

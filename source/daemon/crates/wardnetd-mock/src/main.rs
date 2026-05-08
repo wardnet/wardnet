@@ -20,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_api::state::AppState;
 use wardnetd_data::create_repository_factory;
+use wardnetd_mock::backends::mock_exit_probe::MockExitProbe;
 use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
@@ -219,6 +220,7 @@ async fn run(
 
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
+        tunnel_exit_probe: Arc::new(MockExitProbe::new(factory.tunnel())),
         policy_router: Arc::new(NoopPolicyRouter),
         firewall: Arc::new(NoopFirewallManager),
         packet_capture: Arc::new(NoopPacketCapture),

@@ -23,6 +23,7 @@ use crate::logging::{ErrorNotifierService, LogService, LogServiceImpl, LogStream
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
 use crate::system::SystemPowerOps;
+use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::{init_services, init_services_with_factory};
 use wardnet_common::config::AdminConfig;
@@ -51,6 +52,16 @@ impl TunnelInterface for StubTunnelInterface {
     }
     async fn list(&self) -> anyhow::Result<Vec<String>> {
         unimplemented!()
+    }
+}
+
+struct StubTunnelExitProbe;
+#[async_trait]
+impl TunnelExitProbe for StubTunnelExitProbe {
+    async fn probe(&self, _interface: &str) -> Result<ExitInfo, ProbeError> {
+        Err(ProbeError::Unsupported(
+            "stub probe in init test".to_owned(),
+        ))
     }
 }
 
@@ -183,6 +194,7 @@ impl SecretStore for StubSecretStore {
 fn stub_backends() -> Backends {
     Backends {
         tunnel_interface: Arc::new(StubTunnelInterface),
+        tunnel_exit_probe: Arc::new(StubTunnelExitProbe),
         policy_router: Arc::new(StubPolicyRouter),
         firewall: Arc::new(StubFirewall),
         packet_capture: Arc::new(StubPacketCapture),

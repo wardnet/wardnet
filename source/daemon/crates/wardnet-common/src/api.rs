@@ -222,6 +222,28 @@ pub struct TunnelDevicesResponse {
     pub devices: Vec<Device>,
 }
 
+/// Result payload of `POST /api/tunnels/{id}/test`.
+///
+/// The daemon brings the tunnel up if needed, sends a single HTTP probe
+/// through the tunnel interface, and reports the exit IP, ISO-3166 alpha-2
+/// country code, and round-trip latency in milliseconds.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelTestResult {
+    pub tunnel_id: Uuid,
+    /// Public IP observed at the tunnel exit.
+    pub exit_ip: String,
+    /// ISO-3166 alpha-2 country code reported by the probe service.
+    pub country_code: String,
+    /// Round-trip latency of the probe call, in milliseconds.
+    pub latency_ms: u64,
+}
+
+/// Response envelope for `POST /api/tunnels/{id}/test`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TunnelTestResponse {
+    pub result: TunnelTestResult,
+}
+
 /// A device enriched with its DHCP status for API responses.
 ///
 /// Uses `#[serde(flatten)]` so the JSON output includes all `Device` fields

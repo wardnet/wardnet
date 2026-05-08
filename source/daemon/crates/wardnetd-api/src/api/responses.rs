@@ -44,3 +44,24 @@ pub enum BadRequest {
     #[response(status = 400, description = "Malformed or invalid request body")]
     BadRequest(#[to_schema] ApiError),
 }
+
+/// 409 — use on endpoints that may collide with concurrent state.
+#[derive(IntoResponses)]
+#[allow(dead_code)]
+pub enum Conflict {
+    /// Another operation conflicts with this request.
+    #[response(status = 409, description = "Conflicting concurrent operation")]
+    Conflict(#[to_schema] ApiError),
+}
+
+/// 502 — use on endpoints that depend on an external service.
+#[derive(IntoResponses)]
+#[allow(dead_code)]
+pub enum UpstreamUnavailable {
+    /// Upstream service was unreachable or returned an unexpected response.
+    #[response(
+        status = 502,
+        description = "Upstream service unavailable or unreachable"
+    )]
+    UpstreamUnavailable(#[to_schema] ApiError),
+}

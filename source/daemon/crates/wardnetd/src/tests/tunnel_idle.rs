@@ -53,6 +53,13 @@ impl TunnelService for MockTunnelService {
         Err(AppError::NotFound("not found".to_owned()))
     }
 
+    async fn test_tunnel(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
+        unimplemented!("not needed for idle watcher tests")
+    }
+
     async fn get_metrics(
         &self,
         _id: Uuid,

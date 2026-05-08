@@ -113,6 +113,22 @@ export interface TunnelDevicesResponse {
   devices: Device[];
 }
 
+/** Result payload of POST /api/tunnels/:id/test. */
+export interface TunnelTestResult {
+  tunnel_id: string;
+  /** Public IP observed at the tunnel exit. */
+  exit_ip: string;
+  /** ISO-3166 alpha-2 country code reported by the probe service. */
+  country_code: string;
+  /** Round-trip latency of the probe call, in milliseconds. */
+  latency_ms: number;
+}
+
+/** Response envelope for POST /api/tunnels/:id/test. */
+export interface TunnelTestResponse {
+  result: TunnelTestResult;
+}
+
 /** Response for GET /api/providers. */
 export interface ListProvidersResponse {
   providers: ProviderInfo[];

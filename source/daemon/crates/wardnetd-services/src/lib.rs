@@ -69,6 +69,11 @@ pub use crate::vpn::VpnProviderService;
 /// the mock server passes no-op stubs.
 pub struct Backends {
     pub tunnel_interface: Arc<dyn tunnel::TunnelInterface>,
+    /// Sends a single HTTP probe through a tunnel interface to learn the
+    /// public IP and country at the tunnel exit. Wired to a real reqwest
+    /// implementation in production and to a deterministic mock in
+    /// `wardnetd-mock`.
+    pub tunnel_exit_probe: Arc<dyn tunnel::TunnelExitProbe>,
     pub policy_router: Arc<dyn routing::PolicyRouter>,
     pub firewall: Arc<dyn routing::FirewallManager>,
     pub packet_capture: Arc<dyn device::PacketCapture>,
@@ -327,6 +332,7 @@ fn create_services(
         tunnel_metrics_repo.clone(),
         device_repo.clone(),
         backends.tunnel_interface.clone(),
+        backends.tunnel_exit_probe.clone(),
         backends.secret_store.clone(),
         event_publisher.clone(),
         config.tunnel.metrics_sample_interval_secs,
