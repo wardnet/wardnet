@@ -201,8 +201,14 @@ impl LoggingConfig {
     pub fn to_filter_string(&self) -> String {
         use std::fmt::Write;
 
+        // `netlink_packet_route::link::buffer_tool` warns whenever the kernel
+        // returns more bytes for an attribute than the crate version knows
+        // about (e.g. `IFLA_INET6_STATS`: expecting 288, got 304). Newer
+        // kernels trip it constantly and it isn't actionable, so silence the
+        // module by default. A user-supplied `[logging.filters]` entry can
+        // still raise it again because it is appended after this directive.
         let mut directives = format!(
-            "warn,wardnetd={level},wardnet_common={level}",
+            "warn,wardnetd={level},wardnet_common={level},netlink_packet_route::link::buffer_tool=error",
             level = self.level,
         );
 
