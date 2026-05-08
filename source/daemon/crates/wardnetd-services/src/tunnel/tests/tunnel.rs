@@ -2242,3 +2242,66 @@ async fn test_tunnel_probe_connect_error_maps_to_upstream_unavailable() {
     let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
     assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
 }
+
+#[tokio::test]
+async fn test_tunnel_probe_timeout_maps_to_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe.set_err(ProbeError::Timeout(1500));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_parse_error_maps_to_upstream_unavailable() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe
+        .set_err(ProbeError::Parse("missing ip= field".to_owned()));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_probe_unsupported_maps_to_internal() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.exit_probe
+        .set_err(ProbeError::Unsupported("not on linux".to_owned()));
+    h.tunnel_iface.set_stats(TunnelStats {
+        bytes_tx: 0,
+        bytes_rx: 0,
+        last_handshake: Some(chrono::Utc::now()),
+    });
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn test_tunnel_get_stats_error_maps_to_internal() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    // `set_stats_error` makes `get_stats` return `Err`, which the
+    // handshake-readiness loop must surface as `Internal` rather than
+    // looping forever or falling through as a timeout.
+    h.tunnel_iface.set_stats_error();
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.test_tunnel(id)).await;
+    assert!(
+        matches!(result, Err(AppError::Internal(_))),
+        "expected Internal on stats Err, got {result:?}"
+    );
+}

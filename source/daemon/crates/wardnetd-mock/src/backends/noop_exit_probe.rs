@@ -14,11 +14,11 @@ use wardnetd_data::repository::TunnelRepository;
 use wardnetd_services::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 
 /// Synthetic-IP / country probe for the mock daemon.
-pub struct MockExitProbe {
+pub struct NoopExitProbe {
     tunnels: Arc<dyn TunnelRepository>,
 }
 
-impl MockExitProbe {
+impl NoopExitProbe {
     #[must_use]
     pub fn new(tunnels: Arc<dyn TunnelRepository>) -> Self {
         Self { tunnels }
@@ -26,7 +26,7 @@ impl MockExitProbe {
 }
 
 #[async_trait]
-impl TunnelExitProbe for MockExitProbe {
+impl TunnelExitProbe for NoopExitProbe {
     async fn probe(&self, interface: &str) -> Result<ExitInfo, ProbeError> {
         // 75 ms to mimic a real DC handshake + probe round trip without
         // making `make run-dev` feel sluggish.
