@@ -11,7 +11,9 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use tower::ServiceExt;
 use uuid::Uuid;
-use wardnet_common::api::{SetDefaultPolicyRequest, SystemStatusResponse};
+use wardnet_common::api::{
+    LastShutdownState, LastShutdownStatus, SetDefaultPolicyRequest, SystemStatusResponse,
+};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -125,6 +127,7 @@ impl SystemService for MockSystemService {
                 cpu_usage_percent: r.cpu_usage_percent,
                 memory_used_bytes: r.memory_used_bytes,
                 memory_total_bytes: r.memory_total_bytes,
+                last_shutdown: r.last_shutdown.clone(),
             }),
             Err(_) => Err(AppError::Internal(anyhow::anyhow!("mock error"))),
         }
@@ -151,6 +154,15 @@ impl SystemService for MockSystemService {
         &self,
     ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
+    }
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
     }
 }
 
@@ -332,7 +344,19 @@ fn system_app_full(state: AppState) -> Router {
             "/api/system/default-policy",
             get(crate::api::system::get_default_policy).put(crate::api::system::set_default_policy),
         )
+        .route(
+            "/api/system/shutdown/acknowledge",
+            axum::routing::post(crate::api::system::acknowledge_shutdown),
+        )
         .with_state(state)
+}
+
+fn default_last_shutdown() -> LastShutdownStatus {
+    LastShutdownStatus {
+        state: LastShutdownState::Unknown,
+        at: None,
+        acknowledged_at: None,
+    }
 }
 
 fn default_status() -> SystemStatusResponse {
@@ -347,6 +371,7 @@ fn default_status() -> SystemStatusResponse {
         cpu_usage_percent: 0.0,
         memory_used_bytes: 0,
         memory_total_bytes: 0,
+        last_shutdown: default_last_shutdown(),
     }
 }
 
@@ -375,6 +400,7 @@ async fn status_returns_200_with_correct_json() {
                 cpu_usage_percent: 25.5,
                 memory_used_bytes: 1_073_741_824,
                 memory_total_bytes: 4_294_967_296,
+                last_shutdown: default_last_shutdown(),
             }),
         },
     );
@@ -419,6 +445,7 @@ async fn status_requires_authentication() {
                 cpu_usage_percent: 0.0,
                 memory_used_bytes: 0,
                 memory_total_bytes: 0,
+                last_shutdown: default_last_shutdown(),
             }),
         },
     );
@@ -1019,6 +1046,15 @@ async fn restart_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
             unimplemented!()
         }
+        async fn record_heartbeat(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1123,6 +1159,15 @@ async fn reboot_surfaces_service_error_as_500() {
             &self,
         ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
             unimplemented!()
+        }
+        async fn record_heartbeat(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
         }
     }
 
@@ -1229,6 +1274,15 @@ async fn shutdown_surfaces_service_error_as_500() {
         ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
             unimplemented!()
         }
+        async fn record_heartbeat(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1245,6 +1299,167 @@ async fn shutdown_surfaces_service_error_as_500() {
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/system/shutdown/acknowledge
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn acknowledge_shutdown_returns_204_on_success() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown/acknowledge")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn acknowledge_shutdown_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown/acknowledge")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn acknowledge_shutdown_surfaces_service_error_as_500() {
+    struct FailingAckService;
+    #[async_trait]
+    impl SystemService for FailingAckService {
+        fn version(&self) -> &'static str {
+            "0.0.0"
+        }
+        fn uptime(&self) -> std::time::Duration {
+            std::time::Duration::ZERO
+        }
+        async fn status(&self) -> Result<SystemStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn request_restart(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_reboot(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn request_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
+        }
+        async fn record_heartbeat(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+            Err(AppError::Internal(anyhow::anyhow!("db locked")))
+        }
+    }
+
+    let admin_id = Uuid::new_v4();
+    let state = make_state(AlwaysAuthService { admin_id }, FailingAckService);
+    let app = system_app_full(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/system/shutdown/acknowledge")
+        .header("Authorization", "Bearer k")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn status_includes_last_shutdown_payload() {
+    use chrono::{TimeZone, Utc};
+
+    let at = Utc.with_ymd_and_hms(2026, 5, 7, 12, 0, 0).unwrap();
+    let admin_id = Uuid::new_v4();
+    let state = make_state(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(SystemStatusResponse {
+                version: "1.0.0".to_owned(),
+                release_version: "1.0.0".to_owned(),
+                uptime_seconds: 0,
+                device_count: 0,
+                tunnel_count: 0,
+                tunnel_active_count: 0,
+                db_size_bytes: 0,
+                cpu_usage_percent: 0.0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                last_shutdown: LastShutdownStatus {
+                    state: LastShutdownState::Unclean,
+                    at: Some(at),
+                    acknowledged_at: None,
+                },
+            }),
+        },
+    );
+
+    let app = system_app(state);
+    let req = Request::builder()
+        .uri("/api/system/status")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["last_shutdown"]["state"], "unclean");
+    assert!(json["last_shutdown"]["at"].is_string());
+    assert!(json["last_shutdown"]["acknowledged_at"].is_null());
 }
 
 #[tokio::test]
@@ -1264,6 +1479,7 @@ async fn status_authenticates_via_bearer_token() {
                 cpu_usage_percent: 0.0,
                 memory_used_bytes: 0,
                 memory_total_bytes: 0,
+                last_shutdown: default_last_shutdown(),
             }),
         },
     );
