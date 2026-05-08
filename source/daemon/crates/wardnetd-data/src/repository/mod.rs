@@ -30,7 +30,7 @@ pub use sqlite::{
     SqliteSystemConfigRepository, SqliteTunnelMetricsRepository, SqliteTunnelRepository,
     SqliteUpdateRepository,
 };
-pub use system_config::SystemConfigRepository;
+pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
 pub use tunnel_metrics::{DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository};
 pub use update::{UpdateHistoryRow, UpdateRepository};

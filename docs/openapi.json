@@ -10483,6 +10483,125 @@
         ]
       }
     },
+    "/api/system/shutdown/acknowledge": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Dismiss the dashboard's unclean-shutdown banner.",
+        "description": "Acknowledge the most recent unclean-shutdown event so the dashboard banner is dismissed. Idempotent — repeated calls just refresh the timestamp. The banner reappears automatically on the next unclean shutdown. Admin only.",
+        "operationId": "acknowledge_shutdown",
+        "responses": {
+          "204": {
+            "description": "Acknowledgement recorded"
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/system/status": {
       "get": {
         "tags": [
@@ -14367,6 +14486,41 @@
           "TERMINATED_WITH_ERRORS"
         ]
       },
+      "LastShutdownState": {
+        "type": "string",
+        "description": "How the previous daemon shutdown ended.",
+        "enum": [
+          "unknown",
+          "graceful",
+          "unclean"
+        ]
+      },
+      "LastShutdownStatus": {
+        "type": "object",
+        "description": "Classification of the previous daemon shutdown.\n\n`at` is the timestamp the previous run last touched the database\n(graceful exit time, or last heartbeat for unclean events). It is\n`None` only for `unknown` (first-ever boot). `acknowledged_at` is\nset by `POST /api/system/shutdown/acknowledge`; the banner is\nconsidered dismissed iff `acknowledged_at >= at`.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "acknowledged_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LastShutdownState"
+          }
+        }
+      },
       "ListAllowlistResponse": {
         "type": "object",
         "description": "Response for GET /api/dns/allowlist.",
@@ -15301,7 +15455,8 @@
           "db_size_bytes",
           "cpu_usage_percent",
           "memory_used_bytes",
-          "memory_total_bytes"
+          "memory_total_bytes",
+          "last_shutdown"
         ],
         "properties": {
           "cpu_usage_percent": {
@@ -15317,6 +15472,10 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "last_shutdown": {
+            "$ref": "#/components/schemas/LastShutdownStatus",
+            "description": "Classification of the previous daemon shutdown plus its\nacknowledgement timestamp. The web UI uses this to surface a\npersistent banner after an unclean shutdown until an admin\ndismisses it."
           },
           "memory_total_bytes": {
             "type": "integer",

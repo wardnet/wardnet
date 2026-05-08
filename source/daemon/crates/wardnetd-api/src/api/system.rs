@@ -31,6 +31,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(reboot))
         .routes(routes!(shutdown))
         .routes(routes!(get_default_policy, set_default_policy))
+        .routes(routes!(acknowledge_shutdown))
 }
 
 #[utoipa::path(
@@ -243,6 +244,39 @@ pub async fn set_default_policy(
     Ok(Json(SetDefaultPolicyResponse {
         policy: body.policy,
     }))
+}
+
+/// Dismiss the dashboard's unclean-shutdown banner.
+///
+/// Records `last_shutdown_acknowledged_at = NOW`. The banner predicate
+/// (`acknowledged_at >= last_shutdown.at`) hides the banner from the
+/// next status response. A future unclean event automatically restores
+/// the banner because the new event timestamp is newer than the stored
+/// ack — no explicit "reset on event" coupling.
+#[utoipa::path(
+    post,
+    path = "/api/system/shutdown/acknowledge",
+    tag = "system",
+    description = "Acknowledge the most recent unclean-shutdown event \
+                   so the dashboard banner is dismissed. Idempotent — \
+                   repeated calls just refresh the timestamp. The \
+                   banner reappears automatically on the next unclean \
+                   shutdown. Admin only.",
+    responses(
+        (status = 204, description = "Acknowledgement recorded"),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn acknowledge_shutdown(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<axum::http::StatusCode, AppError> {
+    state.system_service().acknowledge_last_shutdown().await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 /// API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that

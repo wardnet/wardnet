@@ -23,6 +23,7 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
+use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
@@ -284,6 +285,11 @@ async fn run(
     let route_monitor = RouteMonitor::start(services.event_publisher.clone(), &root_span)
         .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?;
 
+    // Heartbeat: refreshes `last_seen_at` in `system_config` every
+    // 60 seconds so an unclean shutdown's reported timestamp is
+    // accurate to within the heartbeat window.
+    let heartbeat_runner = HeartbeatRunner::start(services.system.clone(), &root_span);
+
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
@@ -505,6 +511,7 @@ async fn run(
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     tunnel_metrics_runner.shutdown().await;
+    heartbeat_runner.shutdown().await;
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }
@@ -513,6 +520,22 @@ async fn run(
     }
     if let Some(agent) = profiling_agent {
         agent.shutdown();
+    }
+
+    // Mark this shutdown as graceful so the next boot's
+    // `detect_previous_shutdown` classifies the run as `Graceful` and
+    // the dashboard does not surface an unclean-shutdown banner.
+    // Wrapped in `auth_context::with_context` because the call lives
+    // outside the HTTP middleware chain. Failure here is logged but
+    // never escalated — the worst-case is a benign false-positive
+    // banner on the next boot.
+    let admin_ctx = AuthContext::Admin {
+        admin_id: uuid::Uuid::nil(),
+    };
+    if let Err(e) =
+        auth_context::with_context(admin_ctx, services.system.record_graceful_shutdown()).await
+    {
+        tracing::warn!(error = %e, "failed to record graceful shutdown marker: {e}");
     }
 
     Ok(())

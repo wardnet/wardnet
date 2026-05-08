@@ -18,6 +18,7 @@ pub mod system;
 
 // Background tasks.
 pub mod device_detector;
+pub mod heartbeat;
 pub mod metrics_collector;
 pub mod profiling;
 pub mod route_monitor;

@@ -6,7 +6,7 @@ use sysinfo::System;
 use tokio_util::sync::CancellationToken;
 use wardnet_common::api::{
     DhcpSelfProbeResponse, DiscoverGatewayMacRequest, DiscoverGatewayMacResponse,
-    NetworkStatusResponse, RouterMacSource, SystemStatusResponse,
+    LastShutdownStatus, NetworkStatusResponse, RouterMacSource, SystemStatusResponse,
 };
 
 use crate::auth_context;
@@ -113,6 +113,27 @@ pub trait SystemService: Send + Sync {
     /// Ask the host to power off. Same shape as [`Self::request_reboot`]
     /// but invokes [`SystemPowerOps::poweroff`]. Admin-only.
     async fn request_shutdown(&self) -> Result<(), AppError>;
+
+    /// Update the heartbeat marker so a future unclean-shutdown
+    /// classification has a recent `last_seen_at` to surface.
+    ///
+    /// Called by the background `HeartbeatRunner` on a 60-second
+    /// cadence. Admin-only — the runner wraps the call in
+    /// `auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() })`.
+    async fn record_heartbeat(&self) -> Result<(), AppError>;
+
+    /// Record that the daemon is exiting gracefully so the next boot
+    /// classifies the prior run as `Graceful` (not `Unclean`).
+    ///
+    /// Called from `main.rs` after the runner-shutdown sequence
+    /// completes and before the process exits. Admin-only — invoked
+    /// from the shutdown path inside an `auth_context::with_context`
+    /// wrapper.
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError>;
+
+    /// Acknowledge the most recent unclean shutdown so the dashboard
+    /// banner is dismissed. Idempotent. Admin-only.
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`SystemService`] backed by [`SystemConfigRepository`].
@@ -196,6 +217,17 @@ impl SystemService for SystemServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        let last_shutdown_info = self
+            .system_config
+            .read_last_shutdown()
+            .await
+            .map_err(AppError::Internal)?;
+        let last_shutdown = LastShutdownStatus {
+            state: last_shutdown_info.state,
+            at: last_shutdown_info.at,
+            acknowledged_at: last_shutdown_info.acknowledged_at,
+        };
+
         // Refresh CPU and memory readings from the persistent sysinfo instance.
         let (cpu_usage_percent, memory_used_bytes, memory_total_bytes) = {
             let mut sys = self.sysinfo.lock().await;
@@ -225,6 +257,7 @@ impl SystemService for SystemServiceImpl {
             cpu_usage_percent,
             memory_used_bytes,
             memory_total_bytes,
+            last_shutdown,
         })
     }
 
@@ -419,6 +452,33 @@ impl SystemService for SystemServiceImpl {
                 tracing::error!(error = %e, "host poweroff invocation failed: error={e}");
             }
         });
+        Ok(())
+    }
+
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .record_heartbeat()
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(())
+    }
+
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .record_graceful_shutdown()
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(())
+    }
+
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .acknowledge_last_shutdown()
+            .await
+            .map_err(AppError::Internal)?;
         Ok(())
     }
 }

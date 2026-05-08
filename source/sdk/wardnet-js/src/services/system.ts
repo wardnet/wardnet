@@ -82,6 +82,21 @@ export class SystemService {
   }
 
   /**
+   * Acknowledge the most recent unclean-shutdown event so the
+   * dashboard banner is dismissed.
+   *
+   * Idempotent — repeated calls just refresh the timestamp. The
+   * banner reappears automatically on the next unclean shutdown
+   * because the new event timestamp is newer than the stored
+   * acknowledgement.
+   *
+   * Throws [`WardnetApiError`] on a non-2xx response.
+   */
+  async acknowledgeShutdown(): Promise<void> {
+    await this.postNoContent("/system/shutdown/acknowledge");
+  }
+
+  /**
    * Shared POST helper for endpoints that return `204 No Content`.
    *
    * Routes through `client.request<void>` so subclassed clients

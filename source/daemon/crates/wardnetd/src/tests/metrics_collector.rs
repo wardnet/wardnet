@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use wardnet_common::api::SystemStatusResponse;
+use wardnet_common::api::{LastShutdownState, LastShutdownStatus, SystemStatusResponse};
 
 use crate::metrics_collector::MetricsCollector;
 use wardnet_common::config::OtelMetricsConfig;
@@ -32,6 +32,11 @@ impl SystemService for MockSystemService {
             cpu_usage_percent: 10.0,
             memory_used_bytes: 500_000_000,
             memory_total_bytes: 1_000_000_000,
+            last_shutdown: LastShutdownStatus {
+                state: LastShutdownState::Unknown,
+                at: None,
+                acknowledged_at: None,
+            },
         })
     }
     async fn request_restart(&self) -> Result<(), AppError> {
@@ -56,6 +61,15 @@ impl SystemService for MockSystemService {
         &self,
     ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
+    }
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
     }
 }
 
@@ -103,6 +117,21 @@ impl SystemService for FailingSystemService {
         &self,
     ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
+    }
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
+    }
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
+    }
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "simulated service failure"
+        )))
     }
 }
 

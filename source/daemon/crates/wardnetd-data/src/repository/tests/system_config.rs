@@ -1,5 +1,6 @@
 use super::test_pool;
 use crate::repository::{SqliteSystemConfigRepository, SystemConfigRepository};
+use wardnet_common::api::LastShutdownState;
 
 #[tokio::test]
 async fn get_seeded_value() {
@@ -96,6 +97,198 @@ async fn set_setup_completed_updates_value() {
 
     repo.set_setup_completed(true).await.unwrap();
     assert!(repo.is_setup_completed().await.unwrap());
+}
+
+#[tokio::test]
+async fn detect_first_ever_boot_returns_unknown() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    let info = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(info.state, LastShutdownState::Unknown);
+    assert!(info.at.is_none());
+    assert!(info.acknowledged_at.is_none());
+
+    // After detection, read_last_shutdown surfaces the persisted
+    // classification of the prior run (still `Unknown`).
+    let read = repo.read_last_shutdown().await.unwrap();
+    assert_eq!(read.state, LastShutdownState::Unknown);
+    assert!(read.at.is_none());
+}
+
+#[tokio::test]
+async fn detect_after_graceful_returns_graceful() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // First boot — arms the running marker.
+    repo.detect_previous_shutdown().await.unwrap();
+    // Graceful exit recorded.
+    repo.record_graceful_shutdown().await.unwrap();
+
+    // Next boot — classifies the prior run.
+    let info = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(info.state, LastShutdownState::Graceful);
+    assert!(info.at.is_some());
+
+    let read = repo.read_last_shutdown().await.unwrap();
+    assert_eq!(read.state, LastShutdownState::Graceful);
+    assert_eq!(read.at, info.at);
+}
+
+#[tokio::test]
+async fn detect_after_running_marker_returns_unclean() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // First boot — arms running, never records graceful.
+    repo.detect_previous_shutdown().await.unwrap();
+    // Heartbeat fires while the daemon is alive.
+    repo.record_heartbeat().await.unwrap();
+
+    // Crash → next boot.
+    let info = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(info.state, LastShutdownState::Unclean);
+    // `at` resolves to the heartbeat timestamp.
+    assert!(info.at.is_some());
+
+    let read = repo.read_last_shutdown().await.unwrap();
+    assert_eq!(read.state, LastShutdownState::Unclean);
+    assert_eq!(read.at, info.at);
+}
+
+#[tokio::test]
+async fn detect_unclean_falls_back_to_last_shutdown_at_when_heartbeat_missing() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // First boot — arms running. No heartbeat fires.
+    repo.detect_previous_shutdown().await.unwrap();
+
+    // Crash → next boot.
+    let info = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(info.state, LastShutdownState::Unclean);
+    // No heartbeat ever ran, so `at` falls back to the previous
+    // run's `last_shutdown_at` (the boot time of the prior run).
+    assert!(info.at.is_some());
+}
+
+#[tokio::test]
+async fn detect_unclean_ignores_heartbeat_older_than_last_boot() {
+    // Regression: a stale `last_seen_at` written by an *earlier* run
+    // (before that run's graceful exit + a subsequent boot that
+    // crashed before its first heartbeat) must not be returned as the
+    // unclean event timestamp. The boot marker (`last_shutdown_at`)
+    // is newer and is the correct fallback.
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // Boot 1 → heartbeat fires → graceful exit.
+    repo.detect_previous_shutdown().await.unwrap();
+    repo.record_heartbeat().await.unwrap();
+    repo.record_graceful_shutdown().await.unwrap();
+
+    // Sleep so the next boot's `last_shutdown_at` is strictly newer
+    // than Boot 1's heartbeat.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Boot 2 → arms running. Crashes before its own heartbeat fires;
+    // the stale `last_seen_at` is still Boot 1's value.
+    let boot2 = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(boot2.state, LastShutdownState::Graceful);
+    let boot2_at = boot2.at.expect("graceful at recorded");
+
+    // Boot 3 → must classify Boot 2's crash with `at >= boot2_at`,
+    // i.e. the boot marker, not the stale heartbeat from Boot 1.
+    let boot3 = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(boot3.state, LastShutdownState::Unclean);
+    let boot3_at = boot3.at.expect("unclean at recorded");
+    assert!(
+        boot3_at >= boot2_at,
+        "unclean `at` ({boot3_at}) must not predate Boot 2's start ({boot2_at})",
+    );
+}
+
+#[tokio::test]
+async fn acknowledge_records_timestamp() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    repo.detect_previous_shutdown().await.unwrap();
+    repo.record_heartbeat().await.unwrap();
+    repo.detect_previous_shutdown().await.unwrap();
+
+    let before = repo.read_last_shutdown().await.unwrap();
+    assert!(before.acknowledged_at.is_none());
+
+    repo.acknowledge_last_shutdown().await.unwrap();
+
+    let after = repo.read_last_shutdown().await.unwrap();
+    let ack = after.acknowledged_at.expect("ack written");
+    let at = after.at.expect("at present");
+    // The banner predicate hides the banner when ack >= at.
+    assert!(ack >= at);
+}
+
+#[tokio::test]
+async fn new_unclean_event_makes_older_ack_stale() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // Boot 1 → unclean event 1.
+    repo.detect_previous_shutdown().await.unwrap();
+    repo.record_heartbeat().await.unwrap();
+    repo.detect_previous_shutdown().await.unwrap();
+    repo.acknowledge_last_shutdown().await.unwrap();
+    let acked = repo.read_last_shutdown().await.unwrap();
+    let ack_ts = acked.acknowledged_at.expect("ack present");
+    let event1_at = acked.at.expect("event 1 at");
+    assert!(ack_ts >= event1_at);
+
+    // Sleep one second so timestamps (1s precision) advance.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Heartbeat continues in the new run.
+    repo.record_heartbeat().await.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Crash → unclean event 2 (no graceful in between).
+    let event2 = repo.detect_previous_shutdown().await.unwrap();
+    assert_eq!(event2.state, LastShutdownState::Unclean);
+
+    let read = repo.read_last_shutdown().await.unwrap();
+    let event2_at = read.at.expect("event 2 at");
+    let still_acked = read.acknowledged_at.expect("ack persisted");
+    // The old ack must now be older than the new event timestamp,
+    // restoring the banner.
+    assert!(still_acked < event2_at);
+}
+
+#[tokio::test]
+async fn detect_arms_running_marker_for_next_boot() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    repo.detect_previous_shutdown().await.unwrap();
+
+    let state = repo.get("last_shutdown_state").await.unwrap();
+    assert_eq!(state.as_deref(), Some("running"));
+    let at = repo.get("last_shutdown_at").await.unwrap();
+    assert!(at.is_some());
+}
+
+#[tokio::test]
+async fn record_heartbeat_writes_last_seen_at() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(repo.get("last_seen_at").await.unwrap().is_none());
+
+    repo.record_heartbeat().await.unwrap();
+
+    let seen = repo.get("last_seen_at").await.unwrap();
+    assert!(seen.is_some());
 }
 
 #[tokio::test]
