@@ -22,6 +22,7 @@ set -euo pipefail
 CHANNEL="${CHANNEL:-stable}"
 MANIFEST_URL="${MANIFEST_URL:-https://releases.wardnet.network/${CHANNEL}.json}"
 LAN_INTERFACE="${LAN_INTERFACE:-}"
+STATIC_IP="${STATIC_IP:-}"
 OFFLINE_DIR=""
 CONTAINER_MODE=""
 UPGRADE_ONLY=""
@@ -48,6 +49,17 @@ Options:
                         Ignored when --from is given.
   --lan-interface <if>  Bind the daemon to this LAN interface. If omitted,
                         the script prompts (tty) or picks the first candidate.
+  --static-ip <cidr>    Configure a static IPv4 address on the LAN interface
+                        (e.g. 192.168.1.2/24). Writes
+                        /etc/dhcpcd.conf.d/wardnet.conf with a routers/dns
+                        block derived from the current default gateway. If
+                        omitted on a tty install the script prompts; on
+                        non-interactive installs the LAN interface keeps
+                        whatever address it has (typically DHCP-leased).
+                        The setup wizard's network step shows a remediation
+                        panel when the LAN IP is still DHCP-derived, so
+                        skipping this is safe for users who want to handle
+                        addressing later.
   --container-mode      Skip systemctl daemon-reload, start, and restart.
                         Use when running inside a Docker image build: systemd
                         is not running yet, but the enable symlink is still
@@ -64,6 +76,7 @@ Options:
 Environment overrides:
   CHANNEL=<name>        Same as --channel.
   LAN_INTERFACE=<if>    Same as --lan-interface.
+  STATIC_IP=<cidr>      Same as --static-ip.
   MANIFEST_URL=<url>    Override the release manifest URL (advanced).
 EOF
 }
@@ -73,6 +86,7 @@ while [[ $# -gt 0 ]]; do
         --from)           OFFLINE_DIR="$2";       shift 2 ;;
         --channel)        CHANNEL="$2";           shift 2 ;;
         --lan-interface)  LAN_INTERFACE="$2";     shift 2 ;;
+        --static-ip)      STATIC_IP="$2";         shift 2 ;;
         --container-mode) CONTAINER_MODE=true;    shift   ;;
         --upgrade-only)   UPGRADE_ONLY=true;      shift   ;;
         -h|--help)        print_usage; exit 0 ;;
@@ -201,6 +215,89 @@ pick_lan_interface() {
 # the original install — no config rewrite, no new prompt.
 if [[ -z "$UPGRADE_ONLY" ]]; then
     pick_lan_interface
+fi
+
+# ---------------------------------------------------------------------------
+# Static IP — operator-selected
+# ---------------------------------------------------------------------------
+#
+# Daemon runs unprivileged with CAP_NET_ADMIN/CAP_NET_RAW only; it cannot
+# rewrite /etc/dhcpcd.conf at runtime. To deliver "no terminal needed
+# post-install" while keeping the daemon non-root, the install script
+# captures the desired static IP up-front and writes the dhcpcd drop-in
+# here. The setup wizard's network step is read-only confirmation of the
+# resulting state (or a remediation panel if the operator skipped this).
+
+validate_cidr() {
+    # Coarse CIDR validation: four octets + /prefix. dhcpcd tolerates a
+    # number of edge cases (e.g. /32) so we don't need to be strict; we
+    # just want to catch typos before writing the config.
+    [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]
+}
+
+write_dhcpcd_dropin() {
+    # Resolve the current default gateway so we can carry it forward into
+    # the static config. Without an explicit `routers` line, dhcpcd would
+    # leave the host with no default route the moment DHCP stops.
+    local gateway
+    gateway="$(ip -4 route show default 2>/dev/null \
+        | awk '/^default/ {print $3; exit}')"
+    if [[ -z "$gateway" ]]; then
+        echo "Warning: no default gateway detected — the resulting static" >&2
+        echo "config will likely break upstream connectivity. Set up the" >&2
+        echo "gateway manually and re-run, or skip --static-ip." >&2
+    fi
+
+    install -d -m 0755 /etc/dhcpcd.conf.d
+    cat > /etc/dhcpcd.conf.d/wardnet.conf <<EOF
+# Managed by Wardnet install.sh. Edit this file to change the LAN IP;
+# the daemon does not rewrite it at runtime.
+interface ${LAN_INTERFACE}
+static ip_address=${STATIC_IP}
+${gateway:+static routers=${gateway}}
+static domain_name_servers=${gateway:-1.1.1.1} 9.9.9.9
+EOF
+    chmod 0644 /etc/dhcpcd.conf.d/wardnet.conf
+    echo "Wrote /etc/dhcpcd.conf.d/wardnet.conf (interface=${LAN_INTERFACE}, ip=${STATIC_IP})"
+}
+
+pick_static_ip() {
+    if [[ -n "$STATIC_IP" ]]; then
+        if ! validate_cidr "$STATIC_IP"; then
+            echo "Error: --static-ip value '$STATIC_IP' is not in IPv4 CIDR form (e.g. 192.168.1.2/24)" >&2
+            exit 1
+        fi
+        echo "Using static IP: $STATIC_IP (from env/flag)"
+        return
+    fi
+
+    if [[ ! -t 0 ]]; then
+        echo "Non-interactive install — leaving LAN interface on its current address."
+        echo "If the wizard's network step flags it as DHCP-derived, re-run with --static-ip <cidr>."
+        return
+    fi
+
+    echo ""
+    echo "Wardnet should ideally have a stable LAN IP so opted-in devices keep"
+    echo "pointing at it across reboots. You can:"
+    echo "  - enter a CIDR now (e.g. 192.168.1.2/24) — written to /etc/dhcpcd.conf.d/wardnet.conf"
+    echo "  - press Enter to skip and let DHCP assign one (the wizard will warn you)"
+    printf "Static IP for %s [skip]: " "$LAN_INTERFACE"
+    read -r entered
+    entered="${entered:-}"
+    if [[ -z "$entered" ]]; then
+        echo "Skipping static-IP configuration."
+        return
+    fi
+    if ! validate_cidr "$entered"; then
+        echo "Error: '$entered' is not in IPv4 CIDR form (e.g. 192.168.1.2/24)" >&2
+        exit 1
+    fi
+    STATIC_IP="$entered"
+}
+
+if [[ -z "$UPGRADE_ONLY" ]]; then
+    pick_static_ip
 fi
 
 # ---------------------------------------------------------------------------
@@ -368,6 +465,17 @@ if [[ -f "$WORKDIR/wardnet-postupgrade.minisig" ]]; then
     install -o wardnet -g wardnet -m 0644 \
         "$WORKDIR/wardnet-postupgrade.minisig" \
         /var/lib/wardnet/postupgrade/wardnet-postupgrade.minisig
+fi
+
+# 5b. Static IP — write the dhcpcd drop-in if the operator chose one.
+#     Done before systemd unit install so the file is in place before the
+#     daemon starts. We deliberately do NOT restart dhcpcd here: changing
+#     the LAN IP mid-install would drop the operator's SSH session. The
+#     new address takes effect at the next reboot, which is fine because
+#     the wizard's network step will surface the current state and prompt
+#     for a reboot when the running IP doesn't match the configured one.
+if [[ -z "$UPGRADE_ONLY" && -n "$STATIC_IP" ]]; then
+    write_dhcpcd_dropin
 fi
 
 # 6. systemd units. The rollback unit is the `OnFailure=` target of the main

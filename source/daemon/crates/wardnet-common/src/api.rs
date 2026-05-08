@@ -258,10 +258,140 @@ pub struct UpdateDeviceRequest {
     pub admin_locked: Option<bool>,
 }
 
+/// Linear stage in the first-run setup wizard.
+///
+/// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
+/// → Completed`. `setup_completed` (in [`SetupStatusResponse`] and the
+/// `SetupGuard` redirect logic) is derived from `wizard_step == Completed`,
+/// so existing installs that already finished setup are not re-routed
+/// through the new wizard after an upgrade.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WizardStep {
+    /// Step 1 — create the first admin user (unauthenticated).
+    Admin,
+    /// Step 2 — confirm OS network state (read-only).
+    Network,
+    /// Step 3 — DHCP onboarding (primary or locked-router).
+    Dhcp,
+    /// Step 4 — discover upstream router MAC.
+    RouterMac,
+    /// Step 5 — first VPN tunnel (skippable).
+    Tunnel,
+    /// Step 6 — pick the global default routing policy.
+    Policy,
+    /// Step 7 — wizard finished; the dashboard takes over.
+    Completed,
+}
+
+/// Branch of the DHCP onboarding flow chosen at step 3.
+///
+/// `Primary` runs Wardnet's built-in DHCP server. `LockedRouter` keeps the
+/// upstream ISP router as the LAN's DHCP server and configures opted-in
+/// devices statically with Wardnet as their gateway/DNS.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WizardMode {
+    Primary,
+    LockedRouter,
+}
+
+impl WizardStep {
+    /// Stable lowercase identifier persisted in the `system_config` table.
+    #[must_use]
+    pub fn as_storage_str(&self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Network => "network",
+            Self::Dhcp => "dhcp",
+            Self::RouterMac => "router_mac",
+            Self::Tunnel => "tunnel",
+            Self::Policy => "policy",
+            Self::Completed => "completed",
+        }
+    }
+
+    /// Parse a `system_config` value back into a [`WizardStep`].
+    ///
+    /// Unknown strings are treated as a corrupted DB and fall back to
+    /// [`WizardStep::Admin`] so the user re-enters the wizard rather than
+    /// landing in an undefined state.
+    #[must_use]
+    pub fn from_storage_str(s: &str) -> Self {
+        match s {
+            "network" => Self::Network,
+            "dhcp" => Self::Dhcp,
+            "router_mac" => Self::RouterMac,
+            "tunnel" => Self::Tunnel,
+            "policy" => Self::Policy,
+            "completed" => Self::Completed,
+            _ => Self::Admin,
+        }
+    }
+
+    /// Linear ordinal used for "no going backwards" validation.
+    #[must_use]
+    pub fn ordinal(&self) -> u8 {
+        match self {
+            Self::Admin => 0,
+            Self::Network => 1,
+            Self::Dhcp => 2,
+            Self::RouterMac => 3,
+            Self::Tunnel => 4,
+            Self::Policy => 5,
+            Self::Completed => 6,
+        }
+    }
+}
+
+impl WizardMode {
+    /// Stable lowercase identifier persisted in the `system_config` table.
+    #[must_use]
+    pub fn as_storage_str(&self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::LockedRouter => "locked_router",
+        }
+    }
+
+    /// Parse a `system_config` value back into a [`WizardMode`].
+    /// Unknown strings yield `None`.
+    #[must_use]
+    pub fn from_storage_str(s: &str) -> Option<Self> {
+        match s {
+            "primary" => Some(Self::Primary),
+            "locked_router" => Some(Self::LockedRouter),
+            _ => None,
+        }
+    }
+}
+
 /// Response for GET /api/setup/status.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupStatusResponse {
+    /// Derived: `wizard_step == Completed`. Kept for `SetupGuard`
+    /// backwards-compat — clients that haven't been updated still get a
+    /// boolean they understand.
     pub setup_completed: bool,
+    pub wizard_step: WizardStep,
+    /// `None` until step 3 picks a branch.
+    pub wizard_mode: Option<WizardMode>,
+}
+
+/// Request body for POST /api/setup/advance.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AdvanceWizardRequest {
+    pub to_step: WizardStep,
+    /// Set when transitioning into [`WizardStep::Dhcp`] so the daemon
+    /// knows which onboarding branch to take.
+    pub wizard_mode: Option<WizardMode>,
+}
+
+/// Response for POST /api/setup/advance.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AdvanceWizardResponse {
+    pub wizard_step: WizardStep,
+    pub wizard_mode: Option<WizardMode>,
 }
 
 /// Request body for POST /api/setup.
@@ -269,6 +399,101 @@ pub struct SetupStatusResponse {
 pub struct SetupRequest {
     pub username: String,
     pub password: String,
+}
+
+/// Request body for PUT /api/system/default-policy.
+///
+/// `policy` is either the literal string `"direct"` or a tunnel UUID.
+/// The service layer validates the format and rejects anything else.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDefaultPolicyRequest {
+    pub policy: String,
+}
+
+/// How the LAN interface acquired its current IP address.
+///
+/// Returned by `GET /api/network/status` so the wizard's network step
+/// can show a remediation panel when the host is still relying on
+/// DHCP — install.sh writes `/etc/dhcpcd.conf.d/wardnet.conf` when the
+/// operator passes `--static-ip`, which flips this to `Static`.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DhcpSource {
+    /// `/etc/dhcpcd.conf.d/wardnet.conf` is present — install.sh pinned
+    /// the address.
+    Static,
+    /// No Wardnet drop-in found — the host is using whatever the
+    /// upstream router handed out.
+    Dhcp,
+    /// Couldn't determine. Treated like `Dhcp` for remediation purposes
+    /// but called out separately so the operator knows we're unsure.
+    Unknown,
+}
+
+/// Response for GET /api/network/status.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NetworkStatusResponse {
+    pub interface: String,
+    #[schema(value_type = String)]
+    pub ip: std::net::Ipv4Addr,
+    #[schema(value_type = String)]
+    pub gateway: Option<std::net::Ipv4Addr>,
+    pub dhcp_source: DhcpSource,
+}
+
+/// How the upstream router MAC was obtained.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterMacSource {
+    /// Discovered via an ARP probe at the gateway address.
+    Arp,
+    /// Operator typed it into the wizard's manual-entry field.
+    Manual,
+}
+
+/// Request body for POST /api/network/discover-gateway-mac.
+///
+/// All fields optional. If `mac` is provided the daemon skips the ARP
+/// probe and just persists the value (validated). Otherwise it probes
+/// the gateway IP from `GET /api/network/status`; `target_ip` lets a
+/// caller override that for testing or when the gateway differs from
+/// the kernel's default route.
+#[derive(Debug, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoverGatewayMacRequest {
+    pub mac: Option<String>,
+    #[schema(value_type = String)]
+    pub target_ip: Option<std::net::Ipv4Addr>,
+}
+
+/// Response for POST /api/network/discover-gateway-mac.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoverGatewayMacResponse {
+    pub mac: String,
+    pub source: RouterMacSource,
+}
+
+/// Response for POST /api/network/dhcp-self-probe.
+///
+/// The wizard's primary-mode step 3 uses this to verify Wardnet now
+/// owns LAN DHCP after the operator disabled it on their router:
+///
+/// - `wardnet_responded == true && foreign_responded == false` → ready
+///   to advance.
+/// - `foreign_responded == true` → re-show the disable-DHCP guide;
+///   `foreign_server_ip` lets the wizard call out which device is
+///   still answering.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DhcpSelfProbeResponse {
+    pub wardnet_responded: bool,
+    pub foreign_responded: bool,
+    #[schema(value_type = String)]
+    pub foreign_server_ip: Option<std::net::Ipv4Addr>,
+}
+
+/// Response for PUT /api/system/default-policy.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDefaultPolicyResponse {
+    pub policy: String,
 }
 
 // Redact `password` — same rationale as `LoginRequest`.

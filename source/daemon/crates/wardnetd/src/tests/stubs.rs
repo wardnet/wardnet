@@ -29,8 +29,9 @@ use wardnet_common::api::{
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
     RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
+use wardnet_common::api::{WizardMode, WizardStep};
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
-use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::packet_capture::ObservedDevice;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
@@ -101,6 +102,19 @@ impl AuthService for StubAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        Ok(WizardState {
+            step: WizardStep::Completed,
+            mode: None,
+        })
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: WizardStep,
+        _mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        unimplemented!()
     }
 }
 
@@ -199,6 +213,20 @@ impl SystemService for StubSystemService {
         unimplemented!()
     }
     async fn request_shutdown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
     }
 }
@@ -360,6 +388,12 @@ impl RoutingService for StubRoutingService {
         _device_id: Uuid,
         _ip: &str,
     ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn default_policy(&self) -> Result<String, AppError> {
         unimplemented!()
     }
 }

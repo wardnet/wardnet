@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -14,7 +14,7 @@ use crate::auth_context;
 use crate::error::AppError;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
-use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
+use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
 
 /// Manages Linux kernel policy routing rules for per-device VPN routing.
 ///
@@ -99,6 +99,19 @@ pub trait RoutingService: Send + Sync {
         device_id: Uuid,
         ip: &str,
     ) -> Result<(), AppError>;
+
+    /// Update the global default routing policy.
+    ///
+    /// Validates `policy` (must be `"direct"` or a tunnel UUID),
+    /// persists it to `system_config`, and updates the in-memory
+    /// state used by [`Self::apply_rule`] to resolve
+    /// [`RoutingTarget::Default`]. Devices whose stored rule is
+    /// `RoutingTarget::Default` will pick up the new policy on
+    /// their next apply or reconcile.
+    async fn set_default_policy(&self, policy: &str) -> Result<(), AppError>;
+
+    /// Read the current global default routing policy.
+    async fn default_policy(&self) -> Result<String, AppError>;
 }
 
 /// Tracks kernel state that has been applied for a single device.
@@ -132,8 +145,11 @@ pub struct RoutingServiceImpl {
     tunnels: Arc<dyn TunnelService>,
     netlink: Arc<dyn PolicyRouter>,
     nftables: Arc<dyn FirewallManager>,
-    /// Global default routing policy from config (e.g. "direct").
-    default_policy: String,
+    system_config: Arc<dyn SystemConfigRepository>,
+    /// Global default routing policy (e.g. `"direct"` or a tunnel UUID).
+    /// Held in a `RwLock` so [`Self::set_default_policy`] can update it
+    /// at runtime without restarting the daemon.
+    default_policy: Arc<RwLock<String>>,
     /// LAN interface name (e.g. "eth1") for the base masquerade rule.
     lan_interface: String,
     /// Mutable in-memory state protected by a mutex.
@@ -142,12 +158,14 @@ pub struct RoutingServiceImpl {
 
 impl RoutingServiceImpl {
     /// Create a new routing service with the given dependencies.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         devices: Arc<dyn DeviceRepository>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         tunnels: Arc<dyn TunnelService>,
         netlink: Arc<dyn PolicyRouter>,
         nftables: Arc<dyn FirewallManager>,
+        system_config: Arc<dyn SystemConfigRepository>,
         default_policy: String,
         lan_interface: String,
     ) -> Self {
@@ -157,7 +175,8 @@ impl RoutingServiceImpl {
             tunnels,
             netlink,
             nftables,
-            default_policy,
+            system_config,
+            default_policy: Arc::new(RwLock::new(default_policy)),
             lan_interface,
             state: Mutex::new(RoutingState {
                 applied: HashMap::new(),
@@ -166,24 +185,40 @@ impl RoutingServiceImpl {
         }
     }
 
+    /// Snapshot the current default policy.
+    ///
+    /// The `RwLock` is poisoned only on a previous panic while the lock
+    /// was held; in that case we fall back to `"direct"` rather than
+    /// propagating a panic into routing decisions.
+    fn current_default_policy(&self) -> String {
+        self.default_policy.read().map_or_else(
+            |e| {
+                tracing::error!(error = %e, "default_policy lock poisoned, falling back to direct");
+                "direct".to_owned()
+            },
+            |guard| guard.clone(),
+        )
+    }
+
     /// Resolve `RoutingTarget::Default` into a concrete target based on the
     /// global default policy.
     fn resolve_target(&self, target: &RoutingTarget) -> RoutingTarget {
         match target {
             RoutingTarget::Default => {
-                let resolved = if self.default_policy == "direct" {
+                let policy = self.current_default_policy();
+                let resolved = if policy == "direct" {
                     RoutingTarget::Direct
-                } else if let Ok(tunnel_id) = self.default_policy.parse::<Uuid>() {
+                } else if let Ok(tunnel_id) = policy.parse::<Uuid>() {
                     RoutingTarget::Tunnel { tunnel_id }
                 } else {
                     tracing::warn!(
-                        policy = %self.default_policy,
+                        policy = %policy,
                         "unknown default policy, falling back to direct"
                     );
                     RoutingTarget::Direct
                 };
                 tracing::debug!(
-                    policy = %self.default_policy,
+                    policy = %policy,
                     ?resolved,
                     "resolved Default routing target"
                 );
@@ -1316,5 +1351,94 @@ impl RoutingService for RoutingServiceImpl {
             }
         }
         Ok(())
+    }
+
+    async fn set_default_policy(&self, policy: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        if policy != "direct" && policy.parse::<Uuid>().is_err() {
+            return Err(AppError::BadRequest(format!(
+                "default_policy must be \"direct\" or a tunnel UUID, got {policy}"
+            )));
+        }
+
+        self.system_config
+            .set_default_policy(policy)
+            .await
+            .map_err(AppError::Internal)?;
+
+        match self.default_policy.write() {
+            Ok(mut guard) => policy.clone_into(&mut guard),
+            Err(e) => {
+                tracing::error!(error = %e, "default_policy lock poisoned during write");
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "default_policy lock poisoned"
+                )));
+            }
+        }
+
+        tracing::info!(policy, "default routing policy updated");
+
+        // Re-apply every device whose *stored DB rule* is
+        // RoutingTarget::Default. The cached `applied` entry holds the
+        // already-resolved target (e.g. Direct) which apply_rule's
+        // phase-1 short-circuit compares against — without this walk,
+        // already-routed devices keep flowing through the *previous*
+        // policy until something else (IP change, tunnel up/down)
+        // triggers a re-apply. The policy switch is supposed to take
+        // effect immediately, not "next time something happens to the
+        // device", so iterate now.
+        //
+        // Errors per device are logged and swallowed — one device
+        // failing to re-route shouldn't abort the policy change for
+        // the rest. apply_rule already falls back to direct on its
+        // own internal failures.
+        let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
+        let mut reapplied = 0u32;
+        for device in &devices {
+            let rule = match self
+                .devices
+                .find_rule_for_device(&device.id.to_string())
+                .await
+            {
+                Ok(Some(rule)) => rule,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        device_id = %device.id,
+                        "failed to load routing rule while re-applying default policy"
+                    );
+                    continue;
+                }
+            };
+            if !matches!(rule.target, RoutingTarget::Default) {
+                continue;
+            }
+            if let Err(e) = self
+                .apply_rule(device.id, &device.last_ip, &RoutingTarget::Default)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device.id,
+                    "failed to re-apply default policy for device"
+                );
+            } else {
+                reapplied += 1;
+            }
+        }
+        tracing::info!(
+            reapplied,
+            total_devices = devices.len(),
+            "re-applied default routing policy across devices"
+        );
+
+        Ok(())
+    }
+
+    async fn default_policy(&self) -> Result<String, AppError> {
+        auth_context::require_admin()?;
+        Ok(self.current_default_policy())
     }
 }

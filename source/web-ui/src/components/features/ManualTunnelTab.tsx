@@ -39,18 +39,18 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="tunnel-label">Label</Label>
-        <Input
-          id="tunnel-label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="US West"
-          required
-        />
-      </div>
-      <div className="flex gap-3">
-        <div className="flex flex-1 flex-col gap-2">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="tunnel-label">Label</Label>
+          <Input
+            id="tunnel-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="US West"
+            required
+          />
+        </div>
+        <div className="flex flex-col gap-2">
           <Label htmlFor="tunnel-country">Country code</Label>
           <Input
             id="tunnel-country"
@@ -61,7 +61,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
             required
           />
         </div>
-        <div className="flex flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-2 md:col-span-2">
           <Label htmlFor="tunnel-provider">Provider</Label>
           <Input
             id="tunnel-provider"
@@ -70,25 +70,27 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
             placeholder="Mullvad"
           />
         </div>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="tunnel-config">WireGuard config</Label>
-        <Textarea
-          id="tunnel-config"
-          value={config}
-          onChange={(e) => setConfig(e.target.value)}
-          placeholder="Paste your .conf file contents here…"
-          required
-          rows={10}
-          className="font-mono"
-        />
+        <div className="flex flex-col gap-2 md:col-span-2">
+          <Label htmlFor="tunnel-config">WireGuard config</Label>
+          <Textarea
+            id="tunnel-config"
+            value={config}
+            onChange={(e) => setConfig(e.target.value)}
+            placeholder="Paste your .conf file contents here…"
+            required
+            rows={10}
+            className="font-mono"
+          />
+        </div>
       </div>
       {createTunnel.isError && (
         <ApiErrorAlert error={createTunnel.error} fallback="Failed to create tunnel" />
       )}
-      <Button type="submit" disabled={createTunnel.isPending} className="w-full">
-        {createTunnel.isPending ? "Creating…" : "Create tunnel"}
-      </Button>
+      <div className="flex justify-end">
+        <Button type="submit" disabled={createTunnel.isPending}>
+          {createTunnel.isPending ? "Creating…" : "Create tunnel"}
+        </Button>
+      </div>
     </form>
   );
 }

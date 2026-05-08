@@ -94,6 +94,15 @@ pub struct Backends {
     /// (shells out to `systemctl reboot|poweroff --no-block`); the
     /// mock wires a logging no-op so dev launches don't get killed.
     pub power_ops: Arc<dyn system::SystemPowerOps>,
+    /// Reads the LAN interface state for the wizard's network step
+    /// and the post-install Settings page. Real impl in `wardnetd`
+    /// parses `/proc/net/route` and `/etc/dhcpcd.conf.d/wardnet.conf`;
+    /// the mock returns synthetic data.
+    pub network_inspector: Arc<dyn system::NetworkInspector>,
+    /// Active LAN probe — the wizard's router-MAC step uses this to
+    /// auto-discover the upstream router via ARP. Real impl wraps
+    /// `pnet`'s datalink channel; the mock returns a synthetic MAC.
+    pub network_probe: Arc<dyn system::NetworkProbe>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -158,6 +167,19 @@ pub async fn init_services(
         .map(|a| (a.username.as_str(), a.password.as_str()));
     wardnetd_data::bootstrap::bootstrap_admin(&repo_factory.admin(), admin_credentials).await?;
 
+    // Bootstrap setup-wizard + default-policy keys (idempotent — only seeds
+    // missing keys, so re-running on upgraded installs is safe).
+    let system_config_for_bootstrap = repo_factory.system_config();
+    wardnetd_data::bootstrap::bootstrap_system_config(
+        &system_config_for_bootstrap,
+        &config.network.default_policy,
+    )
+    .await?;
+    let initial_default_policy = system_config_for_bootstrap
+        .get_default_policy()
+        .await?
+        .unwrap_or_else(|| config.network.default_policy.clone());
+
     // Wire services.
     Ok(create_services(
         repo_factory.as_ref(),
@@ -166,6 +188,7 @@ pub async fn init_services(
         lan_ip,
         started_at,
         log_service,
+        initial_default_policy,
     ))
 }
 
@@ -180,22 +203,38 @@ pub async fn init_services(
 /// account: the caller is expected to control that lifecycle (e.g. the mock
 /// server intentionally leaves the DB without an admin so the setup wizard
 /// runs on every launch).
-pub fn init_services_with_factory(
+pub async fn init_services_with_factory(
     repo_factory: &dyn RepositoryFactory,
     backends: Backends,
     config: &ApplicationConfiguration,
     lan_ip: std::net::Ipv4Addr,
     started_at: Instant,
     log_service: Arc<dyn LogService>,
-) -> Services {
-    create_services(
+) -> anyhow::Result<Services> {
+    // Bootstrap setup-wizard + default-policy keys. The mock variant
+    // intentionally skips admin bootstrap (so the wizard runs on every
+    // launch), but it still benefits from a seeded default_policy and
+    // wizard_step.
+    let system_config_for_bootstrap = repo_factory.system_config();
+    wardnetd_data::bootstrap::bootstrap_system_config(
+        &system_config_for_bootstrap,
+        &config.network.default_policy,
+    )
+    .await?;
+    let initial_default_policy = system_config_for_bootstrap
+        .get_default_policy()
+        .await?
+        .unwrap_or_else(|| config.network.default_policy.clone());
+
+    Ok(create_services(
         repo_factory,
         backends,
         config,
         lan_ip,
         started_at,
         log_service,
-    )
+        initial_default_policy,
+    ))
 }
 
 /// Creates services from a [`RepositoryFactory`] + [`Backends`] + config.
@@ -211,6 +250,7 @@ fn create_services(
     lan_ip: std::net::Ipv4Addr,
     started_at: Instant,
     log_service: Arc<dyn LogService>,
+    initial_default_policy: String,
 ) -> Services {
     // Clone the backup-relevant fields up front. The rest of the
     // backends get moved into their respective services below, so by
@@ -278,6 +318,8 @@ fn create_services(
         started_at,
         backends.shutdown_token.clone(),
         backends.power_ops.clone(),
+        backends.network_inspector.clone(),
+        backends.network_probe.clone(),
     ));
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
@@ -310,6 +352,8 @@ fn create_services(
         tunnel_service.clone(),
         backends.policy_router,
         backends.firewall,
+        repo_factory.system_config(),
+        initial_default_policy,
         config,
     );
 
@@ -376,12 +420,15 @@ fn build_discovery_service(
 
 /// Build the routing service from its repository + backend + config
 /// dependencies.
+#[allow(clippy::too_many_arguments)]
 fn build_routing_service(
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     tunnel_repo: Arc<dyn wardnetd_data::repository::TunnelRepository>,
     tunnel_service: Arc<dyn TunnelService>,
     policy_router: Arc<dyn routing::PolicyRouter>,
     firewall: Arc<dyn routing::FirewallManager>,
+    system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+    initial_default_policy: String,
     config: &ApplicationConfiguration,
 ) -> Arc<dyn RoutingService> {
     Arc::new(RoutingServiceImpl::new(
@@ -390,7 +437,8 @@ fn build_routing_service(
         tunnel_service,
         policy_router,
         firewall,
-        config.network.default_policy.clone(),
+        system_config,
+        initial_default_policy,
         config.network.lan_interface.clone(),
     ))
 }

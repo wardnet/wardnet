@@ -8032,6 +8032,411 @@
         ]
       }
     },
+    "/api/network/dhcp-self-probe": {
+      "post": {
+        "tags": [
+          "network"
+        ],
+        "description": "Broadcast a DHCPDISCOVER from a synthetic MAC and report whether Wardnet (and any foreign DHCP server) responded with an OFFER. The wizard's primary-mode step 3 calls this after the operator says they've disabled DHCP on their router; a foreign-only response tells the UI to re-show the disable-DHCP guide. Admin only.",
+        "operationId": "dhcp_self_probe",
+        "responses": {
+          "200": {
+            "description": "Probe complete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DhcpSelfProbeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/network/discover-gateway-mac": {
+      "post": {
+        "tags": [
+          "network"
+        ],
+        "description": "Discover (or accept) the upstream router MAC address. With an empty body, the daemon ARP-probes the LAN gateway from `GET /api/network/status` and returns the responder's MAC. Pass `mac` to skip the probe and record an operator-supplied value (validated). Pass `target_ip` to override the probe target. The result is persisted in `system_config` so subsequent calls are idempotent. Admin only.",
+        "operationId": "discover_gateway_mac",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverGatewayMacRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "MAC discovered or accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverGatewayMacResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid MAC or no gateway to probe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ARP probe got no reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/network/status": {
+      "get": {
+        "tags": [
+          "network"
+        ],
+        "description": "Read the LAN interface's current address + default gateway and classify whether the IP came from DHCP or a Wardnet-managed static config (install.sh --static-ip writes /etc/dhcpcd.conf.d/wardnet.conf, which flips dhcp_source to \"static\"). Powers the wizard's network step and the Settings page. Admin only.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Current LAN interface state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/providers": {
       "get": {
         "tags": [
@@ -9019,16 +9424,161 @@
         ]
       }
     },
+    "/api/setup/advance": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "description": "Advance the setup wizard to a new step. Admin-authenticated — the web UI auto-logs the operator in immediately after `POST /api/setup` and uses normal admin auth from then on. Step transitions only move forward; `wizard_mode` is recorded when the operator picks the DHCP onboarding branch at step 3.",
+        "operationId": "setup_advance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvanceWizardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Wizard state after advance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvanceWizardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/setup/status": {
       "get": {
         "tags": [
           "setup"
         ],
-        "description": "Report whether the initial setup wizard has been completed (i.e. whether any admin account exists). No authentication required — the web UI calls this before rendering to decide whether to redirect the user to the setup page.",
+        "description": "Report the current setup-wizard state. `setup_completed` is derived from `wizard_step == \"completed\"`. No authentication required — the web UI calls this before rendering to decide whether to redirect to the wizard.",
         "operationId": "setup_status",
         "responses": {
           "200": {
-            "description": "Whether initial setup is complete",
+            "description": "Current wizard state",
             "content": {
               "application/json": {
                 "schema": {
@@ -9050,6 +9600,274 @@
         },
         "security": [
           {}
+        ]
+      }
+    },
+    "/api/system/default-policy": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "description": "Read the global default routing policy. Returns either the literal string \"direct\" or a tunnel UUID. Used by the setup wizard's policy step and the post-install settings page so the operator can see the active default. Admin only.",
+        "operationId": "get_default_policy",
+        "responses": {
+          "200": {
+            "description": "Current default policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDefaultPolicyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "description": "Set the global default routing policy. Body `policy` must be either the literal string \"direct\" or a tunnel UUID. The change is persisted in `system_config` and applied in-memory immediately — devices whose stored rule is `Default` pick up the new policy on their next apply or reconcile. Admin only.",
+        "operationId": "set_default_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDefaultPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default policy updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDefaultPolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
         ]
       }
     },
@@ -11621,6 +12439,51 @@
   },
   "components": {
     "schemas": {
+      "AdvanceWizardRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/setup/advance.",
+        "required": [
+          "to_step"
+        ],
+        "properties": {
+          "to_step": {
+            "$ref": "#/components/schemas/WizardStep"
+          },
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode",
+                "description": "Set when transitioning into [`WizardStep::Dhcp`] so the daemon\nknows which onboarding branch to take."
+              }
+            ]
+          }
+        }
+      },
+      "AdvanceWizardResponse": {
+        "type": "object",
+        "description": "Response for POST /api/setup/advance.",
+        "required": [
+          "wizard_step"
+        ],
+        "properties": {
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode"
+              }
+            ]
+          },
+          "wizard_step": {
+            "$ref": "#/components/schemas/WizardStep"
+          }
+        }
+      },
       "AllowlistEntry": {
         "type": "object",
         "description": "An allowlist entry, scoped to a DNS filter profile, that overrides\nblocklist matches.",
@@ -12654,6 +13517,35 @@
           }
         }
       },
+      "DhcpSelfProbeResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/dhcp-self-probe.\n\nThe wizard's primary-mode step 3 uses this to verify Wardnet now\nowns LAN DHCP after the operator disabled it on their router:\n\n- `wardnet_responded == true && foreign_responded == false` → ready\n  to advance.\n- `foreign_responded == true` → re-show the disable-DHCP guide;\n  `foreign_server_ip` lets the wizard call out which device is\n  still answering.",
+        "required": [
+          "wardnet_responded",
+          "foreign_responded",
+          "foreign_server_ip"
+        ],
+        "properties": {
+          "foreign_responded": {
+            "type": "boolean"
+          },
+          "foreign_server_ip": {
+            "type": "string"
+          },
+          "wardnet_responded": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DhcpSource": {
+        "type": "string",
+        "description": "How the LAN interface acquired its current IP address.\n\nReturned by `GET /api/network/status` so the wizard's network step\ncan show a remediation panel when the host is still relying on\nDHCP — install.sh writes `/etc/dhcpcd.conf.d/wardnet.conf` when the\noperator passes `--static-ip`, which flips this to `Static`.",
+        "enum": [
+          "static",
+          "dhcp",
+          "unknown"
+        ]
+      },
       "DhcpStatus": {
         "type": "string",
         "description": "Whether a device's IP is managed by the wardnet DHCP server.",
@@ -12694,6 +13586,40 @@
           },
           "running": {
             "type": "boolean"
+          }
+        }
+      },
+      "DiscoverGatewayMacRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/network/discover-gateway-mac.\n\nAll fields optional. If `mac` is provided the daemon skips the ARP\nprobe and just persists the value (validated). Otherwise it probes\nthe gateway IP from `GET /api/network/status`; `target_ip` lets a\ncaller override that for testing or when the gateway differs from\nthe kernel's default route.",
+        "required": [
+          "target_ip"
+        ],
+        "properties": {
+          "mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_ip": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverGatewayMacResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/discover-gateway-mac.",
+        "required": [
+          "mac",
+          "source"
+        ],
+        "properties": {
+          "mac": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RouterMacSource"
           }
         }
       },
@@ -13746,6 +14672,30 @@
           }
         }
       },
+      "NetworkStatusResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/status.",
+        "required": [
+          "interface",
+          "ip",
+          "gateway",
+          "dhcp_source"
+        ],
+        "properties": {
+          "dhcp_source": {
+            "$ref": "#/components/schemas/DhcpSource"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "interface": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          }
+        }
+      },
       "ProviderAuthMethod": {
         "type": "string",
         "description": "Supported authentication methods for a VPN provider.",
@@ -14033,6 +14983,14 @@
           }
         }
       },
+      "RouterMacSource": {
+        "type": "string",
+        "description": "How the upstream router MAC was obtained.",
+        "enum": [
+          "arp",
+          "manual"
+        ]
+      },
       "RoutingTarget": {
         "oneOf": [
           {
@@ -14146,6 +15104,30 @@
           "name": {
             "type": "string",
             "description": "Human-readable server name (e.g. \"Sweden #142\")."
+          }
+        }
+      },
+      "SetDefaultPolicyRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/system/default-policy.\n\n`policy` is either the literal string `\"direct\"` or a tunnel UUID.\nThe service layer validates the format and rejects anything else.",
+        "required": [
+          "policy"
+        ],
+        "properties": {
+          "policy": {
+            "type": "string"
+          }
+        }
+      },
+      "SetDefaultPolicyResponse": {
+        "type": "object",
+        "description": "Response for PUT /api/system/default-policy.",
+        "required": [
+          "policy"
+        ],
+        "properties": {
+          "policy": {
+            "type": "string"
           }
         }
       },
@@ -14273,11 +15255,27 @@
         "type": "object",
         "description": "Response for GET /api/setup/status.",
         "required": [
-          "setup_completed"
+          "setup_completed",
+          "wizard_step"
         ],
         "properties": {
           "setup_completed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Derived: `wizard_step == Completed`. Kept for `SetupGuard`\nbackwards-compat — clients that haven't been updated still get a\nboolean they understand."
+          },
+          "wizard_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WizardMode",
+                "description": "`None` until step 3 picks a branch."
+              }
+            ]
+          },
+          "wizard_step": {
+            "$ref": "#/components/schemas/WizardStep"
           }
         }
       },
@@ -15242,6 +16240,27 @@
             "description": "Whether the credentials are valid."
           }
         }
+      },
+      "WizardMode": {
+        "type": "string",
+        "description": "Branch of the DHCP onboarding flow chosen at step 3.\n\n`Primary` runs Wardnet's built-in DHCP server. `LockedRouter` keeps the\nupstream ISP router as the LAN's DHCP server and configures opted-in\ndevices statically with Wardnet as their gateway/DNS.",
+        "enum": [
+          "primary",
+          "locked_router"
+        ]
+      },
+      "WizardStep": {
+        "type": "string",
+        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ Completed`. `setup_completed` (in [`SetupStatusResponse`] and the\n`SetupGuard` redirect logic) is derived from `wizard_step == Completed`,\nso existing installs that already finished setup are not re-routed\nthrough the new wizard after an upgrade.",
+        "enum": [
+          "admin",
+          "network",
+          "dhcp",
+          "router_mac",
+          "tunnel",
+          "policy",
+          "completed"
+        ]
       }
     },
     "securitySchemes": {

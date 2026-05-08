@@ -32,7 +32,7 @@ LINUX_TARGET := $(CURDIR)/.target-linux
 
 # Coverage: files excluded from cargo-llvm-cov.  Single source of truth —
 # CI calls `make coverage-daemon` with COV_FMT overridden for LCOV output.
-COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
+COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|pnet_network_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
 # Default: human-readable summary.  CI overrides:
 #   make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
 COV_FMT    ?= --summary-only
@@ -300,7 +300,7 @@ check: check-web check-site check-daemon
 
 # ---------- Dev loop ----------
 
-RESUME ?= false
+RESUME ?= true
 LOCAL_DIR := $(CURDIR)/.wardnet-local
 
 # Run the mock daemon + web UI dev server locally.
@@ -308,21 +308,23 @@ LOCAL_DIR := $(CURDIR)/.wardnet-local
 # wardnetd-mock serves the HTTP API on 127.0.0.1:7411 with no-op network
 # backends and seeded demo data. Vite dev server runs on :7412 and proxies
 # /api to the mock. Ctrl+C stops the dev server and tears down the mock
-# via the EXIT trap. Database is in-memory by default (ephemeral).
-# Use RESUME=true to persist the database at .wardnet-local/wardnet.db.
+# via the EXIT trap. Database persists at .wardnet-local/wardnet.db by
+# default so iterating on UI doesn't reset the setup wizard on every
+# restart; pass `RESUME=false` for an ephemeral in-memory DB (which
+# re-runs the setup wizard from scratch).
 # Run just the mock daemon (`wardnetd-mock`) in the foreground on :7411.
-# Respects `RESUME=true` for on-disk DB persistence at
-# `.wardnet-local/wardnet.db`. Use this when you only need the API (e.g.
-# exercising `/api/docs`, curling endpoints) without the Vite server.
+# Respects `RESUME=false` for an ephemeral in-memory DB. Use this when
+# you only need the API (e.g. exercising `/api/docs`, curling endpoints)
+# without the Vite server.
 run-dev-daemon:
 	@mkdir -p $(LOCAL_DIR)
 	@if [ "$(RESUME)" = "true" ]; then \
 		DB_ARG="--database $(LOCAL_DIR)/wardnet.db --no-seed"; \
 		[ -f $(LOCAL_DIR)/wardnet.db ] || DB_ARG="--database $(LOCAL_DIR)/wardnet.db"; \
-		echo "Using on-disk DB at $(LOCAL_DIR)/wardnet.db"; \
+		echo "Using on-disk DB at $(LOCAL_DIR)/wardnet.db (RESUME=false for in-memory)"; \
 	else \
 		DB_ARG=""; \
-		echo "Using in-memory DB (use RESUME=true for on-disk persistence)"; \
+		echo "Using in-memory DB (wizard restarts every launch)"; \
 	fi; \
 	echo "Mock API : http://127.0.0.1:7411"; \
 	echo ""; \

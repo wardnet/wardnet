@@ -198,6 +198,32 @@ fn stub_backends() -> Backends {
         host_id: "init-test-host".to_owned(),
         shutdown_token: tokio_util::sync::CancellationToken::new(),
         power_ops: Arc::new(StubPowerOps),
+        network_inspector: Arc::new(StubNetworkInspector),
+        network_probe: Arc::new(StubNetworkProbe),
+    }
+}
+
+struct StubNetworkInspector;
+#[async_trait]
+impl crate::system::NetworkInspector for StubNetworkInspector {
+    async fn inspect(&self) -> anyhow::Result<crate::system::NetworkSnapshot> {
+        Ok(crate::system::NetworkSnapshot {
+            interface: "eth0".to_owned(),
+            ip: std::net::Ipv4Addr::new(192, 168, 1, 1),
+            gateway: Some(std::net::Ipv4Addr::new(192, 168, 1, 254)),
+            dhcp_source: wardnet_common::api::DhcpSource::Static,
+        })
+    }
+}
+
+struct StubNetworkProbe;
+#[async_trait]
+impl crate::system::NetworkProbe for StubNetworkProbe {
+    async fn arp_probe(&self, _target_ip: std::net::Ipv4Addr) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    async fn dhcp_self_probe(&self) -> anyhow::Result<crate::system::DhcpProbeOutcome> {
+        Ok(crate::system::DhcpProbeOutcome::default())
     }
 }
 
@@ -284,7 +310,9 @@ async fn init_services_with_factory_builds_every_service() {
         lan_ip,
         started_at,
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // Verify every service handle is populated (Arc::strong_count >= 1 means
     // the Arc is alive; construction alone is the thing under test).
@@ -322,7 +350,9 @@ async fn init_services_with_factory_respects_disabled_provider() {
         Ipv4Addr::new(10, 0, 0, 1),
         Instant::now(),
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // Wiring still succeeds even when the built-in provider is disabled.
     assert!(Arc::strong_count(&services.vpn_provider) >= 1);
@@ -402,7 +432,9 @@ async fn init_services_with_broadcast_lan_ip_falls_back_to_default_subnet() {
         Ipv4Addr::new(192, 168, 99, 1),
         Instant::now(),
         stub_log_service(),
-    );
+    )
+    .await
+    .expect("init_services_with_factory");
 
     // discovery service exists regardless — the fallback path does not panic.
     assert!(Arc::strong_count(&services.discovery) >= 1);

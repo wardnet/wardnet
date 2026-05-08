@@ -8,8 +8,13 @@ use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
 use crate::error::AppError;
-use crate::system::SystemPowerOps;
+use crate::system::{
+    DhcpProbeOutcome, NetworkInspector, NetworkProbe, NetworkSnapshot, SystemPowerOps,
+};
 use crate::{SystemService, SystemServiceImpl};
+use std::net::Ipv4Addr;
+use std::sync::Mutex;
+use wardnet_common::api::DhcpSource;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig};
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
@@ -150,7 +155,55 @@ fn build_service_with_power_ops(
         Instant::now(),
         tokio_util::sync::CancellationToken::new(),
         power_ops,
+        Arc::new(StaticNetworkInspector),
+        Arc::new(StaticNetworkProbe::default()),
     )
+}
+
+struct StaticNetworkInspector;
+
+#[async_trait]
+impl NetworkInspector for StaticNetworkInspector {
+    async fn inspect(&self) -> anyhow::Result<NetworkSnapshot> {
+        Ok(NetworkSnapshot {
+            interface: "eth0".to_owned(),
+            ip: Ipv4Addr::new(192, 168, 1, 1),
+            gateway: Some(Ipv4Addr::new(192, 168, 1, 254)),
+            dhcp_source: DhcpSource::Static,
+        })
+    }
+}
+
+/// Network probe whose responses are configurable per test. The default
+/// answers ARP with a fixed MAC and returns no DHCP responders.
+struct StaticNetworkProbe {
+    response: Option<String>,
+    targets: Mutex<Vec<Ipv4Addr>>,
+    dhcp_responders: Vec<Ipv4Addr>,
+}
+
+impl Default for StaticNetworkProbe {
+    fn default() -> Self {
+        Self {
+            response: Some("AA:BB:CC:DD:EE:FF".to_owned()),
+            targets: Mutex::new(Vec::new()),
+            dhcp_responders: Vec::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl NetworkProbe for StaticNetworkProbe {
+    async fn arp_probe(&self, target_ip: Ipv4Addr) -> anyhow::Result<Option<String>> {
+        self.targets.lock().unwrap().push(target_ip);
+        Ok(self.response.clone())
+    }
+
+    async fn dhcp_self_probe(&self) -> anyhow::Result<DhcpProbeOutcome> {
+        Ok(DhcpProbeOutcome {
+            responders: self.dhcp_responders.clone(),
+        })
+    }
 }
 
 // -- Tests ----------------------------------------------------------------
@@ -312,4 +365,330 @@ async fn request_shutdown_device_forbidden() {
     let result = auth_context::with_context(ctx, svc.request_shutdown()).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
     assert_eq!(ops.poweroff_calls.load(Ordering::SeqCst), 0);
+}
+
+// -- network probes / status -----------------------------------------------
+
+/// Inspector with configurable IP + gateway. Used by the
+/// `network_status` / `discover_gateway_mac` / `dhcp_self_probe` tests
+/// where the default `StaticNetworkInspector` would over-constrain
+/// the behaviour under test.
+struct ConfigurableNetworkInspector {
+    interface: String,
+    ip: Ipv4Addr,
+    gateway: Option<Ipv4Addr>,
+    dhcp_source: DhcpSource,
+}
+
+#[async_trait]
+impl NetworkInspector for ConfigurableNetworkInspector {
+    async fn inspect(&self) -> anyhow::Result<NetworkSnapshot> {
+        Ok(NetworkSnapshot {
+            interface: self.interface.clone(),
+            ip: self.ip,
+            gateway: self.gateway,
+            dhcp_source: self.dhcp_source,
+        })
+    }
+}
+
+/// Probe whose ARP reply and DHCP responders are configurable, with
+/// the actual ARP target IP recorded so tests can assert which
+/// gateway was probed.
+struct ConfigurableNetworkProbe {
+    arp_response: Option<String>,
+    arp_targets: Mutex<Vec<Ipv4Addr>>,
+    dhcp_responders: Vec<Ipv4Addr>,
+}
+
+#[async_trait]
+impl NetworkProbe for ConfigurableNetworkProbe {
+    async fn arp_probe(&self, target_ip: Ipv4Addr) -> anyhow::Result<Option<String>> {
+        self.arp_targets.lock().unwrap().push(target_ip);
+        Ok(self.arp_response.clone())
+    }
+    async fn dhcp_self_probe(&self) -> anyhow::Result<DhcpProbeOutcome> {
+        Ok(DhcpProbeOutcome {
+            responders: self.dhcp_responders.clone(),
+        })
+    }
+}
+
+/// In-memory [`SystemConfigRepository`] so persistence assertions can
+/// read what `discover_gateway_mac` wrote.
+#[derive(Default)]
+struct RecordingSystemConfig {
+    store: Mutex<std::collections::HashMap<String, String>>,
+}
+
+#[async_trait]
+impl SystemConfigRepository for RecordingSystemConfig {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.store.lock().unwrap().get(key).cloned())
+    }
+    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.store
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
+struct ProbeFixture {
+    svc: SystemServiceImpl,
+    probe: Arc<ConfigurableNetworkProbe>,
+    system_config: Arc<RecordingSystemConfig>,
+}
+
+fn build_probe_fixture(
+    inspector: ConfigurableNetworkInspector,
+    arp_response: Option<String>,
+    dhcp_responders: Vec<Ipv4Addr>,
+) -> ProbeFixture {
+    let probe = Arc::new(ConfigurableNetworkProbe {
+        arp_response,
+        arp_targets: Mutex::new(Vec::new()),
+        dhcp_responders,
+    });
+    let system_config = Arc::new(RecordingSystemConfig::default());
+    let svc = SystemServiceImpl::new(
+        system_config.clone(),
+        Arc::new(MockTunnelRepo { active: 0 }),
+        Instant::now(),
+        tokio_util::sync::CancellationToken::new(),
+        Arc::new(RecordingPowerOps::default()),
+        Arc::new(inspector),
+        probe.clone(),
+    );
+    ProbeFixture {
+        svc,
+        probe,
+        system_config,
+    }
+}
+
+fn fresh_inspector() -> ConfigurableNetworkInspector {
+    ConfigurableNetworkInspector {
+        interface: "eth0".to_owned(),
+        ip: Ipv4Addr::new(192, 168, 1, 1),
+        gateway: Some(Ipv4Addr::new(192, 168, 1, 254)),
+        dhcp_source: DhcpSource::Static,
+    }
+}
+
+#[tokio::test]
+async fn network_status_returns_inspector_snapshot() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let resp = auth_context::with_context(admin_ctx(), fx.svc.network_status())
+        .await
+        .unwrap();
+    assert_eq!(resp.interface, "eth0");
+    assert_eq!(resp.ip, Ipv4Addr::new(192, 168, 1, 1));
+    assert_eq!(resp.gateway, Some(Ipv4Addr::new(192, 168, 1, 254)));
+    assert_eq!(resp.dhcp_source, DhcpSource::Static);
+}
+
+#[tokio::test]
+async fn network_status_anonymous_forbidden() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let result = fx.svc.network_status().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_manual_path_persists_normalised_mac() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        fx.svc
+            .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+                mac: Some("aa:bb:cc:dd:ee:ff".to_owned()),
+                target_ip: None,
+            }),
+    )
+    .await
+    .unwrap();
+    // Normalised to upper-case for storage.
+    assert_eq!(resp.mac, "AA:BB:CC:DD:EE:FF");
+    assert_eq!(resp.source, wardnet_common::api::RouterMacSource::Manual);
+    // No ARP probe should have been issued on the manual path.
+    assert!(fx.probe.arp_targets.lock().unwrap().is_empty());
+    // Persisted under `router_mac`.
+    assert_eq!(
+        fx.system_config.get("router_mac").await.unwrap().as_deref(),
+        Some("AA:BB:CC:DD:EE:FF")
+    );
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_manual_path_rejects_invalid_mac() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let result = auth_context::with_context(
+        admin_ctx(),
+        fx.svc
+            .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+                mac: Some("not-a-mac".to_owned()),
+                target_ip: None,
+            }),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+    // Nothing persisted on rejection.
+    assert!(fx.system_config.get("router_mac").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_auto_no_gateway_returns_bad_request() {
+    let mut inspector = fresh_inspector();
+    inspector.gateway = None;
+    let fx = build_probe_fixture(inspector, Some("aa:bb:cc:dd:ee:ff".to_owned()), vec![]);
+    let result = auth_context::with_context(
+        admin_ctx(),
+        fx.svc
+            .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+                mac: None,
+                target_ip: None,
+            }),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+    // Probe shouldn't fire when there's no target.
+    assert!(fx.probe.arp_targets.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_no_arp_reply_returns_not_found() {
+    // Inspector reports a gateway, probe returns None (timeout) → NotFound.
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let result = auth_context::with_context(
+        admin_ctx(),
+        fx.svc
+            .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+                mac: None,
+                target_ip: None,
+            }),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+    assert_eq!(
+        *fx.probe.arp_targets.lock().unwrap(),
+        vec![Ipv4Addr::new(192, 168, 1, 254)]
+    );
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_auto_path_persists_and_uses_gateway() {
+    let fx = build_probe_fixture(
+        fresh_inspector(),
+        Some("11:22:33:44:55:66".to_owned()),
+        vec![],
+    );
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        fx.svc
+            .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+                mac: None,
+                target_ip: None,
+            }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.mac, "11:22:33:44:55:66");
+    assert_eq!(resp.source, wardnet_common::api::RouterMacSource::Arp);
+    assert_eq!(
+        *fx.probe.arp_targets.lock().unwrap(),
+        vec![Ipv4Addr::new(192, 168, 1, 254)]
+    );
+    assert_eq!(
+        fx.system_config.get("router_mac").await.unwrap().as_deref(),
+        Some("11:22:33:44:55:66")
+    );
+}
+
+#[tokio::test]
+async fn dhcp_self_probe_classifies_our_ip_as_wardnet() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![Ipv4Addr::new(192, 168, 1, 1)]);
+    let resp = auth_context::with_context(admin_ctx(), fx.svc.dhcp_self_probe())
+        .await
+        .unwrap();
+    assert!(resp.wardnet_responded);
+    assert!(!resp.foreign_responded);
+    assert!(resp.foreign_server_ip.is_none());
+}
+
+#[tokio::test]
+async fn dhcp_self_probe_classifies_other_ip_as_foreign() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![Ipv4Addr::new(10, 0, 0, 1)]);
+    let resp = auth_context::with_context(admin_ctx(), fx.svc.dhcp_self_probe())
+        .await
+        .unwrap();
+    assert!(!resp.wardnet_responded);
+    assert!(resp.foreign_responded);
+    assert_eq!(resp.foreign_server_ip, Some(Ipv4Addr::new(10, 0, 0, 1)));
+}
+
+#[tokio::test]
+async fn dhcp_self_probe_handles_both_responders() {
+    let fx = build_probe_fixture(
+        fresh_inspector(),
+        None,
+        vec![Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(10, 0, 0, 1)],
+    );
+    let resp = auth_context::with_context(admin_ctx(), fx.svc.dhcp_self_probe())
+        .await
+        .unwrap();
+    assert!(resp.wardnet_responded);
+    assert!(resp.foreign_responded);
+    assert_eq!(resp.foreign_server_ip, Some(Ipv4Addr::new(10, 0, 0, 1)));
+}
+
+#[tokio::test]
+async fn dhcp_self_probe_picks_first_foreign_when_multiple() {
+    let fx = build_probe_fixture(
+        fresh_inspector(),
+        None,
+        vec![
+            Ipv4Addr::new(10, 0, 0, 1),
+            Ipv4Addr::new(10, 0, 0, 2),
+            Ipv4Addr::new(192, 168, 1, 1),
+        ],
+    );
+    let resp = auth_context::with_context(admin_ctx(), fx.svc.dhcp_self_probe())
+        .await
+        .unwrap();
+    assert!(resp.wardnet_responded);
+    assert!(resp.foreign_responded);
+    // First foreign in iteration order — pins the "first foreign wins"
+    // branch in service.rs.
+    assert_eq!(resp.foreign_server_ip, Some(Ipv4Addr::new(10, 0, 0, 1)));
+}
+
+#[tokio::test]
+async fn dhcp_self_probe_anonymous_forbidden() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let result = fx.svc.dhcp_self_probe().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn discover_gateway_mac_anonymous_forbidden() {
+    let fx = build_probe_fixture(fresh_inspector(), None, vec![]);
+    let result = fx
+        .svc
+        .discover_gateway_mac(wardnet_common::api::DiscoverGatewayMacRequest {
+            mac: None,
+            target_ip: None,
+        })
+        .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }

@@ -23,6 +23,8 @@ use wardnetd_data::create_repository_factory;
 use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
+use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
+use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
@@ -211,6 +213,10 @@ async fn run(
     // reruns `make run-dev` to bring it back.
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
+    // A synthetic LAN IP that looks plausible in UI copy. Declared
+    // before `Backends` so the noop network inspector can claim it.
+    let lan_ip = std::net::Ipv4Addr::new(192, 168, 1, 1);
+
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
         policy_router: Arc::new(NoopPolicyRouter),
@@ -224,10 +230,12 @@ async fn run(
         host_id: "wardnetd-mock".to_owned(),
         shutdown_token: shutdown_token.clone(),
         power_ops: Arc::new(NoopSystemPowerOps),
+        network_inspector: Arc::new(NoopNetworkInspector {
+            interface: config.network.lan_interface.clone(),
+            ip: lan_ip,
+        }),
+        network_probe: Arc::new(NoopNetworkProbe),
     };
-
-    // A synthetic LAN IP that looks plausible in UI copy.
-    let lan_ip = std::net::Ipv4Addr::new(192, 168, 1, 1);
 
     let services = init_services_with_factory(
         factory.as_ref(),
@@ -236,7 +244,8 @@ async fn run(
         lan_ip,
         started_at,
         log_service.clone(),
-    );
+    )
+    .await?;
 
     // No-op DHCP and DNS servers — services and handlers treat them
     // opaquely so the UI gets consistent start/stop semantics.

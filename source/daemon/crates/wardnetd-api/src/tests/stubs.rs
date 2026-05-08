@@ -15,7 +15,7 @@ use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::routing::RoutingTarget;
 use wardnet_common::tunnel::Tunnel;
 
-use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::ObservationResult;
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
@@ -54,6 +54,19 @@ impl AuthService for StubAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        Ok(WizardState {
+            step: WizardStep::Completed,
+            mode: None,
+        })
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: WizardStep,
+        _mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        unimplemented!()
     }
 }
 
@@ -479,6 +492,12 @@ impl RoutingService for StubRoutingService {
     ) -> Result<(), AppError> {
         Ok(())
     }
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn default_policy(&self) -> Result<String, AppError> {
+        Ok("direct".to_owned())
+    }
 }
 
 pub struct StubSystemService;
@@ -512,6 +531,20 @@ impl SystemService for StubSystemService {
     }
     async fn request_shutdown(&self) -> Result<(), AppError> {
         Ok(())
+    }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+        unimplemented!()
     }
 }
 

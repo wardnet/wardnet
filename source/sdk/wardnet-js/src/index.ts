@@ -8,6 +8,7 @@ export { DeviceService } from "./services/devices.js";
 export { TunnelService } from "./services/tunnels.js";
 export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
+export { NetworkService } from "./services/network.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
@@ -46,10 +47,32 @@ export type {
 export type { LoginRequest, LoginResponse } from "./types/auth.js";
 
 // Types — system
-export type { SystemStatusResponse } from "./types/system.js";
+export type {
+  SetDefaultPolicyRequest,
+  SetDefaultPolicyResponse,
+  SystemStatusResponse,
+} from "./types/system.js";
+
+// Types — network
+export type {
+  DhcpSelfProbeResponse,
+  DhcpSource,
+  DiscoverGatewayMacRequest,
+  DiscoverGatewayMacResponse,
+  NetworkStatusResponse,
+  RouterMacSource,
+} from "./types/network.js";
 
 // Types — setup
-export type { SetupStatusResponse, SetupRequest, SetupResponse } from "./types/setup.js";
+export type {
+  AdvanceWizardRequest,
+  AdvanceWizardResponse,
+  SetupRequest,
+  SetupResponse,
+  SetupStatusResponse,
+  WizardMode,
+  WizardStep,
+} from "./types/setup.js";
 
 // Types — info
 export type { InfoResponse } from "./types/info.js";

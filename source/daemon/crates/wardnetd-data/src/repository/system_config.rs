@@ -36,4 +36,51 @@ pub trait SystemConfigRepository: Send + Sync {
         let value = if completed { "true" } else { "false" };
         self.set("setup_completed", value).await
     }
+
+    /// Read the global default routing policy.
+    ///
+    /// Stored as either `"direct"` or a tunnel UUID (as plain string).
+    /// Returns `None` if the key is unset (e.g. the bootstrap migration
+    /// hasn't run yet).
+    async fn get_default_policy(&self) -> anyhow::Result<Option<String>> {
+        self.get("default_policy").await
+    }
+
+    /// Persist the global default routing policy.
+    async fn set_default_policy(&self, policy: &str) -> anyhow::Result<()> {
+        self.set("default_policy", policy).await
+    }
+
+    /// Read the current setup-wizard step.
+    ///
+    /// One of: `admin`, `network`, `dhcp`, `router_mac`, `tunnel`,
+    /// `policy`, or `completed`. Returns `None` if the key is unset.
+    async fn get_wizard_step(&self) -> anyhow::Result<Option<String>> {
+        self.get("wizard_step").await
+    }
+
+    /// Persist the current setup-wizard step.
+    async fn set_wizard_step(&self, step: &str) -> anyhow::Result<()> {
+        self.set("wizard_step", step).await
+    }
+
+    /// Read the current setup-wizard mode (`primary` or `locked_router`).
+    async fn get_wizard_mode(&self) -> anyhow::Result<Option<String>> {
+        self.get("wizard_mode").await
+    }
+
+    /// Persist the current setup-wizard mode.
+    async fn set_wizard_mode(&self, mode: &str) -> anyhow::Result<()> {
+        self.set("wizard_mode", mode).await
+    }
+
+    /// Read the discovered upstream router MAC address.
+    async fn get_router_mac(&self) -> anyhow::Result<Option<String>> {
+        self.get("router_mac").await
+    }
+
+    /// Persist the discovered upstream router MAC address.
+    async fn set_router_mac(&self, mac: &str) -> anyhow::Result<()> {
+        self.set("router_mac", mac).await
+    }
 }

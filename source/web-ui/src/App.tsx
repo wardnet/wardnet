@@ -31,12 +31,19 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Redirects to /setup if initial setup hasn't been completed. */
+/**
+ * Redirects to /setup whenever the wizard hasn't finished.
+ *
+ * `setup_completed` is now derived from `wizard_step === "completed"`,
+ * so the boolean check still works for clients that haven't been
+ * updated, but the multi-step wizard re-routes the operator back to
+ * /setup after each step until they reach the final confirmation.
+ */
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const { data, isLoading } = useSetupStatus();
 
   if (isLoading) return null;
-  if (data && !data.setup_completed) return <Navigate to="/setup" replace />;
+  if (data && data.wizard_step !== "completed") return <Navigate to="/setup" replace />;
   return <>{children}</>;
 }
 

@@ -6,6 +6,10 @@
 //!
 //! [`CommandExecutor`]: wardnetd_services::command::CommandExecutor
 
+pub mod pnet_network_probe;
+pub mod proc_net_inspector;
 pub mod systemctl_power_ops;
 
+pub use pnet_network_probe::PnetNetworkProbe;
+pub use proc_net_inspector::ProcNetNetworkInspector;
 pub use systemctl_power_ops::SystemctlPowerOps;
