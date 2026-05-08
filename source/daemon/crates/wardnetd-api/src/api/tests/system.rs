@@ -11,7 +11,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use tower::ServiceExt;
 use uuid::Uuid;
-use wardnet_common::api::SystemStatusResponse;
+use wardnet_common::api::{SetDefaultPolicyRequest, SystemStatusResponse};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -19,7 +19,9 @@ use crate::tests::stubs::{
     StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubProviderService,
     StubRoutingService, StubTunnelService,
 };
+use wardnet_common::routing::RoutingTarget;
 use wardnetd_services::LogService;
+use wardnetd_services::RoutingService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
 use wardnetd_services::{AuthService, SystemService};
@@ -50,6 +52,18 @@ impl AuthService for AlwaysAuthService {
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         unimplemented!()
     }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock auth service that always rejects.
@@ -69,6 +83,18 @@ impl AuthService for NeverAuthService {
         unimplemented!()
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
 }
@@ -112,6 +138,134 @@ impl SystemService for MockSystemService {
     async fn request_shutdown(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn network_status(&self) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn discover_gateway_mac(
+        &self,
+        _request: wardnet_common::api::DiscoverGatewayMacRequest,
+    ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+        unimplemented!()
+    }
+    async fn dhcp_self_probe(
+        &self,
+    ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+        unimplemented!()
+    }
+}
+
+/// Mock routing service that returns canned responses for the
+/// `default_policy` / `set_default_policy` pair. All other trait
+/// methods delegate to [`StubRoutingService`] so the production
+/// `set_default_policy` re-apply walk doesn't get exercised here —
+/// these tests only care about the API-handler surface.
+struct MockRoutingService {
+    inner: StubRoutingService,
+    /// Result returned by `default_policy()`.
+    get_response: Result<String, AppError>,
+    /// Result returned by `set_default_policy()`.
+    set_response: Result<(), AppError>,
+}
+
+impl MockRoutingService {
+    fn new(get_response: Result<String, AppError>, set_response: Result<(), AppError>) -> Self {
+        Self {
+            inner: StubRoutingService,
+            get_response,
+            set_response,
+        }
+    }
+
+    /// Convenience for tests that don't care about errors from either call.
+    fn ok(policy: &str) -> Self {
+        Self::new(Ok(policy.to_owned()), Ok(()))
+    }
+}
+
+#[async_trait]
+#[allow(clippy::similar_names)] // matches the RoutingService trait's own argument names.
+impl RoutingService for MockRoutingService {
+    async fn apply_rule(
+        &self,
+        device_id: Uuid,
+        device_ip: &str,
+        target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        self.inner.apply_rule(device_id, device_ip, target).await
+    }
+    async fn remove_device_routes(&self, device_id: Uuid, device_ip: &str) -> Result<(), AppError> {
+        self.inner.remove_device_routes(device_id, device_ip).await
+    }
+    async fn handle_ip_change(
+        &self,
+        device_id: Uuid,
+        old_ip: &str,
+        new_ip: &str,
+    ) -> Result<(), AppError> {
+        self.inner.handle_ip_change(device_id, old_ip, new_ip).await
+    }
+    async fn handle_tunnel_down(&self, tunnel_id: Uuid) -> Result<(), AppError> {
+        self.inner.handle_tunnel_down(tunnel_id).await
+    }
+    async fn handle_tunnel_up(&self, tunnel_id: Uuid) -> Result<(), AppError> {
+        self.inner.handle_tunnel_up(tunnel_id).await
+    }
+    async fn reconcile(&self) -> Result<(), AppError> {
+        self.inner.reconcile().await
+    }
+    async fn handle_route_table_lost(&self, table: u32) -> Result<(), AppError> {
+        self.inner.handle_route_table_lost(table).await
+    }
+    async fn devices_using_tunnel(&self, tunnel_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        self.inner.devices_using_tunnel(tunnel_id).await
+    }
+    async fn apply_rule_for_device(
+        &self,
+        device_id: Uuid,
+        target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        self.inner.apply_rule_for_device(device_id, target).await
+    }
+    async fn apply_rule_for_discovered_device(
+        &self,
+        device_id: Uuid,
+        ip: &str,
+    ) -> Result<(), AppError> {
+        self.inner
+            .apply_rule_for_discovered_device(device_id, ip)
+            .await
+    }
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        match &self.set_response {
+            Ok(()) => Ok(()),
+            Err(e) => Err(clone_app_error(e)),
+        }
+    }
+    async fn default_policy(&self) -> Result<String, AppError> {
+        match &self.get_response {
+            Ok(s) => Ok(s.clone()),
+            Err(e) => Err(clone_app_error(e)),
+        }
+    }
+}
+
+/// Re-create an [`AppError`] of the same variant as `err` so a mock
+/// can return a fresh `Err` from a borrowed source. Internal/Database
+/// errors collapse into a generic `Internal` because [`anyhow::Error`]
+/// is not cloneable; the variant alone determines the HTTP status,
+/// which is what the API tests assert against.
+fn clone_app_error(err: &AppError) -> AppError {
+    match err {
+        AppError::BadRequest(s) => AppError::BadRequest(s.clone()),
+        AppError::NotFound(s) => AppError::NotFound(s.clone()),
+        AppError::Conflict(s) => AppError::Conflict(s.clone()),
+        AppError::Forbidden(s) => AppError::Forbidden(s.clone()),
+        AppError::Unauthorized(s) => AppError::Unauthorized(s.clone()),
+        AppError::UpstreamUnavailable(s) => AppError::UpstreamUnavailable(s.clone()),
+        AppError::Internal(_) | AppError::Database(_) => {
+            AppError::Internal(anyhow::anyhow!("mock internal"))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +273,14 @@ impl SystemService for MockSystemService {
 // ---------------------------------------------------------------------------
 
 fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'static) -> AppState {
+    make_state_with_routing(auth, system, StubRoutingService)
+}
+
+fn make_state_with_routing(
+    auth: impl AuthService + 'static,
+    system: impl SystemService + 'static,
+    routing: impl RoutingService + 'static,
+) -> AppState {
     AppState::new(
         Arc::new(auth),
         Arc::new(crate::tests::stubs::StubBackupService),
@@ -129,7 +291,7 @@ fn make_state(auth: impl AuthService + 'static, system: impl SystemService + 'st
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
-        Arc::new(StubRoutingService),
+        Arc::new(routing),
         Arc::new(system),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),
@@ -165,6 +327,10 @@ fn system_app_full(state: AppState) -> Router {
         .route(
             "/api/system/shutdown",
             axum::routing::post(crate::api::system::shutdown),
+        )
+        .route(
+            "/api/system/default-policy",
+            get(crate::api::system::get_default_policy).put(crate::api::system::set_default_policy),
         )
         .with_state(state)
 }
@@ -837,6 +1003,22 @@ async fn restart_surfaces_service_error_as_500() {
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Ok(())
         }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -925,6 +1107,22 @@ async fn reboot_surfaces_service_error_as_500() {
         }
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Ok(())
+        }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
         }
     }
 
@@ -1015,6 +1213,22 @@ async fn shutdown_surfaces_service_error_as_500() {
         async fn request_shutdown(&self) -> Result<(), AppError> {
             Err(AppError::Internal(anyhow::anyhow!("polkit denied")))
         }
+        async fn network_status(
+            &self,
+        ) -> Result<wardnet_common::api::NetworkStatusResponse, AppError> {
+            unimplemented!()
+        }
+        async fn discover_gateway_mac(
+            &self,
+            _request: wardnet_common::api::DiscoverGatewayMacRequest,
+        ) -> Result<wardnet_common::api::DiscoverGatewayMacResponse, AppError> {
+            unimplemented!()
+        }
+        async fn dhcp_self_probe(
+            &self,
+        ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
+            unimplemented!()
+        }
     }
 
     let admin_id = Uuid::new_v4();
@@ -1064,4 +1278,236 @@ async fn status_authenticates_via_bearer_token() {
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+}
+
+// ---------------------------------------------------------------------------
+// GET / PUT /api/system/default-policy
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn get_default_policy_returns_direct() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::ok("direct"),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/default-policy")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["policy"], "direct");
+}
+
+#[tokio::test]
+async fn get_default_policy_returns_tunnel_uuid() {
+    let admin_id = Uuid::new_v4();
+    let tunnel_uuid = "10000000-0000-0000-0000-000000000001";
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::ok(tunnel_uuid),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/default-policy")
+        .header("Authorization", "Bearer api-key")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["policy"], tunnel_uuid);
+}
+
+#[tokio::test]
+async fn get_default_policy_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/default-policy")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn get_default_policy_surfaces_service_error_as_500() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::new(Err(AppError::Internal(anyhow::anyhow!("db down"))), Ok(())),
+    );
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .uri("/api/system/default-policy")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn set_default_policy_succeeds_with_direct() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::ok("direct"),
+    );
+
+    let body = serde_json::to_vec(&SetDefaultPolicyRequest {
+        policy: "direct".to_owned(),
+    })
+    .unwrap();
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/system/default-policy")
+        .header("Cookie", "wardnet_session=valid-token")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(body))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["policy"], "direct");
+}
+
+#[tokio::test]
+async fn set_default_policy_succeeds_with_tunnel_uuid() {
+    let admin_id = Uuid::new_v4();
+    let tunnel_uuid = "20000000-0000-0000-0000-000000000002";
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::ok("direct"),
+    );
+
+    let body = serde_json::to_vec(&SetDefaultPolicyRequest {
+        policy: tunnel_uuid.to_owned(),
+    })
+    .unwrap();
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/system/default-policy")
+        .header("Authorization", "Bearer key")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(body))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    // Echoed from the request body, not the mock get_response.
+    assert_eq!(json["policy"], tunnel_uuid);
+}
+
+#[tokio::test]
+async fn set_default_policy_invalid_returns_400() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_routing(
+        AlwaysAuthService { admin_id },
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+        MockRoutingService::new(
+            Ok("direct".to_owned()),
+            Err(AppError::BadRequest("not a uuid".to_owned())),
+        ),
+    );
+
+    let body = serde_json::to_vec(&SetDefaultPolicyRequest {
+        policy: "garbage".to_owned(),
+    })
+    .unwrap();
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/system/default-policy")
+        .header("Cookie", "wardnet_session=valid-token")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(body))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn set_default_policy_requires_authentication() {
+    let state = make_state(
+        NeverAuthService,
+        MockSystemService {
+            response: Ok(default_status()),
+        },
+    );
+
+    let body = serde_json::to_vec(&SetDefaultPolicyRequest {
+        policy: "direct".to_owned(),
+    })
+    .unwrap();
+
+    let app = system_app_full(state);
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/system/default-policy")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(body))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }

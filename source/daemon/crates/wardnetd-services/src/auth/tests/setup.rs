@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -10,14 +11,28 @@ use wardnetd_data::repository::{
 // -- Mock repositories ---------------------------------------------------
 
 /// Mock admin repo that tracks created admins.
+///
+/// `exists()` returns `true` once any admin has been `create`-d (or
+/// when seeded via `with_existing_admin`), which mirrors the real
+/// `SQLite` repo's behaviour — `setup_admin`'s 409 guard now reads
+/// this directly instead of the legacy `setup_completed` key.
 struct MockAdminRepo {
     created: Mutex<Vec<(String, String, String)>>,
+    seeded_exists: Mutex<bool>,
 }
 
 impl MockAdminRepo {
     fn new() -> Self {
         Self {
             created: Mutex::new(Vec::new()),
+            seeded_exists: Mutex::new(false),
+        }
+    }
+
+    fn with_existing_admin() -> Self {
+        Self {
+            created: Mutex::new(Vec::new()),
+            seeded_exists: Mutex::new(true),
         }
     }
 }
@@ -39,7 +54,7 @@ impl AdminRepository for MockAdminRepo {
         Ok(None)
     }
     async fn exists(&self) -> anyhow::Result<bool> {
-        Ok(false)
+        Ok(*self.seeded_exists.lock().unwrap() || !self.created.lock().unwrap().is_empty())
     }
 }
 
@@ -86,14 +101,24 @@ impl ApiKeyRepository for MockApiKeyRepo {
     }
 }
 
-/// Mock system config repo that tracks `setup_completed` state.
+/// Mock system config repo backed by an in-memory `HashMap`.
+///
+/// Exposes `setup_completed` as a typed mutex to keep the existing
+/// assertions readable; everything else (`wizard_step`, `default_policy`,
+/// `router_mac` …) is stored in `store`.
 struct MockSystemConfigRepo {
+    store: Mutex<HashMap<String, String>>,
     setup_completed: Mutex<bool>,
 }
 
 impl MockSystemConfigRepo {
     fn new(completed: bool) -> Self {
+        let mut store = HashMap::new();
+        if completed {
+            store.insert("setup_completed".to_owned(), "true".to_owned());
+        }
         Self {
+            store: Mutex::new(store),
             setup_completed: Mutex::new(completed),
         }
     }
@@ -104,15 +129,18 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
         if key == "setup_completed" {
             let completed = *self.setup_completed.lock().unwrap();
-            Ok(Some(if completed { "true" } else { "false" }.to_owned()))
-        } else {
-            Ok(None)
+            return Ok(Some(if completed { "true" } else { "false" }.to_owned()));
         }
+        Ok(self.store.lock().unwrap().get(key).cloned())
     }
     async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
         if key == "setup_completed" {
             *self.setup_completed.lock().unwrap() = value == "true";
         }
+        self.store
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
         Ok(())
     }
     async fn device_count(&self) -> anyhow::Result<i64> {
@@ -129,14 +157,21 @@ impl SystemConfigRepository for MockSystemConfigRepo {
 // -- Helpers --------------------------------------------------------------
 
 fn make_service(
-    setup_completed: bool,
+    admin_exists: bool,
 ) -> (
     AuthServiceImpl,
     Arc<MockAdminRepo>,
     Arc<MockSystemConfigRepo>,
 ) {
-    let admin_repo = Arc::new(MockAdminRepo::new());
-    let system_config = Arc::new(MockSystemConfigRepo::new(setup_completed));
+    let admin_repo = Arc::new(if admin_exists {
+        MockAdminRepo::with_existing_admin()
+    } else {
+        MockAdminRepo::new()
+    });
+    // `setup_completed` legacy key starts unset; the 409 guard now uses
+    // admin existence so this only matters for tests that exercise
+    // `is_setup_completed` directly.
+    let system_config = Arc::new(MockSystemConfigRepo::new(false));
     let svc = AuthServiceImpl::new(
         admin_repo.clone(),
         Arc::new(MockSessionRepo),
@@ -156,13 +191,17 @@ async fn setup_admin_succeeds_when_not_completed() {
     let result = svc.setup_admin("adminuser", "password123").await;
     assert!(result.is_ok());
 
-    // Verify admin was created.
+    // Verify admin was created — this is now the canonical "setup of
+    // step 1 is done" signal that drives the 409 guard on retry.
     let created = admin_repo.created.lock().unwrap();
     assert_eq!(created.len(), 1);
     assert_eq!(created[0].1, "adminuser");
 
-    // Verify setup was marked completed.
-    assert!(*system_config.setup_completed.lock().unwrap());
+    // Verify the legacy setup_completed key is NOT touched here. It
+    // used to flip to true alongside admin creation but that produced
+    // a race window between the two writes; we now derive
+    // setup_completed from wizard_step == Completed instead.
+    assert!(!*system_config.setup_completed.lock().unwrap());
 }
 
 #[tokio::test]
@@ -247,10 +286,25 @@ async fn is_setup_completed_returns_false_initially() {
 }
 
 #[tokio::test]
-async fn is_setup_completed_returns_true_after_setup() {
+async fn is_setup_completed_returns_false_after_setup_admin() {
+    // `is_setup_completed()` now derives from `wizard_step == Completed`,
+    // not from "an admin row exists". After setup_admin, the wizard is
+    // at "network" — operator still needs to walk through the rest of
+    // the wizard before this method reports true.
     let (svc, _, _) = make_service(false);
 
     svc.setup_admin("adminuser", "password123").await.unwrap();
+
+    let result = svc.is_setup_completed().await.unwrap();
+    assert!(!result);
+}
+
+#[tokio::test]
+async fn is_setup_completed_returns_true_when_wizard_finished() {
+    let (svc, _, system_config) = make_service(false);
+    // Drive the system_config straight to wizard_step=completed (the
+    // production path is via advance_wizard, exercised in `wizard.rs`).
+    system_config.set_wizard_step("completed").await.unwrap();
 
     let result = svc.is_setup_completed().await.unwrap();
     assert!(result);

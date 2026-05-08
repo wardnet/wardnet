@@ -1,6 +1,6 @@
 //! Tests for the setup API endpoints (POST /api/setup, GET /api/setup/status).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::Router;
@@ -9,7 +9,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use tower::ServiceExt;
 use uuid::Uuid;
-use wardnet_common::api::SetupStatusResponse;
+use wardnet_common::api::{AdvanceWizardResponse, SetupStatusResponse, WizardMode, WizardStep};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -30,6 +30,22 @@ use wardnetd_services::error::AppError;
 struct MockSetupAuthService {
     setup_completed: bool,
     setup_result: Result<(), AppError>,
+    wizard: Mutex<wardnetd_services::auth::service::WizardState>,
+}
+
+impl MockSetupAuthService {
+    fn new(setup_completed: bool, setup_result: Result<(), AppError>) -> Self {
+        let step = if setup_completed {
+            WizardStep::Completed
+        } else {
+            WizardStep::Admin
+        };
+        Self {
+            setup_completed,
+            setup_result,
+            wizard: Mutex::new(wardnetd_services::auth::service::WizardState { step, mode: None }),
+        }
+    }
 }
 
 #[async_trait]
@@ -41,7 +57,10 @@ impl AuthService for MockSetupAuthService {
         Ok(None)
     }
     async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
+        // Authenticate any Bearer token to a stable admin id so the
+        // setup_advance tests can drive the endpoint behind the
+        // AdminAuth extractor without standing up a real session.
+        Ok(Some(Uuid::nil()))
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
         match &self.setup_result {
@@ -51,6 +70,23 @@ impl AuthService for MockSetupAuthService {
     }
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(self.setup_completed)
+    }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        Ok(*self.wizard.lock().unwrap())
+    }
+    async fn advance_wizard(
+        &self,
+        to_step: WizardStep,
+        mode: Option<WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        let mut guard = self.wizard.lock().unwrap();
+        guard.step = to_step;
+        if mode.is_some() {
+            guard.mode = mode;
+        }
+        Ok(*guard)
     }
 }
 
@@ -84,6 +120,7 @@ fn setup_app(state: AppState) -> Router {
     Router::new()
         .route("/api/setup/status", get(crate::api::setup::setup_status))
         .route("/api/setup", post(crate::api::setup::setup))
+        .route("/api/setup/advance", post(crate::api::setup::setup_advance))
         .with_state(state)
 }
 
@@ -93,10 +130,7 @@ fn setup_app(state: AppState) -> Router {
 
 #[tokio::test]
 async fn setup_status_returns_false_initially() {
-    let state = make_state(MockSetupAuthService {
-        setup_completed: false,
-        setup_result: Ok(()),
-    });
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
     let app = setup_app(state);
 
     let req = Request::builder()
@@ -115,10 +149,7 @@ async fn setup_status_returns_false_initially() {
 
 #[tokio::test]
 async fn setup_creates_admin_and_returns_201() {
-    let state = make_state(MockSetupAuthService {
-        setup_completed: false,
-        setup_result: Ok(()),
-    });
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
     let app = setup_app(state);
 
     let body = serde_json::json!({
@@ -146,10 +177,10 @@ async fn setup_creates_admin_and_returns_201() {
 
 #[tokio::test]
 async fn setup_returns_409_when_already_completed() {
-    let state = make_state(MockSetupAuthService {
-        setup_completed: true,
-        setup_result: Err(AppError::Conflict("setup already completed".to_owned())),
-    });
+    let state = make_state(MockSetupAuthService::new(
+        true,
+        Err(AppError::Conflict("setup already completed".to_owned())),
+    ));
     let app = setup_app(state);
 
     let body = serde_json::json!({
@@ -170,10 +201,7 @@ async fn setup_returns_409_when_already_completed() {
 
 #[tokio::test]
 async fn setup_status_returns_true_when_completed() {
-    let state = make_state(MockSetupAuthService {
-        setup_completed: true,
-        setup_result: Ok(()),
-    });
+    let state = make_state(MockSetupAuthService::new(true, Ok(())));
     let app = setup_app(state);
 
     let req = Request::builder()
@@ -188,4 +216,76 @@ async fn setup_status_returns_true_when_completed() {
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: SetupStatusResponse = serde_json::from_slice(&body).unwrap();
     assert!(json.setup_completed);
+    assert_eq!(json.wizard_step, WizardStep::Completed);
+    assert!(json.wizard_mode.is_none());
+}
+
+#[tokio::test]
+async fn setup_status_returns_admin_step_initially() {
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
+    let app = setup_app(state);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/setup/status")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: SetupStatusResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json.wizard_step, WizardStep::Admin);
+    assert!(json.wizard_mode.is_none());
+}
+
+#[tokio::test]
+async fn setup_advance_persists_step_and_mode() {
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
+    let app = setup_app(state);
+
+    let body = serde_json::json!({
+        "to_step": "dhcp",
+        "wizard_mode": "primary",
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/setup/advance")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer test-key")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp_body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: AdvanceWizardResponse = serde_json::from_slice(&resp_body).unwrap();
+    assert_eq!(json.wizard_step, WizardStep::Dhcp);
+    assert_eq!(json.wizard_mode, Some(WizardMode::Primary));
+}
+
+#[tokio::test]
+async fn setup_advance_rejects_unauthenticated() {
+    let state = make_state(MockSetupAuthService::new(false, Ok(())));
+    let app = setup_app(state);
+
+    let body = serde_json::json!({
+        "to_step": "dhcp",
+        "wizard_mode": "primary",
+    });
+
+    // No Authorization header — AdminAuth should reject before the
+    // service ever sees the call.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/setup/advance")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }

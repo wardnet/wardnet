@@ -183,6 +183,14 @@ impl RoutingService for MockRoutingService {
             });
         Ok(())
     }
+
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn default_policy(&self) -> Result<String, AppError> {
+        Ok("direct".to_owned())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +267,16 @@ impl RoutingService for FailingRoutingService {
         Err(AppError::Internal(anyhow::anyhow!(
             "apply_rule_for_discovered_device failed"
         )))
+    }
+
+    async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "set_default_policy failed"
+        )))
+    }
+
+    async fn default_policy(&self) -> Result<String, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!("default_policy failed")))
     }
 }
 

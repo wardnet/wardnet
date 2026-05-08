@@ -9,6 +9,7 @@ pub mod info;
 pub mod jobs;
 pub mod logs_ws;
 pub mod middleware;
+pub mod network;
 pub mod providers;
 pub mod responses;
 pub mod setup;
@@ -53,6 +54,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = dns::register(r);
     r = dns_filter::register(r);
     r = system::register(r);
+    r = network::register(r);
     r = jobs::register(r);
     r = update::register(r);
     r = backup::register(r);

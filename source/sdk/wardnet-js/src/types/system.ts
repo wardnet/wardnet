@@ -12,3 +12,17 @@ export interface SystemStatusResponse {
   memory_used_bytes: number;
   memory_total_bytes: number;
 }
+
+/**
+ * Request body for PUT /api/system/default-policy.
+ *
+ * `policy` is either the literal string `"direct"` or a tunnel UUID.
+ */
+export interface SetDefaultPolicyRequest {
+  policy: string;
+}
+
+/** Response for GET / PUT /api/system/default-policy. */
+export interface SetDefaultPolicyResponse {
+  policy: string;
+}

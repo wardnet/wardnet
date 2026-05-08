@@ -244,18 +244,20 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               </div>
             </>
           )}
-          <Button
-            variant="secondary"
-            onClick={handleValidate}
-            disabled={!credsReady || validateCreds.isPending}
-          >
-            {validateCreds.isPending ? "Validating…" : "Validate credentials"}
-          </Button>
+          <div className="flex items-center justify-end gap-3">
+            {validateCreds.data && !validateCreds.data.valid && (
+              <p className="flex-1 text-sm text-destructive">{validateCreds.data.message}</p>
+            )}
+            <Button
+              variant="secondary"
+              onClick={handleValidate}
+              disabled={!credsReady || validateCreds.isPending}
+            >
+              {validateCreds.isPending ? "Validating…" : "Validate credentials"}
+            </Button>
+          </div>
           {validateCreds.isError && (
             <ApiErrorAlert error={validateCreds.error} fallback="Validation failed" />
-          )}
-          {validateCreds.data && !validateCreds.data.valid && (
-            <p className="text-sm text-destructive">{validateCreds.data.message}</p>
           )}
         </>
       )}
@@ -342,9 +344,11 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             <ApiErrorAlert error={setupTunnel.error} fallback="Setup failed" />
           )}
 
-          <Button onClick={handleSetup} disabled={setupTunnel.isPending} className="w-full">
-            {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
-          </Button>
+          <div className="flex justify-end">
+            <Button onClick={handleSetup} disabled={setupTunnel.isPending}>
+              {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
+            </Button>
+          </div>
         </>
       )}
     </div>

@@ -107,3 +107,72 @@ async fn is_setup_completed_returns_true_after_set() {
     repo.set_setup_completed(true).await.unwrap();
     assert!(repo.is_setup_completed().await.unwrap());
 }
+
+#[tokio::test]
+async fn default_policy_round_trip() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(repo.get_default_policy().await.unwrap().is_none());
+
+    repo.set_default_policy("direct").await.unwrap();
+    assert_eq!(
+        repo.get_default_policy().await.unwrap().as_deref(),
+        Some("direct")
+    );
+
+    let tunnel_uuid = "10000000-0000-0000-0000-000000000001";
+    repo.set_default_policy(tunnel_uuid).await.unwrap();
+    assert_eq!(
+        repo.get_default_policy().await.unwrap().as_deref(),
+        Some(tunnel_uuid)
+    );
+}
+
+#[tokio::test]
+async fn wizard_step_round_trip() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(repo.get_wizard_step().await.unwrap().is_none());
+
+    repo.set_wizard_step("network").await.unwrap();
+    assert_eq!(
+        repo.get_wizard_step().await.unwrap().as_deref(),
+        Some("network")
+    );
+
+    repo.set_wizard_step("completed").await.unwrap();
+    assert_eq!(
+        repo.get_wizard_step().await.unwrap().as_deref(),
+        Some("completed")
+    );
+}
+
+#[tokio::test]
+async fn wizard_mode_round_trip() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(repo.get_wizard_mode().await.unwrap().is_none());
+
+    repo.set_wizard_mode("primary").await.unwrap();
+    assert_eq!(
+        repo.get_wizard_mode().await.unwrap().as_deref(),
+        Some("primary")
+    );
+}
+
+#[tokio::test]
+async fn router_mac_round_trip() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    assert!(repo.get_router_mac().await.unwrap().is_none());
+
+    repo.set_router_mac("AA:BB:CC:DD:EE:FF").await.unwrap();
+    assert_eq!(
+        repo.get_router_mac().await.unwrap().as_deref(),
+        Some("AA:BB:CC:DD:EE:FF")
+    );
+}

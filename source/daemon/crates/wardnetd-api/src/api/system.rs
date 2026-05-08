@@ -8,7 +8,9 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use wardnet_common::api::SystemStatusResponse;
+use wardnet_common::api::{
+    SetDefaultPolicyRequest, SetDefaultPolicyResponse, SystemStatusResponse,
+};
 
 use crate::api::middleware::AdminAuth;
 use crate::api::responses::AuthErrors;
@@ -28,6 +30,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(restart))
         .routes(routes!(reboot))
         .routes(routes!(shutdown))
+        .routes(routes!(get_default_policy, set_default_policy))
 }
 
 #[utoipa::path(
@@ -180,6 +183,66 @@ pub async fn shutdown(
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().request_shutdown().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/system/default-policy",
+    tag = "system",
+    description = "Read the global default routing policy. Returns either the \
+                   literal string \"direct\" or a tunnel UUID. Used by the \
+                   setup wizard's policy step and the post-install settings \
+                   page so the operator can see the active default. Admin only.",
+    responses(
+        (status = 200, description = "Current default policy", body = SetDefaultPolicyResponse),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn get_default_policy(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<SetDefaultPolicyResponse>, AppError> {
+    let policy = state.routing_service().default_policy().await?;
+    Ok(Json(SetDefaultPolicyResponse { policy }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/system/default-policy",
+    tag = "system",
+    description = "Set the global default routing policy. Body `policy` must be \
+                   either the literal string \"direct\" or a tunnel UUID. The \
+                   change is persisted in `system_config` and applied in-memory \
+                   immediately — devices whose stored rule is `Default` pick \
+                   up the new policy on their next apply or reconcile. Admin only.",
+    request_body = SetDefaultPolicyRequest,
+    responses(
+        (status = 200, description = "Default policy updated", body = SetDefaultPolicyResponse),
+        (status = 400, description = "Invalid policy", body = wardnet_common::api::ApiError),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn set_default_policy(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<SetDefaultPolicyRequest>,
+) -> Result<Json<SetDefaultPolicyResponse>, AppError> {
+    state
+        .routing_service()
+        .set_default_policy(&body.policy)
+        .await?;
+
+    Ok(Json(SetDefaultPolicyResponse {
+        policy: body.policy,
+    }))
 }
 
 /// API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that
