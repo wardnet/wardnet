@@ -1,10 +1,28 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use wardnet_common::api::LastShutdownState;
+
+/// Snapshot of the previous daemon shutdown.
+///
+/// Returned both by [`SystemConfigRepository::detect_previous_shutdown`]
+/// (which classifies the prior run and writes a fresh `running` marker
+/// in a single transaction) and by [`SystemConfigRepository::read_last_shutdown`]
+/// (which performs a read-only lookup for the API).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastShutdownInfo {
+    pub state: LastShutdownState,
+    pub at: Option<DateTime<Utc>>,
+    pub acknowledged_at: Option<DateTime<Utc>>,
+}
 
 /// Data access for the key-value `system_config` table and aggregate counts.
 ///
-/// Provides simple get/set for configuration values and count queries for
-/// devices and tunnels. Used by [`SystemService`](crate::service::SystemService)
-/// to build status responses.
+/// Provides simple get/set for configuration values, count queries for
+/// devices and tunnels, and the unclean-shutdown detection key set
+/// (`last_shutdown_state`, `last_shutdown_at`, `last_shutdown_acknowledged_at`,
+/// `last_seen_at`). Used by [`SystemService`](crate::service::SystemService)
+/// to build status responses and by the daemon entrypoint to classify
+/// the previous shutdown on boot.
 #[async_trait]
 pub trait SystemConfigRepository: Send + Sync {
     /// Retrieve a config value by key.
@@ -21,6 +39,75 @@ pub trait SystemConfigRepository: Send + Sync {
 
     /// Return the database file size in bytes.
     async fn db_size_bytes(&self) -> anyhow::Result<u64>;
+
+    /// Classify the previous shutdown and atomically arm the next-boot
+    /// marker.
+    ///
+    /// Reads `last_shutdown_state`, `last_shutdown_at`, `last_seen_at`,
+    /// and `last_shutdown_acknowledged_at`, then UPSERTs
+    /// `last_shutdown_state="running"` and `last_shutdown_at=NOW` in
+    /// the same transaction. Must be called exactly once per boot,
+    /// before the heartbeat runner starts.
+    ///
+    /// Classification:
+    /// - row absent → `Unknown`, `at = None`
+    /// - prior `graceful` → `Graceful`, `at = last_shutdown_at`
+    /// - prior `running` → `Unclean`, `at = last_seen_at` (falling back
+    ///   to `last_shutdown_at` if the heartbeat never fired before the
+    ///   crash)
+    ///
+    /// `acknowledged_at` is intentionally untouched by this method —
+    /// the timestamp-comparison ack model (`acknowledged_at >= at`)
+    /// handles the reset implicitly when a fresh unclean event writes
+    /// a newer `last_shutdown_at`.
+    async fn detect_previous_shutdown(&self) -> anyhow::Result<LastShutdownInfo> {
+        Ok(LastShutdownInfo {
+            state: LastShutdownState::Unknown,
+            at: None,
+            acknowledged_at: None,
+        })
+    }
+
+    /// Record a graceful shutdown.
+    ///
+    /// Writes `last_shutdown_state="graceful"` and
+    /// `last_shutdown_at=NOW`. Called from `main.rs` after the runner
+    /// shutdown sequence and before the process exits.
+    async fn record_graceful_shutdown(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Update the heartbeat timestamp.
+    ///
+    /// Writes `last_seen_at=NOW`. The heartbeat runner calls this on
+    /// a 60s cadence so an unclean shutdown's `at` timestamp is
+    /// accurate to within the heartbeat interval.
+    async fn record_heartbeat(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Read the current shutdown classification without modifying it.
+    ///
+    /// Used by `SystemService::status()` to embed the result in the
+    /// dashboard's status response. Returns the same shape as
+    /// [`Self::detect_previous_shutdown`] but is read-only.
+    async fn read_last_shutdown(&self) -> anyhow::Result<LastShutdownInfo> {
+        Ok(LastShutdownInfo {
+            state: LastShutdownState::Unknown,
+            at: None,
+            acknowledged_at: None,
+        })
+    }
+
+    /// Acknowledge the most recent unclean shutdown.
+    ///
+    /// Writes `last_shutdown_acknowledged_at=NOW`. Idempotent —
+    /// repeated calls just refresh the timestamp. The banner predicate
+    /// is `acknowledged_at < at`, so a future unclean event with a
+    /// newer `last_shutdown_at` automatically makes this stale.
+    async fn acknowledge_last_shutdown(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Check whether the initial setup wizard has been completed.
     ///

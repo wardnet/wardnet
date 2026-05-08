@@ -1,5 +1,6 @@
 mod device_detector;
 mod firewall_nftables;
+mod heartbeat;
 mod hostname_resolver;
 mod metrics_collector;
 mod packet_capture;

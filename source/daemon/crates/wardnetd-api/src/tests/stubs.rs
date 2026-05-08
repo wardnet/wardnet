@@ -521,6 +521,11 @@ impl SystemService for StubSystemService {
             cpu_usage_percent: 0.0,
             memory_used_bytes: 0,
             memory_total_bytes: 0,
+            last_shutdown: LastShutdownStatus {
+                state: LastShutdownState::Unknown,
+                at: None,
+                acknowledged_at: None,
+            },
         })
     }
     async fn request_restart(&self) -> Result<(), AppError> {
@@ -545,6 +550,15 @@ impl SystemService for StubSystemService {
         &self,
     ) -> Result<wardnet_common::api::DhcpSelfProbeResponse, AppError> {
         unimplemented!()
+    }
+    async fn record_heartbeat(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn record_graceful_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn acknowledge_last_shutdown(&self) -> Result<(), AppError> {
+        Ok(())
     }
 }
 

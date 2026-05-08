@@ -185,6 +185,13 @@ pub async fn init_services(
         .await?
         .unwrap_or_else(|| config.network.default_policy.clone());
 
+    // Classify the previous shutdown and arm the running marker for
+    // this run. Runs once per boot, before any other component
+    // touches `system_config`. Its result is logged here; the API
+    // surfaces it on every `/api/system/status` call by reading the
+    // persisted classification back from the repository.
+    classify_previous_shutdown(repo_factory.as_ref()).await;
+
     // Wire services.
     Ok(create_services(
         repo_factory.as_ref(),
@@ -231,6 +238,10 @@ pub async fn init_services_with_factory(
         .await?
         .unwrap_or_else(|| config.network.default_policy.clone());
 
+    // Classify the previous shutdown and arm the running marker for
+    // this run. See `init_services` for context.
+    classify_previous_shutdown(repo_factory).await;
+
     Ok(create_services(
         repo_factory,
         backends,
@@ -240,6 +251,46 @@ pub async fn init_services_with_factory(
         log_service,
         initial_default_policy,
     ))
+}
+
+/// Run [`SystemConfigRepository::detect_previous_shutdown`] once at
+/// startup and log the outcome.
+///
+/// Called from [`init_services`] / [`init_services_with_factory`] so
+/// the classification persists into `prev_shutdown_*` keys before any
+/// service reads them. Failure here is logged but never fatal — a
+/// transient `SQLite` error must not prevent the daemon from booting.
+async fn classify_previous_shutdown(repo_factory: &dyn RepositoryFactory) {
+    let repo = repo_factory.system_config();
+    match repo.detect_previous_shutdown().await {
+        Ok(info) => match info.state {
+            wardnet_common::api::LastShutdownState::Unclean => {
+                tracing::warn!(
+                    at = ?info.at,
+                    "previous daemon shutdown was unclean (crash or power loss): at={at:?}",
+                    at = info.at,
+                );
+            }
+            wardnet_common::api::LastShutdownState::Graceful => {
+                tracing::info!(
+                    at = ?info.at,
+                    "previous daemon shutdown was graceful: at={at:?}",
+                    at = info.at,
+                );
+            }
+            wardnet_common::api::LastShutdownState::Unknown => {
+                tracing::info!(
+                    "no prior shutdown record found (first-ever boot or fresh database)"
+                );
+            }
+        },
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "failed to classify previous shutdown — skipping detection: {e}",
+            );
+        }
+    }
 }
 
 /// Creates services from a [`RepositoryFactory`] + [`Backends`] + config.
