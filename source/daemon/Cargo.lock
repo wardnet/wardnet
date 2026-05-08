@@ -5588,7 +5588,6 @@ dependencies = [
  "serde_json",
  "tabled",
  "tokio",
- "wardnet-common",
 ]
 
 [[package]]

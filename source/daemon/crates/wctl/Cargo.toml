@@ -23,4 +23,3 @@ tokio.workspace = true
 tabled.workspace = true
 # https://crates.io/crates/anyhow
 anyhow.workspace = true
-wardnet-common = { path = "../wardnet-common" }
