@@ -6,6 +6,7 @@ mod dns_filter;
 mod info;
 mod jobs;
 mod middleware;
+mod network;
 mod openapi;
 mod providers;
 mod request_context;
