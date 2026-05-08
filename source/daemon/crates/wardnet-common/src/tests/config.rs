@@ -22,7 +22,7 @@ fn defaults_when_file_missing() {
     assert!(config.logging.filters.is_empty());
     assert_eq!(
         config.logging.to_filter_string(),
-        "warn,wardnetd=info,wardnet_common=info"
+        "warn,wardnetd=info,wardnet_common=info,netlink_packet_route::link::buffer_tool=error"
     );
     assert_eq!(config.network.lan_interface, "eth0");
     assert_eq!(config.network.default_policy, "direct");
