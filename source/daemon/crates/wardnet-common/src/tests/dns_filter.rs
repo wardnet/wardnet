@@ -29,14 +29,14 @@ fn device_dns_filter_settings_default_for() {
 fn dns_filter_config_default() {
     let cfg = DnsFilterConfig::default();
     assert!(cfg.enabled);
-    assert!(cfg.default_profile_id.is_none());
+    assert!(cfg.default_profile_ids.is_empty());
 }
 
 #[test]
 fn dns_filter_config_round_trip() {
     let cfg = DnsFilterConfig {
         enabled: false,
-        default_profile_id: Some(Uuid::new_v4()),
+        default_profile_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
     };
     let json = serde_json::to_string(&cfg).unwrap();
     let back: DnsFilterConfig = serde_json::from_str(&json).unwrap();

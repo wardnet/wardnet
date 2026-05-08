@@ -1,29 +1,28 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Label } from "@/components/core/ui/label";
 import { Switch } from "@/components/core/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/core/ui/select";
+import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
   useDnsFilterConfig,
   useDnsFilterProfiles,
   useUpdateDnsFilterConfig,
 } from "@/hooks/useDnsFilter";
 
-const NONE_VALUE = "__none__";
+const DEFAULT_PROFILES_LABEL_ID = "dns-filter-default-profiles-label";
 
-/** Settings-page card for the global DNS filter config (kill switch + default profile). */
+/** Settings-page card for the global DNS filter config (kill switch + default profiles). */
 export function DnsFilterSettingsCard() {
-  const { data: configData, isLoading } = useDnsFilterConfig();
-  const { data: profilesData } = useDnsFilterProfiles();
+  const { data: configData, isLoading: configLoading } = useDnsFilterConfig();
+  const { data: profilesData, isLoading: profilesLoading } = useDnsFilterProfiles();
   const update = useUpdateDnsFilterConfig();
 
   const config = configData?.config;
-  const profiles = profilesData?.profiles ?? [];
+  const profiles = profilesData?.profiles;
+
+  // Both queries must be settled before rendering the picker — otherwise the
+  // composite renders "No profiles defined." in the brief window before
+  // profiles arrive.
+  const ready = !configLoading && !profilesLoading && config && profiles;
 
   return (
     <Card>
@@ -31,7 +30,7 @@ export function DnsFilterSettingsCard() {
         <CardTitle>DNS filtering</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        {isLoading || !config ? (
+        {!ready ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <>
@@ -51,31 +50,23 @@ export function DnsFilterSettingsCard() {
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="default-profile">Default profile</Label>
-              <p className="text-xs text-muted-foreground">
-                Applied to devices that have no explicit profile assignment. Choose "None" to leave
-                unassigned devices unfiltered.
-              </p>
-              <Select
-                value={config.default_profile_id ?? NONE_VALUE}
-                onValueChange={(v) =>
-                  update.mutate({ default_profile_id: v === NONE_VALUE ? null : v })
-                }
-              >
-                <SelectTrigger id="default-profile" className="max-w-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE_VALUE}>None (unfiltered)</SelectItem>
-                  {profiles.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {config.enabled && (
+              <div className="flex flex-col gap-2">
+                <Label id={DEFAULT_PROFILES_LABEL_ID}>Default profiles</Label>
+                <p className="text-xs text-muted-foreground">
+                  Applied to devices that have no explicit profile assignment. Multiple profiles
+                  stack — a domain blocked in any one of them is blocked. Leave empty to leave
+                  unassigned devices unfiltered.
+                </p>
+                <ProfileToggleList
+                  profiles={profiles}
+                  selectedIds={config.default_profile_ids}
+                  onChange={(ids) => update.mutate({ default_profile_ids: ids })}
+                  disabled={update.isPending}
+                  ariaLabelledBy={DEFAULT_PROFILES_LABEL_ID}
+                />
+              </div>
+            )}
           </>
         )}
       </CardContent>

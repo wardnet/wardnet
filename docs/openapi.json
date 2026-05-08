@@ -13593,7 +13593,7 @@
       },
       "DeviceDnsFilterSettings": {
         "type": "object",
-        "description": "Per-device DNS filtering settings.\n\n`enabled = false` is the kill switch; the device's queries skip filtering\nentirely. When `enabled = true` and `profile_ids` is empty, the device\ninherits the global default profile from [`DnsFilterConfig`].",
+        "description": "Per-device DNS filtering settings.\n\n`enabled = false` is the kill switch; the device's queries skip filtering\nentirely. When `enabled = true` and `profile_ids` is empty, the device\ninherits the global default profiles from [`DnsFilterConfig`].",
         "required": [
           "device_id",
           "enabled",
@@ -13614,7 +13614,7 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Explicit profile assignments. Empty means \"follow the default profile\"."
+            "description": "Explicit profile assignments. Empty means \"follow the default profiles\"."
           },
           "updated_at": {
             "type": "string",
@@ -14079,16 +14079,17 @@
         "type": "object",
         "description": "Global DNS filtering configuration.",
         "required": [
-          "enabled"
+          "enabled",
+          "default_profile_ids"
         ],
         "properties": {
-          "default_profile_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "Profile applied to devices with no explicit assignment. `None` means\nunassigned devices skip filtering."
+          "default_profile_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Profiles applied to devices with no explicit assignment. Empty means\nunassigned devices skip filtering. Multiple profiles stack — a domain\nblocked in any of them is blocked. Treat as a set: the order across\nthe get/set roundtrip is not preserved."
           },
           "enabled": {
             "type": "boolean",
@@ -16347,14 +16348,17 @@
       },
       "UpdateDnsFilterConfigRequest": {
         "type": "object",
-        "description": "Request body for PUT /api/dns/filter/config.\n\n`default_profile_id` uses double-`Option` semantics: omitted from JSON =\nno change, `null` = clear the default, `\"<uuid>\"` = set.",
+        "description": "Request body for PUT /api/dns/filter/config.\n\nBoth fields are partial-update: omitted from JSON = no change. For\n`default_profile_ids`, an empty list clears the default (unassigned\ndevices stop being filtered) and a non-empty list replaces the entire\nset.",
         "properties": {
-          "default_profile_id": {
+          "default_profile_ids": {
             "type": [
-              "string",
+              "array",
               "null"
             ],
-            "format": "uuid"
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "enabled": {
             "type": [

@@ -25,7 +25,14 @@ const BLOCKLIST_NAME = "e2e-dns-filter-default-profile";
 const ALT_DEFAULT_NAME = "e2e-alt-default";
 const CRON_NEVER = "0 0 1 1 *";
 
-const BLOCKED_DOMAIN = "www.iana.org";
+// Two distinct canaries, each blocked by a *different* profile. They make
+// the stacking test meaningful: under [Ad] only, BLOCKED_BY_AD blocks but
+// BLOCKED_BY_ALT resolves; under [alt] only, the inverse; under [Ad, alt]
+// both block. If the daemon silently dropped one id from the default set,
+// one of the assertions would fail.
+const BLOCKED_BY_AD = "www.iana.org";
+const BLOCKED_BY_ALT = "www.example.com";
+const ALT_RULE = `||${BLOCKED_BY_ALT}^`;
 
 describe("dns filter — global default profile", () => {
   let authed: AuthedClient;
@@ -34,7 +41,7 @@ describe("dns filter — global default profile", () => {
   let jobs: JobsService;
   let blocklistId: string | undefined;
   let altDefaultId: string | undefined;
-  let originalDefaultId: string | null = null;
+  let originalDefaultIds: string[] = [];
   let deviceVisible = false;
 
   beforeAll(async () => {
@@ -47,10 +54,10 @@ describe("dns filter — global default profile", () => {
 
     await ensureDnsEnabled(authed);
 
-    // Snapshot the pre-spec default so afterAll can restore it,
-    // even if some previous test changed it.
+    // Snapshot the pre-spec defaults so afterAll can restore them,
+    // even if some previous test changed them.
     const config = await dnsFilter.getConfig();
-    originalDefaultId = config.config.default_profile_id;
+    originalDefaultIds = config.config.default_profile_ids;
 
     // Drop leftover state from a prior failed run.
     const existingLists = await dnsFilter.listBlocklists(AD_BLOCKING_PROFILE_ID);
@@ -92,22 +99,26 @@ describe("dns filter — global default profile", () => {
     const job = await waitForJob(jobs, dispatched.job_id, 30_000);
     expect(job.status, `job error: ${job.error ?? "(none)"}`).toBe("SUCCEED");
 
-    // Empty alternative profile — when the global default points at
-    // it, an unassigned device sees no rules and resolves freely.
+    // Alternative profile with a single custom rule blocking BLOCKED_BY_ALT
+    // (a *different* canary from BLOCKED_BY_AD). The two profiles each
+    // block exactly one canary, which lets the stacking test prove union
+    // semantics rather than reproducing single-profile behaviour.
     const profile = await dnsFilter.createProfile({ name: ALT_DEFAULT_NAME });
     altDefaultId = profile.profile.id;
+    await dnsFilter.createFilterRule(altDefaultId, {
+      rule_text: ALT_RULE,
+      enabled: true,
+    });
   }, 180_000);
 
   afterAll(async () => {
-    // Restore the pre-spec default first so the deleteProfile below
-    // doesn't fail (`ON DELETE SET NULL` would silently drop the
-    // pointer, but explicit restoration is clearer in failure logs).
-    if (originalDefaultId !== null) {
-      try {
-        await dnsFilter.updateConfig({ default_profile_id: originalDefaultId });
-      } catch {
-        // ignore
-      }
+    // Restore the pre-spec defaults first so the deleteProfile below
+    // doesn't fail (`ON DELETE CASCADE` would silently drop default
+    // membership, but explicit restoration is clearer in failure logs).
+    try {
+      await dnsFilter.updateConfig({ default_profile_ids: originalDefaultIds });
+    } catch {
+      // ignore
     }
     if (altDefaultId) {
       try {
@@ -139,11 +150,11 @@ describe("dns filter — global default profile", () => {
     expect(altDefaultId).toBeDefined();
 
     // Phase 1: default = Ad Blocking → canary blocks.
-    await dnsFilter.updateConfig({ default_profile_id: AD_BLOCKING_PROFILE_ID });
+    await dnsFilter.updateConfig({ default_profile_ids: [AD_BLOCKING_PROFILE_ID] });
     await dns.flushCache();
     await expect
       .poll(
-        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_DOMAIN)).addrs.length,
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
         { interval: 250, timeout: 10_000 },
       )
       .toBe(0);
@@ -151,24 +162,90 @@ describe("dns filter — global default profile", () => {
     // Phase 2: switch the global default to the empty profile. The
     // hot-path "default context" should rebuild and the unassigned
     // device should no longer see the Ad Blocking blocklist.
-    const swapped = await dnsFilter.updateConfig({ default_profile_id: altDefaultId! });
-    expect(swapped.config.default_profile_id).toBe(altDefaultId);
+    const swapped = await dnsFilter.updateConfig({ default_profile_ids: [altDefaultId!] });
+    expect(swapped.config.default_profile_ids).toEqual([altDefaultId]);
     await dns.flushCache();
     await expect
       .poll(
-        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_DOMAIN)).addrs.length,
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
         { interval: 500, timeout: 15_000 },
       )
       .toBeGreaterThan(0);
 
     // Phase 3: flip back. Blocking resumes.
-    await dnsFilter.updateConfig({ default_profile_id: AD_BLOCKING_PROFILE_ID });
+    await dnsFilter.updateConfig({ default_profile_ids: [AD_BLOCKING_PROFILE_ID] });
     await dns.flushCache();
     await expect
       .poll(
-        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_DOMAIN)).addrs.length,
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
         { interval: 250, timeout: 10_000 },
       )
       .toBe(0);
+  });
+
+  it("stacks multiple default profiles for unassigned devices", async (ctx) => {
+    if (!deviceVisible) {
+      return ctx.skip();
+    }
+    expect(altDefaultId).toBeDefined();
+
+    // Phase 1: stack BOTH profiles. Each canary is blocked by exactly one
+    // profile, so a union is the only configuration where both get blocked.
+    // If the daemon dropped one id from the default set, exactly one of
+    // these assertions would fail.
+    const stacked = await dnsFilter.updateConfig({
+      default_profile_ids: [AD_BLOCKING_PROFILE_ID, altDefaultId!],
+    });
+    expect(stacked.config.default_profile_ids.slice().sort()).toEqual(
+      [AD_BLOCKING_PROFILE_ID, altDefaultId!].sort(),
+    );
+    await dns.flushCache();
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
+        { interval: 250, timeout: 10_000 },
+      )
+      .toBe(0);
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_ALT)).addrs.length,
+        { interval: 250, timeout: 10_000 },
+      )
+      .toBe(0);
+
+    // Phase 2: drop Ad Blocking from the default set. Now BLOCKED_BY_AD
+    // should resolve (proof Ad Blocking was contributing to the stack)
+    // while BLOCKED_BY_ALT keeps blocking (alt is still in the set).
+    await dnsFilter.updateConfig({ default_profile_ids: [altDefaultId!] });
+    await dns.flushCache();
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
+        { interval: 500, timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_ALT)).addrs.length,
+        { interval: 250, timeout: 10_000 },
+      )
+      .toBe(0);
+
+    // Phase 3: clear the default entirely. Both canaries resolve.
+    const cleared = await dnsFilter.updateConfig({ default_profile_ids: [] });
+    expect(cleared.config.default_profile_ids).toEqual([]);
+    await dns.flushCache();
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_AD)).addrs.length,
+        { interval: 500, timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => (await resolveViaAgent(TEST_DEBIAN_AGENT, BLOCKED_BY_ALT)).addrs.length,
+        { interval: 500, timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
   });
 });

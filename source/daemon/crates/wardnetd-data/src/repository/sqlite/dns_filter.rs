@@ -15,7 +15,6 @@ use crate::repository::dns_filter::{
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 const KEY_DNS_FILTERING_ENABLED: &str = "dns_filtering_enabled";
-const KEY_DEFAULT_PROFILE_ID: &str = "dns_default_filter_profile_id";
 
 fn now_iso() -> String {
     Utc::now().format(TS_FMT).to_string()
@@ -731,20 +730,23 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 .bind(KEY_DNS_FILTERING_ENABLED)
                 .fetch_optional(&self.pool)
                 .await?;
-        let default_id: Option<String> =
-            sqlx::query_scalar("SELECT value FROM system_config WHERE key = ?")
-                .bind(KEY_DEFAULT_PROFILE_ID)
-                .fetch_optional(&self.pool)
-                .await?;
+
+        let default_profile_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT profile_id FROM dns_filter_default_profile \
+             ORDER BY created_at, profile_id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         let enabled = enabled.as_deref() != Some("false");
-        let default_profile_id = default_id
-            .filter(|s| !s.is_empty())
-            .and_then(|s| s.parse().ok());
+        let default_profile_ids: Vec<Uuid> = default_profile_ids
+            .into_iter()
+            .filter_map(|s| s.parse().ok())
+            .collect();
 
         Ok(DnsFilterConfig {
             enabled,
-            default_profile_id,
+            default_profile_ids,
         })
     }
 
@@ -759,18 +761,15 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .execute(&mut *tx)
         .await?;
 
-        let default_value = config
-            .default_profile_id
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-        sqlx::query(
-            "INSERT INTO system_config (key, value) VALUES (?, ?) \
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .bind(KEY_DEFAULT_PROFILE_ID)
-        .bind(&default_value)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM dns_filter_default_profile")
+            .execute(&mut *tx)
+            .await?;
+        for pid in &config.default_profile_ids {
+            sqlx::query("INSERT INTO dns_filter_default_profile (profile_id) VALUES (?)")
+                .bind(pid.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
         Ok(())
