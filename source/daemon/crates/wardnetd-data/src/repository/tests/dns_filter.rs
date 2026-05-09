@@ -90,8 +90,9 @@ async fn migration_sets_default_profile_to_ad_blocking() {
 
     let cfg = repo.get_dns_filter_config().await.unwrap();
     assert!(cfg.enabled, "kill switch on by default");
+    assert_eq!(cfg.default_profile_ids.len(), 1);
     assert_eq!(
-        cfg.default_profile_id.unwrap().to_string().to_lowercase(),
+        cfg.default_profile_ids[0].to_string().to_lowercase(),
         AD_BLOCKING
     );
 }
@@ -499,35 +500,92 @@ async fn set_dns_filter_config_round_trip() {
     let pool = test_pool().await;
     let repo = SqliteDnsFilterRepository::new(pool);
 
-    let new_default = Uuid::new_v4();
-    repo.create_profile(new_default, "Default-ish")
-        .await
-        .unwrap();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    repo.create_profile(a, "First").await.unwrap();
+    repo.create_profile(b, "Second").await.unwrap();
 
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: false,
-        default_profile_id: Some(new_default),
+        default_profile_ids: vec![a, b],
     })
     .await
     .unwrap();
 
     let cfg = repo.get_dns_filter_config().await.unwrap();
     assert!(!cfg.enabled);
-    assert_eq!(cfg.default_profile_id, Some(new_default));
+    let mut got = cfg.default_profile_ids.clone();
+    let mut want = vec![a, b];
+    got.sort();
+    want.sort();
+    assert_eq!(got, want);
 }
 
 #[tokio::test]
-async fn set_dns_filter_config_clears_default_with_none() {
+async fn set_dns_filter_config_replaces_default_set() {
     let pool = test_pool().await;
     let repo = SqliteDnsFilterRepository::new(pool);
 
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    repo.create_profile(a, "A").await.unwrap();
+    repo.create_profile(b, "B").await.unwrap();
+
+    // Seed a multi-profile default, then replace it with a single id.
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,
-        default_profile_id: None,
+        default_profile_ids: vec![a, b],
+    })
+    .await
+    .unwrap();
+
+    repo.set_dns_filter_config(&DnsFilterConfig {
+        enabled: true,
+        default_profile_ids: vec![b],
     })
     .await
     .unwrap();
 
     let cfg = repo.get_dns_filter_config().await.unwrap();
-    assert!(cfg.default_profile_id.is_none());
+    assert_eq!(cfg.default_profile_ids, vec![b]);
+}
+
+#[tokio::test]
+async fn set_dns_filter_config_clears_default_with_empty_vec() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsFilterRepository::new(pool);
+
+    repo.set_dns_filter_config(&DnsFilterConfig {
+        enabled: true,
+        default_profile_ids: Vec::new(),
+    })
+    .await
+    .unwrap();
+
+    let cfg = repo.get_dns_filter_config().await.unwrap();
+    assert!(cfg.default_profile_ids.is_empty());
+}
+
+#[tokio::test]
+async fn deleting_profile_cascades_default_membership() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsFilterRepository::new(pool);
+
+    let p = Uuid::new_v4();
+    repo.create_profile(p, "Doomed").await.unwrap();
+
+    repo.set_dns_filter_config(&DnsFilterConfig {
+        enabled: true,
+        default_profile_ids: vec![p],
+    })
+    .await
+    .unwrap();
+
+    repo.delete_profile(p).await.unwrap();
+
+    let cfg = repo.get_dns_filter_config().await.unwrap();
+    assert!(
+        !cfg.default_profile_ids.contains(&p),
+        "ON DELETE CASCADE should drop default-membership"
+    );
 }

@@ -668,42 +668,93 @@ async fn get_filter_config_returns_seed_default() {
     as_admin(async {
         let cfg = h.service.get_filter_config().await.unwrap();
         assert!(cfg.config.enabled);
-        // Seed sets default to Ad Blocking profile.
-        assert_eq!(
-            cfg.config.default_profile_id.unwrap().to_string(),
-            AD_BLOCKING
-        );
+        // Seed sets default to a single Ad Blocking profile.
+        assert_eq!(cfg.config.default_profile_ids.len(), 1);
+        assert_eq!(cfg.config.default_profile_ids[0].to_string(), AD_BLOCKING);
     })
     .await;
 }
 
 #[tokio::test]
-async fn update_filter_config_double_option_semantics() {
+async fn update_filter_config_partial_update_semantics() {
     let h = build().await;
     as_admin(async {
-        // Outer Some, inner None = explicit clear.
+        // Some(empty vec) = explicit clear.
         let resp = h
             .service
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(false),
-                default_profile_id: Some(None),
+                default_profile_ids: Some(Vec::new()),
             })
             .await
             .unwrap();
         assert!(!resp.config.enabled);
-        assert!(resp.config.default_profile_id.is_none());
+        assert!(resp.config.default_profile_ids.is_empty());
 
-        // Outer None = leave alone — re-set enabled but don't touch default.
+        // None = leave alone — re-set enabled but don't touch default.
         let resp = h
             .service
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(true),
-                default_profile_id: None,
+                default_profile_ids: None,
             })
             .await
             .unwrap();
         assert!(resp.config.enabled);
-        assert!(resp.config.default_profile_id.is_none());
+        assert!(resp.config.default_profile_ids.is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_filter_config_accepts_multi_default() {
+    let h = build().await;
+    as_admin(async {
+        let parental: Uuid = "00000000-0000-0000-0000-000000000101".parse().unwrap();
+        let malware: Uuid = "00000000-0000-0000-0000-000000000102".parse().unwrap();
+
+        let resp = h
+            .service
+            .update_filter_config(UpdateDnsFilterConfigRequest {
+                enabled: None,
+                default_profile_ids: Some(vec![parental, malware]),
+            })
+            .await
+            .unwrap();
+        let mut got = resp.config.default_profile_ids.clone();
+        got.sort();
+        let mut want = vec![parental, malware];
+        want.sort();
+        assert_eq!(got, want);
+
+        // Round-trip via get_filter_config to confirm persistence (not just
+        // a happy echo of the request body).
+        let fetched = h.service.get_filter_config().await.unwrap();
+        let mut got = fetched.config.default_profile_ids.clone();
+        got.sort();
+        assert_eq!(got, want);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_filter_config_dedupes_duplicate_default_ids() {
+    // The repo has profile_id as PK on dns_filter_default_profile, so
+    // duplicates would abort the replace-set transaction. The service is
+    // expected to dedupe before persisting.
+    let h = build().await;
+    as_admin(async {
+        let parental: Uuid = "00000000-0000-0000-0000-000000000101".parse().unwrap();
+
+        let resp = h
+            .service
+            .update_filter_config(UpdateDnsFilterConfigRequest {
+                enabled: None,
+                default_profile_ids: Some(vec![parental, parental, parental]),
+            })
+            .await
+            .unwrap();
+        assert_eq!(resp.config.default_profile_ids, vec![parental]);
     })
     .await;
 }
@@ -928,7 +979,7 @@ async fn create_blocklist_under_unknown_profile_returns_not_found() {
 
 #[tokio::test]
 async fn update_filter_config_with_unknown_default_profile_returns_not_found() {
-    // Setting default_profile_id to a profile that doesn't exist should
+    // Setting default_profile_ids to a list containing an unknown id should
     // reject; otherwise unassigned devices would silently filter against
     // a missing profile.
     let h = build().await;
@@ -937,7 +988,7 @@ async fn update_filter_config_with_unknown_default_profile_returns_not_found() {
             .service
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: None,
-                default_profile_id: Some(Some(Uuid::new_v4())),
+                default_profile_ids: Some(vec![Uuid::new_v4()]),
             })
             .await
             .unwrap_err();
@@ -1092,7 +1143,7 @@ async fn check_passes_when_global_emergency_stop_off() {
         h.service
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(false),
-                default_profile_id: None,
+                default_profile_ids: None,
             })
             .await
             .unwrap();

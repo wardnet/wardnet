@@ -10,8 +10,8 @@ import {
 } from "@/components/core/ui/card";
 import { Label } from "@/components/core/ui/label";
 import { Switch } from "@/components/core/ui/switch";
-import { Badge } from "@/components/core/ui/badge";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
   useDeviceFilterSettings,
   useDnsFilterConfig,
@@ -24,19 +24,18 @@ interface DeviceDnsFilterCardProps {
   device: Device;
 }
 
+const PROFILES_LABEL_ID = "device-dns-filter-profiles-label";
+
 /** Editable DNS filter settings card for the device detail page. */
 export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
   const { data: settingsData, isLoading: settingsLoading } = useDeviceFilterSettings(device.id);
-  const { data: profilesData } = useDnsFilterProfiles();
-  const { data: configData } = useDnsFilterConfig();
+  const { data: profilesData, isLoading: profilesLoading } = useDnsFilterProfiles();
+  const { data: configData, isLoading: configLoading } = useDnsFilterConfig();
   const update = useUpdateDeviceFilterSettings();
 
-  const profiles = profilesData?.profiles ?? [];
+  const profiles = profilesData?.profiles;
   const settings = settingsData?.settings;
-  const defaultProfileId = configData?.config.default_profile_id ?? null;
-  const defaultProfile = defaultProfileId
-    ? (profiles.find((p) => p.id === defaultProfileId) ?? null)
-    : null;
+  const config = configData?.config;
 
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -63,13 +62,13 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
     setEditing(false);
   }
 
-  function toggleProfile(profileId: string, checked: boolean) {
-    setProfileIds((prev) =>
-      checked ? Array.from(new Set([...prev, profileId])) : prev.filter((p) => p !== profileId),
-    );
-  }
+  // All three queries must settle before rendering — otherwise the
+  // read-only summary line resolves `defaultProfiles`/`assignedProfiles`
+  // against an empty profiles cache and falsely reports "None".
+  const ready =
+    !settingsLoading && !profilesLoading && !configLoading && settings && profiles && config;
 
-  if (settingsLoading || !settings) {
+  if (!ready) {
     return (
       <Card>
         <CardHeader>
@@ -81,6 +80,8 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
       </Card>
     );
   }
+
+  const defaultProfiles = profiles.filter((p) => config.default_profile_ids.includes(p.id));
 
   const assignedProfiles = profiles.filter((p) => settings.profile_ids.includes(p.id));
 
@@ -112,27 +113,19 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Profiles</Label>
+              <Label id={PROFILES_LABEL_ID}>Profiles</Label>
               <DefaultProfileHint
                 enabled={enabled}
                 hasExplicit={profileIds.length > 0}
-                defaultProfile={defaultProfile}
+                defaultProfiles={defaultProfiles}
               />
-              <div className="flex flex-col gap-2">
-                {profiles.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No profiles defined.</p>
-                ) : (
-                  profiles.map((profile) => (
-                    <ProfileToggleRow
-                      key={profile.id}
-                      profile={profile}
-                      checked={profileIds.includes(profile.id)}
-                      disabled={!enabled}
-                      onChange={(c) => toggleProfile(profile.id, c)}
-                    />
-                  ))
-                )}
-              </div>
+              <ProfileToggleList
+                profiles={profiles}
+                selectedIds={profileIds}
+                onChange={setProfileIds}
+                disabled={!enabled}
+                ariaLabelledBy={PROFILES_LABEL_ID}
+              />
             </div>
 
             {update.isError && (
@@ -160,8 +153,8 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
               {!settings.enabled
                 ? "—"
                 : assignedProfiles.length === 0
-                  ? defaultProfile
-                    ? `${defaultProfile.name} (default)`
+                  ? defaultProfiles.length > 0
+                    ? `${defaultProfiles.map((p) => p.name).join(", ")} (default)`
                     : "None (no default profile set)"
                   : assignedProfiles.map((p) => p.name).join(", ")}
             </span>
@@ -177,16 +170,16 @@ interface DefaultProfileHintProps {
   enabled: boolean;
   /** Whether the user has any profile checked in the form. */
   hasExplicit: boolean;
-  /** Currently configured global default profile, if any. Looked up from
-   *  `dns_config.default_profile_id`. */
-  defaultProfile: DnsFilterProfile | null;
+  /** Currently configured global default profiles (resolved from the config's
+   *  `default_profile_ids`). */
+  defaultProfiles: DnsFilterProfile[];
 }
 
 /** Helper text under the Profiles label that explains exactly what the
  *  device will be filtered against given the current form state. Spells
- *  out the default profile by name so the user isn't left guessing what
- *  "the default" means in this household's setup. */
-function DefaultProfileHint({ enabled, hasExplicit, defaultProfile }: DefaultProfileHintProps) {
+ *  out the default profiles by name so the user isn't left guessing what
+ *  "the defaults" mean in this household's setup. */
+function DefaultProfileHint({ enabled, hasExplicit, defaultProfiles }: DefaultProfileHintProps) {
   if (!enabled) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -201,11 +194,15 @@ function DefaultProfileHint({ enabled, hasExplicit, defaultProfile }: DefaultPro
       </p>
     );
   }
-  if (defaultProfile) {
+  if (defaultProfiles.length > 0) {
+    const noun = defaultProfiles.length === 1 ? "profile" : "profiles";
     return (
       <p className="text-xs text-muted-foreground">
-        No profile selected — this device follows the global default profile{" "}
-        <span className="font-medium text-foreground">{defaultProfile.name}</span>.
+        No profile selected — this device follows the global default {noun}{" "}
+        <span className="font-medium text-foreground">
+          {defaultProfiles.map((p) => p.name).join(", ")}
+        </span>
+        .
       </p>
     );
   }
@@ -213,28 +210,5 @@ function DefaultProfileHint({ enabled, hasExplicit, defaultProfile }: DefaultPro
     <p className="text-xs text-muted-foreground">
       No profile selected and no global default is set — this device's traffic isn't filtered.
     </p>
-  );
-}
-
-interface ProfileToggleRowProps {
-  profile: DnsFilterProfile;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-function ProfileToggleRow({ profile, checked, disabled, onChange }: ProfileToggleRowProps) {
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{profile.name}</span>
-        {profile.builtin && (
-          <Badge variant="outline" className="text-xs">
-            Builtin
-          </Badge>
-        )}
-      </div>
-      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
-    </div>
   );
 }
