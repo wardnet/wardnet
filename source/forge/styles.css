@@ -964,9 +964,32 @@ button { font-family: inherit; }
   outline: none;
   width: 100%;
 }
-.input:focus, .textarea:focus,
+.input:focus, .input:focus-within, .textarea:focus,
 .field input:focus, .field select:focus, .field textarea:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+/* Segmented input — wrapper carries .input + data-segmented; nested
+   <input>s sit transparent inline (e.g. IPv4 octets, MAC hex pairs). */
+.input[data-segmented] {
+  display: flex;
+  align-items: center;
+  padding: 8px 4px;
+  font-family: var(--font-mono);
+  width: fit-content;
+}
+.input[data-segmented] input,
+.input[data-segmented] input:focus {
+  font: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: center;
+  color: inherit;
+  outline: none;
+  box-shadow: none;
+}
+.input[data-segmented] input::placeholder {
+  color: color-mix(in oklab, var(--ink-3) 40%, transparent);
 }
 .input:disabled, .textarea:disabled,
 .field input:disabled, .field select:disabled, .field textarea:disabled {

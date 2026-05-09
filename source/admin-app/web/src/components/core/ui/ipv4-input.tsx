@@ -118,10 +118,11 @@ export function Ipv4Input({
 
   return (
     <div
+      data-segmented
       className={cn(
-        "flex h-9 items-center gap-0 rounded-md border border-input bg-transparent px-1 text-sm font-mono shadow-xs transition-colors focus-within:ring-1 focus-within:ring-ring",
-        disabled && "cursor-not-allowed opacity-50",
-        readOnly && "bg-muted",
+        "input",
+        disabled && "cursor-not-allowed opacity-60",
+        readOnly && "!bg-sunken",
         className,
       )}
     >
@@ -140,10 +141,10 @@ export function Ipv4Input({
             onKeyDown={(e) => handleKeyDown(i, e)}
             onPaste={i === 0 ? handlePaste : undefined}
             onFocus={(e) => e.target.select()}
-            className="w-10 bg-transparent text-center outline-none placeholder:text-muted-foreground/40"
+            className="!w-10"
             maxLength={3}
           />
-          {i < 3 && <span className="text-muted-foreground/40">.</span>}
+          {i < 3 && <span className="text-ink-3/40">.</span>}
         </div>
       ))}
     </div>

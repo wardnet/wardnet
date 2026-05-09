@@ -121,10 +121,11 @@ export function MacInput({
 
   return (
     <div
+      data-segmented
       className={cn(
-        "flex h-9 items-center gap-0 rounded-md border border-input bg-transparent px-1 text-sm font-mono shadow-xs transition-colors focus-within:ring-1 focus-within:ring-ring",
-        disabled && "cursor-not-allowed opacity-50",
-        readOnly && "bg-muted",
+        "input",
+        disabled && "cursor-not-allowed opacity-60",
+        readOnly && "!bg-sunken",
         className,
       )}
     >
@@ -142,10 +143,10 @@ export function MacInput({
             onKeyDown={(e) => handleKeyDown(i, e)}
             onPaste={i === 0 ? handlePaste : undefined}
             onFocus={(e) => e.target.select()}
-            className="w-7 bg-transparent text-center uppercase outline-none placeholder:text-muted-foreground/40"
+            className="!w-7 uppercase"
             maxLength={2}
           />
-          {i < 5 && <span className="text-muted-foreground/40">:</span>}
+          {i < 5 && <span className="text-ink-3/40">:</span>}
         </div>
       ))}
     </div>
