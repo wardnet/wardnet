@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use serde_json::json;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpHardwareTypes, ArpOperation, ArpPacket, MutableArpPacket};
@@ -108,13 +109,17 @@ pub struct CapturedArpFrame {
 }
 
 /// `POST /arp/send`
+///
+/// Returns `200` with an empty JSON object on success — every other
+/// client-serve endpoint also returns JSON, and the e2e helper
+/// (`agentPost`) unconditionally `res.json()`s the body.
 pub async fn post_arp_send(Json(req): Json<ArpSendRequest>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || run_send(&req))
         .await
         .map_err(|e| anyhow::anyhow!("arp send blocking task panicked: {e}"));
 
     match result {
-        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(())) => Json(json!({})).into_response(),
         Ok(Err(e)) | Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(ClientError::new(e.to_string())),
