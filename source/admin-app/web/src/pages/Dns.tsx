@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
 import { Input } from "@/components/core/ui/input";
@@ -219,7 +219,7 @@ export default function Dns() {
                           {server.port ? `:${server.port}` : ""}
                         </p>
                       </div>
-                      <Badge variant="outline">{server.protocol.toUpperCase()}</Badge>
+                      <Pill variant="ghost">{server.protocol.toUpperCase()}</Pill>
                     </div>
                   ))}
                 </div>

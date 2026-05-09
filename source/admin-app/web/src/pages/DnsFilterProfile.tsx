@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
 import { Switch } from "@/components/core/ui/switch";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CronSchedulePicker } from "@/components/compound/CronSchedulePicker";
@@ -74,7 +74,7 @@ export default function DnsFilterProfile() {
         parentLabel="DNS Filtering"
         parentTo="/dns/filter"
         itemLabel={profile.name}
-        status={profile.builtin ? <Badge variant="outline">Builtin</Badge> : undefined}
+        status={profile.builtin ? <Pill variant="ghost">Builtin</Pill> : undefined}
       />
 
       <ProfileIdentityCard

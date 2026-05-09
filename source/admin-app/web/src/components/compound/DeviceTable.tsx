@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { StatusBadge } from "@/components/compound/StatusBadge";
@@ -42,9 +42,7 @@ function buildColumns(
       accessorKey: "device_type",
       header: "Type",
       meta: { className: "hidden sm:table-cell" },
-      cell: ({ row }) => (
-        <Badge variant="secondary">{deviceTypeLabel(row.original.device_type)}</Badge>
-      ),
+      cell: ({ row }) => <Pill variant="ghost">{deviceTypeLabel(row.original.device_type)}</Pill>,
     },
     {
       accessorKey: "manufacturer",

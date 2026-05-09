@@ -1,14 +1,14 @@
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import type { LogEntry } from "@wardnet/js";
 
 function levelVariant(level: string) {
   switch (level.toUpperCase()) {
     case "ERROR":
-      return "destructive" as const;
+      return "down" as const;
     case "WARN":
-      return "outline" as const;
+      return "warn" as const;
     default:
-      return "secondary" as const;
+      return "ghost" as const;
   }
 }
 
@@ -121,9 +121,9 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
                 <span className="shrink-0 text-muted-foreground/60">
                   {formatTimestamp(entry.timestamp)}
                 </span>
-                <Badge variant={levelVariant(entry.level)} className="h-5 shrink-0 text-[10px]">
+                <Pill variant={levelVariant(entry.level)} className="h-5 shrink-0 text-[10px]">
                   {entry.level}
-                </Badge>
+                </Pill>
                 <span className="min-w-0 break-all">{formatMessage(entry)}</span>
               </div>
             ))}

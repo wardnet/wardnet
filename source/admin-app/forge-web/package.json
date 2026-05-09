@@ -12,6 +12,10 @@
     "./card": {
       "import": "./src/primitives/card.tsx",
       "types": "./src/primitives/card.tsx"
+    },
+    "./pill": {
+      "import": "./src/primitives/pill.tsx",
+      "types": "./src/primitives/pill.tsx"
     }
   },
   "files": [

@@ -8,7 +8,7 @@ import { Input } from "@/components/core/ui/input";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
 import { Button } from "@wardnet/forge-web/button";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import {
   Select,
   SelectContent,
@@ -32,18 +32,18 @@ interface RowShape {
   latency_ms: number;
 }
 
-const RESULT_BADGE: Record<string, "default" | "destructive" | "secondary" | "outline"> = {
-  blocked: "destructive",
-  // Suppressed by the per-device kill switch / global stop. Outline tone
+const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> = {
+  blocked: "down",
+  // Suppressed by the per-device kill switch / global stop. Ghost tone
   // signals "would-have-blocked" without the alarming red.
-  blocked_skipped: "outline",
-  upstream_error: "destructive",
-  forwarded: "secondary",
-  cache_hit: "outline",
-  cached: "outline",
-  rewritten: "default",
-  local: "default",
-  recursive: "default",
+  blocked_skipped: "ghost",
+  upstream_error: "down",
+  forwarded: "ghost",
+  cache_hit: "ghost",
+  cached: "ghost",
+  rewritten: "info",
+  local: "info",
+  recursive: "info",
 };
 
 const RESULT_LABEL: Record<string, string> = {
@@ -177,9 +177,9 @@ export default function DnsLogs() {
         header: "Result",
         meta: { className: "w-28" },
         cell: ({ row }) => (
-          <Badge variant={RESULT_BADGE[row.original.result] ?? "secondary"}>
+          <Pill variant={RESULT_BADGE[row.original.result] ?? "ghost"}>
             {RESULT_LABEL[row.original.result] ?? row.original.result}
-          </Badge>
+          </Pill>
         ),
       },
       {

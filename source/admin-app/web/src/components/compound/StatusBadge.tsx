@@ -1,10 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 import { CheckIcon } from "lucide-react";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 
 type StatusBadgeTone = "success" | "neutral" | "danger";
 
-interface StatusBadgeProps extends Omit<ComponentProps<typeof Badge>, "variant" | "children"> {
+interface StatusBadgeProps extends Omit<ComponentProps<typeof Pill>, "variant" | "children"> {
   /** Visual tone. `success` for desirable states (Running, Up to date, Active),
    *  `neutral` for off/idle states (Stopped, Disabled, External), `danger` for
    *  problem states (Reconnecting, Failed, Quarantined). */
@@ -18,19 +18,19 @@ interface StatusBadgeProps extends Omit<ComponentProps<typeof Badge>, "variant" 
 }
 
 const variantForTone = {
-  success: "success",
-  neutral: "secondary",
-  danger: "destructive",
+  success: "ok",
+  neutral: "ghost",
+  danger: "down",
 } as const;
 
-/** Status badge for a record's state. Wraps the {@link Badge} primitive with
+/** Status badge for a record's state. Wraps the {@link Pill} primitive with
  *  the tone vocabulary from §3.2 of `WEBUI-DESIGN-GUIDELINES.md` so call sites
- *  declare what the state *means* rather than picking a Tailwind variant. */
+ *  declare what the state *means* rather than picking a Forge variant. */
 export function StatusBadge({ tone, withIcon = false, children, ...rest }: StatusBadgeProps) {
   return (
-    <Badge variant={variantForTone[tone]} {...rest}>
+    <Pill variant={variantForTone[tone]} {...rest}>
       {withIcon && tone === "success" && <CheckIcon />}
       {children}
-    </Badge>
+    </Pill>
   );
 }

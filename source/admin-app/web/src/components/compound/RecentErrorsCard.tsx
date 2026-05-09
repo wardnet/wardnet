@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import type { RecentError } from "@/hooks/useSystemStatus";
 
 function formatTimestamp(ts: string): string {
@@ -38,12 +38,12 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
                 <span className="shrink-0 text-muted-foreground/60">
                   {formatTimestamp(err.timestamp)}
                 </span>
-                <Badge
-                  variant={err.level === "ERROR" ? "destructive" : "outline"}
+                <Pill
+                  variant={err.level === "ERROR" ? "down" : "warn"}
                   className="h-5 shrink-0 text-[10px]"
                 >
                   {err.level}
-                </Badge>
+                </Pill>
                 <span className="min-w-0 break-all">{err.message}</span>
               </div>
             ))}

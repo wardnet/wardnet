@@ -134,7 +134,7 @@ Radix primitive needed (pure visual or HTML element).
 | ----------------- | ------------------ | ------------------------------------------------------ | ------ |
 | button.tsx        | n/a                | `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` | [x] |
 | card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head` + `.card__foot` (added) | [x] |
-| badge.tsx         | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost`             | [ ]    |
+| badge.tsx → pill  | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost` (renamed `Badge` → `Pill`) | [x] |
 | dialog.tsx        | Dialog             | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) | [ ] |
 | alert-dialog.tsx  | AlertDialog        | `.modal` + danger primary action                       | [ ]    |
 | sheet.tsx         | Dialog (slide)     | mobile bottom sheet (Forge mobile.html §sheet)         | [ ]    |
@@ -432,6 +432,29 @@ all facts; status pills via `.pill--*`.
   `:has()` requires Safari 15.4+ / Chrome 105+ / Firefox 121+ — fine for
   the admin app (modern evergreen browsers) but worth flagging if we ever
   target older runtimes.
+- **Variant naming — Forge vocabulary when semantic, legacy when stylistic**
+  (2026-05-09, locked while porting Pill). Button kept its legacy variant
+  strings (`outline`/`secondary`/`ghost`/`destructive`/`tertiary`) because
+  those names are stylistic — they describe how the button looks, not what
+  it means — and Forge has 1:1 visual mappings (`.btn--ghost` etc.) that
+  translate cleanly via CVA without renaming call sites. Pill is different:
+  the legacy variants (`success`/`destructive`/`outline`) are
+  domain-flavoured, and Forge introduces *new* semantic variants
+  (`warn`, `info`) that the app should be using. Adopting Forge's
+  `ok|warn|down|info|ghost` here both renames AND enriches — call sites can
+  now express `warn` and `info` properly. **Rule for future primitives:**
+  when Forge has a richer or more semantic variant vocabulary than the
+  legacy primitive, adopt Forge's names and migrate call sites; when
+  Forge variants are 1:1 visual stand-ins for legacy stylistic variants,
+  keep legacy names and CVA-map them. The size of the call-site graph
+  matters too — Button had 44 sites, Pill had 9 — so the
+  reasonable-friction threshold for renaming flexes by primitive.
+- **Component name follows the Forge class name** (2026-05-09, Pill slice).
+  The legacy file was `badge.tsx` exporting `<Badge>`, but Forge calls it
+  `.pill`. Renamed to `Pill` so the React vocabulary matches the CSS
+  vocabulary — keeps the design system coherent across layers. Future
+  ports follow the same rule (Toggle, not Switch; Modal, not Dialog —
+  modulo Radix conventions where the Radix name is the lingua franca).
 - **`.card__foot` added to Forge** (2026-05-09). The legacy shadcn `Card`
   exposed a `CardFooter` styled with Tailwind utilities; Forge had no
   matching class. Per the "Forge first" rule, the slice that needed it
@@ -780,3 +803,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | **Architecture revision — platform split locked + yarn workspaces locked.** Decision: Forge splits into three packages — `@wardnet/forge` (platform-neutral: tokens, types, voice), `@wardnet/forge-web` (Radix + CSS classes — the package that exists today, just mis-named), `@wardnet/forge-native` (future RN). Compositions (Card.Header etc.) live alongside primitives in the platform package, not a separate "forge-ui." Domain-coupled compositions stay in `web-ui/components/compound/`. Yarn workspaces replace `portal:` once we have ≥3 packages — root `package.json` with `workspaces` array, single `yarn.lock`, `workspace:^` for intra-repo deps. Doc-only commit: rewrote "Where Forge lives" with the platform-split architecture, the workspaces rationale, end-state layouts, full rules set, and a detailed impacts list (code/layout, tooling, runtime, risk surface, migration ordering). Added two new tasks to the Forge update checklist: (1) yarn workspaces conversion slice; (2) `forge` ⇄ `forge-web` rename slice. No code change in this commit. | (this commit) |
 | 2026-05-09 | **Architecture revision again — root workspace abandoned in favour of admin-app-internal workspace + context-per-source-dir.** During the workspace conversion the bigger structural concern surfaced: `source/<thing>/` is already organised by deployment unit (daemon / SDK / site / admin / e2e). Hoisting forge / forge-web / forge-native to the same level would have flattened that segregation. New decision: yarn workspace lives **inside `source/admin-app/`** (containing `web` + `forge-web`, and later `mobile` + `forge-native`). Top-level `source/forge/` is the platform-neutral design language, consumed by both admin-app/web AND marketing-site. SDK stays top-level (separate cadence, will be published). Big restructure landed in this slice: `source/web-ui/` → `source/admin-app/web/`; old `source/forge/` (React primitives) → `source/admin-app/forge-web/`; `source/site/` → `source/marketing-site/`; repo-root `design-system/` → `source/forge/docs/`. New top-level `source/forge/` with `tokens.ts` (initial extraction — brand, status, radius, density, font) + `styles.css` (lifted out of forge-web). All 44 button imports retargeted to `@wardnet/forge-web/button`. Makefile, CI workflows, gitignore, daemon rust-embed paths, dependabot, codeql, detect-changes filters all updated. Type-check + lint + build clean for admin-app/web; type-check + format:check + build clean for marketing-site (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged). | (this commit) |
 | 2026-05-09 | Card primitive port (second primitive — multi-part). Mapped legacy 7-component API (`Card`/`CardHeader`/`CardTitle`/`CardDescription`/`CardAction`/`CardContent`/`CardFooter`) onto Forge's `.card` / `.card__head` (with auto-styled nested `h3`, `.sub`, `.right`) and a new `.card__foot` class added to `source/forge/styles.css` per the Forge-first rule. Export shape locked as flat named exports — kept the 29 call sites' import shape stable so the migration was a pure import-path retarget. Caught a flush prop in review and removed it: replaced the consumer-facing `flush` prop with a CSS `:has()` rule (`.card:has(> .card__head), .card:has(> .card__foot) { padding: 0; }`) so layout follows from composition rather than from a prop the consumer might mis-set. `.card--flush` stays in Forge for explicit no-head/no-foot cases (image-only, table-only) and CSS-only consumers. Legacy `core/ui/card.tsx` deleted; 29 imports retargeted to `@wardnet/forge-web/card`. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Pill primitive port (third primitive — first variant rename). Renamed component `Badge` → `Pill` to match Forge's class vocabulary; renamed legacy variant strings to Forge's semantic vocabulary (`success` → `ok`, `destructive` → `down`, `outline`/`secondary` → `ghost`; added `warn`/`info` where call sites had been forced into stylistic substitutes). Migration was wider than Button/Card (touched the `StatusBadge` wrapper's `variantForTone` map, `LogViewer.levelVariant`, `DnsLogs.RESULT_BADGE` lookup table, and 9 call sites' import + JSX) but tractable at this size — captured in Findings as the rule "adopt Forge variant vocabulary when semantic, keep legacy when stylistic, weight by call-site count." Forge `.pill` / `.pill--*` classes used directly via CVA; primitive supports `asChild` via Radix `Slot.Root` (matches Button). New `./pill` subpath export in forge-web. Legacy `core/ui/badge.tsx` deleted. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

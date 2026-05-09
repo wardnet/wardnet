@@ -1,4 +1,4 @@
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import { Switch } from "@/components/core/ui/switch";
 import type { DnsFilterProfile } from "@wardnet/js";
 
@@ -71,9 +71,9 @@ function ProfileToggleRow({ profile, checked, disabled, onChange }: ProfileToggl
       <div className="flex items-center gap-2">
         <span className="text-sm">{profile.name}</span>
         {profile.builtin && (
-          <Badge variant="outline" className="text-xs">
+          <Pill variant="ghost" className="text-xs">
             Builtin
-          </Badge>
+          </Pill>
         )}
       </div>
       <Switch

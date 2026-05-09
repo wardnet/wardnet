@@ -3,7 +3,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardContent } from "@wardnet/forge-web/card";
 import { DataTable } from "@/components/core/ui/data-table";
-import { Badge } from "@/components/core/ui/badge";
+import { Pill } from "@wardnet/forge-web/pill";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { useDnsFilterProfiles } from "@/hooks/useDnsFilter";
@@ -16,7 +16,7 @@ const columns: ColumnDef<DnsFilterProfile>[] = [
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
         <span className="font-medium">{row.original.name}</span>
-        {row.original.builtin && <Badge variant="outline">Builtin</Badge>}
+        {row.original.builtin && <Pill variant="ghost">Builtin</Pill>}
       </div>
     ),
   },
