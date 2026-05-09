@@ -13,7 +13,8 @@
     "type-check": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "5.2.8",
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tanstack/react-query": "5.100.6",
     "@tanstack/react-table": "8.21.3",
     "@wardnet/js": "portal:../sdk/wardnet-js",

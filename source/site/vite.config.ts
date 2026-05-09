@@ -11,6 +11,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@wardnet/forge": fileURLToPath(
+        new URL("../../design-system", import.meta.url),
+      ),
     },
   },
   server: {

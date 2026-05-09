@@ -17,7 +17,8 @@
     "copy:install-script": "mkdir -p public && cp ../../deploy/install.sh public/install.sh"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "5.2.8",
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "lucide-react": "1.14.0",
     "react": "19.2.5",
     "react-dom": "19.2.5",

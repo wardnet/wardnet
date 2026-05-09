@@ -450,10 +450,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@fontsource-variable/geist@npm:5.2.8":
+"@fontsource-variable/inter-tight@npm:^5.2.7":
+  version: 5.2.7
+  resolution: "@fontsource-variable/inter-tight@npm:5.2.7"
+  checksum: 10c0/ca93e2088c8fce926966180a2fc6ef94f62105043a4f5efba05a8402e566ae83a53401efd6ac53d765467a7ced6072f4e57a3f99e086c11eeae551e586cacbd5
+  languageName: node
+  linkType: hard
+
+"@fontsource-variable/jetbrains-mono@npm:^5.2.8":
   version: 5.2.8
-  resolution: "@fontsource-variable/geist@npm:5.2.8"
-  checksum: 10c0/be455d4498ab0323b45d8bb37698dca810ae761643e85583605e18fc4175dec9b5ca518193673544b32a096cb3073fec0df0ef5cec92ce6ab0f58b29cd7ba596
+  resolution: "@fontsource-variable/jetbrains-mono@npm:5.2.8"
+  checksum: 10c0/574e5463b802cfdd6ec8dd16724d2fd5ee38204815729c9dca0f457a417f0a4d32e6ec4ed2dfa0e5a5de5a9b0deaeb9f3c0b49b332763ed40172de43d6b1502f
   languageName: node
   linkType: hard
 
@@ -1467,7 +1474,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/site@workspace:."
   dependencies:
-    "@fontsource-variable/geist": "npm:5.2.8"
+    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
     "@modyfi/vite-plugin-yaml": "npm:1.1.1"
     "@octokit/rest": "npm:22.0.1"
     "@tailwindcss/vite": "npm:4.2.4"
