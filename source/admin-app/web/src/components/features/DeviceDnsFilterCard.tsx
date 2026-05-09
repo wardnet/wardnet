@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
-import { Label } from "@wardnet/forge-web/label";
+import { Field } from "@wardnet/forge-web/field";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
@@ -101,19 +101,18 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
       {editing ? (
         <>
           <CardContent className="flex flex-col gap-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="dns-filter-enabled">DNS filtering</Label>
-                <p className="text-xs text-muted-foreground">
-                  Off skips filtering entirely; queries that would be blocked are recorded as
-                  "blocked (skipped)" in the DNS log.
-                </p>
-              </div>
+            <Field
+              direction="row"
+              label="DNS filtering"
+              htmlFor="dns-filter-enabled"
+              help={
+                'Off skips filtering entirely; queries that would be blocked are recorded as "blocked (skipped)" in the DNS log.'
+              }
+            >
               <Toggle id="dns-filter-enabled" checked={enabled} onCheckedChange={setEnabled} />
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
-              <Label id={PROFILES_LABEL_ID}>Profiles</Label>
+            <Field label="Profiles" labelId={PROFILES_LABEL_ID}>
               <DefaultProfileHint
                 enabled={enabled}
                 hasExplicit={profileIds.length > 0}
@@ -126,7 +125,7 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
                 disabled={!enabled}
                 ariaLabelledBy={PROFILES_LABEL_ID}
               />
-            </div>
+            </Field>
 
             {update.isError && (
               <ApiErrorAlert error={update.error} fallback="Failed to update DNS filter settings" />

@@ -2,8 +2,8 @@ import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
 import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@wardnet/forge-web/label";
 import {
   Select,
   SelectContent,
@@ -178,8 +178,7 @@ export function UpdateCard({
                 admin's primary choice, the toggle controls whether updates
                 land automatically once a new release matches it. */}
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <Label htmlFor="update-channel">Channel</Label>
+              <Field direction="row" label="Channel" htmlFor="update-channel">
                 <Select
                   value={status.channel}
                   onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
@@ -193,15 +192,18 @@ export function UpdateCard({
                     <SelectItem value="beta">Beta</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="flex items-center gap-3">
+              </Field>
+              <Field
+                direction="row"
+                label="Automatically install when available"
+                htmlFor="auto-update-toggle"
+              >
                 <Toggle
                   id="auto-update-toggle"
                   checked={status.auto_update_enabled}
                   onCheckedChange={onToggleAutoUpdate}
                 />
-                <Label htmlFor="auto-update-toggle">Automatically install when available</Label>
-              </div>
+              </Field>
             </div>
 
             {/* Footer action row: helper context on the left, utility

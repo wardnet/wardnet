@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@wardnet/forge-web/label";
 import { StatusBadge } from "./StatusBadge";
 import { DashboardUsageBar } from "./DashboardUsageBar";
 import type { DhcpStatusResponse } from "@wardnet/js";
@@ -25,15 +25,14 @@ export function DhcpStatusCard({ status, onToggle, isPending }: DhcpStatusCardPr
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="dhcp-toggle">Enable DHCP</Label>
+          <Field direction="row" label="Enable DHCP" htmlFor="dhcp-toggle">
             <Toggle
               id="dhcp-toggle"
               checked={status.enabled}
               onCheckedChange={onToggle}
               disabled={isPending}
             />
-          </div>
+          </Field>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-muted-foreground">Active leases</p>

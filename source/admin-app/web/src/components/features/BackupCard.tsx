@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import {
   Modal,
   ModalBody,
@@ -180,9 +180,18 @@ function ExportDialog({
             required to restore this bundle; we can&apos;t recover it if you lose it.
           </ModalDescription>
 
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="backup-passphrase">Passphrase</Label>
+          <div className="flex flex-col gap-3">
+            <Field
+              label="Passphrase"
+              htmlFor="backup-passphrase"
+              help={
+                tooShort ? (
+                  <span className="text-destructive">
+                    At least {MIN_PASSPHRASE_LEN} characters required.
+                  </span>
+                ) : undefined
+              }
+            >
               <Input
                 id="backup-passphrase"
                 type="password"
@@ -190,14 +199,16 @@ function ExportDialog({
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
               />
-              {tooShort && (
-                <p className="text-xs text-destructive">
-                  At least {MIN_PASSPHRASE_LEN} characters required.
-                </p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="backup-passphrase-confirm">Confirm passphrase</Label>
+            </Field>
+            <Field
+              label="Confirm passphrase"
+              htmlFor="backup-passphrase-confirm"
+              help={
+                mismatch ? (
+                  <span className="text-destructive">Passphrases do not match.</span>
+                ) : undefined
+              }
+            >
               <Input
                 id="backup-passphrase-confirm"
                 type="password"
@@ -205,8 +216,7 @@ function ExportDialog({
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
               />
-              {mismatch && <p className="text-xs text-destructive">Passphrases do not match.</p>}
-            </div>
+            </Field>
           </div>
         </ModalBody>
 
@@ -295,9 +305,8 @@ function RestoreDialog({
           </ModalDescription>
 
           {!preview ? (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="backup-bundle">Bundle file</Label>
+            <div className="flex flex-col gap-3">
+              <Field label="Bundle file" htmlFor="backup-bundle">
                 <input
                   id="backup-bundle"
                   ref={fileInputRef}
@@ -309,9 +318,8 @@ function RestoreDialog({
                   }}
                   className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
                 />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="restore-passphrase">Passphrase</Label>
+              </Field>
+              <Field label="Passphrase" htmlFor="restore-passphrase">
                 <Input
                   id="restore-passphrase"
                   type="password"
@@ -326,7 +334,7 @@ function RestoreDialog({
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                 />
-              </div>
+              </Field>
             </div>
           ) : (
             <RestorePreviewDetails preview={preview} />

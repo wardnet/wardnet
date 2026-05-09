@@ -15,7 +15,7 @@ interface ProfileToggleListProps {
   disabled?: boolean;
   /** Replaces the empty-state copy when `profiles` is empty. */
   emptyMessage?: string;
-  /** Id of the external `<Label>` that names this group, for screen-reader
+  /** Id of the external `Field` label that names this group, for screen-reader
    *  group association. Pairs with `role="group"` on the container. */
   ariaLabelledBy?: string;
 }

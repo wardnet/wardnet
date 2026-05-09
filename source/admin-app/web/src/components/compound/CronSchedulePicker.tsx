@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CalendarClock, ChevronDown } from "lucide-react";
 import { cronToHuman } from "@/lib/cron";
 import { Button } from "@wardnet/forge-web/button";
-import { Label } from "@wardnet/forge-web/label";
+import { Field } from "@wardnet/forge-web/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@wardnet/forge-web/popover";
 import {
   Select,
@@ -145,8 +145,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
   const domOptions = Array.from({ length: 28 }, (_, i) => String(i + 1));
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {label && <Label>{label}</Label>}
+    <Field label={label}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="outline" className="w-full justify-between font-normal">
@@ -286,6 +285,6 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
           </div>
         </PopoverContent>
       </Popover>
-    </div>
+    </Field>
   );
 }

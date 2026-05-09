@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import {
   Select,
   SelectContent,
@@ -143,8 +143,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* Step 1: Select provider */}
-      <div className="flex flex-col gap-2">
-        <Label>Provider</Label>
+      <Field label="Provider">
         {providers.length === 0 ? (
           <p className="text-sm text-muted-foreground">No providers available.</p>
         ) : (
@@ -172,14 +171,13 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             </SelectContent>
           </Select>
         )}
-      </div>
+      </Field>
 
       {/* Step 2: Credentials */}
       {selectedProvider && (
         <>
           {supportsToken && supportsCreds && (
-            <div className="flex flex-col gap-2">
-              <Label>Auth method</Label>
+            <Field label="Auth method">
               <Select
                 value={authMethod}
                 onValueChange={(v) => {
@@ -195,12 +193,15 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   <SelectItem value="credentials">Username &amp; password</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           )}
 
           {authMethod === "token" ? (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="prov-token">Access token</Label>
+            <Field
+              label="Access token"
+              htmlFor="prov-token"
+              help={selectedProvider?.credentials_hint}
+            >
               <Input
                 id="prov-token"
                 type="password"
@@ -211,14 +212,10 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                 }}
                 placeholder="Paste your access token"
               />
-              {selectedProvider?.credentials_hint && (
-                <p className="text-xs text-muted-foreground">{selectedProvider.credentials_hint}</p>
-              )}
-            </div>
+            </Field>
           ) : (
             <>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prov-username">Username</Label>
+              <Field label="Username" htmlFor="prov-username">
                 <Input
                   id="prov-username"
                   value={username}
@@ -228,9 +225,8 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   }}
                   placeholder="Service username"
                 />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prov-password">Password</Label>
+              </Field>
+              <Field label="Password" htmlFor="prov-password">
                 <Input
                   id="prov-password"
                   type="password"
@@ -241,7 +237,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   }}
                   placeholder="Service password"
                 />
-              </div>
+              </Field>
             </>
           )}
           <div className="flex items-center justify-end gap-3">
@@ -266,8 +262,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
       {credsValid && (
         <>
           <div className="flex items-end gap-3">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label>Country</Label>
+            <Field label="Country" className="flex-1">
               {countries.length > 0 ? (
                 <CountryCombobox
                   countries={countries}
@@ -289,7 +284,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   maxLength={2}
                 />
               )}
-            </div>
+            </Field>
             <Button
               variant="secondary"
               onClick={handleFetchServers}
@@ -299,22 +294,21 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             </Button>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="prov-hostname">Hostname (optional)</Label>
+          <Field
+            label="Hostname (optional)"
+            htmlFor="prov-hostname"
+            help="For dedicated IP or manual server selection. Overrides server list selection."
+          >
             <Input
               id="prov-hostname"
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               placeholder="e.g. pt131 or pt131.nordvpn.com"
             />
-            <p className="text-xs text-muted-foreground">
-              For dedicated IP or manual server selection. Overrides server list selection.
-            </p>
-          </div>
+          </Field>
 
           {servers.length > 0 && !hostname && (
-            <div className="flex flex-col gap-2">
-              <Label>Server</Label>
+            <Field label="Server">
               <Select value={serverId} onValueChange={setServerId}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Auto-select best server" />
@@ -327,18 +321,17 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           )}
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="prov-label">Label (optional)</Label>
+          <Field label="Label (optional)" htmlFor="prov-label">
             <Input
               id="prov-label"
               value={labelOverride}
               onChange={(e) => setLabelOverride(e.target.value)}
               placeholder="Auto-generated from server"
             />
-          </div>
+          </Field>
 
           {setupTunnel.isError && (
             <ApiErrorAlert error={setupTunnel.error} fallback="Setup failed" />

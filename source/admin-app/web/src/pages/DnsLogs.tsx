@@ -4,9 +4,9 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
 import { Card, CardContent } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@wardnet/forge-web/label";
 import { Button } from "@wardnet/forge-web/button";
 import { Pill } from "@wardnet/forge-web/pill";
 import {
@@ -209,8 +209,7 @@ export default function DnsLogs() {
               own flex weight: device is wider since it packs icon +
               two-line label; domain and result are equal. */}
           <div className="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:items-end sm:gap-3 sm:max-w-3xl">
-            <div className="flex-1">
-              <Label className="text-xs text-muted-foreground">Domain</Label>
+            <Field label="Domain" className="flex-1">
               <Input
                 placeholder="example.com"
                 value={domain}
@@ -220,11 +219,8 @@ export default function DnsLogs() {
                   userScrolledRef.current = false;
                 }}
               />
-            </div>
-            <div className="flex-[2]">
-              <Label htmlFor="device-filter" className="text-xs text-muted-foreground">
-                Device
-              </Label>
+            </Field>
+            <Field label="Device" htmlFor="device-filter" className="flex-[2]">
               <DeviceSelect
                 id="device-filter"
                 devices={filterableDevices}
@@ -234,9 +230,8 @@ export default function DnsLogs() {
                   setPage(0);
                 }}
               />
-            </div>
-            <div className="flex-1">
-              <Label className="text-xs text-muted-foreground">Result</Label>
+            </Field>
+            <Field label="Result" className="flex-1">
               <Select
                 value={result}
                 onValueChange={(v) => {
@@ -257,14 +252,16 @@ export default function DnsLogs() {
                   <SelectItem value="upstream_error">Upstream error</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
-          <div className="flex items-center gap-2 sm:ml-auto">
+          <Field
+            direction="row"
+            label={`Live tail${liveConnected ? "" : " (offline)"}`}
+            htmlFor="live-tail"
+            className="sm:ml-auto"
+          >
             <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
-            <Label htmlFor="live-tail" className="text-sm">
-              Live tail{liveConnected ? "" : " (offline)"}
-            </Label>
-          </div>
+          </Field>
         </CardContent>
       </Card>
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDiscoverGatewayMac } from "@/hooks/useNetwork";
 
@@ -65,17 +65,16 @@ export default function Step4RouterMac() {
       )}
 
       {!probe.isPending && !probedMac && probeFailed && (
-        <form onSubmit={handleManualSubmit} className="flex flex-col gap-2">
-          <Label htmlFor="router-mac" className="text-foreground/70">
-            ARP probe failed — enter the router MAC manually
-          </Label>
-          <Input
-            id="router-mac"
-            value={manualMac}
-            onChange={(e) => setManualMac(e.target.value)}
-            placeholder="00:11:22:AA:BB:CC"
-            className="h-12 font-mono"
-          />
+        <form onSubmit={handleManualSubmit} className="flex flex-col gap-3">
+          <Field label="ARP probe failed — enter the router MAC manually" htmlFor="router-mac">
+            <Input
+              id="router-mac"
+              value={manualMac}
+              onChange={(e) => setManualMac(e.target.value)}
+              placeholder="00:11:22:AA:BB:CC"
+              className="h-12 font-mono"
+            />
+          </Field>
           <div className="flex justify-end">
             <Button type="submit" variant="secondary" disabled={!manualMac}>
               Save MAC
@@ -84,11 +83,7 @@ export default function Step4RouterMac() {
         </form>
       )}
 
-      <Button
-        onClick={handleContinue}
-        disabled={advance.isPending}
-        className="h-12 w-full"
-      >
+      <Button onClick={handleContinue} disabled={advance.isPending} className="h-12 w-full">
         {advance.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
       </Button>
     </div>

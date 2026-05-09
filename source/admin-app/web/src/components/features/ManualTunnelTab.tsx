@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import { Textarea } from "@wardnet/forge-web/textarea";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useCreateTunnel } from "@/hooks/useTunnels";
@@ -40,8 +40,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tunnel-label">Label</Label>
+        <Field label="Label" htmlFor="tunnel-label">
           <Input
             id="tunnel-label"
             value={label}
@@ -49,9 +48,8 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
             placeholder="US West"
             required
           />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tunnel-country">Country code</Label>
+        </Field>
+        <Field label="Country code" htmlFor="tunnel-country">
           <Input
             id="tunnel-country"
             value={countryCode}
@@ -60,18 +58,16 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
             maxLength={2}
             required
           />
-        </div>
-        <div className="flex flex-col gap-2 md:col-span-2">
-          <Label htmlFor="tunnel-provider">Provider</Label>
+        </Field>
+        <Field label="Provider" htmlFor="tunnel-provider" className="md:col-span-2">
           <Input
             id="tunnel-provider"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
             placeholder="Mullvad"
           />
-        </div>
-        <div className="flex flex-col gap-2 md:col-span-2">
-          <Label htmlFor="tunnel-config">WireGuard config</Label>
+        </Field>
+        <Field label="WireGuard config" htmlFor="tunnel-config" className="md:col-span-2">
           <Textarea
             id="tunnel-config"
             value={config}
@@ -81,7 +77,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
             rows={10}
             className="font-mono"
           />
-        </div>
+        </Field>
       </div>
       {createTunnel.isError && (
         <ApiErrorAlert error={createTunnel.error} fallback="Failed to create tunnel" />

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Pill } from "@wardnet/forge-web/pill";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@wardnet/forge-web/label";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { Button } from "@wardnet/forge-web/button";
 import { PageHeader } from "@/components/compound/PageHeader";
@@ -69,15 +69,14 @@ export default function Dns() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="dns-toggle">Enable DNS</Label>
+                  <Field direction="row" label="Enable DNS" htmlFor="dns-toggle">
                     <Toggle
                       id="dns-toggle"
                       checked={status.enabled}
                       onCheckedChange={(enabled) => toggleDns.mutate(enabled)}
                       disabled={toggleDns.isPending}
                     />
-                  </div>
+                  </Field>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Resolution mode</p>
@@ -140,13 +139,12 @@ export default function Dns() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="query-log-toggle">Retain DNS query log</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Live stream remains available regardless.
-                    </p>
-                  </div>
+                <Field
+                  direction="row"
+                  label="Retain DNS query log"
+                  htmlFor="query-log-toggle"
+                  help="Live stream remains available regardless."
+                >
                   <Toggle
                     id="query-log-toggle"
                     checked={config.query_log_enabled}
@@ -155,9 +153,12 @@ export default function Dns() {
                     }
                     disabled={updateConfig.isPending}
                   />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="retention-days">Retention (days)</Label>
+                </Field>
+                <Field
+                  label="Retention (days)"
+                  htmlFor="retention-days"
+                  help="Approx. disk at 5 qps household traffic: 1d ≈ 50 MB, 7d ≈ 350 MB, 30d ≈ 1.5 GB."
+                >
                   <div className="flex items-end gap-2">
                     <Input
                       id="retention-days"
@@ -187,10 +188,7 @@ export default function Dns() {
                       Save
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Approx. disk at 5 qps household traffic: 1d ≈ 50 MB, 7d ≈ 350 MB, 30d ≈ 1.5 GB.
-                  </p>
-                </div>
+                </Field>
               </div>
             </CardContent>
           </Card>

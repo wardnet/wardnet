@@ -8,8 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
-import { Label } from "@wardnet/forge-web/label";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { useCreateReservation, useDeleteReservation, useDhcpReservations } from "@/hooks/useDhcp";
@@ -107,13 +107,13 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
       {editing ? (
         <>
           <CardContent className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="device-ip">IP address</Label>
+            <Field
+              label="IP address"
+              htmlFor="device-ip"
+              help="Saving creates a static DHCP reservation for this device's MAC."
+            >
               <Ipv4Input id="device-ip" value={ip} onChange={setIp} />
-              <p className="text-xs text-muted-foreground">
-                Saving creates a static DHCP reservation for this device's MAC.
-              </p>
-            </div>
+            </Field>
 
             {reservation && (
               <button

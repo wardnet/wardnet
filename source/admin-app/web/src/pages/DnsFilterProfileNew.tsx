@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useCreateDnsFilterProfile } from "@/hooks/useDnsFilter";
@@ -36,8 +36,11 @@ export default function DnsFilterProfileNew() {
           <CardTitle>New profile</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="profile-name">Name</Label>
+          <Field
+            label="Name"
+            htmlFor="profile-name"
+            help="You'll add blocklists, allowlist entries, and custom rules to this profile after it's created."
+          >
             <Input
               id="profile-name"
               value={name}
@@ -45,11 +48,7 @@ export default function DnsFilterProfileNew() {
               placeholder="Parental Controls"
               autoFocus
             />
-            <p className="text-xs text-muted-foreground">
-              You'll add blocklists, allowlist entries, and custom rules to this profile after it's
-              created.
-            </p>
-          </div>
+          </Field>
 
           {create.isError && (
             <ApiErrorAlert error={create.error} fallback="Failed to create profile" />

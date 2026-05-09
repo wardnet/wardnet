@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { MacInput } from "@/components/core/ui/mac-input";
-import { Label } from "@wardnet/forge-web/label";
 import { Sheet, SheetContent, SheetTitle } from "@/components/core/ui/sheet";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useCreateReservation } from "@/hooks/useDhcp";
@@ -56,45 +56,41 @@ export function CreateReservationSheet({
       <SheetContent className="w-full overflow-y-auto p-6">
         <SheetTitle>{defaults?.mac ? "Reserve address" : "Add reservation"}</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="res-mac">MAC address</Label>
+          <Field label="MAC address" htmlFor="res-mac">
             <MacInput
               id="res-mac"
               value={macAddress}
               onChange={setMacAddress}
               readOnly={macReadOnly}
             />
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="res-ip">IP address</Label>
+          <Field label="IP address" htmlFor="res-ip">
             <Ipv4Input
               id="res-ip"
               value={ipAddress}
               onChange={setIpAddress}
               placeholder="10.232.1.50"
             />
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="res-hostname">Hostname (optional)</Label>
+          <Field label="Hostname (optional)" htmlFor="res-hostname">
             <Input
               id="res-hostname"
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               placeholder="my-printer"
             />
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="res-desc">Description (optional)</Label>
+          <Field label="Description (optional)" htmlFor="res-desc">
             <Input
               id="res-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Office printer"
             />
-          </div>
+          </Field>
 
           {createReservation.isError && (
             <ApiErrorAlert

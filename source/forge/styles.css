@@ -903,6 +903,18 @@ button { font-family: inherit; }
 }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
+.field[data-direction="row"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.field-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .label,
 .field label { font-size: 12px; color: var(--ink-3); font-weight: 500; }
 .input, .textarea,

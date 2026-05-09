@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { WardnetApiError } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import { useSetup, useAdvanceWizard } from "@/hooks/useSetup";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -71,10 +71,7 @@ export default function Step1Admin() {
         </p>
       </div>
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="username" className="text-foreground/70">
-            Username
-          </Label>
+        <Field label="Username" htmlFor="username">
           <Input
             id="username"
             value={username}
@@ -84,11 +81,8 @@ export default function Step1Admin() {
             required
             className="h-12"
           />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="password" className="text-foreground/70">
-            Password
-          </Label>
+        </Field>
+        <Field label="Password" htmlFor="password">
           <Input
             id="password"
             type="password"
@@ -99,11 +93,8 @@ export default function Step1Admin() {
             required
             className="h-12"
           />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="confirm-password" className="text-foreground/70">
-            Confirm password
-          </Label>
+        </Field>
+        <Field label="Confirm password" htmlFor="confirm-password">
           <Input
             id="confirm-password"
             type="password"
@@ -114,7 +105,7 @@ export default function Step1Admin() {
             required
             className="h-12"
           />
-        </div>
+        </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button
           type="submit"

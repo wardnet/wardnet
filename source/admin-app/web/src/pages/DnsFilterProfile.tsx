@@ -9,8 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { Pill } from "@wardnet/forge-web/pill";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
@@ -142,10 +142,9 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
       {editing ? (
         <>
           <CardContent className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="profile-name">Name</Label>
+            <Field label="Name" htmlFor="profile-name">
               <Input id="profile-name" value={draft} onChange={(e) => setDraft(e.target.value)} />
-            </div>
+            </Field>
             {update.isError && (
               <ApiErrorAlert error={update.error} fallback="Failed to update profile" />
             )}
@@ -314,37 +313,35 @@ function BlocklistForm({ mode, initial, onSubmit, onCancel, isSaving, error }: B
         <CardTitle>{mode === "edit" ? "Edit blocklist" : "Add blocklist"}</CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="bl-name">Name</Label>
+        <Field label="Name" htmlFor="bl-name">
           <Input
             id="bl-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Steven Black Hosts"
           />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="bl-url">URL</Label>
+        </Field>
+        <Field
+          label="URL"
+          htmlFor="bl-url"
+          help="Hosts file, ABP/AdGuard list, or domain-per-line format."
+        >
           <Input
             id="bl-url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
           />
-          <p className="text-xs text-muted-foreground">
-            Hosts file, ABP/AdGuard list, or domain-per-line format.
-          </p>
-        </div>
+        </Field>
         <CronSchedulePicker label="Update schedule" value={schedule} onChange={setSchedule} />
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="bl-enabled">{mode === "edit" ? "Enabled" : "Enable immediately"}</Label>
+        <Field label={mode === "edit" ? "Enabled" : "Enable immediately"} htmlFor="bl-enabled">
           <div className="flex h-9 items-center justify-between">
             <span className="text-sm text-muted-foreground">
               {enabled ? "Active in this profile" : "Saved but not applied"}
             </span>
             <Toggle id="bl-enabled" checked={enabled} onCheckedChange={setEnabled} />
           </div>
-        </div>
+        </Field>
         {error != null && (
           <div className="lg:col-span-2">
             <ApiErrorAlert
@@ -416,28 +413,26 @@ function AllowlistCard({ profileId }: SubSectionProps) {
               <CardTitle>Allow domain</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="al-domain">Domain</Label>
+              <Field
+                label="Domain"
+                htmlFor="al-domain"
+                help="This domain will never be blocked under this profile, even if it appears in a blocklist."
+              >
                 <Input
                   id="al-domain"
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
                   placeholder="example.com"
                 />
-                <p className="text-xs text-muted-foreground">
-                  This domain will never be blocked under this profile, even if it appears in a
-                  blocklist.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="al-reason">Reason (optional)</Label>
+              </Field>
+              <Field label="Reason (optional)" htmlFor="al-reason">
                 <Input
                   id="al-reason"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Required for work VPN"
                 />
-              </div>
+              </Field>
               {create.isError && (
                 <div className="lg:col-span-2">
                   <ApiErrorAlert error={create.error} fallback="Failed to add allowlist entry" />
@@ -521,8 +516,12 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
               <CardTitle>Add filter rule</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-              <div className="flex flex-col gap-2 lg:col-span-2">
-                <Label htmlFor="fr-text">Rule</Label>
+              <Field
+                label="Rule"
+                htmlFor="fr-text"
+                help="AdGuard / ABP syntax."
+                className="lg:col-span-2"
+              >
                 <Input
                   id="fr-text"
                   value={ruleText}
@@ -530,25 +529,22 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
                   placeholder="||example.com^"
                   className="font-mono"
                 />
-                <p className="text-xs text-muted-foreground">AdGuard / ABP syntax.</p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="fr-comment">Comment (optional)</Label>
+              </Field>
+              <Field label="Comment (optional)" htmlFor="fr-comment">
                 <Input
                   id="fr-comment"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                 />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="fr-enabled">Enable immediately</Label>
+              </Field>
+              <Field label="Enable immediately" htmlFor="fr-enabled">
                 <div className="flex h-9 items-center justify-between">
                   <span className="text-sm text-muted-foreground">
                     {enabled ? "Applied to traffic" : "Saved but inactive"}
                   </span>
                   <Toggle id="fr-enabled" checked={enabled} onCheckedChange={setEnabled} />
                 </div>
-              </div>
+              </Field>
               {create.isError && (
                 <div className="lg:col-span-2">
                   <ApiErrorAlert error={create.error} fallback="Failed to add filter rule" />

@@ -1572,6 +1572,104 @@ all facts; status pills via `.pill--*`.
   MacInput keep `border-input`/`ring-ring`). **`tw-animate-css`
   holdout state unchanged** — sheet.tsx still the sole file
   carrying utility-class motion.
+- **Field consolidation slice — Field is the only form-row
+  primitive in the app; Label is encapsulated inside Field and
+  no longer imported by any consumer** (2026-05-09, fourteenth
+  slice). Sweep slice that picked up the eleventh slice's
+  unfinished work. Migrated every `<Label>` + control pair
+  across `pages/`, `components/features/`, and `components/
+  compound/` to `<Field>`. After the sweep, `grep -rn '<Label\b'
+  source/admin-app/web/src/` returns zero JSX matches and the
+  Label primitive's only remaining consumer is `forge-web/src/
+  primitives/field.tsx` itself. Files touched: `pages/setup/
+  Step1Admin.tsx`, `pages/setup/Step4RouterMac.tsx`, `pages/
+  Login.tsx` (already migrated in slice 11), `pages/Dns.tsx`,
+  `pages/DnsLogs.tsx`, `pages/DnsFilterProfile.tsx`, `pages/
+  DnsFilterProfileNew.tsx`, `components/features/{BackupCard,
+  CreateReservationSheet, DeviceDnsFilterCard, DeviceNetworkCard,
+  DeviceSettingsCard, DnsFilterSettingsCard, ManualTunnelTab,
+  ProviderTunnelTab, UpdateCard}.tsx`, `components/compound/
+  {DhcpStatusCard, CronSchedulePicker}.tsx`. **Generalisation:**
+  consolidation slices are valuable when an earlier slice
+  introduced a primitive as proof-of-pattern (slice 11 shipped
+  Field with two consumers as proof). The "half-adopted
+  primitive" state (Field exists but most call sites still use
+  the manual structure) is technical debt — every slice after
+  the introduction either ships more consumers or accepts the
+  primitive as decorative. This slice resolved that for Field.
+- **Field gained `direction="row"` and `labelId` to absorb every
+  remaining label+control pattern in the codebase** (2026-05-09,
+  fourteenth slice). Beyond the vertical Label-above-control
+  pattern Field shipped with, the sweep surfaced two more
+  patterns Field had to support to truly become "the only
+  component used on forms":
+  (a) **Horizontal settings rows** — label-and-help block on
+  the left, toggle / select on the right (`.flex.items-center.
+  justify-between`-style rows). Examples: DnsFilterSettingsCard's
+  "DNS filtering enabled" + description + Toggle, DhcpStatusCard's
+  "Enable DHCP" + Toggle, UpdateCard's "Channel" + Select,
+  Dns.tsx's "Enable DNS" + Toggle, DeviceDnsFilterCard's "DNS
+  filtering" + description + Toggle. Added `direction="column" |
+  "row"` prop. When `direction="row"`, Field renders as
+  `.field[data-direction="row"]` with `flex-direction: row;
+  align-items: center; justify-content: space-between` and wraps
+  label + help into a `.field-text` block on the left so the
+  description sits under the label naturally. Vertical (default)
+  behaviour unchanged. **Why a data-attribute, not a `--row`
+  modifier class:** consistent with the locked rule "data-
+  attribute > modifier-class for prop-driven variants"; the
+  attribute reflects the prop directly so React vocabulary
+  (`direction="row"`) maps 1:1 to CSS selector
+  (`[data-direction="row"]`).
+  (b) **`aria-labelledby`-style controls** — `ProfileToggleList`'s
+  custom widget consumes `ariaLabelledBy` instead of pairing
+  with `htmlFor`, so its label needs `id` rather than `htmlFor`.
+  Added `labelId?: string` to Field; passed through to the
+  internal `Label` as `id`. Two consumers (DnsFilterSettingsCard,
+  DeviceDnsFilterCard). **Generalisation:** when a primitive is
+  designed for "the canonical case" (label `htmlFor` ↔ control
+  `id`), surfacing the alternative-association case (`aria-
+  labelledby` ↔ label `id`) as a sibling prop is cleaner than
+  forcing consumers to drop back to the manual structure or
+  exposing the underlying Label primitive. The Field API stays
+  cohesive ("a labeled control") while supporting both
+  association strategies.
+- **Toggle-then-Label rows flipped to Label-then-Toggle when
+  migrating** (2026-05-09, fourteenth slice). Two call sites
+  (UpdateCard's "Automatically install when available" toggle,
+  DnsLogs's "Live tail" toggle) used the control-then-label
+  pattern (`<Toggle/> <Label/>`) where the toggle visually
+  precedes its caption. Field renders `[label, control]` —
+  migrating these flipped the visual order to `[label, toggle]`.
+  The visual change is minor (label reads naturally on either
+  side of a toggle) and the consistency win — every form/setting
+  row has its label on the same side — outweighs preserving
+  the toggle-first idiom for two cases. **Generalisation:** when
+  a primitive enforces a single layout convention, consumers in
+  the inverse layout flip to match the convention rather than
+  the primitive growing a `controlPosition` prop for the long
+  tail. The threshold for adding the prop would be enough
+  consumers (or strong enough domain meaning) to justify a
+  divergent convention; two cases of cosmetic difference don't
+  clear it.
+- **Help text placement — Field renders help below the control,
+  but contextual hints can sit above by passing them as part of
+  `children`** (2026-05-09, fourteenth slice). Field's `help`
+  prop renders a `<p class="field-help">` *after* the children
+  — the standard "input + help" reading order. Two call sites
+  (DeviceDnsFilterCard's `<DefaultProfileHint>` above
+  `<ProfileToggleList>`, DnsFilterSettingsCard's "Applied to
+  devices..." paragraph above `<ProfileToggleList>`) wanted
+  the hint *between* label and control instead. Solution: keep
+  the hint inside `children` (alongside the control), don't
+  pass `help`. Field's `.field` `gap: 6px` then handles the
+  vertical spacing. **Generalisation:** Field's slot semantics
+  are `[label, children, help]`. "Help below" maps to `help`;
+  "help above" lives in `children` so the consumer keeps
+  ordering control without Field needing a `helpPosition` prop.
+  Same logic as the Toggle-then-Label decision — a primitive
+  shouldn't grow positional knobs for layout variations a
+  consumer can express in slot composition.
 
 ---
 
@@ -1924,3 +2022,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Form-row foundation slice (eleventh slice — three light primitives + first composition primitive). Surveyed the briefing's six-primitive scope down to **three lights** (`Label` / `Input` / `Textarea`) plus a new **`Field` composition**: `core/ui/input-group.tsx` has exactly one consumer (`core/ui/command.tsx`, out of scope) so it rides the Command port; `Ipv4Input`/`MacInput` are 150-line domain-coupled segmented-input compositions that fail the "pattern-reusable" litmus, so they stay in `core/ui/` for a separate restyle slice. **Forge-first:** refactored the existing `.field` block to add standalone `.label` / `.input` / `.textarea` classes that share rules with `.field label` / `.field input` / `.field select` / `.field textarea` via comma selectors (so a future visual change applies to both standalone and field-wrapped variants uniformly); added `:disabled` (cursor + opacity), `::placeholder` color, textarea-specific `min-height` + `field-sizing: content` + `resize: vertical`. Did **not** add `[aria-invalid]` styling — zero call sites pass `aria-invalid` (legacy primitives declared but no consumer used it), dropped per "drop features the migration doesn't require." **Three light primitives** ported as bare class-appliers — `Label` (Radix `Label.Root` + `.label`), `Input` (bare `<input>` + `.input`), `Textarea` (bare `<textarea>` + `.textarea`). **`Field` composition** (`@wardnet/forge-web/field`) wraps Label + control + optional help text and supports an `editing` boolean for edit/read swap (when `editing=false` and `value` provided, children replaced with `<span class="field-value">` styled to match input vertical rhythm so layout doesn't jump). Forge gained `.field-help` (small ink-3 paragraph below control) and `.field-value` (read-mode display). **Naming:** `Field` (not `FormField` / `FormInput`) follows the locked rule "component name follows Forge class" — Forge class is `.field`, single word; the React export matches. **Why composition not primitive:** combines three sub-elements + edit/read behavior, same shape as Card / CardHeader / CardBody. **Why ship it:** the manual pattern (`<div className="flex flex-col gap-2"><Label>X</Label><Input/><p>Help</p></div>`) was reproduced verbatim at 15+ call sites; with Field the pattern lives in one component, so future Forge tweaks propagate via the primitive instead of touching every consumer. New subpath exports `./label`, `./input`, `./textarea`, `./field` in `@wardnet/forge-web`. **Call site migration:** 21 files retargeted via sed — pure import-path swap, no JSX rewrite for Label/Input/Textarea (inline Tailwind className overrides on Label win via cascade order, so visual stays unchanged). **Two call sites migrated to Field as proof-of-pattern:** `Login.tsx` (two label+input pairs, no help) and `EditDhcpConfigSheet.tsx` (six fields, two with help text — manual `<p className="text-xs text-muted-foreground">` paragraphs collapsed into Field's `help` prop). Remaining ~13 call sites stay on the manual pattern — they migrate to Field organically as feature slices touch them or in a dedicated "field consolidation" slice; both forms are visually equivalent so the codebase is transitional-consistent. `core/ui/input-group.tsx` had its internal Input/Textarea imports retargeted to forge-web (its own consumer is Command, out of scope). Legacy `core/ui/{label,input,textarea}.tsx` deleted. Legacy alias audit: no rows newly zero-referenced — `border-input` / `bg-input` family / `text-muted-foreground` / `*-destructive` rows still have many consumers (the form-heavies still consume them). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | RadioGroup drop + MyDevice routing-form simplification (twelfth slice — first slice where the planned port flipped to a drop). Briefing scoped this as Option A "port RadioGroup as the fourth data-state-bridge." Pre-flight survey turned up exactly one consumer: `pages/MyDevice.tsx`'s `RoutingForm`, where RadioGroup rendered a binary `Direct (no VPN)` / `VPN` choice followed by a conditional `<Select>` listing tunnels. That two-control composition is the same affordance as the unified `<Select>` already encapsulated by `compound/RoutingSelector` (used by `features/DeviceSettingsCard` and `pages/setup/Step6Policy`) — single dropdown with `Direct (no VPN)` as the first option, followed by tunnels. So the slice flipped: replace MyDevice's RoutingForm contents with a `<RoutingSelector />` instance, drop RadioGroup's app-wide consumer count to zero, mark `radio-group.tsx` as `[-]` Removed from scope, delete the legacy file — no forge-web port written, no new `.radio` Forge classes added. **`RoutingSelector` prop narrowed from `Tunnel[]` to `TunnelSummary[]`** — the compound only consumes `id` / `label` / `country_code`, and `TunnelSummary` is the SDK's auth-scoped shape for self-service routing selection (the unauthenticated/self-service `/api/devices/me` endpoint deliberately ships only the minimum fields, not full `Tunnel` data which carries internal stats like `bytes_tx`/`endpoint`/`last_handshake`). Two existing `RoutingSelector` consumers keep working because `Tunnel` is structurally a `TunnelSummary` — TS structural assignability lets `Tunnel[]` flow into a `TunnelSummary[]` prop. **`MyDevice` RoutingForm shrunk from ~60 lines to ~30** — separate `mode`/`tunnelId` state collapsed into a single `useState<RoutingTarget>`, conditional Select + empty-tunnels message all moved into `RoutingSelector`. **Generalisations locked:** (a) "drop features the migration doesn't require" extends one more rung — when a primitive's lone consumer can be expressed with an existing primitive or compound, the primitive itself drops, not just its unused parts; the Forge-vocabulary threshold for shipping a primitive is "≥1 consumer that can't be expressed with what we already have," not "≥1 consumer"; (b) when a compound takes a domain type where only a structural subset is consumed, prefer the narrower shape and let TS structural assignability handle the wider call sites; (c) pre-flight surveys can change the slice's shape from "port" to "drop" without writing a primitive at all — the briefing's "fourth data-state-bridge application" lands as a *deferred* generalisation the next state-bearing primitive will surface, nothing lost by skipping it here. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Combobox primitive — Command renamed + InputGroup dropped + first alias rows deleted (thirteenth slice). Pre-flight survey: legacy `core/ui/command.tsx` had **one** app consumer (`compound/CountryCombobox.tsx`) and three of nine exports were unused (`CommandDialog`/`CommandShortcut`/`CommandSeparator`); there is no global ⌘K palette in this app. cmdk is being used solely as a typeahead-filterable select inside a Popover, so the primitive's shadcn name (`Command`, evoking command palettes) misrepresented its actual role. **Renamed to `Combobox`** — standards-compliant ARIA name and the noun the consumer file already uses (`CountryCombobox`). **High-level composite, not multi-part:** new `Combobox` owns Popover + trigger Button (variant=outline, full-width, chevron) + search input (with leading search icon) + scrollable list scaffold + empty state + selected-checkmark indicator; consumer fills the trigger *content* via `trigger` prop and the list items via `<ComboboxItem>` children. Two exports (`Combobox`, `ComboboxItem`) replace the legacy nine; eight-layer call-site shape collapses to one. Selected-checkmark is owned by Forge — `<ComboboxItem>` emits `data-state={isSelected ? "checked" : "unchecked"}` and the existing Select-slice `.menu-item[data-state="checked"]::after` rule paints the check (no JSX duplication). cmdk dependency moved from `admin-app/web` to `admin-app/forge-web`. **Forge-first:** added `.combobox-trigger` / `.combobox-content` / `.combobox-input` / `.combobox-list` / `.combobox-empty` classes; bridged cmdk's `data-selected="true"` (keyboard-focus highlight) to the existing `.menu-item[data-highlighted]` rule via comma selector — third application of the comma-selector dedupe pattern (after the form-row slice's `.label`/`.field label` and `.input`/`.field input`). **InputGroup dropped:** the legacy `CommandInput` wrapped its search input in `<InputGroup>`; the new `Combobox` uses `.combobox-input` instead, dropping InputGroup's app-wide consumer count to zero — second consecutive slice where the briefing's "port primitive X" flipped to "drop primitive X" (RadioGroup last slice, InputGroup this slice). Legacy `core/ui/{command,input-group}.tsx` deleted; no forge-web port for InputGroup. **First alias rows deleted from `admin-app/web/src/index.css`:** `--color-popover` and `--color-popover-foreground` (lines 89-90) zeroed by Command's deletion (their consumer counts had been counting down through the Popover/DropdownMenu/Select/DropdownMenu slice audits — 7→6→5→2→1→0). Bundled the row deletion into this commit since two trivial line removals don't merit a separate alias-pruning slice. **CountryCombobox** rewritten to use the new composite — 90-line file shrunk to 50 lines, three primitive imports collapsed to one. Toggle-to-deselect-on-reclick behavior preserved at the consumer (`onChange={(next) => onChange(next === value ? "" : next)}`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Field consolidation sweep — Field is the only form-row primitive in the app; Label is encapsulated and no longer imported by any consumer (fourteenth slice). Sweep slice that picked up the eleventh slice's unfinished work: migrated every remaining `<Label>` + control pair across `pages/`, `components/features/`, and `components/compound/` to `<Field>`. Files touched: `pages/setup/{Step1Admin,Step4RouterMac}.tsx`, `pages/{Dns,DnsLogs,DnsFilterProfile,DnsFilterProfileNew}.tsx`, `components/features/{BackupCard,CreateReservationSheet,DeviceDnsFilterCard,DeviceNetworkCard,DeviceSettingsCard,DnsFilterSettingsCard,ManualTunnelTab,ProviderTunnelTab,UpdateCard}.tsx`, `components/compound/{DhcpStatusCard,CronSchedulePicker}.tsx`. After the sweep, `grep -rn '<Label\b' source/admin-app/web/src/` returns zero JSX matches and the Label primitive's only remaining consumer is `forge-web/src/primitives/field.tsx` itself. **Field gained `direction="row"` and `labelId` props** to absorb every remaining label+control pattern — (a) horizontal settings rows (label-and-help block on the left, toggle/select on the right) get `direction="row"` which renders as `.field[data-direction="row"]` with `flex-direction: row; align-items: center; justify-content: space-between` and wraps label+help into a `.field-text` block; (b) `aria-labelledby`-style controls (ProfileToggleList) get `labelId` which passes through to the internal Label as `id`. Forge gained `.field[data-direction="row"]` + `.field-text` rules in `styles.css`. **Two toggle-then-label call sites flipped to label-then-toggle** (UpdateCard's "Automatically install when available", DnsLogs's "Live tail") — Field renders [label, control] and the consistency win across every form/setting row outweighs preserving the inverse idiom for two cosmetic cases. **Help-text placement rule:** `help` prop renders below children; for help that should sit *above* the control (e.g., DefaultProfileHint above ProfileToggleList in DeviceDnsFilterCard), keep it inside `children` so the consumer keeps ordering control without Field needing a `helpPosition` prop. **Generalisations:** (a) consolidation slices are valuable when an earlier slice introduced a primitive as proof-of-pattern — the "half-adopted primitive" state is technical debt; every slice after introduction either ships more consumers or accepts the primitive as decorative; (b) a primitive shouldn't grow positional knobs (helpPosition, controlPosition) for layout variations a consumer can express in slot composition — the threshold for adding the prop is enough consumers (or strong enough domain meaning) to justify a divergent convention; (c) data-attribute > modifier-class for prop-driven variants, third application after Toggle's `data-state` and DropdownMenuItem's `data-variant` (Field's `data-direction`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` resolved by --fix during this slice); type-check + format:check clean for marketing-site. | (this commit) |

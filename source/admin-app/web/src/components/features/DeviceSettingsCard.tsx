@@ -8,8 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
+import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
-import { Label } from "@wardnet/forge-web/label";
 import {
   Select,
   SelectContent,
@@ -109,18 +109,16 @@ export function DeviceSettingsCard({ device, currentRule }: DeviceSettingsCardPr
       {editing ? (
         <>
           <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="device-name">Friendly name</Label>
+            <Field label="Friendly name" htmlFor="device-name">
               <Input
                 id="device-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={device.hostname ?? device.mac}
               />
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
-              <Label>Device type</Label>
+            <Field label="Device type">
               <Select value={deviceType} onValueChange={(v) => setDeviceType(v as DeviceType)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -136,25 +134,23 @@ export function DeviceSettingsCard({ device, currentRule }: DeviceSettingsCardPr
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
-              <Label>Routing</Label>
+            <Field label="Routing">
               <RoutingSelector
                 value={routingTarget}
                 onChange={setRoutingTarget}
                 tunnels={tunnels}
                 isAdmin
               />
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="device-lock">Admin lock</Label>
+            <Field label="Admin lock" htmlFor="device-lock">
               <div className="flex h-9 items-center justify-between">
                 <span className="text-sm text-muted-foreground">Prevent user routing changes</span>
                 <Toggle id="device-lock" checked={adminLocked} onCheckedChange={setAdminLocked} />
               </div>
-            </div>
+            </Field>
 
             {updateDevice.isError && (
               <div className="md:col-span-2">

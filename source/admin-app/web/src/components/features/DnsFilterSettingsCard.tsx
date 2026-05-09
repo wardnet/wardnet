@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Label } from "@wardnet/forge-web/label";
+import { Field } from "@wardnet/forge-web/field";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
@@ -34,25 +34,22 @@ export function DnsFilterSettingsCard() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="filter-enabled">DNS filtering enabled</Label>
-                <p className="text-xs text-muted-foreground">
-                  Emergency stop. When off, every DNS query bypasses filtering regardless of
-                  per-device or per-profile settings.
-                </p>
-              </div>
+            <Field
+              direction="row"
+              label="DNS filtering enabled"
+              htmlFor="filter-enabled"
+              help="Emergency stop. When off, every DNS query bypasses filtering regardless of per-device or per-profile settings."
+            >
               <Toggle
                 id="filter-enabled"
                 checked={config.enabled}
                 disabled={update.isPending}
                 onCheckedChange={(enabled) => update.mutate({ enabled })}
               />
-            </div>
+            </Field>
 
             {config.enabled && (
-              <div className="flex flex-col gap-2">
-                <Label id={DEFAULT_PROFILES_LABEL_ID}>Default profiles</Label>
+              <Field label="Default profiles" labelId={DEFAULT_PROFILES_LABEL_ID}>
                 <p className="text-xs text-muted-foreground">
                   Applied to devices that have no explicit profile assignment. Multiple profiles
                   stack — a domain blocked in any one of them is blocked. Leave empty to leave
@@ -65,7 +62,7 @@ export function DnsFilterSettingsCard() {
                   disabled={update.isPending}
                   ariaLabelledBy={DEFAULT_PROFILES_LABEL_ID}
                 />
-              </div>
+              </Field>
             )}
           </>
         )}
