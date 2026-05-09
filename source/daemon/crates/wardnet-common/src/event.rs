@@ -134,6 +134,19 @@ pub enum WardnetEvent {
         change: DnsFilterChange,
         timestamp: DateTime<Utc>,
     },
+    /// A DNS filter source was rebuilt and the new compiled filter is now
+    /// live (i.e. the `ArcSwap` swap has happened). Emitted by
+    /// `DnsFilterServiceImpl` after each mutating rebuild. Subscribers
+    /// such as `UdpDnsServer` use this to invalidate caches that were
+    /// populated against the previous filter — without invalidation,
+    /// already-forwarded answers stay served until cache TTL expiry,
+    /// so newly-blocked domains keep returning their cached `Pass`
+    /// responses (issue #341). Payload is intentionally just
+    /// `timestamp`: the flush is coarse (whole cache) so the
+    /// subscriber doesn't need to know which filter changed.
+    DnsFilterRebuilt {
+        timestamp: DateTime<Utc>,
+    },
     UpdateAvailable {
         current_version: String,
         latest_version: String,

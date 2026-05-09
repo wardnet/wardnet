@@ -15,18 +15,20 @@ use hickory_resolver::config::{
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns, UpstreamId};
+use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_services::DnsFilterService;
 use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
+use wardnetd_services::event::EventPublisher;
 
 // ---------------------------------------------------------------------------
 // UdpDnsSocket — production socket impl
@@ -102,6 +104,25 @@ pub struct UdpDnsServer {
     /// upstream the snapshot points at, not the forwarder behaviour
     /// itself, and unused entries quietly age out at process restart.
     tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
+    /// Cancellation token for the background cache-invalidation
+    /// subscriber spawned in `new`/`with_bind_addr`. The subscriber
+    /// flushes the response cache on every `WardnetEvent::DnsFilterRebuilt`
+    /// (issue #341) so a freshly-published filter rebuild takes effect on
+    /// the next query rather than after cache TTL expiry. Lives for the
+    /// whole process — independent of the DNS `enabled` toggle — so
+    /// rebuild events that fire while DNS is disabled don't leave stale
+    /// entries when DNS is re-enabled. Cancelled in `Drop`.
+    cache_invalidator_cancel: CancellationToken,
+}
+
+impl Drop for UdpDnsServer {
+    fn drop(&mut self) {
+        // Signal the cache-invalidation subscriber to exit. The task
+        // observes the token and breaks out of its `select!`. Drop
+        // doesn't await the join — the bus has already been closed by
+        // its publisher (or soon will be) and the task self-terminates.
+        self.cache_invalidator_cancel.cancel();
+    }
 }
 
 /// Cached metadata required to forward a query to a specific tunnel's
@@ -121,6 +142,7 @@ impl UdpDnsServer {
         dns_filter: Arc<dyn DnsFilterService>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
+        events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self::with_bind_addr(
             config,
@@ -128,9 +150,14 @@ impl UdpDnsServer {
             dns_filter,
             routing_snapshot,
             tunnel_repo,
+            events,
         )
     }
 
+    // `events` is consumed (subscribed once, then dropped) — keeping the
+    // by-value signature mirrors the other Arc params and lets call
+    // sites read like a plain construction.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn with_bind_addr(
         config: DnsConfig,
@@ -138,11 +165,25 @@ impl UdpDnsServer {
         dns_filter: Arc<dyn DnsFilterService>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
+        events: Arc<dyn EventPublisher>,
     ) -> Self {
         let cache_capacity = config.cache_size as usize;
+        let cache = Arc::new(RwLock::new(DnsCache::new(cache_capacity)));
+        let cache_invalidator_cancel = CancellationToken::new();
+        // Subscribe BEFORE spawning so any event published between
+        // construction and the task running is buffered into this
+        // receiver — `broadcast::Receiver` only drops messages older
+        // than its position, not future ones. Subscribing in the spawn
+        // body would race rebuild events that land in the same tick.
+        let event_rx = events.subscribe();
+        spawn_cache_invalidator(
+            Arc::clone(&cache),
+            event_rx,
+            cache_invalidator_cancel.clone(),
+        );
         Self {
             config: Arc::new(RwLock::new(config)),
-            cache: Arc::new(RwLock::new(DnsCache::new(cache_capacity))),
+            cache,
             dns_filter,
             bind_addr,
             injected_socket: None,
@@ -156,6 +197,7 @@ impl UdpDnsServer {
             routing_snapshot,
             tunnel_repo,
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
+            cache_invalidator_cancel,
         }
     }
 
@@ -856,6 +898,60 @@ pub(crate) fn duration_to_ms(d: std::time::Duration) -> f64 {
 
 pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
     upstreams.first().map(|u| u.address.clone())
+}
+
+/// Long-lived background task: subscribe to the event bus and flush the
+/// response cache on every `WardnetEvent::DnsFilterRebuilt` (issue #341).
+///
+/// Lives for the whole `UdpDnsServer` instance — independent of the
+/// `enabled` toggle that controls the listener — so a rebuild that
+/// fires while DNS is paused doesn't leave the cache stale when the
+/// listener comes back. Flush on an empty cache is a no-op, so the
+/// always-on cost is nil. Exits cleanly on cancellation (Drop) or when
+/// the broadcast bus closes.
+fn spawn_cache_invalidator(
+    cache: Arc<RwLock<DnsCache>>,
+    mut event_rx: broadcast::Receiver<WardnetEvent>,
+    cancel: CancellationToken,
+) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => {
+                    tracing::debug!("DNS cache invalidator cancelled");
+                    break;
+                }
+                result = event_rx.recv() => {
+                    match result {
+                        Ok(WardnetEvent::DnsFilterRebuilt { .. }) => {
+                            let removed = cache.write().await.flush();
+                            if removed > 0 {
+                                tracing::debug!(
+                                    removed,
+                                    "flushed DNS cache after filter rebuild"
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            // We may have skipped a rebuild event. Flush
+                            // defensively — a stale cache is the bug we're
+                            // here to prevent.
+                            tracing::warn!(
+                                skipped = n,
+                                "DNS cache invalidator lagged behind event bus; flushing defensively"
+                            );
+                            cache.write().await.flush();
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::info!("DNS cache invalidator: event bus closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;

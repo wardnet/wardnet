@@ -378,6 +378,7 @@ async fn run(
             services.dns_filter.clone(),
             services.routing.dns_upstream_snapshot(),
             services.tunnel_repo.clone(),
+            services.event_publisher.clone(),
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );

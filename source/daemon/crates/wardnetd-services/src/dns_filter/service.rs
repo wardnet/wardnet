@@ -250,6 +250,18 @@ impl DnsFilterServiceImpl {
         });
     }
 
+    /// Announce that a compiled filter has just been swapped in. Emitted
+    /// from each mutating `rebuild_*_inner` immediately after the swap,
+    /// so `UdpDnsServer` (and any other cache holder) can invalidate
+    /// answers that were forwarded under the previous filter (issue
+    /// #341). Coarse by design — subscribers wanting fine-grained
+    /// behaviour can listen to `DnsFilterChanged` instead.
+    fn publish_rebuilt(&self) {
+        self.events.publish(WardnetEvent::DnsFilterRebuilt {
+            timestamp: Utc::now(),
+        });
+    }
+
     fn validate_domain(domain: &str) -> Result<(), AppError> {
         if domain.is_empty() {
             return Err(AppError::BadRequest("domain must not be empty".to_owned()));
@@ -384,6 +396,8 @@ impl DnsFilterServiceImpl {
         } else {
             filters.insert(blocklist_id, Arc::new(ArcSwap::from_pointee(new_filter)));
         }
+        drop(filters);
+        self.publish_rebuilt();
         Ok(())
     }
 
@@ -460,6 +474,8 @@ impl DnsFilterServiceImpl {
         } else {
             profiles.insert(profile_id, Arc::new(ArcSwap::from_pointee(runtime)));
         }
+        drop(profiles);
+        self.publish_rebuilt();
         Ok(())
     }
 
@@ -490,6 +506,8 @@ impl DnsFilterServiceImpl {
         if let Some(ip) = new_ip {
             by_ip.insert(ip, context);
         }
+        drop(by_ip);
+        self.publish_rebuilt();
         Ok(())
     }
 
@@ -553,6 +571,7 @@ impl DnsFilterServiceImpl {
             }
         };
         self.default_context.store(Arc::new(new_ctx));
+        self.publish_rebuilt();
         Ok(())
     }
 
