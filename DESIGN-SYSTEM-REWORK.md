@@ -135,7 +135,7 @@ Radix primitive needed (pure visual or HTML element).
 | button.tsx        | n/a                | `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` | [x] |
 | card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head` + `.card__foot` (added) | [x] |
 | badge.tsx → pill  | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost` (renamed `Badge` → `Pill`) | [x] |
-| dialog.tsx        | Dialog             | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) | [ ] |
+| dialog.tsx → modal | Dialog            | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) (renamed `Dialog` → `Modal`) | [x] |
 | alert-dialog.tsx  | AlertDialog        | `.modal` + danger primary action                       | [ ]    |
 | sheet.tsx         | Dialog (slide)     | mobile bottom sheet (Forge mobile.html §sheet)         | [ ]    |
 | dropdown-menu.tsx | DropdownMenu       | popover-style menu (Forge §07)                         | [ ]    |
@@ -534,6 +534,100 @@ all facts; status pills via `.pill--*`.
   `sidebar-primary-foreground`, `sidebar-ring`) were already zero
   before this slice; the alias-pruning slice can drop them whenever
   it lands.
+- **Multi-part Radix-wrap template — Modal slice** (2026-05-09, fifth
+  primitive). Modal is the first primitive that wraps a *multi-part*
+  Radix sub-library (`Dialog.Root` / `Dialog.Trigger` / `Dialog.Portal` /
+  `Dialog.Overlay` / `Dialog.Content` / `Dialog.Title` /
+  `Dialog.Description` / `Dialog.Close`) and exposes a multi-part
+  React surface (`Modal` / `ModalTrigger` / `ModalContent` /
+  `ModalHeader` / `ModalTitle` / `ModalDescription` / `ModalBody` /
+  `ModalFooter` / `ModalClose`). The mapping rule that emerged: each
+  exported part is one of two shapes — **(a) "passthrough Radix"**:
+  `Modal` (Dialog.Root), `ModalTrigger` (Dialog.Trigger),
+  `ModalDescription` (Dialog.Description), `ModalClose` (Dialog.Close)
+  — these have no Forge visual surface of their own and pass through
+  to Radix verbatim, so the primitive is a one-line forwarder.
+  **(b) "Forge-owned div"**: `ModalHeader` = `<div className="modal__head">`,
+  `ModalBody` = `<div className="modal__body">`, `ModalFooter` =
+  `<div className="modal__foot">` — these don't correspond to any
+  Radix sub-component because Forge owns those layouts visually
+  (extends the Toggle slice's "don't render Radix sub-components
+  Forge already owns visually" rule from a single pseudo-element to
+  whole structural divs). **(c) "Compose Radix into Forge structure"**:
+  `ModalContent` renders `<Dialog.Portal>` + `<Dialog.Overlay
+  className="scrim">` + `<Dialog.Content className="modal">` —
+  three Radix parts collapsed into one consumer-facing export
+  because Forge treats backdrop+surface as a single "modal content"
+  unit. **(d) "Radix part wearing Forge's expected element"**:
+  `ModalTitle` renders `<Dialog.Title asChild><h3>...</h3></Dialog.Title>`
+  so Radix's a11y wiring (aria-labelledby) lands on the h3 that
+  Forge's `.modal__head h3` selector already styles. Same trick will
+  work whenever Radix's default element doesn't match Forge's
+  expected element. Future multi-part wraps (AlertDialog, Sheet,
+  Popover, DropdownMenu, Select) follow this four-shape map — list
+  each export, classify it, and the implementation falls out.
+- **`data-state="open"|"closed"` is a generalisation of the Toggle
+  slice's `checked|unchecked` rule** (2026-05-09, Modal slice). Toggle
+  bridged Radix's `data-state="checked"` to Forge's `.is-on` modifier
+  with a dual selector. Modal repeats the pattern for `data-state="open"`
+  (entrance) and `data-state="closed"` (exit) on `.scrim` and `.modal`.
+  Confirms the rule generalises across all state-bearing Radix
+  primitives — every Radix-wrap slice that introduces state grows
+  Forge's `[data-state="…"]` selector family in the same commit.
+  Concrete additions in this slice:
+  - `.scrim` and `.modal` each got `[data-state="open"]` / `[data-state="closed"]`
+    selectors driving entrance/exit animations.
+  - Forge's existing `pop` keyframe was renamed to `scrim-in` and a
+    matching `scrim-out` keyframe added; new `modal-in` / `modal-out`
+    keyframes handle the centered surface (fade + small upward
+    translate + 0.97→1 scale).
+  - `.modal` was given `position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%)` so it can render as a *sibling*
+    of `<Dialog.Overlay>` (Radix's default tree shape) rather than
+    as a child of `.scrim`. Side selector `.scrim > .modal { position:
+    static; transform: none }` keeps the scrim's grid centering working
+    for CSS-only mocks where the modal is nested inside the scrim.
+- **Animations live in Forge when they're intrinsic to `.scrim` /
+  `.modal`** (2026-05-09, Modal slice). The stack-changes table keeps
+  `tw-animate-css` for "dialog/sheet/dropdown entrance animations." We
+  considered whether the entrance/exit fade/scale belongs in Forge's
+  stylesheet or in the primitive's `className` props (using
+  tw-animate-css's `data-[state=open]:animate-in` /
+  `data-[state=closed]:animate-out` Tailwind utilities). Decision: when
+  the animation describes a property of the class itself (every modal
+  fades in; every scrim fades the backdrop in), it belongs in Forge —
+  CSS-only mocks and the React primitive then share visuals without
+  tw-animate-css being a runtime concern for either. tw-animate-css
+  remains in the dependency graph for variant-shaped animations that
+  WILL belong in the primitive — e.g. Sheet's slide-from-bottom is a
+  direction-specific extension of Modal's centered fade and reads
+  more cleanly as `data-[state=open]:slide-in-from-bottom` next to
+  Sheet-specific Tailwind classes than as a separate Forge keyframe.
+  **Rule:** intrinsic visuals → Forge keyframes scoped to
+  `[data-state="…"]`; variant-specific or composition-specific motion
+  → tw-animate-css utilities on the primitive's className.
+- **`Dialog.Trigger` already supports `asChild` natively — no Slot
+  wrapper needed in Modal** (2026-05-09, Modal slice). Earlier Button
+  added an explicit Radix `Slot.Root` wrapper for `asChild`. For
+  Modal's `ModalTrigger`, the equivalent prop is provided by Radix
+  itself — `<Dialog.Trigger asChild>` is part of the Radix Dialog API.
+  ModalTrigger is a one-line passthrough that re-exposes
+  `React.ComponentProps<typeof Dialog.Trigger>`, including `asChild`,
+  to consumers. Same applies to `Dialog.Close` (and `Dialog.Title`
+  via the asChild trick used in ModalTitle). **Rule:** when the Radix
+  sub-component already supports `asChild`, the primitive doesn't
+  need a separate `Slot` import — Radix's API is the contract.
+- **Legacy shadcn alias audit — Modal slice** (2026-05-09). The
+  deleted `dialog.tsx` referenced `bg-background`, `bg-muted/50`,
+  `text-muted-foreground`, plus shadcn animation utilities
+  (`data-open:animate-in` / `data-closed:animate-out` /
+  `data-open:fade-in-0` / `data-open:zoom-in-95` etc., which are
+  tw-animate-css aliases, not shadcn token aliases). None of the
+  shadcn token alias rows in `admin-app/web/src/index.css` reached
+  zero references after deletion — `bg-background` (6),
+  `text-foreground` (32), `bg-muted` (31), `text-muted-foreground`
+  (231), `bg-popover` (7), `text-popover-foreground` (5) all retain
+  consumers. The alias-pruning slice still has work to do.
 
 ---
 
@@ -876,3 +970,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Card primitive port (second primitive — multi-part). Mapped legacy 7-component API (`Card`/`CardHeader`/`CardTitle`/`CardDescription`/`CardAction`/`CardContent`/`CardFooter`) onto Forge's `.card` / `.card__head` (with auto-styled nested `h3`, `.sub`, `.right`) and a new `.card__foot` class added to `source/forge/styles.css` per the Forge-first rule. Export shape locked as flat named exports — kept the 29 call sites' import shape stable so the migration was a pure import-path retarget. Caught a flush prop in review and removed it: replaced the consumer-facing `flush` prop with a CSS `:has()` rule (`.card:has(> .card__head), .card:has(> .card__foot) { padding: 0; }`) so layout follows from composition rather than from a prop the consumer might mis-set. `.card--flush` stays in Forge for explicit no-head/no-foot cases (image-only, table-only) and CSS-only consumers. Legacy `core/ui/card.tsx` deleted; 29 imports retargeted to `@wardnet/forge-web/card`. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Pill primitive port (third primitive — first variant rename). Renamed component `Badge` → `Pill` to match Forge's class vocabulary; renamed legacy variant strings to Forge's semantic vocabulary (`success` → `ok`, `destructive` → `down`, `outline`/`secondary` → `ghost`; added `warn`/`info` where call sites had been forced into stylistic substitutes). Migration was wider than Button/Card (touched the `StatusBadge` wrapper's `variantForTone` map, `LogViewer.levelVariant`, `DnsLogs.RESULT_BADGE` lookup table, and 9 call sites' import + JSX) but tractable at this size — captured in Findings as the rule "adopt Forge variant vocabulary when semantic, keep legacy when stylistic, weight by call-site count." Forge `.pill` / `.pill--*` classes used directly via CVA; primitive supports `asChild` via Radix `Slot.Root` (matches Button). New `./pill` subpath export in forge-web. Legacy `core/ui/badge.tsx` deleted. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Toggle primitive port (fourth primitive — first Radix-wrap template). Renamed `Switch` → `Toggle` to match Forge's `.toggle` class; the legacy `core/ui/switch.tsx` is gone. Two rules locked in this slice: (1) **component name always follows Forge class name — no Radix exception**, supersedes the Pill slice's "modulo Radix" wording; the Radix umbrella import keeps its Radix name inside the file (`import { Switch } from "radix-ui"`, render `<Switch.Root>`), but the file/export/subpath are Forge's name. (2) **Radix `data-state` ↔ Forge modifier classes are bridged in Forge's stylesheet, not in JS** — added `.toggle[data-state="checked"]` selectors next to `.toggle.is-on` so CSS-only consumers and React primitives land on the same visual. This is the template for every state-bearing Radix-wrap that follows (Tabs, RadioGroup, Dialog→Modal, Popover, Sheet, AlertDialog, Select, DropdownMenu) — Forge will grow a family of `[data-state="…"]` selectors and that's deliberate. Toggle primitive is minimal: `<Switch.Root className="toggle" {...props} />`, no `Switch.Thumb` child since Forge's `.toggle::after` provides the thumb (a generalisable rule — don't render Radix sub-components Forge already owns visually). Subpath `./toggle` added to `@wardnet/forge-web`; 9 call sites retargeted (`@/components/core/ui/switch` → `@wardnet/forge-web/toggle`, `<Switch …>` → `<Toggle …>`); one stale JSDoc reference in `ProfileToggleList.tsx` updated. Legacy alias audit: switch.tsx's referenced aliases (`bg-input`, `bg-primary`, `bg-background`, `bg-foreground`, `bg-primary-foreground`, `border-ring`, `ring-ring`, `border-destructive`, `ring-destructive`) all retain other consumers — no rows newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Modal primitive port (fifth primitive — first multi-part-Radix-wrap template). Renamed `Dialog` → `Modal` to match Forge's `.modal` class; the legacy `core/ui/dialog.tsx` is gone. The Radix umbrella import keeps its Radix name inside the file: `import { Dialog } from "radix-ui"`, render `<Dialog.Root>` / `<Dialog.Portal>` / `<Dialog.Overlay>` / `<Dialog.Content>` etc. Multi-part export shape (`Modal` / `ModalTrigger` / `ModalContent` / `ModalHeader` / `ModalTitle` / `ModalDescription` / `ModalBody` / `ModalFooter` / `ModalClose`) follows the flat-named-exports precedent set by Card. Each export classified as one of four shapes — **passthrough Radix** (Modal, ModalTrigger, ModalDescription, ModalClose), **Forge-owned div** (ModalHeader = `.modal__head`, ModalBody = `.modal__body`, ModalFooter = `.modal__foot` — generalises Toggle's "don't render Radix sub-components Forge already owns visually" from a single pseudo-element to whole structural divs), **composed Radix tree** (ModalContent = Portal + Overlay[scrim] + Content[modal]), or **Radix part wearing Forge's expected element via asChild** (ModalTitle renders `<Dialog.Title asChild><h3>...</h3></Dialog.Title>` so a11y wiring lands on the `<h3>` Forge's `.modal__head h3` selector already styles). Forge gained the second instance of the data-state bridge: `.scrim[data-state="open"\|"closed"]` and `.modal[data-state="open"\|"closed"]` selectors with new `scrim-in/out` + `modal-in/out` keyframes; `.modal` was given fixed-positioning + a `.scrim > .modal { position: static; transform: none }` reset so Radix's sibling Overlay/Content tree and CSS-only mocks (modal nested inside scrim) both render correctly. Locked the rule on where animations live: **intrinsic** to `.scrim` / `.modal` → Forge keyframes scoped to `[data-state="…"]`; **variant-specific** (e.g. Sheet's slide-from-bottom) → tw-animate-css utilities on the primitive's className. Subpath `./modal` added to `@wardnet/forge-web`; 2 call sites migrated (`core/ui/command.tsx` wrapper + `features/BackupCard.tsx`'s ExportDialog & RestoreDialog) — full Dialog* → Modal* JSX rename plus added explicit `<ModalBody>` wrappers around the body content per Forge's structural expectation (Forge's `.modal__body` provides body padding; the legacy DialogContent's grid+gap pattern is gone). Note on `Dialog.Trigger`: Radix's own `asChild` prop covers the Slot wrapping that Button needed to add explicitly — ModalTrigger is a one-line passthrough. Legacy `dialog.tsx` deleted. Legacy alias audit: dialog.tsx's shadcn token aliases (`bg-background`, `bg-muted`, `text-muted-foreground`, `bg-popover`, `text-popover-foreground`) all retain other consumers — no rows newly zero-referenced; the `data-open:animate-in` / `data-closed:animate-out` / `data-open:fade-in-0` / `data-open:zoom-in-95` etc. utilities are tw-animate-css (kept) rather than shadcn-token aliases, and their replacement now lives in Forge's stylesheet. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

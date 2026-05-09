@@ -5,13 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/car
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/core/ui/dialog";
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "@wardnet/forge-web/modal";
 import { DownloadIcon, UploadIcon, AlertTriangleIcon } from "lucide-react";
 
 /** Server-enforced minimum, mirrors `wardnet_common::backup::MIN_PASSPHRASE_LEN`. */
@@ -162,61 +163,63 @@ function ExportDialog({
   };
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onOpenChange={(next) => {
         if (!next) reset();
         onOpenChange(next);
       }}
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Download an encrypted backup</DialogTitle>
-          <DialogDescription>
+      <ModalContent>
+        <ModalHeader>
+          <ModalTitle>Download an encrypted backup</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          <ModalDescription>
             Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters. The passphrase is
             required to restore this bundle; we can&apos;t recover it if you lose it.
-          </DialogDescription>
-        </DialogHeader>
+          </ModalDescription>
 
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="backup-passphrase">Passphrase</Label>
-            <Input
-              id="backup-passphrase"
-              type="password"
-              autoComplete="new-password"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-            {tooShort && (
-              <p className="text-xs text-destructive">
-                At least {MIN_PASSPHRASE_LEN} characters required.
-              </p>
-            )}
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="backup-passphrase">Passphrase</Label>
+              <Input
+                id="backup-passphrase"
+                type="password"
+                autoComplete="new-password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+              {tooShort && (
+                <p className="text-xs text-destructive">
+                  At least {MIN_PASSPHRASE_LEN} characters required.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="backup-passphrase-confirm">Confirm passphrase</Label>
+              <Input
+                id="backup-passphrase-confirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+              {mismatch && <p className="text-xs text-destructive">Passphrases do not match.</p>}
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="backup-passphrase-confirm">Confirm passphrase</Label>
-            <Input
-              id="backup-passphrase-confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
-            {mismatch && <p className="text-xs text-destructive">Passphrases do not match.</p>}
-          </div>
-        </div>
+        </ModalBody>
 
-        <DialogFooter>
+        <ModalFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExporting}>
             Cancel
           </Button>
           <Button onClick={() => onSubmit(passphrase)} disabled={!canSubmit}>
             {isExporting ? "Exporting…" : "Download"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }
 
@@ -273,62 +276,64 @@ function RestoreDialog({
   }, [open]);
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onOpenChange={(next) => {
         if (!next) reset();
         onOpenChange(next);
       }}
     >
-      <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
-        <DialogHeader>
-          <DialogTitle>Restore from a backup</DialogTitle>
-          <DialogDescription>
+      <ModalContent className="flex max-h-[90vh] max-w-lg flex-col">
+        <ModalHeader>
+          <ModalTitle>Restore from a backup</ModalTitle>
+        </ModalHeader>
+        <ModalBody className="min-h-0 flex-1 overflow-y-auto">
+          <ModalDescription>
             {preview
               ? "Review what will be replaced, then confirm the restore."
               : "Pick a .wardnet.age file and enter its passphrase."}
-          </DialogDescription>
-        </DialogHeader>
+          </ModalDescription>
 
-        {!preview ? (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="backup-bundle">Bundle file</Label>
-              <input
-                id="backup-bundle"
-                ref={fileInputRef}
-                type="file"
-                accept=".age,.wardnet,.wardnet.age"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  setBundle(file);
-                }}
-                className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
-              />
+          {!preview ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="backup-bundle">Bundle file</Label>
+                <input
+                  id="backup-bundle"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".age,.wardnet,.wardnet.age"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setBundle(file);
+                  }}
+                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="restore-passphrase">Passphrase</Label>
+                <Input
+                  id="restore-passphrase"
+                  type="password"
+                  // `off` + `new-password` together suppress every popular
+                  // browser's autofill for this field — this is a bundle
+                  // passphrase, not a login credential, and we don't want
+                  // it remembered or pre-filled from the site's saved
+                  // passwords.
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="restore-passphrase">Passphrase</Label>
-              <Input
-                id="restore-passphrase"
-                type="password"
-                // `off` + `new-password` together suppress every popular
-                // browser's autofill for this field — this is a bundle
-                // passphrase, not a login credential, and we don't want
-                // it remembered or pre-filled from the site's saved
-                // passwords.
-                autoComplete="off"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-              />
-            </div>
-          </div>
-        ) : (
-          <RestorePreviewDetails preview={preview} />
-        )}
+          ) : (
+            <RestorePreviewDetails preview={preview} />
+          )}
+        </ModalBody>
 
-        <DialogFooter>
+        <ModalFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isApplying}>
             Cancel
           </Button>
@@ -350,9 +355,9 @@ function RestoreDialog({
               {isApplying ? "Restoring…" : "Restore"}
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }
 

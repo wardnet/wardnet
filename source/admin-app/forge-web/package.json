@@ -20,6 +20,10 @@
     "./toggle": {
       "import": "./src/primitives/toggle.tsx",
       "types": "./src/primitives/toggle.tsx"
+    },
+    "./modal": {
+      "import": "./src/primitives/modal.tsx",
+      "types": "./src/primitives/modal.tsx"
     }
   },
   "files": [

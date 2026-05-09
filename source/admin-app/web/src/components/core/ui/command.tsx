@@ -5,12 +5,12 @@ import { Command as CommandPrimitive } from "cmdk";
 
 import { cn } from "@/lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/core/ui/dialog";
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalHeader,
+  ModalTitle,
+} from "@wardnet/forge-web/modal";
 import { InputGroup, InputGroupAddon } from "@/components/core/ui/input-group";
 import { SearchIcon, CheckIcon } from "lucide-react";
 
@@ -32,27 +32,24 @@ function CommandDialog({
   description = "Search for a command to run…",
   children,
   className,
-  showCloseButton = false,
   ...props
-}: React.ComponentProps<typeof Dialog> & {
+}: React.ComponentProps<typeof Modal> & {
   title?: string;
   description?: string;
   className?: string;
-  showCloseButton?: boolean;
 }) {
   return (
-    <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
-      <DialogContent
+    <Modal {...props}>
+      <ModalHeader className="sr-only">
+        <ModalTitle>{title}</ModalTitle>
+        <ModalDescription>{description}</ModalDescription>
+      </ModalHeader>
+      <ModalContent
         className={cn("top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0", className)}
-        showCloseButton={showCloseButton}
       >
         {children}
-      </DialogContent>
-    </Dialog>
+      </ModalContent>
+    </Modal>
   );
 }
 
