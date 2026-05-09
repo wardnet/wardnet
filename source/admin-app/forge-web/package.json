@@ -32,6 +32,10 @@
     "./popover": {
       "import": "./src/primitives/popover.tsx",
       "types": "./src/primitives/popover.tsx"
+    },
+    "./dropdown-menu": {
+      "import": "./src/primitives/dropdown-menu.tsx",
+      "types": "./src/primitives/dropdown-menu.tsx"
     }
   },
   "files": [

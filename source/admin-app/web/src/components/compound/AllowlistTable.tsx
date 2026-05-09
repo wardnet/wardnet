@@ -7,7 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/core/ui/dropdown-menu";
+} from "@wardnet/forge-web/dropdown-menu";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { timeAgo } from "@/lib/utils";
 import type { AllowlistEntry } from "@wardnet/js";

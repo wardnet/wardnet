@@ -754,6 +754,42 @@ button { font-family: inherit; }
   to   { opacity: 1; transform: translateX(0)    scale(1); }
 }
 
+/* ---------- Menu (DropdownMenu items inside .popover) ---------- */
+.menu-item {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: default;
+  user-select: none;
+  outline: none;
+}
+.menu-item[data-highlighted] {
+  background: var(--bg-sunken);
+  color: var(--ink);
+}
+.menu-item[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.menu-item[data-variant="destructive"] { color: var(--danger); }
+.menu-item[data-variant="destructive"][data-highlighted] {
+  background: var(--danger-soft);
+  color: var(--danger-soft-ink);
+}
+.menu-item svg {
+  pointer-events: none;
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+}
+.menu-separator {
+  height: 1px;
+  background: var(--line);
+  margin: 4px -6px;
+}
+
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 12px; color: var(--ink-3); font-weight: 500; }
 .field input, .field select, .field textarea {

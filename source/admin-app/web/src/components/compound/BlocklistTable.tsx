@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/core/ui/dropdown-menu";
+} from "@wardnet/forge-web/dropdown-menu";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
