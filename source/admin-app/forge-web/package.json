@@ -24,6 +24,10 @@
     "./modal": {
       "import": "./src/primitives/modal.tsx",
       "types": "./src/primitives/modal.tsx"
+    },
+    "./alert-modal": {
+      "import": "./src/primitives/alert-modal.tsx",
+      "types": "./src/primitives/alert-modal.tsx"
     }
   },
   "files": [

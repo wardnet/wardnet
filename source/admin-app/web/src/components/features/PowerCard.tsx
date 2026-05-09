@@ -3,15 +3,15 @@ import { PowerIcon, RotateCcwIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/core/ui/alert-dialog";
+  AlertModal,
+  AlertModalAction,
+  AlertModalCancel,
+  AlertModalContent,
+  AlertModalDescription,
+  AlertModalFooter,
+  AlertModalHeader,
+  AlertModalTitle,
+} from "@wardnet/forge-web/alert-modal";
 
 interface Props {
   /** Confirm dialog → fires `POST /api/system/reboot`. Primary action. */
@@ -29,8 +29,8 @@ interface Props {
  *
  * Pure presentation: receives three callbacks and a `busy` flag, has
  * no idea TanStack Query or the SDK exist. Confirmation dialogs are
- * inlined here using `core/ui/alert-dialog` (per Decision 5 — don't
- * speculatively extract a generic compound until a second feature
+ * inlined here using `@wardnet/forge-web/alert-modal` (per Decision 5 —
+ * don't speculatively extract a generic compound until a second feature
  * needs the same shape).
  *
  * Visual hierarchy: all three are secondary actions — none is a
@@ -114,76 +114,88 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
         </div>
       </CardContent>
 
-      <AlertDialog open={rebootOpen} onOpenChange={setRebootOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reboot Wardnet?</AlertDialogTitle>
-            <AlertDialogDescription>
+      <AlertModal open={rebootOpen} onOpenChange={setRebootOpen}>
+        <AlertModalContent>
+          <AlertModalHeader>
+            <AlertModalTitle>Reboot Wardnet?</AlertModalTitle>
+            <AlertModalDescription>
               Wardnet will restart. Your network will be unavailable for ~30–60 seconds while it
               comes back up.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setRebootOpen(false);
-                onReboot();
-              }}
-            >
-              Reboot
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </AlertModalDescription>
+          </AlertModalHeader>
+          <AlertModalFooter>
+            <AlertModalCancel asChild>
+              <Button variant="outline">Cancel</Button>
+            </AlertModalCancel>
+            <AlertModalAction asChild>
+              <Button
+                onClick={() => {
+                  setRebootOpen(false);
+                  onReboot();
+                }}
+              >
+                Reboot
+              </Button>
+            </AlertModalAction>
+          </AlertModalFooter>
+        </AlertModalContent>
+      </AlertModal>
 
-      <AlertDialog open={shutdownOpen} onOpenChange={setShutdownOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Shut Wardnet down?</AlertDialogTitle>
-            <AlertDialogDescription>
+      <AlertModal open={shutdownOpen} onOpenChange={setShutdownOpen}>
+        <AlertModalContent>
+          <AlertModalHeader>
+            <AlertModalTitle>Shut Wardnet down?</AlertModalTitle>
+            <AlertModalDescription>
               Wardnet will power off. Internet will be unavailable until you turn the Pi back on
               manually.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setShutdownOpen(false);
-                onShutdown();
-              }}
-            >
-              Shut down
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </AlertModalDescription>
+          </AlertModalHeader>
+          <AlertModalFooter>
+            <AlertModalCancel asChild>
+              <Button variant="outline">Cancel</Button>
+            </AlertModalCancel>
+            <AlertModalAction asChild>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setShutdownOpen(false);
+                  onShutdown();
+                }}
+              >
+                Shut down
+              </Button>
+            </AlertModalAction>
+          </AlertModalFooter>
+        </AlertModalContent>
+      </AlertModal>
 
-      <AlertDialog open={restartOpen} onOpenChange={setRestartOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Restart daemon?</AlertDialogTitle>
-            <AlertDialogDescription>
+      <AlertModal open={restartOpen} onOpenChange={setRestartOpen}>
+        <AlertModalContent>
+          <AlertModalHeader>
+            <AlertModalTitle>Restart daemon?</AlertModalTitle>
+            <AlertModalDescription>
               The wardnetd process will exit and the supervisor will bring it back up. The Pi itself
               keeps running; the network stays online except for a few seconds while the daemon
               comes back.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setRestartOpen(false);
-                onRestartDaemon();
-              }}
-            >
-              Restart
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </AlertModalDescription>
+          </AlertModalHeader>
+          <AlertModalFooter>
+            <AlertModalCancel asChild>
+              <Button variant="outline">Cancel</Button>
+            </AlertModalCancel>
+            <AlertModalAction asChild>
+              <Button
+                onClick={() => {
+                  setRestartOpen(false);
+                  onRestartDaemon();
+                }}
+              >
+                Restart
+              </Button>
+            </AlertModalAction>
+          </AlertModalFooter>
+        </AlertModalContent>
+      </AlertModal>
     </Card>
   );
 }

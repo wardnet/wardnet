@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { Loader2Icon, AlertTriangleIcon, PowerOffIcon } from "lucide-react";
+import { Button } from "@wardnet/forge-web/button";
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/core/ui/alert-dialog";
+  AlertModal,
+  AlertModalCancel,
+  AlertModalContent,
+  AlertModalDescription,
+  AlertModalFooter,
+  AlertModalHeader,
+  AlertModalTitle,
+} from "@wardnet/forge-web/alert-modal";
 import type { ShutdownPhase } from "@/hooks/useShutdown";
 
 interface Props {
@@ -48,20 +49,20 @@ export function ShutdownProgressDialog({ open, phase, startedAt, errorMessage, o
     phase === "off" || phase === "did_not_fire" || phase === "timeout" || phase === "failed";
 
   return (
-    <AlertDialog
+    <AlertModal
       open={open}
       onOpenChange={(next) => {
         if (!next && terminal) onDismiss();
       }}
     >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
+      <AlertModalContent>
+        <AlertModalHeader>
+          <AlertModalTitle className="flex items-center gap-2">
             <PhaseIcon phase={phase} />
             {titleFor(phase)}
-          </AlertDialogTitle>
-          <AlertDialogDescription>{descriptionFor(phase, errorMessage)}</AlertDialogDescription>
-        </AlertDialogHeader>
+          </AlertModalTitle>
+          <AlertModalDescription>{descriptionFor(phase, errorMessage)}</AlertModalDescription>
+        </AlertModalHeader>
 
         {!terminal && (
           <div className="text-xs text-muted-foreground">
@@ -69,11 +70,17 @@ export function ShutdownProgressDialog({ open, phase, startedAt, errorMessage, o
           </div>
         )}
 
-        <AlertDialogFooter>
-          {terminal && <AlertDialogCancel onClick={onDismiss}>Dismiss</AlertDialogCancel>}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        <AlertModalFooter>
+          {terminal && (
+            <AlertModalCancel asChild>
+              <Button variant="outline" onClick={onDismiss}>
+                Dismiss
+              </Button>
+            </AlertModalCancel>
+          )}
+        </AlertModalFooter>
+      </AlertModalContent>
+    </AlertModal>
   );
 }
 

@@ -136,7 +136,7 @@ Radix primitive needed (pure visual or HTML element).
 | card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head` + `.card__foot` (added) | [x] |
 | badge.tsx → pill  | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost` (renamed `Badge` → `Pill`) | [x] |
 | dialog.tsx → modal | Dialog            | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) (renamed `Dialog` → `Modal`) | [x] |
-| alert-dialog.tsx  | AlertDialog        | `.modal` + danger primary action                       | [ ]    |
+| alert-dialog.tsx → alert-modal | AlertDialog | `.modal` (no new modifier — danger framing is button-level; renamed `AlertDialog` → `AlertModal`) | [x] |
 | sheet.tsx         | Dialog (slide)     | mobile bottom sheet (Forge mobile.html §sheet)         | [ ]    |
 | dropdown-menu.tsx | DropdownMenu       | popover-style menu (Forge §07)                         | [ ]    |
 | popover.tsx       | Popover            | `--bg-card` + `--shadow-pop`                           | [ ]    |
@@ -628,6 +628,99 @@ all facts; status pills via `.pill--*`.
   `text-foreground` (32), `bg-muted` (31), `text-muted-foreground`
   (231), `bg-popover` (7), `text-popover-foreground` (5) all retain
   consumers. The alias-pruning slice still has work to do.
+- **AlertModal — Forge needs no new modifier class for "alert"
+  framing** (2026-05-09, sixth primitive). Going in, the table row
+  and the migration plan both expected a `.modal--danger` /
+  `.modal--alert` modifier in Forge to encode AlertDialog's visual
+  delta. Reading `core/ui/alert-dialog.tsx` first dissolved the
+  premise: legacy `AlertDialogAction` defaulted to `variant="default"`
+  (NOT `destructive`) and accepted a `variant` prop, so danger
+  styling was always per-call-site on the *button*, never on the
+  modal surface. Visually `<AlertDialogContent>` and
+  `<DialogContent>` were token-for-token identical — both centered,
+  same `bg-popover`, same `ring-1 ring-foreground/10`, same
+  `data-open:zoom-in-95` motion. So Forge ships `.modal` and
+  nothing more; alert framing is encoded in (a) Radix's behavioral
+  semantics (role="alertdialog", forced confirmation, overlay-click
+  suppressed), and (b) per-call-site `<Button variant="destructive">`
+  on the action. The export name is `AlertModal` because that's the
+  meaningful *behavioral* variant — the `.modal` class anchors the
+  visual surface (rule honored), and the `Alert` prefix denotes the
+  Radix forced-confirmation behavior that Forge doesn't speak to.
+  **Generalisation:** when a Radix sub-library adds *behavior* on
+  top of an already-styled Forge surface, name the React export
+  after the behavior (Alert prefix) without inventing a new Forge
+  class. New Forge classes are reserved for *visual* variants that
+  CSS-only mocks would also want.
+- **AlertModal Action/Cancel are pure Radix passthroughs — Button
+  is composed by the consumer via `asChild`** (2026-05-09, sixth
+  primitive). Legacy `AlertDialogAction` and `AlertDialogCancel`
+  baked a `<Button variant={…}>` wrapper into the primitive,
+  surfacing a `variant` prop pulled from Button's API. Walked it
+  back: that's exactly the escape-hatch-prop pattern the Card
+  slice locked against — it lets a consumer set button styling
+  inside the alert primitive, fragmenting Forge's button vocabulary
+  across call sites. Cleaner shape: the primitive forwards
+  `<AlertDialog.Action>` / `<AlertDialog.Cancel>` verbatim and
+  consumers compose with `<AlertModalAction asChild><Button …>…</Button></AlertModalAction>`.
+  Cost: every call site grows by one wrapper element per action/cancel
+  (4 dialogs × ~2 buttons each ≈ 8 sites). Benefit: the primitive
+  has zero opinion about which `Button` variant is appropriate —
+  destructive on shutdown, default on reboot, outline on dismiss —
+  and that opinion lives entirely at the call site where context
+  exists. Same pattern will apply to Sheet / Popover / DropdownMenu
+  triggers and any other Radix part that traditionally pairs with
+  a styled trigger button. **Rule:** primitives that wrap Radix
+  parts whose default rendering is "button-like" do NOT bake a
+  `<Button>` wrapper — they pass through and let consumers
+  `asChild` a Forge Button.
+- **AlertDialog vs Dialog — what actually differs** (2026-05-09,
+  sixth primitive). Verified by reading Radix docs + the legacy
+  wrapper: AlertDialog differs from Dialog in three ways, none
+  visual: (a) `role="alertdialog"` (vs `dialog`) — screen readers
+  announce it as a forced-decision modal; (b) overlay click is
+  ignored — the only ways out are Action, Cancel, or programmatic
+  close; (c) `<AlertDialog.Action>` and `<AlertDialog.Cancel>`
+  exist (vs Dialog's single `<Dialog.Close>`) — they're separate
+  parts so Radix can wire focus management to the Cancel
+  (recommended initial focus). Forge's `.modal` class doesn't
+  encode any of this — all three differences are runtime behavior
+  Radix owns. The only place these differences surface in the
+  primitive is the import (`AlertDialog` instead of `Dialog`),
+  the parts (`Action` + `Cancel` instead of `Close`), and the
+  absence of an `AlertModalClose` export (Radix.AlertDialog has
+  no `Close` part).
+- **Multi-part template generalises cleanly to AlertDialog**
+  (2026-05-09, sixth primitive). Modal locked the four-shape
+  classification (passthrough Radix / Forge-owned div / composed
+  Radix tree / Radix-part-wearing-Forge-element-via-asChild).
+  AlertModal slots into the same four shapes with no new shape
+  needed: `AlertModal` / `AlertModalTrigger` / `AlertModalDescription` /
+  `AlertModalAction` / `AlertModalCancel` are passthrough Radix
+  (5 parts); `AlertModalHeader` / `AlertModalBody` / `AlertModalFooter`
+  are Forge-owned divs (`.modal__head` / `.modal__body` /
+  `.modal__foot` — same classes as Modal); `AlertModalContent`
+  composes `<AlertDialog.Portal>` + `<AlertDialog.Overlay
+  className="scrim">` + `<AlertDialog.Content className="modal">`;
+  `AlertModalTitle` is `<AlertDialog.Title asChild><h3>` — same
+  trick as ModalTitle, same reason (Forge's `.modal__head h3`
+  selector already styles it). State-bridge selectors (`.scrim` /
+  `.modal` `[data-state="open"|"closed"]`) inherited unchanged from
+  the Modal slice — verified by reading the existing styles.css
+  rules; no new selectors needed. **Confirms the template
+  generalises to multi-part Radix wraps that share Forge surfaces
+  with another primitive.** Sheet (next slice) is the variant test
+  — same .scrim/.modal but slide-from-bottom motion, which is where
+  tw-animate-css will land per the Modal-slice animation rule.
+- **Legacy shadcn alias audit — AlertModal slice** (2026-05-09).
+  The deleted `alert-dialog.tsx` referenced `bg-popover`,
+  `text-popover-foreground`, `bg-muted` (in `bg-muted/50`),
+  `text-muted-foreground`, `ring-foreground/10`, `bg-black/10`,
+  plus tw-animate-css utilities. None of the shadcn alias rows
+  reached zero after deletion — `bg-popover` (7→6),
+  `text-popover-foreground` (5→4), `bg-muted` (31→29),
+  `text-muted-foreground` (231→230). Counts dropped slightly but
+  the alias-pruning slice still has consumers to migrate.
 
 ---
 
@@ -971,3 +1064,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Pill primitive port (third primitive — first variant rename). Renamed component `Badge` → `Pill` to match Forge's class vocabulary; renamed legacy variant strings to Forge's semantic vocabulary (`success` → `ok`, `destructive` → `down`, `outline`/`secondary` → `ghost`; added `warn`/`info` where call sites had been forced into stylistic substitutes). Migration was wider than Button/Card (touched the `StatusBadge` wrapper's `variantForTone` map, `LogViewer.levelVariant`, `DnsLogs.RESULT_BADGE` lookup table, and 9 call sites' import + JSX) but tractable at this size — captured in Findings as the rule "adopt Forge variant vocabulary when semantic, keep legacy when stylistic, weight by call-site count." Forge `.pill` / `.pill--*` classes used directly via CVA; primitive supports `asChild` via Radix `Slot.Root` (matches Button). New `./pill` subpath export in forge-web. Legacy `core/ui/badge.tsx` deleted. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Toggle primitive port (fourth primitive — first Radix-wrap template). Renamed `Switch` → `Toggle` to match Forge's `.toggle` class; the legacy `core/ui/switch.tsx` is gone. Two rules locked in this slice: (1) **component name always follows Forge class name — no Radix exception**, supersedes the Pill slice's "modulo Radix" wording; the Radix umbrella import keeps its Radix name inside the file (`import { Switch } from "radix-ui"`, render `<Switch.Root>`), but the file/export/subpath are Forge's name. (2) **Radix `data-state` ↔ Forge modifier classes are bridged in Forge's stylesheet, not in JS** — added `.toggle[data-state="checked"]` selectors next to `.toggle.is-on` so CSS-only consumers and React primitives land on the same visual. This is the template for every state-bearing Radix-wrap that follows (Tabs, RadioGroup, Dialog→Modal, Popover, Sheet, AlertDialog, Select, DropdownMenu) — Forge will grow a family of `[data-state="…"]` selectors and that's deliberate. Toggle primitive is minimal: `<Switch.Root className="toggle" {...props} />`, no `Switch.Thumb` child since Forge's `.toggle::after` provides the thumb (a generalisable rule — don't render Radix sub-components Forge already owns visually). Subpath `./toggle` added to `@wardnet/forge-web`; 9 call sites retargeted (`@/components/core/ui/switch` → `@wardnet/forge-web/toggle`, `<Switch …>` → `<Toggle …>`); one stale JSDoc reference in `ProfileToggleList.tsx` updated. Legacy alias audit: switch.tsx's referenced aliases (`bg-input`, `bg-primary`, `bg-background`, `bg-foreground`, `bg-primary-foreground`, `border-ring`, `ring-ring`, `border-destructive`, `ring-destructive`) all retain other consumers — no rows newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Modal primitive port (fifth primitive — first multi-part-Radix-wrap template). Renamed `Dialog` → `Modal` to match Forge's `.modal` class; the legacy `core/ui/dialog.tsx` is gone. The Radix umbrella import keeps its Radix name inside the file: `import { Dialog } from "radix-ui"`, render `<Dialog.Root>` / `<Dialog.Portal>` / `<Dialog.Overlay>` / `<Dialog.Content>` etc. Multi-part export shape (`Modal` / `ModalTrigger` / `ModalContent` / `ModalHeader` / `ModalTitle` / `ModalDescription` / `ModalBody` / `ModalFooter` / `ModalClose`) follows the flat-named-exports precedent set by Card. Each export classified as one of four shapes — **passthrough Radix** (Modal, ModalTrigger, ModalDescription, ModalClose), **Forge-owned div** (ModalHeader = `.modal__head`, ModalBody = `.modal__body`, ModalFooter = `.modal__foot` — generalises Toggle's "don't render Radix sub-components Forge already owns visually" from a single pseudo-element to whole structural divs), **composed Radix tree** (ModalContent = Portal + Overlay[scrim] + Content[modal]), or **Radix part wearing Forge's expected element via asChild** (ModalTitle renders `<Dialog.Title asChild><h3>...</h3></Dialog.Title>` so a11y wiring lands on the `<h3>` Forge's `.modal__head h3` selector already styles). Forge gained the second instance of the data-state bridge: `.scrim[data-state="open"\|"closed"]` and `.modal[data-state="open"\|"closed"]` selectors with new `scrim-in/out` + `modal-in/out` keyframes; `.modal` was given fixed-positioning + a `.scrim > .modal { position: static; transform: none }` reset so Radix's sibling Overlay/Content tree and CSS-only mocks (modal nested inside scrim) both render correctly. Locked the rule on where animations live: **intrinsic** to `.scrim` / `.modal` → Forge keyframes scoped to `[data-state="…"]`; **variant-specific** (e.g. Sheet's slide-from-bottom) → tw-animate-css utilities on the primitive's className. Subpath `./modal` added to `@wardnet/forge-web`; 2 call sites migrated (`core/ui/command.tsx` wrapper + `features/BackupCard.tsx`'s ExportDialog & RestoreDialog) — full Dialog* → Modal* JSX rename plus added explicit `<ModalBody>` wrappers around the body content per Forge's structural expectation (Forge's `.modal__body` provides body padding; the legacy DialogContent's grid+gap pattern is gone). Note on `Dialog.Trigger`: Radix's own `asChild` prop covers the Slot wrapping that Button needed to add explicitly — ModalTrigger is a one-line passthrough. Legacy `dialog.tsx` deleted. Legacy alias audit: dialog.tsx's shadcn token aliases (`bg-background`, `bg-muted`, `text-muted-foreground`, `bg-popover`, `text-popover-foreground`) all retain other consumers — no rows newly zero-referenced; the `data-open:animate-in` / `data-closed:animate-out` / `data-open:fade-in-0` / `data-open:zoom-in-95` etc. utilities are tw-animate-css (kept) rather than shadcn-token aliases, and their replacement now lives in Forge's stylesheet. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | AlertModal primitive port (sixth primitive — multi-part Radix-wrap on a shared Forge surface). Renamed `AlertDialog` → `AlertModal` to anchor the React vocabulary on the `.modal` class (same surface as Modal) while the `Alert` prefix marks Radix 's behavioral semantics (role="alertdialog", forced confirmation, overlay-click suppressed). Going-in expectation was that Forge needed a `.modal--danger` / `.modal--alert` modifier — reading the legacy file dissolved that: `AlertDialogAction` defaulted to `variant="default"` and accepted a `variant` prop, so danger framing was always per-call-site on the *button*, never on the modal surface. Conclusion: Forge needs nothing new for this slice; visuals match Modal token-for-token. Action/Cancel ported as **pure Radix passthroughs** (legacy baked a `<Button>` wrapper with a `variant` prop — that 's the same escape-hatch shape the Card slice locked against; consumers now wire `<AlertModalAction asChild><Button variant="destructive">…</Button></AlertModalAction>`). New `./alert-modal` subpath export in `@wardnet/forge-web`. Four call sites migrated (`compound/ConfirmDialog`, `features/PowerCard` — three dialogs, `features/ShutdownProgressDialog`, `features/RestartProgressDialog`); JSX expanded by one wrapper per action/cancel — eight new `<Button asChild>` wrappers across the four files. Legacy `core/ui/alert-dialog.tsx` deleted; `AlertDialogMedia` (zero call sites) and `AlertDialogPortal`/`AlertDialogOverlay` (consumed via `AlertDialogContent` only) dropped from the surface. State-bridge selectors inherited unchanged from the Modal slice (`.scrim` / `.modal` `[data-state="open"\|"closed"]` already in `styles.css`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

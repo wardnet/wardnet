@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { Loader2Icon, CheckCircle2Icon, AlertTriangleIcon, LogInIcon } from "lucide-react";
+import { Button } from "@wardnet/forge-web/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/core/ui/alert-dialog";
+  AlertModal,
+  AlertModalAction,
+  AlertModalCancel,
+  AlertModalContent,
+  AlertModalDescription,
+  AlertModalFooter,
+  AlertModalHeader,
+  AlertModalTitle,
+} from "@wardnet/forge-web/alert-modal";
 import type { RestartPhase } from "@/hooks/useRestart";
 
 interface Props {
@@ -65,7 +66,7 @@ export function RestartProgressDialog({
     phase === "did_not_fire";
 
   return (
-    <AlertDialog
+    <AlertModal
       open={open}
       // Only allow dismissal in terminal phases; swallow escape/outside
       // clicks while the daemon is mid-restart.
@@ -73,14 +74,14 @@ export function RestartProgressDialog({
         if (!next && terminal) onDismiss();
       }}
     >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
+      <AlertModalContent>
+        <AlertModalHeader>
+          <AlertModalTitle className="flex items-center gap-2">
             <PhaseIcon phase={phase} />
             {titleFor(phase)}
-          </AlertDialogTitle>
-          <AlertDialogDescription>{descriptionFor(phase, errorMessage)}</AlertDialogDescription>
-        </AlertDialogHeader>
+          </AlertModalTitle>
+          <AlertModalDescription>{descriptionFor(phase, errorMessage)}</AlertModalDescription>
+        </AlertModalHeader>
 
         {!terminal && (
           <div className="text-xs text-muted-foreground">
@@ -88,20 +89,30 @@ export function RestartProgressDialog({
           </div>
         )}
 
-        <AlertDialogFooter>
-          {phase === "ready" && <AlertDialogAction onClick={onDismiss}>Continue</AlertDialogAction>}
+        <AlertModalFooter>
+          {phase === "ready" && (
+            <AlertModalAction asChild>
+              <Button onClick={onDismiss}>Continue</Button>
+            </AlertModalAction>
+          )}
           {phase === "ready_signed_out" && (
-            <AlertDialogAction onClick={onSignIn}>
-              <LogInIcon className="mr-2 h-4 w-4" />
-              Sign in again
-            </AlertDialogAction>
+            <AlertModalAction asChild>
+              <Button onClick={onSignIn}>
+                <LogInIcon className="mr-2 h-4 w-4" />
+                Sign in again
+              </Button>
+            </AlertModalAction>
           )}
           {(phase === "timeout" || phase === "failed" || phase === "did_not_fire") && (
-            <AlertDialogCancel onClick={onDismiss}>Dismiss</AlertDialogCancel>
+            <AlertModalCancel asChild>
+              <Button variant="outline" onClick={onDismiss}>
+                Dismiss
+              </Button>
+            </AlertModalCancel>
           )}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        </AlertModalFooter>
+      </AlertModalContent>
+    </AlertModal>
   );
 }
 

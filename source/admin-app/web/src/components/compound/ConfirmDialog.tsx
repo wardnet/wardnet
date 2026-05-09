@@ -1,13 +1,14 @@
+import { Button } from "@wardnet/forge-web/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/core/ui/alert-dialog";
+  AlertModal,
+  AlertModalAction,
+  AlertModalCancel,
+  AlertModalContent,
+  AlertModalDescription,
+  AlertModalFooter,
+  AlertModalHeader,
+  AlertModalTitle,
+} from "@wardnet/forge-web/alert-modal";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -30,19 +31,23 @@ export function ConfirmDialog({
   destructive = true,
 }: ConfirmDialogProps) {
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant={destructive ? "destructive" : "default"} onClick={onConfirm}>
-            {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <AlertModal open={open} onOpenChange={onOpenChange}>
+      <AlertModalContent>
+        <AlertModalHeader>
+          <AlertModalTitle>{title}</AlertModalTitle>
+          <AlertModalDescription>{description}</AlertModalDescription>
+        </AlertModalHeader>
+        <AlertModalFooter>
+          <AlertModalCancel asChild>
+            <Button variant="outline">Cancel</Button>
+          </AlertModalCancel>
+          <AlertModalAction asChild>
+            <Button variant={destructive ? "destructive" : "default"} onClick={onConfirm}>
+              {confirmLabel}
+            </Button>
+          </AlertModalAction>
+        </AlertModalFooter>
+      </AlertModalContent>
+    </AlertModal>
   );
 }
