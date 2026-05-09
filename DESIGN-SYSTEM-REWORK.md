@@ -143,7 +143,7 @@ Radix primitive needed (pure visual or HTML element).
 | select.tsx        | Select             | `.select-trigger` (added) + `.popover` `.select-content` (added) + `.menu-item` (incl. `[data-state="checked"]::after` checkmark, added) | [x] |
 | switch.tsx → toggle | Switch           | `.toggle` (renamed `Switch` → `Toggle`)                | [x]    |
 | tabs.tsx          | Tabs               | `.tabs` (pill) for view switches — only surface this slice; legacy `variant="line"` had zero call sites and was dropped. Underline page-nav surface (`.tabs-bar`) deferred until a router-driven nav consumer needs it. | [x] |
-| radio-group.tsx   | RadioGroup         | Forge §09 form-row pattern                             | [ ]    |
+| radio-group.tsx   | —                  | dropped — sole consumer (`MyDevice`'s direct/VPN choice) refactored to reuse the existing `RoutingSelector` compound; see Findings | [-] |
 | label.tsx         | Label              | `.label` (added — standalone) + existing `.field label` (descendant) — share rules via comma selector | [x] |
 | input.tsx         | Input              | `.input` (added — standalone) + existing `.field input` — share rules via comma selector | [x] |
 | textarea.tsx      | Textarea           | `.textarea` (added — standalone, with `min-height` + `field-sizing: content`) + existing `.field textarea` — share rules | [x] |
@@ -1336,6 +1336,98 @@ all facts; status pills via `.pill--*`.
   that will move the needle. **`tw-animate-css` holdout state
   unchanged** — sheet.tsx still the sole file carrying utility-
   class motion.
+- **RadioGroup dropped — sole consumer collapsed into the existing
+  `RoutingSelector` compound** (2026-05-09, twelfth slice). The
+  briefing scoped this slice as "port RadioGroup as the fourth
+  data-state-bridge application." Pre-flight survey turned up exactly
+  one consumer: `pages/MyDevice.tsx`'s `RoutingForm`, where it
+  rendered a binary "Direct (no VPN)" / "VPN" choice followed by a
+  conditional `<Select>` listing tunnels. Walked back: that two-
+  control composition (radio-binary then conditional dropdown) is
+  the same affordance as the unified `<Select>` already used by the
+  admin-side device page (`features/DeviceSettingsCard` → `compound/
+  RoutingSelector`) where `Direct (no VPN)` is the first option,
+  followed by tunnels — single dropdown, no separate binary toggle.
+  RoutingForm was a leftover that pre-dated `RoutingSelector`.
+  Replacing MyDevice's RoutingForm contents with a `<RoutingSelector
+  />` instance collapses the three primitives (RadioGroup +
+  RadioGroupItem + Select) down to one compound consumer call —
+  and drops RadioGroup's app-wide consumer count to zero. **So the
+  primitive ports out of scope: marked `[-]` in the table, legacy
+  `core/ui/radio-group.tsx` deleted, no forge-web port written.**
+  RoutingSelector's `tunnels` prop was widened from `Tunnel[]` to
+  `TunnelSummary[]` — the compound only consumes `id` / `label` /
+  `country_code` (the three fields TunnelSummary exposes), and
+  `TunnelSummary` is the SDK's auth-scoped shape for self-service
+  routing selection (the unauthenticated/self-service `/api/devices/
+  me` endpoint deliberately ships only the minimum fields, not full
+  Tunnel data — the full `Tunnel` shape carries internal stats like
+  `bytes_tx`/`endpoint`/`last_handshake` that the self-service
+  context shouldn't see). Narrowing the prop also makes the actual
+  data dependency explicit. The two existing `RoutingSelector`
+  consumers (`DeviceSettingsCard`, `Step6Policy`) keep working
+  unchanged because `Tunnel` is structurally a `TunnelSummary` —
+  TS structural assignability lets `Tunnel[]` flow into a
+  `TunnelSummary[]` prop. **Generalisations:**
+  (a) "Drop features the migration doesn't require" extends one
+  more rung — when a primitive's lone consumer can be expressed
+  with an existing primitive or compound, the primitive itself
+  drops, not just its unused parts. The Forge-vocabulary thresh-
+  hold for shipping a primitive is "≥1 consumer that can't be
+  expressed with what we already have," not "≥1 consumer."
+  (b) When a compound takes a domain type where only a structural
+  subset is consumed, prefer the narrower shape (`TunnelSummary`,
+  not `Tunnel`) — declares the actual data dependency and matches
+  whichever auth/scoping boundary the consumer sits inside. Same
+  litmus would have applied if the SDK had a `DeviceMin` /
+  `DeviceFull` distinction.
+  (c) Pre-flight surveys can change the slice's shape from "port"
+  to "drop" without writing a primitive at all — the briefing's
+  Option A becoming "delete the primitive, refactor the consumer"
+  saves both Forge growth (no `.radio` / `.radio-group` classes
+  added) and forge-web surface (no new primitive file, no new
+  subpath export). The data-state-bridge "fourth application"
+  lands as a *deferred* generalisation the next state-bearing
+  primitive will surface; nothing was lost by skipping it here.
+- **MyDevice — RoutingForm shrunk from 60 lines to 30 by re-using
+  the compound** (2026-05-09, twelfth slice). The pre-existing
+  RoutingForm in `pages/MyDevice.tsx` carried 60 lines of state
+  (separate `mode` and `tunnelId` `useState`s reconstructing the
+  `RoutingTarget` shape on every render), JSX (RadioGroup +
+  conditional Select + empty-tunnels message), and helper logic
+  (`initialMode` / `initialTunnelId` derivation). `RoutingSelector`
+  already encapsulates all of that — value/onChange flows full
+  `RoutingTarget`s, internal state derives the dropdown value, and
+  the empty-tunnels case is rendered as a disabled-Select-plus-
+  message. Replacing the form contents with `<RoutingSelector
+  value={target} onChange={setTarget} tunnels={tunnels} />` cut
+  RoutingForm to a single `useState<RoutingTarget>`, the
+  RoutingSelector instance, an error alert, and a Save button —
+  ~30 lines from ~60. **Generalisation:** when a feature page
+  reimplements a domain-coupled UI pattern that already exists as
+  a compound, prefer collapsing the page's bespoke form into the
+  compound over preserving the page-local shape — same shape as
+  the AlertModal slice's "primitives that wrap Radix parts whose
+  default rendering is button-like do NOT bake a `<Button>`
+  wrapper" rule, applied at the compound level. The cost is one
+  extra prop (`tunnels` flowing through) and one extra
+  `useState<RoutingTarget>`; the benefit is one compound owning
+  the routing-selection visual + behavior across all consumers.
+- **Legacy shadcn alias audit — RadioGroup-drop slice** (2026-05-09).
+  The deleted `radio-group.tsx` referenced `border-input`,
+  `border-ring`, `ring-ring`, `bg-input/30`, `border-destructive`,
+  `ring-destructive/20`, `ring-destructive/40`, `ring-destructive/
+  50`, `border-primary`, `bg-primary`, `text-primary-foreground`,
+  `bg-primary-foreground`. None of the shadcn alias rows reached
+  zero — these are long-tail rows with many remaining consumers
+  (Ipv4Input/MacInput/InputGroup keep `border-input`/`ring-ring`/
+  etc.; Button continues to source `bg-primary`/`text-primary-
+  foreground` via CVA mapping). The MyDevice change additionally
+  removed three RadioGroup imports and one Label import (the now-
+  unused `<Label htmlFor="routing-direct">` / `<Label htmlFor=
+  "routing-vpn">` paired with each RadioGroupItem) — neither row
+  changed count materially. **`tw-animate-css` holdout state
+  unchanged** — sheet.tsx still the sole carrier.
 
 ---
 
@@ -1686,3 +1778,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Select primitive port (ninth primitive — last Popover-shaped positioning consumer in the Radix-wrap queue, which made it the slice that decides whether `tw-animate-css` can be removed). Surface stripped to **five exports** — `Select` / `SelectTrigger` / `SelectValue` / `SelectContent` / `SelectItem` — by surveying the 10 call sites (UpdateCard, DashboardLogWidget, DeviceSettingsCard, ProviderTunnelTab, DeviceSelect, RoutingSelector, CronSchedulePicker, DnsLogs, MyDevice, Step3DhcpOnboarding); zero use `Group` / `Label` / `Separator` / `ScrollUpButton` / `ScrollDownButton`, dropped per "drop features the migration doesn't require." `Viewport`, `ItemText`, `ItemIndicator`, `Portal` are internal. **Forge-first:** added `.select-trigger` (input visuals — `--bg-elev` background, `--line` border, 8px radius, accent focus ring — plus flex+space-between layout and a chevron `::after` mask-image), `.select-content` as additive modifier on `.popover` (min-width tied to `--radix-select-trigger-width`, max-height-with-scroll, transform-origin overrides `.popover`'s Popover-var default with `--radix-select-content-transform-origin`). Items reuse `.menu-item` with two new Select-only extensions: `.menu-item[data-state] { padding-right: 26px }` reserves indicator gutter, and `.menu-item[data-state="checked"]::after { … mask-image }` paints the check (only Radix Select.Item emits `data-state`; DropdownMenu.Item doesn't, so these selectors don't pollute existing menus). `SelectContent` renders `<RadixSelect.Content className="popover select-content">` so the four side-aware popover keyframes apply unchanged — third slice in a row to validate the intrinsic-motion-as-Forge-keyframes rule. Default `position` switched from legacy `"item-aligned"` → `"popper"` (so `data-side` is emitted and side-aware keyframes trigger); default `align` switched from `"center"` → `"start"`; no call site passes either prop explicitly. **Forge owns the icons:** chevron and checkmark are CSS `::after` pseudo-elements with mask-image data URIs (lucide stroke-2 path geometry), keying on `currentColor` for the check and `--ink-3` for the chevron — primitive renders zero icon JSX, matching the Toggle-slice rule "don't render Radix sub-components Forge already owns visually" (Select.Icon and Select.ItemIndicator both dropped). **Multi-part template:** five exports across two shapes — passthrough Radix (`Select`, `SelectValue`) and Radix-part-bearing-Forge-class (`SelectTrigger`, composed `SelectContent` = Portal+Content with `.popover .select-content`, composed `SelectItem` = Item+ItemText with `.menu-item`); fits between DropdownMenu (5/2) and Popover (3/2) on the same axis Modal anchors at the top (9/4). Subpath `./select` added to `@wardnet/forge-web`; 10 call sites retargeted (`@/components/core/ui/select` → `@wardnet/forge-web/select`) — pure import-path swap, no JSX rewrite (export shape preserved). Legacy `core/ui/select.tsx` deleted. **tw-animate-css removal call:** _blocked, but not by a primitive_ — `core/ui/sheet.tsx` is still in the tree pending its three consumers' migrations (`EditDhcpConfigSheet`, `CreateReservationSheet`, `MobileMenu`) and is the sole remaining file with `data-open:animate-in` / `data-closed:animate-out` / `data-[side=…]:data-open:slide-in-from-…-10` etc. So the dep stays in `package.json` + `index.css` `@import` until whichever feature slice last touches Sheet replaces it; that slice closes the open question. Legacy alias audit: deletion dropped `bg-popover` (2→1) and `text-popover-foreground` (2→1) — both now have `core/ui/command.tsx` as their sole remaining consumer; Command port (post-tabs/forms slice) zeroes them. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Tabs primitive port (tenth primitive — first non-floating Radix-wrap; first slice where Forge styles inner parts via descendant selector). Survey of the five legacy call sites (`DnsStatsSection`, `TunnelThroughputChart`, `CreateTunnelInline`, `pages/Devices`, `pages/Dhcp`) found all five exclusively use the default pill (`.tabs`) surface — zero use legacy `variant="line"` or `orientation="vertical"`, and all five are *view switches inside a card or section*, never page-level navigation. So Decision 1 collapsed to "ship one primitive bound to one surface" — `.tabs` only; the legacy `variant="line"` branch and its parallel CVA dropped per "drop features the migration doesn't require"; `.tabs-bar` itself doesn't exist in `source/forge/styles.css` (only in `source/forge/docs/tailwind.config.js`) so the slice doesn't add it — if a future router-driven page-nav surface wants an underline strip, that lands in its own slice (and likely won't go through Radix Tabs at all since URL state is the source of truth). **Forge-first:** added `[data-state="active"]` next to the existing `.tabs button.is-active` selector (Toggle-pattern dual selector — third application of the data-state bridge across CSS-only mocks and React primitives); active-state visual is **static** (background + color + shadow swap, no animation declared), so no keyframes — confirms the Modal-slice intrinsic-vs-variant rule covers static state changes too. **Multi-part template:** four exports across two shapes — passthrough Radix (`Tabs`, `TabsTrigger`, `TabsContent`) and Radix-part-bearing-Forge-class (`TabsList` = `.tabs`). Forge's `.tabs button` selector targets descendants directly (no `.tabs__btn` class), so `TabsTrigger` is a passthrough — Radix Trigger renders a `<button>` by default and inherits `.tabs button` styles automatically; `TabsContent` is also a passthrough since Forge has nothing for content panels (call sites supply their own `mt-4` etc.). Tabs sits between Toggle (1/1) and Popover (3/2) on the small end of the template axis (Modal at 9/4 anchors the ceiling). Briefing prediction "4 exports across 1–2 shapes" landed exactly. **Root passthrough verification:** legacy primitive baked `flex gap-2 data-horizontal:flex-col` defaults on the Root; the new primitive drops them. Walked every call site and confirmed either (a) the default was redundant (`Devices`/`Dhcp` already pass their own `flex min-h-0 flex-1 flex-col`) or (b) layout still works because content panels are block-level (`CreateTunnelInline` — TabsList is inline-flex, TabsContent panels break onto a new line, `mt-4` provides the gap). New `./tabs` subpath export in `@wardnet/forge-web`; 5 call sites retargeted (`@/components/core/ui/tabs` → `@wardnet/forge-web/tabs`) — pure import-path swap, no JSX rewrite. Legacy `core/ui/tabs.tsx` deleted. Legacy alias audit: deletion didn't zero any rows (the deleted aliases were long-tail rows — `text-muted-foreground`, `bg-muted`, `bg-foreground`, `bg-background`, `border-input`, etc., all with many remaining consumers). **`tw-animate-css` holdout state unchanged** — `core/ui/sheet.tsx` is still the sole file carrying utility-class motion; this slice didn't touch it. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Form-row foundation slice (eleventh slice — three light primitives + first composition primitive). Surveyed the briefing's six-primitive scope down to **three lights** (`Label` / `Input` / `Textarea`) plus a new **`Field` composition**: `core/ui/input-group.tsx` has exactly one consumer (`core/ui/command.tsx`, out of scope) so it rides the Command port; `Ipv4Input`/`MacInput` are 150-line domain-coupled segmented-input compositions that fail the "pattern-reusable" litmus, so they stay in `core/ui/` for a separate restyle slice. **Forge-first:** refactored the existing `.field` block to add standalone `.label` / `.input` / `.textarea` classes that share rules with `.field label` / `.field input` / `.field select` / `.field textarea` via comma selectors (so a future visual change applies to both standalone and field-wrapped variants uniformly); added `:disabled` (cursor + opacity), `::placeholder` color, textarea-specific `min-height` + `field-sizing: content` + `resize: vertical`. Did **not** add `[aria-invalid]` styling — zero call sites pass `aria-invalid` (legacy primitives declared but no consumer used it), dropped per "drop features the migration doesn't require." **Three light primitives** ported as bare class-appliers — `Label` (Radix `Label.Root` + `.label`), `Input` (bare `<input>` + `.input`), `Textarea` (bare `<textarea>` + `.textarea`). **`Field` composition** (`@wardnet/forge-web/field`) wraps Label + control + optional help text and supports an `editing` boolean for edit/read swap (when `editing=false` and `value` provided, children replaced with `<span class="field-value">` styled to match input vertical rhythm so layout doesn't jump). Forge gained `.field-help` (small ink-3 paragraph below control) and `.field-value` (read-mode display). **Naming:** `Field` (not `FormField` / `FormInput`) follows the locked rule "component name follows Forge class" — Forge class is `.field`, single word; the React export matches. **Why composition not primitive:** combines three sub-elements + edit/read behavior, same shape as Card / CardHeader / CardBody. **Why ship it:** the manual pattern (`<div className="flex flex-col gap-2"><Label>X</Label><Input/><p>Help</p></div>`) was reproduced verbatim at 15+ call sites; with Field the pattern lives in one component, so future Forge tweaks propagate via the primitive instead of touching every consumer. New subpath exports `./label`, `./input`, `./textarea`, `./field` in `@wardnet/forge-web`. **Call site migration:** 21 files retargeted via sed — pure import-path swap, no JSX rewrite for Label/Input/Textarea (inline Tailwind className overrides on Label win via cascade order, so visual stays unchanged). **Two call sites migrated to Field as proof-of-pattern:** `Login.tsx` (two label+input pairs, no help) and `EditDhcpConfigSheet.tsx` (six fields, two with help text — manual `<p className="text-xs text-muted-foreground">` paragraphs collapsed into Field's `help` prop). Remaining ~13 call sites stay on the manual pattern — they migrate to Field organically as feature slices touch them or in a dedicated "field consolidation" slice; both forms are visually equivalent so the codebase is transitional-consistent. `core/ui/input-group.tsx` had its internal Input/Textarea imports retargeted to forge-web (its own consumer is Command, out of scope). Legacy `core/ui/{label,input,textarea}.tsx` deleted. Legacy alias audit: no rows newly zero-referenced — `border-input` / `bg-input` family / `text-muted-foreground` / `*-destructive` rows still have many consumers (the form-heavies still consume them). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | RadioGroup drop + MyDevice routing-form simplification (twelfth slice — first slice where the planned port flipped to a drop). Briefing scoped this as Option A "port RadioGroup as the fourth data-state-bridge." Pre-flight survey turned up exactly one consumer: `pages/MyDevice.tsx`'s `RoutingForm`, where RadioGroup rendered a binary `Direct (no VPN)` / `VPN` choice followed by a conditional `<Select>` listing tunnels. That two-control composition is the same affordance as the unified `<Select>` already encapsulated by `compound/RoutingSelector` (used by `features/DeviceSettingsCard` and `pages/setup/Step6Policy`) — single dropdown with `Direct (no VPN)` as the first option, followed by tunnels. So the slice flipped: replace MyDevice's RoutingForm contents with a `<RoutingSelector />` instance, drop RadioGroup's app-wide consumer count to zero, mark `radio-group.tsx` as `[-]` Removed from scope, delete the legacy file — no forge-web port written, no new `.radio` Forge classes added. **`RoutingSelector` prop narrowed from `Tunnel[]` to `TunnelSummary[]`** — the compound only consumes `id` / `label` / `country_code`, and `TunnelSummary` is the SDK's auth-scoped shape for self-service routing selection (the unauthenticated/self-service `/api/devices/me` endpoint deliberately ships only the minimum fields, not full `Tunnel` data which carries internal stats like `bytes_tx`/`endpoint`/`last_handshake`). Two existing `RoutingSelector` consumers keep working because `Tunnel` is structurally a `TunnelSummary` — TS structural assignability lets `Tunnel[]` flow into a `TunnelSummary[]` prop. **`MyDevice` RoutingForm shrunk from ~60 lines to ~30** — separate `mode`/`tunnelId` state collapsed into a single `useState<RoutingTarget>`, conditional Select + empty-tunnels message all moved into `RoutingSelector`. **Generalisations locked:** (a) "drop features the migration doesn't require" extends one more rung — when a primitive's lone consumer can be expressed with an existing primitive or compound, the primitive itself drops, not just its unused parts; the Forge-vocabulary threshold for shipping a primitive is "≥1 consumer that can't be expressed with what we already have," not "≥1 consumer"; (b) when a compound takes a domain type where only a structural subset is consumed, prefer the narrower shape and let TS structural assignability handle the wider call sites; (c) pre-flight surveys can change the slice's shape from "port" to "drop" without writing a primitive at all — the briefing's "fourth data-state-bridge application" lands as a *deferred* generalisation the next state-bearing primitive will surface, nothing lost by skipping it here. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

@@ -8,11 +8,11 @@ import {
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
 import { countryFlag } from "@/lib/country";
-import type { RoutingTarget, Tunnel } from "@wardnet/js";
+import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
 
 const DIRECT_VALUE = "direct";
 
-function valueFromTarget(target: RoutingTarget | null, tunnels: Tunnel[]): string {
+function valueFromTarget(target: RoutingTarget | null, tunnels: TunnelSummary[]): string {
   if (target?.type === "tunnel") {
     if (tunnels.some((t) => t.id === target.tunnel_id)) return target.tunnel_id;
   }
@@ -22,7 +22,7 @@ function valueFromTarget(target: RoutingTarget | null, tunnels: Tunnel[]): strin
 interface RoutingSelectorProps {
   value: RoutingTarget | null;
   onChange: (target: RoutingTarget) => void;
-  tunnels: Tunnel[];
+  tunnels: TunnelSummary[];
   disabled?: boolean;
   isAdmin?: boolean;
 }

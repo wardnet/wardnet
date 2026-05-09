@@ -1,17 +1,9 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
-import { RadioGroup, RadioGroupItem } from "@/components/core/ui/radio-group";
-import { Label } from "@wardnet/forge-web/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@wardnet/forge-web/select";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { RoutingSelector } from "@/components/compound/RoutingSelector";
 import { useMyDevice, useSetMyRule } from "@/hooks/useDevices";
 import { countryFlag } from "@/lib/country";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
@@ -49,60 +41,19 @@ function RoutingForm({
 }) {
   const setMyRule = useSetMyRule();
 
-  // Determine initial mode and tunnel selection.
-  const initialMode = currentRule?.type === "tunnel" && currentRule.tunnel_id ? "vpn" : "direct";
-  const initialTunnelId =
-    currentRule?.type === "tunnel" ? currentRule.tunnel_id : (tunnels[0]?.id ?? "");
+  const [target, setTarget] = useState<RoutingTarget>(
+    currentRule?.type === "tunnel" ? currentRule : { type: "direct" },
+  );
 
-  const [mode, setMode] = useState(initialMode);
-  const [tunnelId, setTunnelId] = useState(initialTunnelId);
-
-  const selectedTarget: RoutingTarget =
-    mode === "vpn" && tunnelId ? { type: "tunnel", tunnel_id: tunnelId } : { type: "direct" };
-
-  const hasChanges = !targetsEqual(selectedTarget, currentRule);
+  const hasChanges = !targetsEqual(target, currentRule);
 
   async function handleSave() {
-    await setMyRule.mutateAsync(selectedTarget);
+    await setMyRule.mutateAsync(target);
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <RadioGroup value={mode} onValueChange={(v) => setMode(v as "direct" | "vpn")}>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="direct" id="routing-direct" />
-          <Label htmlFor="routing-direct">Direct (no VPN)</Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="vpn" id="routing-vpn" />
-          <Label htmlFor="routing-vpn">VPN</Label>
-        </div>
-      </RadioGroup>
-
-      {mode === "vpn" && tunnels.length > 0 && (
-        <Select value={tunnelId} onValueChange={setTunnelId}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Select a tunnel" />
-          </SelectTrigger>
-          <SelectContent>
-            {tunnels.map((t) => {
-              const flag = t.country_code ? countryFlag(t.country_code) : "";
-              return (
-                <SelectItem key={t.id} value={t.id}>
-                  {flag && <span className="mr-1.5">{flag}</span>}
-                  {t.label}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
-      )}
-
-      {mode === "vpn" && tunnels.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          No VPN tunnels are configured. Ask your network administrator to add one.
-        </p>
-      )}
+      <RoutingSelector value={target} onChange={setTarget} tunnels={tunnels} />
 
       {setMyRule.isError && (
         <ApiErrorAlert error={setMyRule.error} fallback="Failed to update routing" />
