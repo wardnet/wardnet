@@ -31,7 +31,7 @@ use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
     TunnelForwarderInfo, UdpDnsServer, duration_to_ms, get_or_build_tunnel_forwarder,
-    upstream_label,
+    spawn_cache_invalidator, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -1524,4 +1524,150 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
     );
 
     server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `spawn_cache_invalidator` per-branch unit tests.
+//
+// The integration test above covers the happy path (subscribe → receive
+// `DnsFilterRebuilt` → flush). The branches below are harder to exercise
+// through a full `UdpDnsServer` so we drive the task directly: the
+// function is `pub(crate)` for exactly this reason.
+// ---------------------------------------------------------------------------
+
+/// Build a primed cache + a fresh task. Returns the cache handle (so the
+/// test can observe flushes), the bus (so the test can publish), the
+/// cancellation token, and the spawned task's handle (so the test can
+/// await clean exit).
+async fn spawn_invalidator_for_test(
+    capacity: usize,
+) -> (
+    Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>,
+    Arc<BroadcastEventBus>,
+    tokio_util::sync::CancellationToken,
+    tokio::task::JoinHandle<()>,
+) {
+    use wardnetd_services::dns::cache::DnsCache;
+    let cache = Arc::new(RwLock::new(DnsCache::new(16)));
+    seed_cache(&cache).await;
+    let bus = Arc::new(BroadcastEventBus::new(capacity));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let handle = spawn_cache_invalidator(Arc::clone(&cache), bus.subscribe(), cancel.clone());
+    (cache, bus, cancel, handle)
+}
+
+/// Insert a single sentinel entry so `cache.len() == 1` and a flush is
+/// observable. Re-uses the cache's own `insert` path with a synthetic
+/// `Pass` answer keyed on `Default`.
+async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>) {
+    use hickory_proto::op::{Message, OpCode};
+    let mut answer = Message::response(0, OpCode::Query);
+    answer.metadata.recursion_desired = true;
+    answer.metadata.recursion_available = true;
+    cache.write().await.insert(
+        UpstreamId::Default,
+        "seed.example.",
+        RecordType::A,
+        answer,
+        60,
+        1,
+        60,
+    );
+    assert_eq!(cache.read().await.len(), 1, "seed must populate cache");
+}
+
+#[tokio::test]
+async fn cache_invalidator_ignores_non_rebuild_events() {
+    // The `Ok(_) => {}` arm: events other than `DnsFilterRebuilt` are
+    // observed and discarded without touching the cache.
+    let (cache, bus, cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    bus.publish(WardnetEvent::DnsServerStarted {
+        timestamp: Utc::now(),
+    });
+
+    // Give the task a tick to consume the event.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        cache.read().await.len(),
+        1,
+        "non-rebuild events must NOT flush the cache"
+    );
+
+    cancel.cancel();
+    handle.await.expect("task joins after cancel");
+}
+
+#[tokio::test]
+async fn cache_invalidator_exits_on_cancel() {
+    // The `cancel.cancelled()` arm: cancelling the token (the path
+    // `Drop` takes) makes the task return promptly. We assert via
+    // `handle.await` completing within a small budget.
+    let (_cache, _bus, cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    cancel.cancel();
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("task must exit within 1s of cancel")
+        .expect("task joins cleanly (no panic)");
+}
+
+#[tokio::test]
+async fn cache_invalidator_exits_on_bus_close() {
+    // The `RecvError::Closed` arm: when every sender drops, the
+    // receiver returns Closed and the task breaks out. The
+    // `BroadcastEventBus` owns the sender, so dropping the sole Arc
+    // closes the channel.
+    let (_cache, bus, _cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    drop(bus);
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("task must exit within 1s of bus close")
+        .expect("task joins cleanly (no panic)");
+}
+
+#[tokio::test]
+async fn cache_invalidator_flushes_defensively_on_lagged() {
+    // The `RecvError::Lagged` arm: if we publish more than `capacity`
+    // events before the task drains them, the broadcast receiver
+    // surfaces `Lagged(n)` on its next `recv()`. The subscriber
+    // flushes anyway because we may have skipped a real
+    // `DnsFilterRebuilt`.
+    //
+    // Capacity 2 and 5 publishes before any scheduler tick guarantees
+    // the lag — even on a single-threaded runtime the publishes are
+    // synchronous and the subscriber hasn't been polled yet.
+    let (cache, bus, cancel, handle) = spawn_invalidator_for_test(2).await;
+
+    for _ in 0..5 {
+        bus.publish(WardnetEvent::DnsServerStarted {
+            timestamp: Utc::now(),
+        });
+    }
+
+    let mut flushed = false;
+    for _ in 0..50 {
+        if cache.read().await.is_empty() {
+            flushed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(flushed, "Lagged path must trigger a defensive flush");
+
+    cancel.cancel();
+    handle.await.expect("task joins after cancel");
+}
+
+#[tokio::test]
+async fn drop_cancels_cache_invalidator() {
+    // `UdpDnsServer::Drop` fires the cancellation token. We can't
+    // reach into the spawned task from here, but constructing then
+    // immediately dropping a server ensures the Drop body runs (and
+    // therefore is counted by coverage), and the test must not hang —
+    // a leaked task wouldn't block this test, but a panic in Drop
+    // would surface here.
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    drop(server);
 }

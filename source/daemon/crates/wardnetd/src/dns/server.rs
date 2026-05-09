@@ -909,11 +909,14 @@ pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
 /// listener comes back. Flush on an empty cache is a no-op, so the
 /// always-on cost is nil. Exits cleanly on cancellation (Drop) or when
 /// the broadcast bus closes.
-fn spawn_cache_invalidator(
+///
+/// `pub(crate)` so the per-branch unit tests in `dns::tests::server`
+/// can drive it directly without standing up a full `UdpDnsServer`.
+pub(crate) fn spawn_cache_invalidator(
     cache: Arc<RwLock<DnsCache>>,
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -951,7 +954,7 @@ fn spawn_cache_invalidator(
                 }
             }
         }
-    });
+    })
 }
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;
