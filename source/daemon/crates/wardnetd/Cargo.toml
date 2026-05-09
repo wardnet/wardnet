@@ -89,6 +89,8 @@ netlink-sys.workspace = true
 regex.workspace = true
 # https://crates.io/crates/cron
 cron.workspace = true
+# https://crates.io/crates/mdns-sd — mDNS responder advertising wardnet.local for setup discovery
+mdns-sd.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

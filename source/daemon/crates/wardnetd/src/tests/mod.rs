@@ -3,6 +3,7 @@ mod firewall_nftables;
 mod garp_learning;
 mod heartbeat;
 mod hostname_resolver;
+mod mdns_advertiser;
 mod metrics_collector;
 mod packet_capture;
 mod pidfile;

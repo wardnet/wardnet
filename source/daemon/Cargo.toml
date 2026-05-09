@@ -119,6 +119,8 @@ dhcproto = "0.14"
 
 # https://crates.io/crates/regex
 regex = "1"
+# https://crates.io/crates/mdns-sd — pure-Rust mDNS responder; advertises wardnet.local for setup discovery
+mdns-sd = "0.19"
 # https://crates.io/crates/semver — SemVer parsing and ordering for auto-update version comparison
 semver = { version = "1", features = ["serde"] }
 # https://crates.io/crates/flate2 — gzip decompression for release tarballs

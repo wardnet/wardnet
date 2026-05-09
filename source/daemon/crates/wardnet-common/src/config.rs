@@ -21,6 +21,7 @@ pub struct ApplicationConfiguration {
     pub vpn_providers: VpnProvidersConfig,
     pub pyroscope: PyroscopeConfig,
     pub update: UpdateConfig,
+    pub mdns: MdnsConfig,
     /// Secret-store configuration. **Optional.**
     ///
     /// When absent, no local secret storage is available: tunnels that
@@ -61,6 +62,7 @@ impl Default for ApplicationConfiguration {
             vpn_providers: VpnProvidersConfig::default(),
             pyroscope: PyroscopeConfig::default(),
             update: UpdateConfig::default(),
+            mdns: MdnsConfig::default(),
             secret_store: None,
             pidfile_path: default_pidfile_path(),
         }
@@ -513,6 +515,34 @@ impl Default for UpdateConfig {
             staging_dir: PathBuf::from("/var/lib/wardnet/updates"),
             require_signature: true,
             http_timeout_secs: 60,
+        }
+    }
+}
+
+/// mDNS advertisement configuration.
+///
+/// On startup, the daemon advertises an `_http._tcp.local.` service
+/// record so users can reach the setup wizard at `http://wardnet.local`
+/// without knowing the LAN IP. Disable via `enabled = false` if the
+/// LAN already has another mDNS responder owning the name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MdnsConfig {
+    /// When `false`, the daemon does not start the mDNS advertiser.
+    pub enabled: bool,
+    /// Hostname to advertise (without the `.local.` suffix).
+    ///
+    /// `None` means use the built-in default (`"wardnet"`). On detected
+    /// collision with another responder, the advertiser falls back to
+    /// `<hostname>-2`, `<hostname>-3`, … in memory only — no persistence.
+    pub hostname: Option<String>,
+}
+
+impl Default for MdnsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            hostname: None,
         }
     }
 }
