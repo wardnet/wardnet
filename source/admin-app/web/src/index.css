@@ -86,8 +86,6 @@
   --color-background: var(--bg);
   --color-foreground: var(--ink);
   --color-card-foreground: var(--ink);
-  --color-popover: var(--bg-card);
-  --color-popover-foreground: var(--ink);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-ink);
   --color-secondary: var(--bg-sunken);

@@ -147,10 +147,10 @@ Radix primitive needed (pure visual or HTML element).
 | label.tsx         | Label              | `.label` (added — standalone) + existing `.field label` (descendant) — share rules via comma selector | [x] |
 | input.tsx         | Input              | `.input` (added — standalone) + existing `.field input` — share rules via comma selector | [x] |
 | textarea.tsx      | Textarea           | `.textarea` (added — standalone, with `min-height` + `field-sizing: content`) + existing `.field textarea` — share rules | [x] |
-| input-group.tsx   | n/a                | `.field` + helper — descoped this slice; sole consumer is `core/ui/command.tsx` (out of scope), rides Command port | [ ] |
+| input-group.tsx   | —                  | dropped — sole consumer was `core/ui/command.tsx`; the new `Combobox` composite renders its search input via a `.combobox-input` Forge class, so InputGroup has zero consumers | [-] |
 | ipv4-input.tsx    | n/a                | `.field input.mono` — descoped this slice; domain-coupled segmented input with octet validation, separate restyle slice | [ ] |
 | mac-input.tsx     | n/a                | `.field input.mono` — descoped this slice; domain-coupled segmented input with hex segments, separate restyle slice | [ ] |
-| command.tsx       | (cmdk)             | command palette popover                                | [ ]    |
+| command.tsx       | Combobox           | renamed Command → Combobox (cmdk used only as a filterable select in this codebase, not a command palette); high-level composite owning Popover + trigger Button + search + list scaffold; `.combobox-trigger` / `.combobox-input` / `.combobox-list` / `.combobox-empty` Forge classes added; items reuse `.menu-item` (cmdk `data-selected` bridged to `[data-highlighted]` via comma selector) | [x] |
 | chart.tsx         | (recharts)         | Forge §10 chart rules — 4 hairline gridlines, mono Y-axis labels, no vertical grid, area + line, tooltip in `--bg-card` + `--shadow-pop` | [ ] |
 | data-table.tsx    | (tanstack/table)   | `.tbl` + `.host` row pattern                           | [ ]    |
 | toaster.tsx       | (sonner)           | `.toast`                                               | [ ]    |
@@ -1428,6 +1428,150 @@ all facts; status pills via `.pill--*`.
   "routing-vpn">` paired with each RadioGroupItem) — neither row
   changed count materially. **`tw-animate-css` holdout state
   unchanged** — sheet.tsx still the sole carrier.
+- **Command renamed to Combobox — the cmdk wrapper is a filterable
+  select, not a command palette** (2026-05-09, thirteenth slice).
+  The legacy `core/ui/command.tsx` was the standard shadcn 9-export
+  template (Command / CommandDialog / CommandInput / CommandList /
+  CommandEmpty / CommandGroup / CommandItem / CommandShortcut /
+  CommandSeparator) wrapping cmdk. Pre-flight survey: exactly **one
+  app consumer**, `compound/CountryCombobox.tsx`, which uses cmdk
+  inside a Popover as a typeahead country picker. Three exports
+  (`CommandDialog`, `CommandShortcut`, `CommandSeparator`) had zero
+  consumers. There is no global ⌘K palette, no app-wide command
+  runner — cmdk exists in this codebase solely for type-to-filter
+  inside a popover. So the primitive's *shadcn name* (`Command`,
+  evoking ⌘K palettes) misrepresented its actual role. Renamed to
+  `Combobox` — the standards-compliant ARIA name for "select with a
+  search input," and the noun the consumer file already uses
+  (`CountryCombobox`). The rename also closes a naming-rule
+  inconsistency the slice was about to introduce: shadcn-style
+  multi-part exports (CommandInput / CommandList / CommandEmpty /
+  CommandItem) would have crowded forge-web's vocabulary with
+  Command-prefixed parts no consumer ever asked for. **Generalisation:**
+  when the underlying library's name describes its *full generic
+  capability* but the codebase only consumes a narrow sub-pattern,
+  name the primitive after the *sub-pattern* (Combobox), not the
+  library (Command/cmdk). Same shape as the AlertModal slice's
+  decision to name after behavior (Alert prefix) rather than the
+  Radix sub-library — but applied at the granularity of "what
+  this codebase actually uses cmdk for." The cmdk dependency moved
+  from `admin-app/web` to `admin-app/forge-web` — the React
+  primitives layer owns the cmdk wrapper, the app no longer depends
+  on cmdk directly.
+- **Combobox — high-level composite, not a multi-part slot** (2026-05-09,
+  thirteenth slice). Two architectural shapes considered: (a) keep
+  the multi-part shadcn shape and rename Command* → Combobox*
+  (consumer wires `<Popover><PopoverTrigger><Button/></PopoverTrigger>
+  <PopoverContent><Combobox><ComboboxInput/><ComboboxList><ComboboxEmpty/>
+  <ComboboxGroup>{items.map(c => <ComboboxItem/>)}</ComboboxGroup>
+  </ComboboxList></Combobox></PopoverContent></Popover>` — eight
+  layers per consumer); (b) high-level composite that owns Popover
+  + trigger Button + search input + list scaffold + empty state +
+  chevron + selected-checkmark indicator, with a single children
+  slot for items. Chose (b). API: `<Combobox value onChange trigger
+  searchPlaceholder empty disabled>{items.map(o => <ComboboxItem
+  value keywords>...</ComboboxItem>)}</Combobox>` — two exports
+  (Combobox + ComboboxItem) instead of the multi-part six. **Why
+  composite:** the two-component shape lets the composite encapsulate
+  the cmdk machinery while still letting consumers control item
+  content (children of `<ComboboxItem>` is anything — flag emoji +
+  name, multi-line, badges, …). Consumer also controls the trigger
+  *content* via the `trigger` prop (selected-label vs placeholder
+  is the consumer's `?:`); the composite owns the trigger Button
+  itself (variant=outline, full-width, role=combobox, chevron). The
+  selected-checkmark indicator is owned by Forge — `<ComboboxItem>`
+  emits `data-state={isSelected ? "checked" : "unchecked"}`, and
+  the existing `.menu-item[data-state="checked"]::after` rule
+  (added in the Select slice) paints the check via mask-image.
+  **Generalisation:** when designing a primitive whose underlying
+  library has a multi-part API (cmdk's Command*, Radix's Dialog*),
+  evaluate two routes: (1) thin pass-through wrap each part as
+  separate exports (Modal / AlertModal / DropdownMenu / Select all
+  followed this — they're slot-style multi-part composites that
+  look like the underlying library); (2) high-level composite when
+  the codebase's usage pattern is *narrower* than the library's
+  full capability and the consumer-side complexity is high (Combobox
+  picked this — eight layers became two). Modal-and-friends couldn't
+  go (2) because Dialog is genuinely multi-purpose (header / body /
+  footer / scrollable / different layouts). cmdk is also multi-
+  purpose (palettes / runners / search) but our usage is one-purpose,
+  so (2) is justified. **The decision is consumer-driven:** what is
+  the codebase actually doing with this library?
+- **Forge — `.combobox-trigger` / `.combobox-input` / `.combobox-list`
+  / `.combobox-empty` added; items reuse `.menu-item` via
+  `data-selected` bridge** (2026-05-09, thirteenth slice). cmdk's
+  `<Command.Item>` emits `data-selected="true"` on the keyboard-
+  focused item — same affordance as Radix DropdownMenu's
+  `data-highlighted` (the keyboard-focus-visible row). Bridged
+  via comma selector: `.menu-item[data-highlighted], .menu-item
+  [data-selected="true"] { background: var(--bg-sunken); … }` —
+  one rule, two attribute vocabularies, same visual. This is the
+  third application of the comma-selector dedupe pattern (after
+  `.label`/`.field label` and `.input`/`.field input` in the
+  form-row slice) — confirms the pattern generalises beyond
+  "standalone vs descendant" to "different libraries' state-
+  attribute vocabularies for the same affordance." `.combobox-
+  trigger` styles the outline-Button trigger to be full-width with
+  a chevron; `.combobox-content` overrides `.popover`'s default
+  padding (zero — the search input has its own border-bottom
+  delimiter) and matches trigger width via Radix's
+  `--radix-popover-trigger-width` var; `.combobox-input` is a
+  flex-row with leading search icon + bare-input child;
+  `.combobox-list` is a 280px-max scrollable list region;
+  `.combobox-empty` is centered ink-3 text. **Generalisation:**
+  bridges between attribute vocabularies (Radix `data-highlighted`
+  ↔ cmdk `data-selected="true"`) live in CSS via comma selector,
+  not in JS via attribute mapping. Consistent with the existing
+  rule "Radix `data-state` bridged in CSS, not JS."
+- **InputGroup dropped — second consecutive slice where the
+  briefing's "port primitive X" flipped to "drop primitive X"**
+  (2026-05-09, thirteenth slice). InputGroup's only purpose in
+  this codebase was being the wrapper used by `core/ui/command.
+  tsx`'s `CommandInput` (search input + leading icon). The new
+  `Combobox` composite renders its search input via a Forge
+  `.combobox-input` class instead — small flex-row with a
+  search-icon child and a bare cmdk Input. With Command gone and
+  no other consumers, InputGroup's app-wide consumer count drops
+  to zero, so the primitive itself drops per the same "primitive
+  itself drops" rule the RadioGroup slice locked. Legacy `core/
+  ui/input-group.tsx` deleted; no forge-web port written. This is
+  now a pattern: **across slices 12 and 13, two of the three
+  briefing-scoped Radix-or-equivalent ports flipped from "port"
+  to "drop" after pre-flight survey** (RadioGroup, InputGroup).
+  Both saved Forge growth, both narrowed forge-web's surface,
+  both are validations of the "≥1 consumer that can't be
+  expressed with what we already have" threshold. The
+  pre-flight-survey-flips-slice-shape rule has now been applied
+  three slices in a row counting Command-rename → Combobox as a
+  third instance of "the briefing's primitive name was wrong; the
+  pre-flight reframed the slice."
+- **`bg-popover` + `text-popover-foreground` deleted from
+  `index.css` — first alias rows to reach zero** (2026-05-09,
+  thirteenth slice). Per the seventh / eighth / ninth slice audits
+  (`bg-popover` 7→6→5→2→1, `text-popover-foreground` 5→4→3→2→1),
+  this slice's deletion of `core/ui/command.tsx` zeroed both rows.
+  Bundled their deletion from `admin-app/web/src/index.css` (lines
+  89–90) into this commit since the deletion is two trivial line
+  removals and the alias-pruning slice would otherwise just delete
+  these same two lines. **Generalisation:** when an alias-row's
+  consumer count reaches zero in the same slice that removes the
+  last consumer, bundle the row deletion in that slice — splitting
+  is unnecessarily ceremonial. Rows that reach zero across multiple
+  slices (the long-tail rows like `text-muted-foreground`,
+  `bg-muted`, `border-input`) still wait for the alias-pruning
+  sweep where they'll be deleted en masse. **Legacy shadcn alias
+  audit — Combobox slice:** the deleted `command.tsx` referenced
+  `bg-popover` (1→0), `text-popover-foreground` (1→0), `bg-border`
+  (in `bg-border`, kept), `text-foreground` (kept), `bg-muted` (in
+  `data-selected:bg-muted`, kept), `text-muted-foreground` (kept);
+  the deleted `input-group.tsx` referenced `border-input`,
+  `bg-input/50`, `bg-input/30`, `bg-input/80`, `text-muted-
+  foreground`, `border-ring`, `ring-ring`, `border-destructive`,
+  `ring-destructive/20`, `ring-destructive/40` — all long-tail
+  rows with remaining consumers (the form-heavies Ipv4Input/
+  MacInput keep `border-input`/`ring-ring`). **`tw-animate-css`
+  holdout state unchanged** — sheet.tsx still the sole file
+  carrying utility-class motion.
 
 ---
 
@@ -1779,3 +1923,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Tabs primitive port (tenth primitive — first non-floating Radix-wrap; first slice where Forge styles inner parts via descendant selector). Survey of the five legacy call sites (`DnsStatsSection`, `TunnelThroughputChart`, `CreateTunnelInline`, `pages/Devices`, `pages/Dhcp`) found all five exclusively use the default pill (`.tabs`) surface — zero use legacy `variant="line"` or `orientation="vertical"`, and all five are *view switches inside a card or section*, never page-level navigation. So Decision 1 collapsed to "ship one primitive bound to one surface" — `.tabs` only; the legacy `variant="line"` branch and its parallel CVA dropped per "drop features the migration doesn't require"; `.tabs-bar` itself doesn't exist in `source/forge/styles.css` (only in `source/forge/docs/tailwind.config.js`) so the slice doesn't add it — if a future router-driven page-nav surface wants an underline strip, that lands in its own slice (and likely won't go through Radix Tabs at all since URL state is the source of truth). **Forge-first:** added `[data-state="active"]` next to the existing `.tabs button.is-active` selector (Toggle-pattern dual selector — third application of the data-state bridge across CSS-only mocks and React primitives); active-state visual is **static** (background + color + shadow swap, no animation declared), so no keyframes — confirms the Modal-slice intrinsic-vs-variant rule covers static state changes too. **Multi-part template:** four exports across two shapes — passthrough Radix (`Tabs`, `TabsTrigger`, `TabsContent`) and Radix-part-bearing-Forge-class (`TabsList` = `.tabs`). Forge's `.tabs button` selector targets descendants directly (no `.tabs__btn` class), so `TabsTrigger` is a passthrough — Radix Trigger renders a `<button>` by default and inherits `.tabs button` styles automatically; `TabsContent` is also a passthrough since Forge has nothing for content panels (call sites supply their own `mt-4` etc.). Tabs sits between Toggle (1/1) and Popover (3/2) on the small end of the template axis (Modal at 9/4 anchors the ceiling). Briefing prediction "4 exports across 1–2 shapes" landed exactly. **Root passthrough verification:** legacy primitive baked `flex gap-2 data-horizontal:flex-col` defaults on the Root; the new primitive drops them. Walked every call site and confirmed either (a) the default was redundant (`Devices`/`Dhcp` already pass their own `flex min-h-0 flex-1 flex-col`) or (b) layout still works because content panels are block-level (`CreateTunnelInline` — TabsList is inline-flex, TabsContent panels break onto a new line, `mt-4` provides the gap). New `./tabs` subpath export in `@wardnet/forge-web`; 5 call sites retargeted (`@/components/core/ui/tabs` → `@wardnet/forge-web/tabs`) — pure import-path swap, no JSX rewrite. Legacy `core/ui/tabs.tsx` deleted. Legacy alias audit: deletion didn't zero any rows (the deleted aliases were long-tail rows — `text-muted-foreground`, `bg-muted`, `bg-foreground`, `bg-background`, `border-input`, etc., all with many remaining consumers). **`tw-animate-css` holdout state unchanged** — `core/ui/sheet.tsx` is still the sole file carrying utility-class motion; this slice didn't touch it. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Form-row foundation slice (eleventh slice — three light primitives + first composition primitive). Surveyed the briefing's six-primitive scope down to **three lights** (`Label` / `Input` / `Textarea`) plus a new **`Field` composition**: `core/ui/input-group.tsx` has exactly one consumer (`core/ui/command.tsx`, out of scope) so it rides the Command port; `Ipv4Input`/`MacInput` are 150-line domain-coupled segmented-input compositions that fail the "pattern-reusable" litmus, so they stay in `core/ui/` for a separate restyle slice. **Forge-first:** refactored the existing `.field` block to add standalone `.label` / `.input` / `.textarea` classes that share rules with `.field label` / `.field input` / `.field select` / `.field textarea` via comma selectors (so a future visual change applies to both standalone and field-wrapped variants uniformly); added `:disabled` (cursor + opacity), `::placeholder` color, textarea-specific `min-height` + `field-sizing: content` + `resize: vertical`. Did **not** add `[aria-invalid]` styling — zero call sites pass `aria-invalid` (legacy primitives declared but no consumer used it), dropped per "drop features the migration doesn't require." **Three light primitives** ported as bare class-appliers — `Label` (Radix `Label.Root` + `.label`), `Input` (bare `<input>` + `.input`), `Textarea` (bare `<textarea>` + `.textarea`). **`Field` composition** (`@wardnet/forge-web/field`) wraps Label + control + optional help text and supports an `editing` boolean for edit/read swap (when `editing=false` and `value` provided, children replaced with `<span class="field-value">` styled to match input vertical rhythm so layout doesn't jump). Forge gained `.field-help` (small ink-3 paragraph below control) and `.field-value` (read-mode display). **Naming:** `Field` (not `FormField` / `FormInput`) follows the locked rule "component name follows Forge class" — Forge class is `.field`, single word; the React export matches. **Why composition not primitive:** combines three sub-elements + edit/read behavior, same shape as Card / CardHeader / CardBody. **Why ship it:** the manual pattern (`<div className="flex flex-col gap-2"><Label>X</Label><Input/><p>Help</p></div>`) was reproduced verbatim at 15+ call sites; with Field the pattern lives in one component, so future Forge tweaks propagate via the primitive instead of touching every consumer. New subpath exports `./label`, `./input`, `./textarea`, `./field` in `@wardnet/forge-web`. **Call site migration:** 21 files retargeted via sed — pure import-path swap, no JSX rewrite for Label/Input/Textarea (inline Tailwind className overrides on Label win via cascade order, so visual stays unchanged). **Two call sites migrated to Field as proof-of-pattern:** `Login.tsx` (two label+input pairs, no help) and `EditDhcpConfigSheet.tsx` (six fields, two with help text — manual `<p className="text-xs text-muted-foreground">` paragraphs collapsed into Field's `help` prop). Remaining ~13 call sites stay on the manual pattern — they migrate to Field organically as feature slices touch them or in a dedicated "field consolidation" slice; both forms are visually equivalent so the codebase is transitional-consistent. `core/ui/input-group.tsx` had its internal Input/Textarea imports retargeted to forge-web (its own consumer is Command, out of scope). Legacy `core/ui/{label,input,textarea}.tsx` deleted. Legacy alias audit: no rows newly zero-referenced — `border-input` / `bg-input` family / `text-muted-foreground` / `*-destructive` rows still have many consumers (the form-heavies still consume them). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | RadioGroup drop + MyDevice routing-form simplification (twelfth slice — first slice where the planned port flipped to a drop). Briefing scoped this as Option A "port RadioGroup as the fourth data-state-bridge." Pre-flight survey turned up exactly one consumer: `pages/MyDevice.tsx`'s `RoutingForm`, where RadioGroup rendered a binary `Direct (no VPN)` / `VPN` choice followed by a conditional `<Select>` listing tunnels. That two-control composition is the same affordance as the unified `<Select>` already encapsulated by `compound/RoutingSelector` (used by `features/DeviceSettingsCard` and `pages/setup/Step6Policy`) — single dropdown with `Direct (no VPN)` as the first option, followed by tunnels. So the slice flipped: replace MyDevice's RoutingForm contents with a `<RoutingSelector />` instance, drop RadioGroup's app-wide consumer count to zero, mark `radio-group.tsx` as `[-]` Removed from scope, delete the legacy file — no forge-web port written, no new `.radio` Forge classes added. **`RoutingSelector` prop narrowed from `Tunnel[]` to `TunnelSummary[]`** — the compound only consumes `id` / `label` / `country_code`, and `TunnelSummary` is the SDK's auth-scoped shape for self-service routing selection (the unauthenticated/self-service `/api/devices/me` endpoint deliberately ships only the minimum fields, not full `Tunnel` data which carries internal stats like `bytes_tx`/`endpoint`/`last_handshake`). Two existing `RoutingSelector` consumers keep working because `Tunnel` is structurally a `TunnelSummary` — TS structural assignability lets `Tunnel[]` flow into a `TunnelSummary[]` prop. **`MyDevice` RoutingForm shrunk from ~60 lines to ~30** — separate `mode`/`tunnelId` state collapsed into a single `useState<RoutingTarget>`, conditional Select + empty-tunnels message all moved into `RoutingSelector`. **Generalisations locked:** (a) "drop features the migration doesn't require" extends one more rung — when a primitive's lone consumer can be expressed with an existing primitive or compound, the primitive itself drops, not just its unused parts; the Forge-vocabulary threshold for shipping a primitive is "≥1 consumer that can't be expressed with what we already have," not "≥1 consumer"; (b) when a compound takes a domain type where only a structural subset is consumed, prefer the narrower shape and let TS structural assignability handle the wider call sites; (c) pre-flight surveys can change the slice's shape from "port" to "drop" without writing a primitive at all — the briefing's "fourth data-state-bridge application" lands as a *deferred* generalisation the next state-bearing primitive will surface, nothing lost by skipping it here. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Combobox primitive — Command renamed + InputGroup dropped + first alias rows deleted (thirteenth slice). Pre-flight survey: legacy `core/ui/command.tsx` had **one** app consumer (`compound/CountryCombobox.tsx`) and three of nine exports were unused (`CommandDialog`/`CommandShortcut`/`CommandSeparator`); there is no global ⌘K palette in this app. cmdk is being used solely as a typeahead-filterable select inside a Popover, so the primitive's shadcn name (`Command`, evoking command palettes) misrepresented its actual role. **Renamed to `Combobox`** — standards-compliant ARIA name and the noun the consumer file already uses (`CountryCombobox`). **High-level composite, not multi-part:** new `Combobox` owns Popover + trigger Button (variant=outline, full-width, chevron) + search input (with leading search icon) + scrollable list scaffold + empty state + selected-checkmark indicator; consumer fills the trigger *content* via `trigger` prop and the list items via `<ComboboxItem>` children. Two exports (`Combobox`, `ComboboxItem`) replace the legacy nine; eight-layer call-site shape collapses to one. Selected-checkmark is owned by Forge — `<ComboboxItem>` emits `data-state={isSelected ? "checked" : "unchecked"}` and the existing Select-slice `.menu-item[data-state="checked"]::after` rule paints the check (no JSX duplication). cmdk dependency moved from `admin-app/web` to `admin-app/forge-web`. **Forge-first:** added `.combobox-trigger` / `.combobox-content` / `.combobox-input` / `.combobox-list` / `.combobox-empty` classes; bridged cmdk's `data-selected="true"` (keyboard-focus highlight) to the existing `.menu-item[data-highlighted]` rule via comma selector — third application of the comma-selector dedupe pattern (after the form-row slice's `.label`/`.field label` and `.input`/`.field input`). **InputGroup dropped:** the legacy `CommandInput` wrapped its search input in `<InputGroup>`; the new `Combobox` uses `.combobox-input` instead, dropping InputGroup's app-wide consumer count to zero — second consecutive slice where the briefing's "port primitive X" flipped to "drop primitive X" (RadioGroup last slice, InputGroup this slice). Legacy `core/ui/{command,input-group}.tsx` deleted; no forge-web port for InputGroup. **First alias rows deleted from `admin-app/web/src/index.css`:** `--color-popover` and `--color-popover-foreground` (lines 89-90) zeroed by Command's deletion (their consumer counts had been counting down through the Popover/DropdownMenu/Select/DropdownMenu slice audits — 7→6→5→2→1→0). Bundled the row deletion into this commit since two trivial line removals don't merit a separate alias-pruning slice. **CountryCombobox** rewritten to use the new composite — 90-line file shrunk to 50 lines, three primitive imports collapsed to one. Toggle-to-deselect-on-reclick behavior preserved at the consumer (`onChange={(next) => onChange(next === value ? "" : next)}`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

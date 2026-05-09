@@ -2905,7 +2905,6 @@ __metadata:
     "@wardnet/js": "portal:../../sdk/wardnet-js"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
-    cmdk: "npm:1.1.1"
     cronstrue: "npm:3.14.0"
     eslint: "npm:10.2.1"
     eslint-config-prettier: "npm:10.1.8"
@@ -2940,6 +2939,7 @@ __metadata:
     "@wardnet/forge": "portal:../../forge"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
+    cmdk: "npm:1.1.1"
     prettier: "npm:3.8.3"
     radix-ui: "npm:1.4.3"
   peerDependencies:

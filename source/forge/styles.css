@@ -767,7 +767,8 @@ button { font-family: inherit; }
   user-select: none;
   outline: none;
 }
-.menu-item[data-highlighted] {
+.menu-item[data-highlighted],
+.menu-item[data-selected="true"] {
   background: var(--bg-sunken);
   color: var(--ink);
 }
@@ -804,6 +805,58 @@ button { font-family: inherit; }
   height: 1px;
   background: var(--line);
   margin: 4px -6px;
+}
+
+/* ---------- Combobox (cmdk inside .popover; items reuse .menu-item) ---------- */
+.combobox-trigger {
+  width: 100%;
+  justify-content: space-between;
+  font-weight: 400;
+}
+.combobox-trigger > svg.combobox-chevron {
+  width: 14px; height: 14px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.combobox-content {
+  padding: 0;
+  width: var(--radix-popover-trigger-width);
+}
+.combobox-input {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.combobox-input svg {
+  width: 14px; height: 14px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.combobox-input input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 0;
+}
+.combobox-input input::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+.combobox-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.combobox-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
 }
 
 /* ---------- Select (.select-trigger + .select-content; options reuse .menu-item) ---------- */
