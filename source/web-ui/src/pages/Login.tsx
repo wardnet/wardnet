@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { WardnetApiError } from "@wardnet/js";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
 import { useAuth } from "@/hooks/useAuth";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/core/ui/sheet";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Sidebar } from "./Sidebar";
 
 /** Hamburger menu with slide-in sidebar for mobile viewports. */

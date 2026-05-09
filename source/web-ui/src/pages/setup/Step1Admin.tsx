@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { WardnetApiError } from "@wardnet/js";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
 import { useSetup, useAdvanceWizard } from "@/hooks/useSetup";

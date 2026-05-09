@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RestorePreviewResponse } from "@wardnet/js";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";

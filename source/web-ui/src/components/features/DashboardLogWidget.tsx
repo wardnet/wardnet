@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import {
   Select,
   SelectContent,

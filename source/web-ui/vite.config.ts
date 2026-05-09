@@ -8,8 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
-      "@wardnet/forge": path.resolve(__dirname, "../../design-system"),
     },
+    preserveSymlinks: true,
   },
   server: {
     port: 7412,

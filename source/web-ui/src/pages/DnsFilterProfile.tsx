@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import {
   Card,
   CardAction,

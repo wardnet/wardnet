@@ -132,7 +132,7 @@ Radix primitive needed (pure visual or HTML element).
 
 | File              | Radix              | Forge surface                                          | Status |
 | ----------------- | ------------------ | ------------------------------------------------------ | ------ |
-| button.tsx        | n/a                | `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` | [ ] |
+| button.tsx        | n/a                | `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` | [x] |
 | card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head`               | [ ]    |
 | badge.tsx         | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost`             | [ ]    |
 | dialog.tsx        | Dialog             | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) | [ ] |
@@ -356,6 +356,47 @@ all facts; status pills via `.pill--*`.
   in addition to the CSS-side import — and a matching `declare module` in
   `vite-env.d.ts`. CSS-side `@import` is sufficient on its own; removed the
   JS side and the type declaration to keep one font-loading mechanism.
+- **Forge bootstrap — Vite alias dropped, not retargeted** (2026-05-09):
+  the original plan was to retarget the `@wardnet/forge` Vite alias at
+  `source/forge/src`. Doing that as a prefix-replace alias short-circuits
+  the package's exports map (Vite's `resolve.alias` is a substring rewrite,
+  so `@wardnet/forge/button` would map to `source/forge/src/button` and miss
+  `source/forge/src/primitives/button.tsx`). With subpath exports mandatory,
+  the alias and the exports map are mutually exclusive. The cleaner path is
+  to drop the alias in both apps and let yarn's `portal:` protocol + the
+  package's `exports` map do the resolution — which is what `@wardnet/js`
+  already does without an alias. CSS-side `@import "@wardnet/forge/styles.css"`
+  goes through the same resolver and works unchanged.
+- **`preserveSymlinks: true` required for portal'd source-package consumers**
+  (2026-05-09): when web-ui imports `@wardnet/forge/button`, yarn symlinks
+  the package into `web-ui/node_modules/@wardnet/forge`, but tsc and Vite
+  default to resolving symlinks to their real path
+  (`source/forge/src/primitives/button.tsx`). From there, walking up looking
+  for `react` lands in `source/forge/node_modules`, which does not have it.
+  The fix is `preserveSymlinks: true` — set in `web-ui/tsconfig.app.json`
+  for type-checking and in `web-ui/vite.config.ts` (`resolve.preserveSymlinks`)
+  for bundling. With the flag on, walking up from the symlinked path lands
+  in `web-ui/node_modules`, where react and its types live. Without it,
+  forge would need its own copy of every transitive dep. Site doesn't import
+  any primitive `.tsx` — it only consumes the CSS — so it doesn't need the
+  flag (but if/when site imports a primitive, we'll need it there too).
+- **Forge package layout — peer-deps for React, no `@types/*` devDeps**
+  (2026-05-09): `react` and `react-dom` declared as peers (consumer
+  provides), no devDeps for them. `@types/react` was tried as a forge
+  devDep first; that produced "two different `@types/react` exist with
+  this name" type errors, because tsc was loading both forge's copy and
+  web-ui's copy. Removing them from forge and relying on `preserveSymlinks`
+  to reach the consumer's types fixed it. Side-effect: forge's own
+  `tsc --noEmit` won't run standalone (no react types reachable from
+  forge alone) — type-checking happens through the consumer apps, which
+  is fine for the workspace-package shape.
+- **`radix-ui` moved from web-ui deps to forge deps** (2026-05-09): apps
+  consume primitives, primitives consume Radix. With nodeLinker `node-modules`
+  and `preserveSymlinks: true`, web-ui's not-yet-ported shadcn wrappers
+  (alert-dialog.tsx, dialog.tsx, etc.) can still `import { ... } from "radix-ui"`
+  — yarn hoists the transitive dep into web-ui/node_modules. Once those
+  wrappers are ported into forge, web-ui's source no longer touches Radix
+  directly.
 
 ---
 
@@ -402,8 +443,8 @@ first, then into the apps.
 | Drop `tailwind.config.js` once Tailwind 4 reference is in README, OR keep as a Tailwind-3-compat reference (decide on first use) | [ ] |
 | Add any new primitives we introduce in the apps back into `primitives.jsx` (StatTile already there; new ones go here too) | [ ] |
 | Update `design-system.html` §05 Components when we add new components in code | [ ]    |
-| Bootstrap `source/forge/` workspace package (first primitive slice — see "Where Forge lives" below) | [ ] |
-| Move `styles.css` from `design-system/` to `source/forge/` once package exists; retarget `@wardnet/forge` alias | [ ] |
+| Bootstrap `source/forge/` workspace package (first primitive slice — see "Where Forge lives" below) | [x] |
+| Move `styles.css` from `design-system/` to `source/forge/` once package exists; retarget `@wardnet/forge` alias | [x] |
 | Convert `design-system/` to docs-only (mocks + studio HTML) — primitives.jsx mocks may be retired or rendered against `source/forge/` | [ ] |
 | Delete legacy shadcn-token alias block in `source/web-ui/src/index.css` once no component references the old utilities (`bg-background`, `text-foreground`, `bg-primary`, `border-border`, `border-input`, `ring-ring`, `bg-sidebar*`, `bg-destructive`, `bg-muted`, `bg-success`, `bg-warning`, `bg-popover`, `bg-secondary`, `text-muted-foreground`, etc.) | [ ] |
 | Delete legacy `--brand-indigo` / `--brand-slate` / `--brand-green` / `--brand-green-hover` aliases in `source/site/src/index.css` once site components consume Forge tokens (`var(--accent)`, `bg-accent`, etc.) | [ ] |
@@ -492,3 +533,4 @@ The public site doesn't use Radix today (verified). It will continue to consume 
 | ---------- | ------------------------------------------------- | --------------- |
 | 2026-05-08 | Strategy locked, all 8 open questions answered, Forge promoted to source-of-truth, doc bootstrapped, audit complete | (this commit) |
 | 2026-05-09 | Foundation slice: Forge updates (skill rename, density block stripped, floating rail collapsed into `.app`, README import-strategy doc); web-ui font swap to Inter Tight + JetBrains Mono, `index.css` rewritten on Forge tokens via `@theme inline`, `useTheme` hook switched to `data-theme` attribute, legacy shadcn-token aliases retained for build compatibility; site font swap, `index.css` rewritten on Forge tokens, `--brand-*` vars retained as Forge-mapped aliases; Vite alias `@wardnet/forge` added in both apps targeting `design-system/`; "Where Forge lives" strategy locked (`source/forge/` workspace package — bootstrap in first primitive slice). Type-check + build pass for both apps; site format clean. | (this commit) |
+| 2026-05-09 | Forge bootstrap + Button primitive: created `source/forge/` workspace package (`@wardnet/forge` portal:, subpath exports for `./styles.css` + `./button`); `styles.css` moved from `design-system/` to `source/forge/src/`; `radix-ui` moved from web-ui deps to forge deps (apps consume primitives, not Radix). Vite alias `@wardnet/forge` dropped in both apps — exports-map resolution via portal protocol replaces it. `preserveSymlinks: true` set in web-ui's `tsconfig.app.json` and `vite.config.ts` so cross-package source imports reach web-ui's `react` / `@types/react`. Button primitive ported to `source/forge/src/primitives/button.tsx` using Radix `Slot.Root` for `asChild` and Forge `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` / `.btn--icon` classes; legacy shadcn variant strings (`outline`/`secondary`/`destructive`/`tertiary` and sizes `sm`/`icon`/`icon-sm`) kept as the public API and mapped to Forge classes via CVA so call sites stay stable. `source/web-ui/src/components/core/ui/button.tsx` deleted; 44 imports retargeted to `@wardnet/forge/button`. Type-check + lint clean for web-ui (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for site. Build verified for both apps. | (this commit) |

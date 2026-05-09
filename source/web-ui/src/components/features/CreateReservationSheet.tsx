@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Input } from "@/components/core/ui/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { MacInput } from "@/components/core/ui/mac-input";

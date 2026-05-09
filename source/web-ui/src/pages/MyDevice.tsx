@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { RadioGroup, RadioGroupItem } from "@/components/core/ui/radio-group";
 import { Label } from "@/components/core/ui/label";
 import {

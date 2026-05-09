@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { StatusBadge } from "./StatusBadge";
 import { formatBytes, timeAgo } from "@/lib/utils";
 import { countryFlag } from "@/lib/country";

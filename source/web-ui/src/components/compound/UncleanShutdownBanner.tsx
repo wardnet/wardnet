@@ -1,5 +1,5 @@
 import { CircleAlertIcon, X } from "lucide-react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { useAcknowledgeShutdown, useSystemStatus } from "@/hooks/useSystemStatus";
 import { timeAgo } from "@/lib/utils";
 

@@ -5,7 +5,7 @@ import { Badge } from "@/components/core/ui/badge";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
 import { Input } from "@/components/core/ui/input";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { StatusBadge } from "@/components/compound/StatusBadge";

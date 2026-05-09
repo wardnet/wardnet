@@ -1,5 +1,5 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
 import { ManualTunnelTab } from "./ManualTunnelTab";
 import { ProviderTunnelTab } from "./ProviderTunnelTab";

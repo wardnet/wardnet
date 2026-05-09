@@ -2898,6 +2898,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@wardnet/forge@portal:../forge::locator=wardnet-ui%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@wardnet/forge@portal:../forge::locator=wardnet-ui%40workspace%3A."
+  dependencies:
+    class-variance-authority: "npm:0.7.1"
+    clsx: "npm:2.1.1"
+    radix-ui: "npm:1.4.3"
+  peerDependencies:
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: node
+  linkType: soft
+
 "@wardnet/js@portal:../sdk/wardnet-js::locator=wardnet-ui%40workspace%3A.":
   version: 0.0.0-use.local
   resolution: "@wardnet/js@portal:../sdk/wardnet-js::locator=wardnet-ui%40workspace%3A."
@@ -6997,6 +7010,7 @@ __metadata:
     "@types/react-dom": "npm:19.2.3"
     "@types/react-is": "npm:^19.2.0"
     "@vitejs/plugin-react": "npm:6.0.1"
+    "@wardnet/forge": "portal:../forge"
     "@wardnet/js": "portal:../sdk/wardnet-js"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
@@ -7011,7 +7025,6 @@ __metadata:
     lucide-react: "npm:1.14.0"
     next-themes: "npm:0.4.6"
     prettier: "npm:3.8.3"
-    radix-ui: "npm:1.4.3"
     react: "npm:19.2.5"
     react-dom: "npm:19.2.5"
     react-is: "npm:^19.2.5"

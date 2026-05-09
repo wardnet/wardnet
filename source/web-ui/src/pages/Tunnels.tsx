@@ -5,7 +5,7 @@ import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useTunnels, useDeleteTunnel } from "@/hooks/useTunnels";
 import { useProviders } from "@/hooks/useProviders";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 
 /** Tunnels page for managing WireGuard VPN tunnels (admin only). */
 export default function Tunnels() {

@@ -1,0 +1,34 @@
+{
+  "name": "@wardnet/forge",
+  "version": "0.1.0",
+  "description": "Wardnet Forge — design system primitives, tokens, and CSS",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./styles.css": "./src/styles.css",
+    "./button": {
+      "import": "./src/primitives/button.tsx",
+      "types": "./src/primitives/button.tsx"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
+  },
+  "dependencies": {
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.4.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "prettier": "3.8.3"
+  },
+  "packageManager": "yarn@4.13.0"
+}

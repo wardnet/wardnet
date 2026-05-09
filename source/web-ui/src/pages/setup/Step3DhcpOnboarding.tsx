@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { WizardMode } from "@wardnet/js";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import {
   Select,
   SelectContent,

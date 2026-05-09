@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontalIcon } from "lucide-react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { DataTable } from "@/components/core/ui/data-table";
 import {
   DropdownMenu,

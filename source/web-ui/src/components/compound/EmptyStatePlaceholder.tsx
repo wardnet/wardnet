@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { FileText, PlusCircle } from "lucide-react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 
 interface EmptyStatePlaceholderProps {
   /** Primary message. */

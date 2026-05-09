@@ -11,12 +11,17 @@
 | `index.html` | Desktop admin prototype (all 7 sections + 2 detail screens) |
 | `mobile.html` | Mobile companion app (4 device frames, both themes) |
 | `design-system.html` | This system, visualized: tokens, type, components, voice |
-| `styles.css` | The full token set + component CSS |
 | `data.jsx` | Mock data (devices, tunnels, leases, logs, etc.) |
 | `primitives.jsx` | Shared React primitives (`Icon`, `Sparkline`, `Donut`, `Toggle`, `StatTile`) |
 | `screens.jsx` / `detail-screens.jsx` | Section + detail screens |
 | `app.jsx` | App shell (sidebar, header, theme + density + accent) |
 | `tweaks-panel.jsx` | Theme / density / sidebar style / accent picker |
+
+> **Note:** The canonical CSS (`styles.css`) and React primitives now live in
+> [`source/forge/`](../source/forge/), the `@wardnet/forge` workspace package
+> consumed by both `source/web-ui` and `source/site`. The studio mocks in this
+> directory still reference `styles.css` via a relative path for standalone
+> rendering — long-term, the mocks will be wired against the package build.
 
 ---
 

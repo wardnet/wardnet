@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 
 /** 404 page shown for unknown routes. */
 export default function NotFound() {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";

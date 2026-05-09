@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/core/ui/card";
 import { Input } from "@/components/core/ui/input";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { Badge } from "@/components/core/ui/badge";
 import {
   Select,

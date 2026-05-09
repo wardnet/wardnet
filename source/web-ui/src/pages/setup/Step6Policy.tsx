@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@/hooks/useDefaultPolicy";

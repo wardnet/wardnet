@@ -1,4 +1,4 @@
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useNetworkStatus } from "@/hooks/useNetwork";
 

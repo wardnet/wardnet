@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Bookmark } from "lucide-react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";

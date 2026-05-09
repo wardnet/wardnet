@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "@/components/core/ui/button";
+import { Button } from "@wardnet/forge/button";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useTunnels } from "@/hooks/useTunnels";
