@@ -5285,8 +5285,10 @@ dependencies = [
 name = "wardnet-test-agent"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "axum",
  "clap",
+ "pnet",
  "regex",
  "serde",
  "serde_json",

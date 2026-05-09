@@ -10,6 +10,7 @@
 //!   entrypoint so specs can `fetch("http://test_debian:3001/...")`
 //!   without mounting the container-runtime socket into the runner.
 
+mod arp;
 mod dhcp;
 mod dns;
 mod interfaces;

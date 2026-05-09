@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -9,7 +10,9 @@ use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::event::WardnetEvent;
 
 use crate::device_detector::DeviceDetector;
+use std::sync::Mutex;
 use wardnet_common::config::DetectionConfig;
+use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_services::device::packet_capture::{ObservedDevice, PacketCapture, PacketSource};
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
@@ -202,6 +205,41 @@ impl DeviceDiscoveryService for MockDiscovery {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Empty in-memory `SystemConfigRepository` stub. The `garp_learning`
+/// hook is exercised by its own dedicated tests; this stub just
+/// satisfies the trait bound so `DeviceDetector::start` accepts it.
+#[derive(Default)]
+struct StubSystemConfig {
+    data: Mutex<HashMap<String, String>>,
+}
+
+#[async_trait]
+impl SystemConfigRepository for StubSystemConfig {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.data.lock().unwrap().get(key).cloned())
+    }
+    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.data
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
+fn stub_system_config() -> Arc<dyn SystemConfigRepository> {
+    Arc::new(StubSystemConfig::default())
+}
+
 /// Build a fast detection config with 1-second intervals for tests.
 fn fast_config() -> DetectionConfig {
     DetectionConfig {
@@ -246,6 +284,7 @@ async fn start_and_shutdown() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -267,6 +306,7 @@ async fn processor_handles_new_device() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -294,6 +334,7 @@ async fn processor_handles_ip_changed() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -320,6 +361,7 @@ async fn processor_handles_reappeared() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -346,6 +388,7 @@ async fn processor_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -373,6 +416,7 @@ async fn capture_task_logs_error_on_failure() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -396,6 +440,7 @@ async fn flush_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -423,6 +468,7 @@ async fn departure_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -448,6 +494,7 @@ async fn arp_scan_task_runs_and_cancels() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -474,6 +521,7 @@ async fn arp_scan_task_handles_error() {
     let detector = DeviceDetector::start(
         capture,
         discovery,
+        stub_system_config(),
         &test_events(),
         &fast_config(),
         "eth0".to_owned(),
@@ -505,6 +553,7 @@ fn detector_with_event_bus(
     DeviceDetector::start(
         capture,
         discovery,
+        stub_system_config(),
         events,
         &fast_config(),
         "eth0".to_owned(),

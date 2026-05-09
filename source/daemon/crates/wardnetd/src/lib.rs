@@ -4,6 +4,7 @@ pub mod pidfile;
 // Real backend implementations (Linux-specific).
 pub mod command;
 pub mod firewall_nftables;
+pub mod garp_pnet;
 pub mod hostname_resolver;
 pub mod packet_capture_pnet;
 pub mod policy_router_netlink;
@@ -19,6 +20,7 @@ pub mod system;
 
 // Background tasks.
 pub mod device_detector;
+pub mod garp_learning;
 pub mod heartbeat;
 pub mod metrics_collector;
 pub mod profiling;

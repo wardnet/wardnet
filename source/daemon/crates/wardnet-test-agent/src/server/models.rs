@@ -122,6 +122,10 @@ pub struct LinkShowResponse {
     /// The interface MTU (0 when the interface does not exist).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u32>,
+    /// The interface MAC address (lowercased), when present in the
+    /// `ip link show` output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mac: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

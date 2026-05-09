@@ -13,6 +13,7 @@ pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
+pub mod garp;
 pub mod logging;
 pub mod routing;
 pub mod system;
@@ -108,6 +109,10 @@ pub struct Backends {
     /// auto-discover the upstream router via ARP. Real impl wraps
     /// `pnet`'s datalink channel; the mock returns a synthetic MAC.
     pub network_probe: Arc<dyn system::NetworkProbe>,
+    /// Gratuitous-ARP failover hook. Real impl in `wardnetd` wraps
+    /// `pnet` to send the farewell/claim sequences; the mock is a
+    /// logging no-op. See [`garp::GarpOps`] and issue #213.
+    pub garp_ops: Arc<dyn garp::GarpOps>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
