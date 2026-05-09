@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useMyDevice, useSetMyRule } from "@/hooks/useDevices";

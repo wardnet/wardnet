@@ -7,7 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDhcpSelfProbe } from "@/hooks/useNetwork";
 import { ROUTER_INSTRUCTIONS, findRouterInstruction } from "@/lib/router-instructions";

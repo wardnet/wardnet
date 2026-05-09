@@ -4,7 +4,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
 import { countryFlag } from "@/lib/country";

@@ -10,7 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 
 /**

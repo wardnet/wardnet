@@ -4,7 +4,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { DeviceIcon } from "./DeviceIcon";
 import type { Device } from "@wardnet/js";
 

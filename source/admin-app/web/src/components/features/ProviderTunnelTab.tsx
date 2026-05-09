@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { CountryCombobox } from "@/components/compound/CountryCombobox";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import {

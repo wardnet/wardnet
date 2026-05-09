@@ -6,7 +6,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { LogViewer } from "@/components/compound/LogViewer";
 import { useLogStore } from "@/stores/logStore";
 import { Download, Pause, Play } from "lucide-react";

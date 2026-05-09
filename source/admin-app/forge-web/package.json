@@ -36,6 +36,10 @@
     "./dropdown-menu": {
       "import": "./src/primitives/dropdown-menu.tsx",
       "types": "./src/primitives/dropdown-menu.tsx"
+    },
+    "./select": {
+      "import": "./src/primitives/select.tsx",
+      "types": "./src/primitives/select.tsx"
     }
   },
   "files": [

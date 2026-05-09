@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/core/ui/select";
+} from "@wardnet/forge-web/select";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";

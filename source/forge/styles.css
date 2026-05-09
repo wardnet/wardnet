@@ -784,10 +784,68 @@ button { font-family: inherit; }
   flex-shrink: 0;
   width: 14px; height: 14px;
 }
+/* Selected-item indicator (Select.Item emits data-state="checked|unchecked";
+   DropdownMenu.Item does not — so [data-state] selectors target only Select
+   options and reserve a constant right-gutter so checked/unchecked widths
+   stay aligned). */
+.menu-item[data-state] { padding-right: 26px; }
+.menu-item[data-state="checked"]::after {
+  content: "";
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  width: 14px; height: 14px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center / contain no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center / contain no-repeat;
+}
 .menu-separator {
   height: 1px;
   background: var(--line);
   margin: 4px -6px;
+}
+
+/* ---------- Select (.select-trigger + .select-content; options reuse .menu-item) ---------- */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: inherit; font-size: 13px;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+.select-trigger:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+.select-trigger[data-disabled] { opacity: 0.5; cursor: not-allowed; }
+.select-trigger[data-placeholder] { color: var(--ink-3); }
+.select-trigger::after {
+  content: "";
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+  background-color: var(--ink-3);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") center / contain no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") center / contain no-repeat;
+  transition: transform 120ms ease;
+}
+.select-trigger[data-state="open"]::after { transform: rotate(180deg); }
+/* Additive modifier on .popover. Wires Select-specific behavior: trigger-width
+   sizing, max-height with scroll, and transform-origin anchored to Radix
+   Select's content origin (overrides .popover's Popover-var default — last
+   declaration wins at equal specificity). */
+.select-content {
+  min-width: var(--radix-select-trigger-width);
+  max-height: min(var(--radix-select-content-available-height, 320px), 320px);
+  overflow-y: auto;
+  transform-origin: var(--radix-select-content-transform-origin, center);
 }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
