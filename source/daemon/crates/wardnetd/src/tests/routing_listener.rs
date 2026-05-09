@@ -57,6 +57,7 @@ enum RoutingCall {
     HandleRouteTableLost {
         table: u32,
     },
+    RebuildDnsUpstreamSnapshot,
 }
 
 impl MockRoutingService {
@@ -205,6 +206,10 @@ impl RoutingService for MockRoutingService {
     }
 
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(RoutingCall::RebuildDnsUpstreamSnapshot);
         Ok(())
     }
 }
@@ -705,4 +710,53 @@ async fn route_table_lost_error_does_not_panic() {
     let calls = routing.take_calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0], RoutingCall::HandleRouteTableLost { table: 100 });
+}
+
+#[tokio::test]
+async fn tunnel_dns_override_changed_triggers_rebuild_dns_upstream_snapshot() {
+    // The DNS server's per-query upstream selection reads from a
+    // lock-free snapshot the routing service publishes. Toggling
+    // `override_default_dns` on a tunnel must invalidate that snapshot
+    // immediately so already-routed devices pick up the new choice
+    // without waiting for the next routing-rule mutation (issue #342).
+    let tunnel_id = Uuid::new_v4();
+
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let routing = Arc::new(MockRoutingService::new());
+
+    let parent = tracing::info_span!("test");
+    let listener = RoutingListener::start(&bus, routing.clone(), &parent);
+
+    bus.publish(WardnetEvent::TunnelDnsOverrideChanged {
+        tunnel_id,
+        timestamp: Utc::now(),
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    listener.shutdown().await;
+
+    let calls = routing.take_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0], RoutingCall::RebuildDnsUpstreamSnapshot);
+}
+
+#[tokio::test]
+async fn tunnel_dns_override_changed_error_does_not_panic() {
+    // Even if the rebuild errors, the listener loop must keep running —
+    // this is the "warn and continue" branch in the handler.
+    let tunnel_id = Uuid::new_v4();
+
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let routing: Arc<dyn RoutingService> = Arc::new(FailingRoutingService);
+
+    let parent = tracing::info_span!("test");
+    let listener = RoutingListener::start(&bus, routing, &parent);
+
+    bus.publish(WardnetEvent::TunnelDnsOverrideChanged {
+        tunnel_id,
+        timestamp: Utc::now(),
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    listener.shutdown().await;
 }

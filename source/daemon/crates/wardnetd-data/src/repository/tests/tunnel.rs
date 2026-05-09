@@ -204,3 +204,74 @@ async fn find_config_by_id_returns_none_for_missing() {
         .unwrap();
     assert!(result.is_none());
 }
+
+#[tokio::test]
+async fn override_default_dns_round_trip_through_find_by_id_and_find_config_by_id() {
+    // The tunnels table column was added by the 20260509 migration; both
+    // SELECT paths must read it back correctly so the DNS server can
+    // decide whether tunneled-device queries should be filtered.
+    let pool = test_pool().await;
+    let repo = SqliteTunnelRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000001";
+
+    let mut row = sample_row(id, "wg_ward0");
+    row.override_default_dns = true;
+    repo.insert(&row).await.unwrap();
+
+    let tunnel = repo.find_by_id(id).await.unwrap().unwrap();
+    assert!(tunnel.override_default_dns);
+
+    let config = repo.find_config_by_id(id).await.unwrap().unwrap();
+    assert!(config.override_default_dns);
+}
+
+#[tokio::test]
+async fn update_dns_override_flips_value() {
+    let pool = test_pool().await;
+    let repo = SqliteTunnelRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000001";
+
+    let mut row = sample_row(id, "wg_ward0");
+    row.override_default_dns = false;
+    repo.insert(&row).await.unwrap();
+    assert!(
+        !repo
+            .find_by_id(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .override_default_dns
+    );
+
+    repo.update_dns_override(id, true).await.unwrap();
+    assert!(
+        repo.find_by_id(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .override_default_dns
+    );
+
+    repo.update_dns_override(id, false).await.unwrap();
+    assert!(
+        !repo
+            .find_by_id(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .override_default_dns
+    );
+}
+
+#[tokio::test]
+async fn update_dns_override_for_missing_id_is_silent_noop() {
+    // SQLite UPDATE with no matching rows succeeds with 0 rows affected;
+    // the repo doesn't surface that as an error. Keep the contract pinned
+    // so a future change has to opt in to a louder failure mode.
+    let pool = test_pool().await;
+    let repo = SqliteTunnelRepository::new(pool);
+
+    repo.update_dns_override("00000000-0000-0000-0000-000000000099", true)
+        .await
+        .unwrap();
+}

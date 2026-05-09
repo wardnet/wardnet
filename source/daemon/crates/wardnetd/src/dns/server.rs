@@ -108,9 +108,10 @@ pub struct UdpDnsServer {
 /// DNS server with `SO_BINDTODEVICE` set so the upstream packet egresses
 /// via the tunnel interface (see issue #342 — without this, the packet
 /// follows the default route and leaks plaintext DNS to the ISP).
-struct TunnelForwarderInfo {
-    interface_name: String,
-    upstream: SocketAddr,
+#[derive(Debug)]
+pub(crate) struct TunnelForwarderInfo {
+    pub(crate) interface_name: String,
+    pub(crate) upstream: SocketAddr,
 }
 
 impl UdpDnsServer {
@@ -759,7 +760,7 @@ async fn send_servfail(
 }
 
 /// Look up (or build, then cache) the forwarder for a given tunnel.
-async fn get_or_build_tunnel_forwarder(
+pub(crate) async fn get_or_build_tunnel_forwarder(
     tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
     tunnel_repo: &Arc<dyn TunnelRepository>,
     tunnel_id: Uuid,
