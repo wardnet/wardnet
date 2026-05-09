@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Badge } from "@/components/core/ui/badge";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";

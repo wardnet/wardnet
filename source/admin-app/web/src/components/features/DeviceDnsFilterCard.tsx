@@ -7,7 +7,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/core/ui/card";
+} from "@wardnet/forge-web/card";
 import { Label } from "@/components/core/ui/label";
 import { Switch } from "@/components/core/ui/switch";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";

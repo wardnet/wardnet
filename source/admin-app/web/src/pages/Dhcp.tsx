@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, CardContent } from "@/components/core/ui/card";
+import { Card, CardContent } from "@wardnet/forge-web/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DhcpStatusCard } from "@/components/compound/DhcpStatusCard";

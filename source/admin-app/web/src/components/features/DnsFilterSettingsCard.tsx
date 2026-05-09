@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Label } from "@/components/core/ui/label";
 import { Switch } from "@/components/core/ui/switch";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";

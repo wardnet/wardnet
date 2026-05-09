@@ -1,4 +1,4 @@
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
 import { ManualTunnelTab } from "./ManualTunnelTab";

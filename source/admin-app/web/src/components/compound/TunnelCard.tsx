@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
 import { StatusBadge } from "./StatusBadge";
 import { formatBytes, timeAgo } from "@/lib/utils";

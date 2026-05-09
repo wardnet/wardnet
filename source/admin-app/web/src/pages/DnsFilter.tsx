@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent } from "@/components/core/ui/card";
+import { Card, CardContent } from "@wardnet/forge-web/card";
 import { DataTable } from "@/components/core/ui/data-table";
 import { Badge } from "@/components/core/ui/badge";
 import { PageHeader } from "@/components/compound/PageHeader";

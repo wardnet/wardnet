@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Badge } from "@/components/core/ui/badge";
 import type { RecentError } from "@/hooks/useSystemStatus";
 

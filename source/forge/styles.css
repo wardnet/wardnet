@@ -266,6 +266,12 @@ button { font-family: inherit; }
   box-shadow: var(--shadow-card);
 }
 .card--flush { padding: 0; overflow: hidden; }
+/* Composition implies layout: a card with a head or foot is flush by
+   construction — those parts own their padding and the parent must not
+   double up. `.card--flush` stays as an explicit escape hatch for cases
+   without head/foot (image-only, table-only) and CSS-only consumers. */
+.card:has(> .card__head),
+.card:has(> .card__foot) { padding: 0; }
 .card__head {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 18px;
@@ -280,6 +286,13 @@ button { font-family: inherit; }
 }
 .card__head .sub { font-size: 12px; color: var(--ink-3); margin-left: 6px; }
 .card__head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.card__foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-sunken);
+}
+.card__foot .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 /* ---------- Stat tile ---------- */
 .stat {

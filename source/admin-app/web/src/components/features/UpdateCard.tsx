@@ -1,7 +1,7 @@
 import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
 import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";
 import {

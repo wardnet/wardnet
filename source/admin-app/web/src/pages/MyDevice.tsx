@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
 import { RadioGroup, RadioGroupItem } from "@/components/core/ui/radio-group";
 import { Label } from "@/components/core/ui/label";

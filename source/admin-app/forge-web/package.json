@@ -8,6 +8,10 @@
     "./button": {
       "import": "./src/primitives/button.tsx",
       "types": "./src/primitives/button.tsx"
+    },
+    "./card": {
+      "import": "./src/primitives/card.tsx",
+      "types": "./src/primitives/card.tsx"
     }
   },
   "files": [

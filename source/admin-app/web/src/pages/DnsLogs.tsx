@@ -3,7 +3,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
-import { Card, CardContent } from "@/components/core/ui/card";
+import { Card, CardContent } from "@wardnet/forge-web/card";
 import { Input } from "@/components/core/ui/input";
 import { Switch } from "@/components/core/ui/switch";
 import { Label } from "@/components/core/ui/label";

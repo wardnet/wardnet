@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PowerIcon, RotateCcwIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import {
   AlertDialog,
   AlertDialogAction,

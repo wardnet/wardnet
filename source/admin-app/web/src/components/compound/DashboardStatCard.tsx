@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { DashboardUsageBar } from "./DashboardUsageBar";
 
 interface DashboardStatCardProps {

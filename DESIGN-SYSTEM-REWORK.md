@@ -133,7 +133,7 @@ Radix primitive needed (pure visual or HTML element).
 | File              | Radix              | Forge surface                                          | Status |
 | ----------------- | ------------------ | ------------------------------------------------------ | ------ |
 | button.tsx        | n/a                | `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` | [x] |
-| card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head`               | [ ]    |
+| card.tsx          | n/a                | `.card` / `.card--flush` + `.card__head` + `.card__foot` (added) | [x] |
 | badge.tsx         | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost`             | [ ]    |
 | dialog.tsx        | Dialog             | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) | [ ] |
 | alert-dialog.tsx  | AlertDialog        | `.modal` + danger primary action                       | [ ]    |
@@ -397,6 +397,49 @@ all facts; status pills via `.pill--*`.
   — yarn hoists the transitive dep into web-ui/node_modules. Once those
   wrappers are ported into forge, web-ui's source no longer touches Radix
   directly.
+- **Card primitive — export shape locked: named exports** (2026-05-09).
+  Considered the compound-component pattern (`Card.Header`, `Card.Body`)
+  which is more idiomatic and matches how Radix exposes parts, but settled
+  on flat named exports (`Card`, `CardHeader`, `CardTitle`, `CardDescription`,
+  `CardAction`, `CardContent`, `CardFooter`) for two reasons: (1) it
+  matches the 29 existing call sites' shape so the migration is a
+  pure import-path retarget — no JSX rewrite — keeping the slice tight;
+  (2) Radix-wrapping primitives we'll port later (Dialog, Tabs, DropdownMenu)
+  can still expose their compound-y feel via separate exports
+  (`DialogRoot`, `DialogTrigger`, `DialogContent`) without forcing a
+  different convention on the non-Radix primitives. **Rule for future
+  primitives: named exports unless there's a concrete reason otherwise.**
+- **Composition implies layout — primitives don't expose escape-hatch
+  props** (2026-05-09, locked while porting Card). The first draft of the
+  Card primitive had a `flush` boolean prop wrapping Forge's
+  `.card--flush` modifier. Caught before commit: a prop like that lets a
+  consumer set padding behaviour independently of the card's actual
+  structure, which is exactly the kind of door that lets app code
+  diverge from the design system. The right shape is to derive layout
+  from composition: a card with a `<CardHeader>` or `<CardFooter>` is
+  flush by construction (those parts own their padding; the parent's
+  default padding would double up). Implemented in CSS so the rule lives
+  with the styling:
+  ```css
+  .card:has(> .card__head),
+  .card:has(> .card__foot) { padding: 0; }
+  ```
+  `.card--flush` stays in Forge as an explicit class for cases without
+  head or foot (image-only card, table-only card) and CSS-only consumers,
+  but the React primitive doesn't surface it as a prop. **Rule for future
+  primitives: don't give consumers props that let them choose visual
+  behaviour Forge already decides from structure.** Tradeoff acknowledged:
+  `:has()` requires Safari 15.4+ / Chrome 105+ / Firefox 121+ — fine for
+  the admin app (modern evergreen browsers) but worth flagging if we ever
+  target older runtimes.
+- **`.card__foot` added to Forge** (2026-05-09). The legacy shadcn `Card`
+  exposed a `CardFooter` styled with Tailwind utilities; Forge had no
+  matching class. Per the "Forge first" rule, the slice that needed it
+  added it to `source/forge/styles.css` (next to `.card__head`) rather
+  than emitting bespoke styles inside the primitive. Symmetric with the
+  head: padding, border, sunken background, plus a nested `.right`
+  selector for right-aligned actions. `.card--flush` is no longer needed
+  for a footer-bearing card — the `:has()` rule above takes care of it.
 
 ---
 
@@ -736,3 +779,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Forge bootstrap + Button primitive: created `source/forge/` workspace package (`@wardnet/forge` portal:, subpath exports for `./styles.css` + `./button`); `styles.css` moved from `design-system/` to `source/forge/src/`; `radix-ui` moved from web-ui deps to forge deps (apps consume primitives, not Radix). Vite alias `@wardnet/forge` dropped in both apps — exports-map resolution via portal protocol replaces it. `preserveSymlinks: true` set in web-ui's `tsconfig.app.json` and `vite.config.ts` so cross-package source imports reach web-ui's `react` / `@types/react`. Button primitive ported to `source/forge/src/primitives/button.tsx` using Radix `Slot.Root` for `asChild` and Forge `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` / `.btn--icon` classes; legacy shadcn variant strings (`outline`/`secondary`/`destructive`/`tertiary` and sizes `sm`/`icon`/`icon-sm`) kept as the public API and mapped to Forge classes via CVA so call sites stay stable. `source/admin-app/web/src/components/core/ui/button.tsx` deleted; 44 imports retargeted to `@wardnet/forge/button`. Type-check + lint clean for web-ui (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for site. Build verified for both apps. | (this commit) |
 | 2026-05-09 | **Architecture revision — platform split locked + yarn workspaces locked.** Decision: Forge splits into three packages — `@wardnet/forge` (platform-neutral: tokens, types, voice), `@wardnet/forge-web` (Radix + CSS classes — the package that exists today, just mis-named), `@wardnet/forge-native` (future RN). Compositions (Card.Header etc.) live alongside primitives in the platform package, not a separate "forge-ui." Domain-coupled compositions stay in `web-ui/components/compound/`. Yarn workspaces replace `portal:` once we have ≥3 packages — root `package.json` with `workspaces` array, single `yarn.lock`, `workspace:^` for intra-repo deps. Doc-only commit: rewrote "Where Forge lives" with the platform-split architecture, the workspaces rationale, end-state layouts, full rules set, and a detailed impacts list (code/layout, tooling, runtime, risk surface, migration ordering). Added two new tasks to the Forge update checklist: (1) yarn workspaces conversion slice; (2) `forge` ⇄ `forge-web` rename slice. No code change in this commit. | (this commit) |
 | 2026-05-09 | **Architecture revision again — root workspace abandoned in favour of admin-app-internal workspace + context-per-source-dir.** During the workspace conversion the bigger structural concern surfaced: `source/<thing>/` is already organised by deployment unit (daemon / SDK / site / admin / e2e). Hoisting forge / forge-web / forge-native to the same level would have flattened that segregation. New decision: yarn workspace lives **inside `source/admin-app/`** (containing `web` + `forge-web`, and later `mobile` + `forge-native`). Top-level `source/forge/` is the platform-neutral design language, consumed by both admin-app/web AND marketing-site. SDK stays top-level (separate cadence, will be published). Big restructure landed in this slice: `source/web-ui/` → `source/admin-app/web/`; old `source/forge/` (React primitives) → `source/admin-app/forge-web/`; `source/site/` → `source/marketing-site/`; repo-root `design-system/` → `source/forge/docs/`. New top-level `source/forge/` with `tokens.ts` (initial extraction — brand, status, radius, density, font) + `styles.css` (lifted out of forge-web). All 44 button imports retargeted to `@wardnet/forge-web/button`. Makefile, CI workflows, gitignore, daemon rust-embed paths, dependabot, codeql, detect-changes filters all updated. Type-check + lint + build clean for admin-app/web; type-check + format:check + build clean for marketing-site (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged). | (this commit) |
+| 2026-05-09 | Card primitive port (second primitive — multi-part). Mapped legacy 7-component API (`Card`/`CardHeader`/`CardTitle`/`CardDescription`/`CardAction`/`CardContent`/`CardFooter`) onto Forge's `.card` / `.card__head` (with auto-styled nested `h3`, `.sub`, `.right`) and a new `.card__foot` class added to `source/forge/styles.css` per the Forge-first rule. Export shape locked as flat named exports — kept the 29 call sites' import shape stable so the migration was a pure import-path retarget. Caught a flush prop in review and removed it: replaced the consumer-facing `flush` prop with a CSS `:has()` rule (`.card:has(> .card__head), .card:has(> .card__foot) { padding: 0; }`) so layout follows from composition rather than from a prop the consumer might mis-set. `.card--flush` stays in Forge for explicit no-head/no-foot cases (image-only, table-only) and CSS-only consumers. Legacy `core/ui/card.tsx` deleted; 29 imports retargeted to `@wardnet/forge-web/card`. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

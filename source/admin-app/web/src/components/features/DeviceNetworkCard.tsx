@@ -7,7 +7,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/core/ui/card";
+} from "@wardnet/forge-web/card";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { Label } from "@/components/core/ui/label";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";

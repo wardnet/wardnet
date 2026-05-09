@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { RestorePreviewResponse } from "@wardnet/js";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { BackupCard } from "@/components/features/BackupCard";
 import { DnsFilterSettingsCard } from "@/components/features/DnsFilterSettingsCard";

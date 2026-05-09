@@ -1,4 +1,4 @@
-import { Card, CardContent } from "@/components/core/ui/card";
+import { Card, CardContent } from "@wardnet/forge-web/card";
 import { TunnelCard } from "./TunnelCard";
 import { EmptyStatePlaceholder } from "./EmptyStatePlaceholder";
 import type { Tunnel, ProviderInfo } from "@wardnet/js";

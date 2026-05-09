@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Brush, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { useDnsStats } from "@/hooks/useDnsLogs";

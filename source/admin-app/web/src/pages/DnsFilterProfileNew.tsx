@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/core/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
