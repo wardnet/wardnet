@@ -369,7 +369,14 @@ impl DnsFilterServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         let Some(bl) = bl else {
-            // Removed — drop the cache entry.
+            // Removed — drop the cache entry. We deliberately do NOT
+            // publish `DnsFilterRebuilt` on this path: the response
+            // cache only ever holds `Pass` answers (the Block/Rewrite
+            // branches in `UdpDnsServer::handle_query` skip caching),
+            // and removing a blocklist can only un-block, never
+            // un-pass. Anything currently cached is still a valid
+            // answer. If a future change starts caching Block answers
+            // this invariant is gone and this path must publish.
             self.blocklist_filters.write().await.remove(&blocklist_id);
             return Ok(());
         };
@@ -410,6 +417,11 @@ impl DnsFilterServiceImpl {
             .await
             .map_err(AppError::Internal)?
         else {
+            // Profile gone — drop its in-memory entries. No
+            // `DnsFilterRebuilt` for the same reason as the
+            // blocklist-removed path above: cached answers are all
+            // `Pass`, and removing a profile can only un-block, never
+            // un-pass.
             self.profiles.write().await.remove(&profile_id);
             self.profile_aux_filters.write().await.remove(&profile_id);
             return Ok(());
