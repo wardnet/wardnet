@@ -22,13 +22,13 @@ use std::time::{Duration, Instant};
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use serde_json::json;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpHardwareTypes, ArpOperation, ArpPacket, MutableArpPacket};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::util::MacAddr;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::models::ClientError;
 
