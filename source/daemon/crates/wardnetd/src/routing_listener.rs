@@ -212,6 +212,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::DnsConfigChanged { .. }
         | WardnetEvent::DnsFilterBlocklistUpdated { .. }
         | WardnetEvent::DnsFilterChanged { .. }
+        | WardnetEvent::DnsFilterRebuilt { .. }
         | WardnetEvent::UpdateAvailable { .. }
         | WardnetEvent::UpdateProgress { .. }
         | WardnetEvent::UpdateCompleted { .. }

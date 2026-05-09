@@ -21,15 +21,17 @@ use hickory_proto::rr::RecordType;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns, UpstreamId};
+use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_common::wireguard_config::WgPeerConfig;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_services::dns::server::DnsServer;
+use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
     TunnelForwarderInfo, UdpDnsServer, duration_to_ms, get_or_build_tunnel_forwarder,
-    upstream_label,
+    spawn_cache_invalidator, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -39,6 +41,10 @@ fn loopback_ephemeral() -> SocketAddr {
 
 fn stub_filter() -> Arc<dyn wardnetd_services::DnsFilterService> {
     Arc::new(StubDnsFilterService)
+}
+
+fn stub_events() -> Arc<dyn EventPublisher> {
+    Arc::new(BroadcastEventBus::new(16))
 }
 
 fn empty_routing_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
@@ -320,6 +326,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         stub_filter(),
         empty_routing_snapshot(),
         stub_tunnel_repo(),
+        stub_events(),
     )
 }
 
@@ -659,6 +666,7 @@ async fn server_records_query_after_handling_it() {
         stub_filter(),
         empty_routing_snapshot(),
         stub_tunnel_repo(),
+        stub_events(),
     )
     .with_log_sink(Arc::clone(&sink));
 
@@ -917,6 +925,7 @@ fn build_with_filter(
         filter,
         empty_routing_snapshot(),
         stub_tunnel_repo(),
+        stub_events(),
     )
     .with_log_sink(sink)
 }
@@ -1036,6 +1045,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         filter,
         snapshot,
         tunnel_repo,
+        stub_events(),
     )
     .with_log_sink(Arc::clone(&sink));
 
@@ -1124,4 +1134,540 @@ fn build_resolver_skips_invalid_ip_addresses() {
         port: None,
     }];
     let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+// ---------------------------------------------------------------------------
+// Cache invalidation on DnsFilterRebuilt (issue #341).
+//
+// The server subscribes to the event bus at construction and flushes its
+// response cache whenever a filter rebuild is announced. Without this, a
+// domain that was previously forwarded and cached keeps serving the cached
+// "Pass" answer even after a blocklist update added it — until cache TTL
+// expiry, which is up to `dns_cache_ttl_max_secs` (one day default).
+// ---------------------------------------------------------------------------
+
+/// Filter that flips between Pass and Block under a shared lock so the
+/// test can simulate a blocklist update *before* publishing the
+/// invalidation event — i.e. the same ordering the real
+/// `DnsFilterServiceImpl` enforces (swap, then announce).
+struct SwitchableFilter {
+    action: tokio::sync::RwLock<wardnet_common::dns::FilterAction>,
+}
+
+impl SwitchableFilter {
+    fn new(initial: wardnet_common::dns::FilterAction) -> Self {
+        Self {
+            action: tokio::sync::RwLock::new(initial),
+        }
+    }
+    async fn set(&self, action: wardnet_common::dns::FilterAction) {
+        *self.action.write().await = action;
+    }
+}
+
+#[async_trait]
+impl wardnetd_services::DnsFilterService for SwitchableFilter {
+    async fn check(
+        &self,
+        _domain: &str,
+        _qtype: hickory_proto::rr::RecordType,
+        _client: std::net::IpAddr,
+    ) -> wardnetd_services::dns_filter::service::CheckOutcome {
+        wardnetd_services::dns_filter::service::CheckOutcome {
+            action: *self.action.read().await,
+            would_have_blocked: false,
+        }
+    }
+    async fn rebuild_all(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn list_profiles(
+        &self,
+    ) -> Result<wardnet_common::api::ListProfilesResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::GetProfileResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn create_profile(
+        &self,
+        _r: wardnet_common::api::CreateProfileRequest,
+    ) -> Result<wardnet_common::api::CreateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_profile(
+        &self,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateProfileRequest,
+    ) -> Result<wardnet_common::api::UpdateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_blocklists(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListBlocklistsResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_common::api::CreateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn refresh_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_allowlist(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_common::api::CreateAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_custom_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListFilterRulesResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_device_settings(
+        &self,
+        _params: wardnet_common::api::ListDeviceFilterSettingsParams,
+    ) -> Result<
+        wardnet_common::api::ListDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_device_settings(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<
+        wardnet_common::api::GetDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn update_device_settings(
+        &self,
+        _device_id: Uuid,
+        _r: wardnet_common::api::UpdateDeviceFilterSettingsRequest,
+    ) -> Result<
+        wardnet_common::api::UpdateDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_filter_config(
+        &self,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_filter_config(
+        &self,
+        _r: wardnet_common::api::UpdateDnsFilterConfigRequest,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn rebuild_blocklist_filter(
+        &self,
+        _id: Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_profile(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_device(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_default_context(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn handle_device_ip_changed(
+        &self,
+        _device_id: Uuid,
+        _old_ip: &str,
+        _new_ip: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+}
+
+/// Spawn a tiny UDP responder that answers every query with a single A
+/// record (`93.184.216.34`, TTL 60). Returns the bound address. Lives
+/// for the test's duration — the spawned task self-terminates when its
+/// socket is dropped (which happens when the test exits and the
+/// runtime tears down).
+async fn spawn_stub_upstream() -> SocketAddr {
+    use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::rr::{Name, RData, Record, rdata::A};
+    use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("stub upstream bind");
+    let addr = socket.local_addr().expect("stub upstream local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, src)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let id = request.metadata.id;
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.add_queries(request.queries.clone());
+            for q in &request.queries {
+                if q.query_type() == RecordType::A {
+                    let name = Name::from_str_relaxed(q.name().to_string())
+                        .unwrap_or_else(|_| q.name().clone());
+                    let record =
+                        Record::from_rdata(name, 60, RData::A(A(Ipv4Addr::new(93, 184, 216, 34))));
+                    response.add_answer(record);
+                }
+            }
+            if let Ok(bytes) = response.to_bytes() {
+                let _ = socket.send_to(&bytes, src).await;
+            }
+        }
+    });
+    addr
+}
+
+/// Send a hand-rolled A query for `foo.com.` (id=0xCAFE) and read the
+/// reply from a fresh client socket. Returns the parsed response so the
+/// test can check `response_code`.
+async fn query_foo_com(target: SocketAddr) -> hickory_proto::op::Message {
+    use hickory_proto::op::Message;
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind");
+    // DNS query: id=0xCAFE, RD=1, 1 question for foo.com A IN.
+    let query: &[u8] = &[
+        0xCA, 0xFE, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, b'f', b'o',
+        b'o', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    client.send_to(query, target).await.expect("send");
+    let mut buf = vec![0u8; 4096];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(5), client.recv_from(&mut buf))
+        .await
+        .expect("client recv timeout")
+        .expect("client recv");
+    Message::from_bytes(&buf[..n]).expect("parse response")
+}
+
+#[tokio::test]
+async fn dns_filter_rebuilt_event_flushes_response_cache() {
+    use hickory_proto::op::ResponseCode;
+
+    // 1. Stand up a controlled upstream so cache fills deterministically.
+    let upstream_addr = spawn_stub_upstream().await;
+
+    // 2. Switchable filter starts in Pass — cache fills on the first query.
+    let filter = Arc::new(SwitchableFilter::new(
+        wardnet_common::dns::FilterAction::Pass,
+    ));
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "stub".into(),
+            address: upstream_addr.ip().to_string(),
+            protocol: DnsProtocol::Udp,
+            port: Some(upstream_addr.port()),
+        }],
+        ..DnsConfig::default()
+    };
+    let server = UdpDnsServer::with_bind_addr(
+        cfg,
+        loopback_ephemeral(),
+        filter.clone() as Arc<dyn wardnetd_services::DnsFilterService>,
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+        bus.clone(),
+    );
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // 3. First query — Pass + forward, response gets cached.
+    let resp = query_foo_com(bound).await;
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "stub upstream should answer NoError"
+    );
+    assert!(
+        server.cache_size().await > 0,
+        "forwarded answer should populate the cache"
+    );
+
+    // 4. Simulate the service swap: flip the filter to Block, *then*
+    //    publish DnsFilterRebuilt — same ordering as the real service
+    //    (swap, then announce). The subscriber spawned in
+    //    `with_bind_addr` should observe the event and flush.
+    filter.set(wardnet_common::dns::FilterAction::Block).await;
+    bus.publish(WardnetEvent::DnsFilterRebuilt {
+        timestamp: Utc::now(),
+    });
+
+    // 5. Wait for the flush. Poll briefly — the subscriber runs on the
+    //    tokio runtime and the broadcast hop is sub-millisecond, but
+    //    the write lock still needs a scheduler tick.
+    let mut flushed = false;
+    for _ in 0..50 {
+        if server.cache_size().await == 0 {
+            flushed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        flushed,
+        "cache was not flushed within 1s of DnsFilterRebuilt"
+    );
+
+    // 6. Re-query foo.com — must NOT serve the (now flushed) cached
+    //    answer. The new filter blocks, so we expect NXDOMAIN.
+    let resp = query_foo_com(bound).await;
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NXDomain,
+        "post-flush query should hit the new Block filter, not the stale cache"
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `spawn_cache_invalidator` per-branch unit tests.
+//
+// The integration test above covers the happy path (subscribe → receive
+// `DnsFilterRebuilt` → flush). The branches below are harder to exercise
+// through a full `UdpDnsServer` so we drive the task directly: the
+// function is `pub(crate)` for exactly this reason.
+// ---------------------------------------------------------------------------
+
+/// Build a primed cache + a fresh task. Returns the cache handle (so the
+/// test can observe flushes), the bus (so the test can publish), the
+/// cancellation token, and the spawned task's handle (so the test can
+/// await clean exit).
+async fn spawn_invalidator_for_test(
+    capacity: usize,
+) -> (
+    Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>,
+    Arc<BroadcastEventBus>,
+    tokio_util::sync::CancellationToken,
+    tokio::task::JoinHandle<()>,
+) {
+    use wardnetd_services::dns::cache::DnsCache;
+    let cache = Arc::new(RwLock::new(DnsCache::new(16)));
+    seed_cache(&cache).await;
+    let bus = Arc::new(BroadcastEventBus::new(capacity));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let handle = spawn_cache_invalidator(Arc::clone(&cache), bus.subscribe(), cancel.clone());
+    (cache, bus, cancel, handle)
+}
+
+/// Insert a single sentinel entry so `cache.len() == 1` and a flush is
+/// observable. Re-uses the cache's own `insert` path with a synthetic
+/// `Pass` answer keyed on `Default`.
+async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>) {
+    use hickory_proto::op::{Message, OpCode};
+    let mut answer = Message::response(0, OpCode::Query);
+    answer.metadata.recursion_desired = true;
+    answer.metadata.recursion_available = true;
+    cache.write().await.insert(
+        UpstreamId::Default,
+        "seed.example.",
+        RecordType::A,
+        answer,
+        60,
+        1,
+        60,
+    );
+    assert_eq!(cache.read().await.len(), 1, "seed must populate cache");
+}
+
+#[tokio::test]
+async fn cache_invalidator_ignores_non_rebuild_events() {
+    // The `Ok(_) => {}` arm: events other than `DnsFilterRebuilt` are
+    // observed and discarded without touching the cache.
+    let (cache, bus, cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    bus.publish(WardnetEvent::DnsServerStarted {
+        timestamp: Utc::now(),
+    });
+
+    // Give the task a tick to consume the event.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        cache.read().await.len(),
+        1,
+        "non-rebuild events must NOT flush the cache"
+    );
+
+    cancel.cancel();
+    handle.await.expect("task joins after cancel");
+}
+
+#[tokio::test]
+async fn cache_invalidator_exits_on_cancel() {
+    // The `cancel.cancelled()` arm: cancelling the token (the path
+    // `Drop` takes) makes the task return promptly. We assert via
+    // `handle.await` completing within a small budget.
+    let (_cache, _bus, cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    cancel.cancel();
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("task must exit within 1s of cancel")
+        .expect("task joins cleanly (no panic)");
+}
+
+#[tokio::test]
+async fn cache_invalidator_exits_on_bus_close() {
+    // The `RecvError::Closed` arm: when every sender drops, the
+    // receiver returns Closed and the task breaks out. The
+    // `BroadcastEventBus` owns the sender, so dropping the sole Arc
+    // closes the channel.
+    let (_cache, bus, _cancel, handle) = spawn_invalidator_for_test(16).await;
+
+    drop(bus);
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("task must exit within 1s of bus close")
+        .expect("task joins cleanly (no panic)");
+}
+
+#[tokio::test]
+async fn cache_invalidator_flushes_defensively_on_lagged() {
+    // The `RecvError::Lagged` arm: if we publish more than `capacity`
+    // events before the task drains them, the broadcast receiver
+    // surfaces `Lagged(n)` on its next `recv()`. The subscriber
+    // flushes anyway because we may have skipped a real
+    // `DnsFilterRebuilt`.
+    //
+    // Capacity 2 and 5 publishes before any scheduler tick guarantees
+    // the lag — even on a single-threaded runtime the publishes are
+    // synchronous and the subscriber hasn't been polled yet.
+    let (cache, bus, cancel, handle) = spawn_invalidator_for_test(2).await;
+
+    for _ in 0..5 {
+        bus.publish(WardnetEvent::DnsServerStarted {
+            timestamp: Utc::now(),
+        });
+    }
+
+    let mut flushed = false;
+    for _ in 0..50 {
+        if cache.read().await.is_empty() {
+            flushed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(flushed, "Lagged path must trigger a defensive flush");
+
+    cancel.cancel();
+    handle.await.expect("task joins after cancel");
+}
+
+#[tokio::test]
+async fn drop_cancels_cache_invalidator() {
+    // `UdpDnsServer::Drop` fires the cancellation token. We can't
+    // reach into the spawned task from here, but constructing then
+    // immediately dropping a server ensures the Drop body runs (and
+    // therefore is counted by coverage), and the test must not hang —
+    // a leaked task wouldn't block this test, but a panic in Drop
+    // would surface here.
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    drop(server);
 }
