@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
+import { Input } from "@wardnet/forge-web/input";
+import { Label } from "@wardnet/forge-web/label";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDiscoverGatewayMac } from "@/hooks/useNetwork";
 

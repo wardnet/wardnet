@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";

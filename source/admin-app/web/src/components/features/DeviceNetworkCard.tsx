@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@wardnet/forge-web/card";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { useCreateReservation, useDeleteReservation, useDhcpReservations } from "@/hooks/useDhcp";

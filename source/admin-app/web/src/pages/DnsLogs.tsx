@@ -4,9 +4,9 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
 import { Card, CardContent } from "@wardnet/forge-web/card";
-import { Input } from "@/components/core/ui/input";
+import { Input } from "@wardnet/forge-web/input";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import { Button } from "@wardnet/forge-web/button";
 import { Pill } from "@wardnet/forge-web/pill";
 import {

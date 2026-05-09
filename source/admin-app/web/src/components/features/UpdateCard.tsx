@@ -3,7 +3,7 @@ import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import {
   Select,
   SelectContent,

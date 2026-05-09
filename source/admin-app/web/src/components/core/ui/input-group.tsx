@@ -3,8 +3,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
-import { Textarea } from "@/components/core/ui/textarea";
+import { Input } from "@wardnet/forge-web/input";
+import { Textarea } from "@wardnet/forge-web/textarea";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (

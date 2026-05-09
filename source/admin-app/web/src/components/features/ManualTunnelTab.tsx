@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
-import { Textarea } from "@/components/core/ui/textarea";
+import { Input } from "@wardnet/forge-web/input";
+import { Label } from "@wardnet/forge-web/label";
+import { Textarea } from "@wardnet/forge-web/textarea";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useCreateTunnel } from "@/hooks/useTunnels";
 

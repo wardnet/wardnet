@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
+import { Field } from "@wardnet/forge-web/field";
+import { Input } from "@wardnet/forge-web/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
-import { Label } from "@/components/core/ui/label";
 import { Sheet, SheetContent, SheetTitle } from "@/components/core/ui/sheet";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useUpdateDhcpConfig } from "@/hooks/useDhcp";
@@ -46,38 +46,34 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
         <SheetTitle>Edit DHCP configuration</SheetTitle>
         <div className="mt-6 flex flex-col gap-5">
           <div className="flex gap-3">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="dhcp-pool-start">Pool start</Label>
+            <Field label="Pool start" htmlFor="dhcp-pool-start" className="flex-1">
               <Ipv4Input
                 id="dhcp-pool-start"
                 value={poolStart}
                 onChange={setPoolStart}
                 placeholder="192.168.1.100"
               />
-            </div>
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="dhcp-pool-end">Pool end</Label>
+            </Field>
+            <Field label="Pool end" htmlFor="dhcp-pool-end" className="flex-1">
               <Ipv4Input
                 id="dhcp-pool-end"
                 value={poolEnd}
                 onChange={setPoolEnd}
                 placeholder="192.168.1.200"
               />
-            </div>
+            </Field>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-subnet">Subnet mask</Label>
+          <Field label="Subnet mask" htmlFor="dhcp-subnet">
             <Ipv4Input
               id="dhcp-subnet"
               value={subnetMask}
               onChange={setSubnetMask}
               placeholder="255.255.255.0"
             />
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-lease">Lease duration (seconds)</Label>
+          <Field label="Lease duration (seconds)" htmlFor="dhcp-lease">
             <Input
               id="dhcp-lease"
               type="number"
@@ -85,35 +81,33 @@ export function EditDhcpConfigSheet({ config, open, onOpenChange }: EditDhcpConf
               onChange={(e) => setLeaseDuration(e.target.value)}
               placeholder="86400"
             />
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-router">Fallback router</Label>
+          <Field
+            label="Fallback router"
+            htmlFor="dhcp-router"
+            help="Your real router's IP. Included as secondary gateway in DHCP so devices fall back if the wardnet server is unavailable."
+          >
             <Ipv4Input
               id="dhcp-router"
               value={routerIp}
               onChange={setRouterIp}
               placeholder="10.232.1.1"
             />
-            <p className="text-xs text-muted-foreground">
-              Your real router's IP. Included as secondary gateway in DHCP so devices fall back if
-              the wardnet server is unavailable.
-            </p>
-          </div>
+          </Field>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dhcp-dns">Upstream DNS (comma-separated)</Label>
+          <Field
+            label="Upstream DNS (comma-separated)"
+            htmlFor="dhcp-dns"
+            help="DNS servers advertised to clients. Will be replaced by Wardnet's built-in DNS once enabled."
+          >
             <Input
               id="dhcp-dns"
               value={upstreamDns}
               onChange={(e) => setUpstreamDns(e.target.value)}
               placeholder="1.1.1.1, 8.8.8.8"
             />
-            <p className="text-xs text-muted-foreground">
-              DNS servers advertised to clients. Will be replaced by Wardnet's built-in DNS once
-              enabled.
-            </p>
-          </div>
+          </Field>
 
           {updateConfig.isError && (
             <ApiErrorAlert error={updateConfig.error} fallback="Failed to update configuration" />

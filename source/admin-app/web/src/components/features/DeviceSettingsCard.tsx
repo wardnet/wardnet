@@ -8,8 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/forge-web/card";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
+import { Input } from "@wardnet/forge-web/input";
+import { Label } from "@wardnet/forge-web/label";
 import {
   Select,
   SelectContent,

@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { WardnetApiError } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
+import { Input } from "@wardnet/forge-web/input";
+import { Label } from "@wardnet/forge-web/label";
 import { useSetup, useAdvanceWizard } from "@/hooks/useSetup";
 import { useAuth } from "@/hooks/useAuth";
 

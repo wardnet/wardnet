@@ -144,12 +144,12 @@ Radix primitive needed (pure visual or HTML element).
 | switch.tsx → toggle | Switch           | `.toggle` (renamed `Switch` → `Toggle`)                | [x]    |
 | tabs.tsx          | Tabs               | `.tabs` (pill) for view switches — only surface this slice; legacy `variant="line"` had zero call sites and was dropped. Underline page-nav surface (`.tabs-bar`) deferred until a router-driven nav consumer needs it. | [x] |
 | radio-group.tsx   | RadioGroup         | Forge §09 form-row pattern                             | [ ]    |
-| label.tsx         | Label              | `.field label` / `.read-label`                         | [ ]    |
-| input.tsx         | n/a                | `.field input`                                         | [ ]    |
-| textarea.tsx      | n/a                | `.field textarea`                                      | [ ]    |
-| input-group.tsx   | n/a                | `.field` + helper                                      | [ ]    |
-| ipv4-input.tsx    | n/a                | `.field input.mono`                                    | [ ]    |
-| mac-input.tsx     | n/a                | `.field input.mono`                                    | [ ]    |
+| label.tsx         | Label              | `.label` (added — standalone) + existing `.field label` (descendant) — share rules via comma selector | [x] |
+| input.tsx         | Input              | `.input` (added — standalone) + existing `.field input` — share rules via comma selector | [x] |
+| textarea.tsx      | Textarea           | `.textarea` (added — standalone, with `min-height` + `field-sizing: content`) + existing `.field textarea` — share rules | [x] |
+| input-group.tsx   | n/a                | `.field` + helper — descoped this slice; sole consumer is `core/ui/command.tsx` (out of scope), rides Command port | [ ] |
+| ipv4-input.tsx    | n/a                | `.field input.mono` — descoped this slice; domain-coupled segmented input with octet validation, separate restyle slice | [ ] |
+| mac-input.tsx     | n/a                | `.field input.mono` — descoped this slice; domain-coupled segmented input with hex segments, separate restyle slice | [ ] |
 | command.tsx       | (cmdk)             | command palette popover                                | [ ]    |
 | chart.tsx         | (recharts)         | Forge §10 chart rules — 4 hairline gridlines, mono Y-axis labels, no vertical grid, area + line, tooltip in `--bg-card` + `--shadow-pop` | [ ] |
 | data-table.tsx    | (tanstack/table)   | `.tbl` + `.host` row pattern                           | [ ]    |
@@ -163,6 +163,7 @@ Radix primitive needed (pure visual or HTML element).
 | Sparkline   | `design-system/primitives.jsx`      | [ ]    |
 | Donut       | `design-system/primitives.jsx`      | [ ]    |
 | Icon set    | `design-system/primitives.jsx` (Forge ships hand-tuned 1.7-stroke icons) — see Open Questions | [ ] |
+| Field       | composition (Label + control + help + edit/read swap) on top of `.field` — added with the form-row slice | [x] |
 
 ---
 
@@ -1193,6 +1194,148 @@ all facts; status pills via `.pill--*`.
   tsx` is still the sole file carrying utility-class motion, and
   Tabs didn't touch it; dependency removal still rides whichever
   feature slice last migrates a Sheet consumer.
+- **Form-row slice scoped down from "six primitives" to "three lights
+  + Field composition"** (2026-05-09, eleventh slice). The briefing
+  flagged Option B as Label / Input / Textarea / InputGroup / Ipv4Input
+  / MacInput. Surveying first revealed two scope simplifications: (a)
+  `core/ui/input-group.tsx` has **exactly one consumer**, `core/ui/
+  command.tsx` — itself an out-of-scope holdout pending the Command
+  port. So InputGroup naturally rides the Command port (where its
+  sole consumer also lives) rather than this slice — same pattern as
+  `core/ui/sheet.tsx` riding its three feature consumers' migrations.
+  (b) `Ipv4Input` and `MacInput` are 150-line domain compositions
+  (IPv4 octet + MAC hex segment validation, paste detection,
+  auto-tab between segments). They use Forge's `.field input.mono`
+  pattern visually but the segmented-input logic isn't a generic
+  primitive — per the Card slice's "domain-coupled compositions stay
+  in `compound/`" rule, they're not forge-web primitives. Restyling
+  them in place (eliminating their shadcn-alias styling) is its own
+  follow-up slice; this slice leaves them untouched. **Generalisation:**
+  before designing for the briefing's stated scope, survey the
+  consumer count and the litmus-test (pattern-reusable vs
+  domain-coupled). The "form-row foundation" landed as Label / Input
+  / Textarea + Field composition — five exports total in this slice;
+  three remaining form primitives (InputGroup / Ipv4Input / MacInput)
+  ride later slices with clearer scope.
+- **Form lights — `.label` / `.input` / `.textarea` standalone
+  classes added to Forge alongside the existing `.field` descendants;
+  comma-selector dedupe** (2026-05-09, eleventh slice). Forge's `.field`
+  block (lines 852–865 in `styles.css`) only had descendant selectors
+  (`.field input`, `.field label`, etc.) — no standalone class for a
+  free-standing input/label/textarea. Two options: (a) require every
+  call site to wrap in `<div class="field">` so the descendant rules
+  kick in (forces structural rewrites at 21+ call sites — out of scope
+  for a "pure import-path retarget" slice); (b) add standalone classes
+  (`.label` / `.input` / `.textarea`) that share rules with the
+  descendant variants via comma selector. Picked (b). The refactor
+  collapses the `.field` block from 4 selectors to 6 selectors but
+  with shared declarations — `.input, .textarea, .field input, .field
+  select, .field textarea { … }` — so a future Forge change to input
+  visuals applies to both standalone and field-wrapped variants
+  uniformly. Added: disabled state (`:disabled { cursor: not-allowed;
+  opacity: 0.6 }`), placeholder color (`::placeholder { color: var(
+  --ink-3) }`), textarea-specific `min-height: 64px` + `field-sizing:
+  content` + `resize: vertical`. Did NOT add `[aria-invalid]`
+  styling — surveying call sites showed zero consumers pass
+  `aria-invalid` (the legacy primitive declared the styling but no
+  consumer used it). Per "drop features the migration doesn't
+  require." If a future consumer needs validation visuals, that's a
+  Forge addition + primitive prop in its own slice. **Generalisation:**
+  when a Forge surface only has descendant rules (`.parent child`)
+  but the React primitive is a free-standing class-applier, add a
+  comma-selector to share rules between standalone (`.child`) and
+  descendant (`.parent child`) — this avoids duplicating the
+  declarations and keeps both styling vocabularies aligned. Same
+  pattern would apply to future surfaces (e.g., a future `.button`
+  inside `.toolbar` if Forge ever ships `.toolbar button` rules).
+- **Field — first composition primitive in `forge-web/`, locks the
+  edit/read pattern as a single component** (2026-05-09, eleventh
+  slice). Beyond the three lights, this slice ships a `Field`
+  composition (`@wardnet/forge-web/field`) that wraps Label + control
+  + optional help text and supports an `editing` boolean for
+  edit-vs-read mode. API: `<Field label htmlFor help editing value>{
+  control }</Field>`. When `editing=false` and `value` is provided,
+  the children (input control) are replaced with a `<span class=
+  "field-value">{value}</span>` styled to match the input's vertical
+  rhythm so layout doesn't jump on mode swap. Forge gained two
+  tiny additions: `.field-help` (small ink-3 text below the control)
+  and `.field-value` (read-mode value display, 13px ink + 8px
+  vertical padding to align with `.input`'s box height). **Naming
+  follows the locked rule "component name follows Forge class":**
+  Forge class is `.field` (single word), React export is `Field`
+  (single word) — not `FormField` / `FormInput`. The single-word
+  Forge vocabulary keeps consistency with `.modal` / `.popover` /
+  `.toggle` / `.tabs` / `.card`; multi-word React names like
+  `FormField` would re-introduce the same Radix-driven naming
+  tension the Toggle slice closed. **Why this is a composition not
+  a primitive:** Field combines three sub-elements (Label + control
+  + help paragraph) and adds behavior (edit/read swap) on top of
+  `.field`'s plain CSS structure — that's the same shape as `Card`
+  + `CardHeader` + `CardBody` (the second slice's flat composition
+  on top of `.card` + `.card__head` + `.card__body`). Card is the
+  precedent; Field follows it. **Why this matters:** the manual
+  pattern (`<div className="flex flex-col gap-2"><Label>X</Label>
+  <Input/><p className="text-xs text-muted-foreground">Help</p></div>`)
+  was reproduced verbatim across 15+ call sites. With Field, the
+  pattern lives in one component — visual changes (gap, label
+  weight, help text size) propagate by editing Forge or `field.tsx`
+  rather than touching every consumer. Two call sites migrated to
+  Field this slice as proof-of-pattern: `Login.tsx` (clean
+  edit-only form, two label+input pairs) and `EditDhcpConfigSheet.
+  tsx` (six fields, two with help text). Remaining ~13 call sites
+  stay on the manual `<div>` + `<Label>` + `<Input>` pattern —
+  they migrate to Field organically as feature slices touch them
+  (or in a dedicated "field consolidation" slice). Both forms are
+  visually equivalent so the codebase stays in a transitional but
+  consistent state. **Generalisation:** when a manual structure is
+  duplicated across enough consumers, ship a composition primitive
+  even if it's "just a wrapper" — the value is design-system reach,
+  not code reuse. Same logic justified Card.Header / Card.Body in
+  the second slice.
+- **Form-lights call site migration — pure import-path retarget,
+  no JSX rewrite for the Label/Input/Textarea swap** (2026-05-09,
+  eleventh slice). 21 call sites (Login, Step1Admin, Step4RouterMac,
+  Dns, DnsLogs, DnsFilterProfile, DnsFilterProfileNew, MyDevice,
+  BackupCard, CreateReservationSheet, DeviceDnsFilterCard,
+  DeviceNetworkCard, DeviceSettingsCard, DnsFilterSettingsCard,
+  EditDhcpConfigSheet, ManualTunnelTab, ProviderTunnelTab,
+  UpdateCard, CronSchedulePicker, DhcpStatusCard, plus the
+  `core/ui/input-group.tsx` internal imports) swapped via sed:
+  `@/components/core/ui/{label,input,textarea}` → `@wardnet/
+  forge-web/{label,input,textarea}`. Inline className overrides
+  on `<Label>` (e.g., Login's `text-foreground/70`, DnsLogs's
+  `text-xs text-muted-foreground`) are visually equivalent to or
+  near-equivalent to Forge's `.label` defaults (12px ink-3 medium),
+  so the Tailwind utility wins via cascade order with no behavior
+  change — left in place. A follow-up "form polish" slice can
+  drop the now-redundant inline classes. `core/ui/input-group.tsx`
+  was updated to import Input/Textarea from forge-web (its sole
+  consumer is `core/ui/command.tsx` which is out of scope; the
+  InputGroup file stays put with its shadcn-alias internal styling
+  pending the Command port). Legacy `core/ui/{label,input,textarea}.
+  tsx` deleted. **Generalisation:** when Tailwind utilities and
+  Forge classes apply to the same element via clsx, Tailwind v4's
+  cascade order puts utility classes after component layers — so
+  inline utility overrides win without needing `!important` or
+  CSS specificity tricks. Useful for slices that want to ship the
+  Forge primitive without forcing every consumer to drop their
+  inline overrides at the same time.
+- **Legacy shadcn alias audit — Form-lights slice** (2026-05-09).
+  The deleted `label.tsx` / `input.tsx` / `textarea.tsx` referenced
+  `border-input`, `bg-input/50`, `bg-input/30`, `bg-input/80`,
+  `text-foreground` (file: prefix), `text-muted-foreground`,
+  `border-ring`, `ring-ring`, `border-destructive`,
+  `ring-destructive/20`, `ring-destructive/40`,
+  `ring-destructive/50`, plus `data-[disabled=true]` /
+  `peer-disabled:` utilities. None of the shadcn alias rows reached
+  zero — `border-input`, `bg-input` family, and the `*-destructive`
+  rows still have many remaining consumers (the form-heavies
+  Ipv4Input/MacInput/InputGroup are unchanged this slice and keep
+  consuming `border-input`/`ring-ring`/`text-muted-foreground`/etc.).
+  Command port + form-heavies restyle slice are the next slices
+  that will move the needle. **`tw-animate-css` holdout state
+  unchanged** — sheet.tsx still the sole file carrying utility-
+  class motion.
 
 ---
 
@@ -1542,3 +1685,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | DropdownMenu primitive port (eighth primitive — second proof point for the side-aware-keyframe approach, and the first slice to surface that "stress-tests the multi-part template upward" was the wrong frame). Going-in scope listed ten-plus Radix parts (DropdownMenu / Trigger / Portal / Content / Item / CheckboxItem / RadioItem / RadioGroup / Label / Separator / Sub / SubTrigger / SubContent / Group / ItemIndicator / Shortcut). Reading the legacy `core/ui/dropdown-menu.tsx` collapsed the surface to **five exports** — `DropdownMenu` / `DropdownMenuTrigger` / `DropdownMenuContent` / `DropdownMenuItem` (with `variant: "default" \| "destructive"` prop) / `DropdownMenuSeparator` — and three call sites (AllowlistTable, FilterRuleTable, BlocklistTable) used exactly those five. So Decisions 3 (CheckboxItem / RadioItem indicator strategy) and 4 (Sub\*) dissolved trivially by the locked rule "drop features the migration doesn't require" (same calculus that stripped Popover from seven exports to three). **Forge-first:** added `.menu-item` and `.menu-separator` to `source/forge/styles.css` (after the popover keyframes); `DropdownMenuContent` reuses `className="popover"` for the surface — same `.popover` class as the Popover slice, no parallel `.menu` class, so the intrinsic side-aware motion (`[data-state="open"][data-side="…"]` keyframes from the Popover slice) is inherited verbatim. `.menu-item` uses `[data-highlighted]` (Radix-driven row highlight → `--bg-sunken`), `[data-disabled]` (opacity), and `[data-variant="destructive"]` (Forge `--danger` for rest, `--danger-soft` / `--danger-soft-ink` for highlighted) — destructive framing modeled as a `data-*` attribute (matches the existing `data-state` / `data-side` / `data-highlighted` family on Radix-wrap primitives) rather than a `.menu-item--destructive` modifier class, so the CSS selector vocabulary stays uniform. `.menu-separator` is `1px var(--line)` with `4px -6px` margin so it bleeds past the popover's 10px padding to span full width. **Multi-part template:** DropdownMenu lands at five exports across two shapes — passthrough Radix (`DropdownMenu`, `DropdownMenuTrigger`) and Radix-part-bearing-Forge-class (`DropdownMenuContent` = popover, `DropdownMenuItem` = menu-item, `DropdownMenuSeparator` = menu-separator). Modal remains the largest port (nine exports across all four shapes); the upward stress was driven by *consumer* usage, not Radix exposure — locked as a Findings clarification. **Animation rule (third application):** `.popover` keyframes inherited; **no tw-animate-css used**. Open question on tw-animate-css removal narrows to Select alone — if Select.Content also lands `.popover`, the dependency can be dropped in that slice. Subpath `./dropdown-menu` added to `@wardnet/forge-web`; 3 call sites retargeted (`@/components/core/ui/dropdown-menu` → `@wardnet/forge-web/dropdown-menu`) — pure import-path swap, no JSX rewrite (the legacy primitive's `align="end"` / `sideOffset=4` defaults preserved; `variant` prop on Item preserved as-is). Legacy `core/ui/dropdown-menu.tsx` deleted. Legacy alias audit: deletion dropped two rows to two consumers each — `bg-popover` (5→2) and `text-popover-foreground` (3→2), both with their remaining consumers in the primitive-port queue (`select.tsx` + `command.tsx`); next two slices touching those files set up both rows for deletion in the alias-pruning slice. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Select primitive port (ninth primitive — last Popover-shaped positioning consumer in the Radix-wrap queue, which made it the slice that decides whether `tw-animate-css` can be removed). Surface stripped to **five exports** — `Select` / `SelectTrigger` / `SelectValue` / `SelectContent` / `SelectItem` — by surveying the 10 call sites (UpdateCard, DashboardLogWidget, DeviceSettingsCard, ProviderTunnelTab, DeviceSelect, RoutingSelector, CronSchedulePicker, DnsLogs, MyDevice, Step3DhcpOnboarding); zero use `Group` / `Label` / `Separator` / `ScrollUpButton` / `ScrollDownButton`, dropped per "drop features the migration doesn't require." `Viewport`, `ItemText`, `ItemIndicator`, `Portal` are internal. **Forge-first:** added `.select-trigger` (input visuals — `--bg-elev` background, `--line` border, 8px radius, accent focus ring — plus flex+space-between layout and a chevron `::after` mask-image), `.select-content` as additive modifier on `.popover` (min-width tied to `--radix-select-trigger-width`, max-height-with-scroll, transform-origin overrides `.popover`'s Popover-var default with `--radix-select-content-transform-origin`). Items reuse `.menu-item` with two new Select-only extensions: `.menu-item[data-state] { padding-right: 26px }` reserves indicator gutter, and `.menu-item[data-state="checked"]::after { … mask-image }` paints the check (only Radix Select.Item emits `data-state`; DropdownMenu.Item doesn't, so these selectors don't pollute existing menus). `SelectContent` renders `<RadixSelect.Content className="popover select-content">` so the four side-aware popover keyframes apply unchanged — third slice in a row to validate the intrinsic-motion-as-Forge-keyframes rule. Default `position` switched from legacy `"item-aligned"` → `"popper"` (so `data-side` is emitted and side-aware keyframes trigger); default `align` switched from `"center"` → `"start"`; no call site passes either prop explicitly. **Forge owns the icons:** chevron and checkmark are CSS `::after` pseudo-elements with mask-image data URIs (lucide stroke-2 path geometry), keying on `currentColor` for the check and `--ink-3` for the chevron — primitive renders zero icon JSX, matching the Toggle-slice rule "don't render Radix sub-components Forge already owns visually" (Select.Icon and Select.ItemIndicator both dropped). **Multi-part template:** five exports across two shapes — passthrough Radix (`Select`, `SelectValue`) and Radix-part-bearing-Forge-class (`SelectTrigger`, composed `SelectContent` = Portal+Content with `.popover .select-content`, composed `SelectItem` = Item+ItemText with `.menu-item`); fits between DropdownMenu (5/2) and Popover (3/2) on the same axis Modal anchors at the top (9/4). Subpath `./select` added to `@wardnet/forge-web`; 10 call sites retargeted (`@/components/core/ui/select` → `@wardnet/forge-web/select`) — pure import-path swap, no JSX rewrite (export shape preserved). Legacy `core/ui/select.tsx` deleted. **tw-animate-css removal call:** _blocked, but not by a primitive_ — `core/ui/sheet.tsx` is still in the tree pending its three consumers' migrations (`EditDhcpConfigSheet`, `CreateReservationSheet`, `MobileMenu`) and is the sole remaining file with `data-open:animate-in` / `data-closed:animate-out` / `data-[side=…]:data-open:slide-in-from-…-10` etc. So the dep stays in `package.json` + `index.css` `@import` until whichever feature slice last touches Sheet replaces it; that slice closes the open question. Legacy alias audit: deletion dropped `bg-popover` (2→1) and `text-popover-foreground` (2→1) — both now have `core/ui/command.tsx` as their sole remaining consumer; Command port (post-tabs/forms slice) zeroes them. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Tabs primitive port (tenth primitive — first non-floating Radix-wrap; first slice where Forge styles inner parts via descendant selector). Survey of the five legacy call sites (`DnsStatsSection`, `TunnelThroughputChart`, `CreateTunnelInline`, `pages/Devices`, `pages/Dhcp`) found all five exclusively use the default pill (`.tabs`) surface — zero use legacy `variant="line"` or `orientation="vertical"`, and all five are *view switches inside a card or section*, never page-level navigation. So Decision 1 collapsed to "ship one primitive bound to one surface" — `.tabs` only; the legacy `variant="line"` branch and its parallel CVA dropped per "drop features the migration doesn't require"; `.tabs-bar` itself doesn't exist in `source/forge/styles.css` (only in `source/forge/docs/tailwind.config.js`) so the slice doesn't add it — if a future router-driven page-nav surface wants an underline strip, that lands in its own slice (and likely won't go through Radix Tabs at all since URL state is the source of truth). **Forge-first:** added `[data-state="active"]` next to the existing `.tabs button.is-active` selector (Toggle-pattern dual selector — third application of the data-state bridge across CSS-only mocks and React primitives); active-state visual is **static** (background + color + shadow swap, no animation declared), so no keyframes — confirms the Modal-slice intrinsic-vs-variant rule covers static state changes too. **Multi-part template:** four exports across two shapes — passthrough Radix (`Tabs`, `TabsTrigger`, `TabsContent`) and Radix-part-bearing-Forge-class (`TabsList` = `.tabs`). Forge's `.tabs button` selector targets descendants directly (no `.tabs__btn` class), so `TabsTrigger` is a passthrough — Radix Trigger renders a `<button>` by default and inherits `.tabs button` styles automatically; `TabsContent` is also a passthrough since Forge has nothing for content panels (call sites supply their own `mt-4` etc.). Tabs sits between Toggle (1/1) and Popover (3/2) on the small end of the template axis (Modal at 9/4 anchors the ceiling). Briefing prediction "4 exports across 1–2 shapes" landed exactly. **Root passthrough verification:** legacy primitive baked `flex gap-2 data-horizontal:flex-col` defaults on the Root; the new primitive drops them. Walked every call site and confirmed either (a) the default was redundant (`Devices`/`Dhcp` already pass their own `flex min-h-0 flex-1 flex-col`) or (b) layout still works because content panels are block-level (`CreateTunnelInline` — TabsList is inline-flex, TabsContent panels break onto a new line, `mt-4` provides the gap). New `./tabs` subpath export in `@wardnet/forge-web`; 5 call sites retargeted (`@/components/core/ui/tabs` → `@wardnet/forge-web/tabs`) — pure import-path swap, no JSX rewrite. Legacy `core/ui/tabs.tsx` deleted. Legacy alias audit: deletion didn't zero any rows (the deleted aliases were long-tail rows — `text-muted-foreground`, `bg-muted`, `bg-foreground`, `bg-background`, `border-input`, etc., all with many remaining consumers). **`tw-animate-css` holdout state unchanged** — `core/ui/sheet.tsx` is still the sole file carrying utility-class motion; this slice didn't touch it. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Form-row foundation slice (eleventh slice — three light primitives + first composition primitive). Surveyed the briefing's six-primitive scope down to **three lights** (`Label` / `Input` / `Textarea`) plus a new **`Field` composition**: `core/ui/input-group.tsx` has exactly one consumer (`core/ui/command.tsx`, out of scope) so it rides the Command port; `Ipv4Input`/`MacInput` are 150-line domain-coupled segmented-input compositions that fail the "pattern-reusable" litmus, so they stay in `core/ui/` for a separate restyle slice. **Forge-first:** refactored the existing `.field` block to add standalone `.label` / `.input` / `.textarea` classes that share rules with `.field label` / `.field input` / `.field select` / `.field textarea` via comma selectors (so a future visual change applies to both standalone and field-wrapped variants uniformly); added `:disabled` (cursor + opacity), `::placeholder` color, textarea-specific `min-height` + `field-sizing: content` + `resize: vertical`. Did **not** add `[aria-invalid]` styling — zero call sites pass `aria-invalid` (legacy primitives declared but no consumer used it), dropped per "drop features the migration doesn't require." **Three light primitives** ported as bare class-appliers — `Label` (Radix `Label.Root` + `.label`), `Input` (bare `<input>` + `.input`), `Textarea` (bare `<textarea>` + `.textarea`). **`Field` composition** (`@wardnet/forge-web/field`) wraps Label + control + optional help text and supports an `editing` boolean for edit/read swap (when `editing=false` and `value` provided, children replaced with `<span class="field-value">` styled to match input vertical rhythm so layout doesn't jump). Forge gained `.field-help` (small ink-3 paragraph below control) and `.field-value` (read-mode display). **Naming:** `Field` (not `FormField` / `FormInput`) follows the locked rule "component name follows Forge class" — Forge class is `.field`, single word; the React export matches. **Why composition not primitive:** combines three sub-elements + edit/read behavior, same shape as Card / CardHeader / CardBody. **Why ship it:** the manual pattern (`<div className="flex flex-col gap-2"><Label>X</Label><Input/><p>Help</p></div>`) was reproduced verbatim at 15+ call sites; with Field the pattern lives in one component, so future Forge tweaks propagate via the primitive instead of touching every consumer. New subpath exports `./label`, `./input`, `./textarea`, `./field` in `@wardnet/forge-web`. **Call site migration:** 21 files retargeted via sed — pure import-path swap, no JSX rewrite for Label/Input/Textarea (inline Tailwind className overrides on Label win via cascade order, so visual stays unchanged). **Two call sites migrated to Field as proof-of-pattern:** `Login.tsx` (two label+input pairs, no help) and `EditDhcpConfigSheet.tsx` (six fields, two with help text — manual `<p className="text-xs text-muted-foreground">` paragraphs collapsed into Field's `help` prop). Remaining ~13 call sites stay on the manual pattern — they migrate to Field organically as feature slices touch them or in a dedicated "field consolidation" slice; both forms are visually equivalent so the codebase is transitional-consistent. `core/ui/input-group.tsx` had its internal Input/Textarea imports retargeted to forge-web (its own consumer is Command, out of scope). Legacy `core/ui/{label,input,textarea}.tsx` deleted. Legacy alias audit: no rows newly zero-referenced — `border-input` / `bg-input` family / `text-muted-foreground` / `*-destructive` rows still have many consumers (the form-heavies still consume them). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |

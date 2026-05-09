@@ -44,6 +44,22 @@
     "./tabs": {
       "import": "./src/primitives/tabs.tsx",
       "types": "./src/primitives/tabs.tsx"
+    },
+    "./label": {
+      "import": "./src/primitives/label.tsx",
+      "types": "./src/primitives/label.tsx"
+    },
+    "./input": {
+      "import": "./src/primitives/input.tsx",
+      "types": "./src/primitives/input.tsx"
+    },
+    "./textarea": {
+      "import": "./src/primitives/textarea.tsx",
+      "types": "./src/primitives/textarea.tsx"
+    },
+    "./field": {
+      "import": "./src/primitives/field.tsx",
+      "types": "./src/primitives/field.tsx"
     }
   },
   "files": [

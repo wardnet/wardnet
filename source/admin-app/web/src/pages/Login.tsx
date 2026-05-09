@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { WardnetApiError } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
+import { Field } from "@wardnet/forge-web/field";
+import { Input } from "@wardnet/forge-web/input";
 import { useAuth } from "@/hooks/useAuth";
 
 /** Admin login page — rendered inside AuthLayout's branded hero. */
@@ -37,10 +37,7 @@ export default function Login() {
   return (
     <div className="rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur-sm dark:bg-card/95">
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="username" className="text-foreground/70">
-            Username
-          </Label>
+        <Field label="Username" htmlFor="username">
           <Input
             id="username"
             value={username}
@@ -50,11 +47,8 @@ export default function Login() {
             required
             className="h-12"
           />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="password" className="text-foreground/70">
-            Password
-          </Label>
+        </Field>
+        <Field label="Password" htmlFor="password">
           <Input
             id="password"
             type="password"
@@ -65,7 +59,7 @@ export default function Login() {
             required
             className="h-12"
           />
-        </div>
+        </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <p className="text-center text-xs text-muted-foreground">
           Credentials are set during initial daemon setup.

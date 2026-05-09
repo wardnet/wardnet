@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Input } from "@/components/core/ui/input";
-import { Label } from "@/components/core/ui/label";
+import { Input } from "@wardnet/forge-web/input";
+import { Label } from "@wardnet/forge-web/label";
 import {
   Modal,
   ModalBody,

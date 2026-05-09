@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CalendarClock, ChevronDown } from "lucide-react";
 import { cronToHuman } from "@/lib/cron";
 import { Button } from "@wardnet/forge-web/button";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@wardnet/forge-web/popover";
 import {
   Select,

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
-import { Input } from "@/components/core/ui/input";
+import { Input } from "@wardnet/forge-web/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { MacInput } from "@/components/core/ui/mac-input";
-import { Label } from "@/components/core/ui/label";
+import { Label } from "@wardnet/forge-web/label";
 import { Sheet, SheetContent, SheetTitle } from "@/components/core/ui/sheet";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useCreateReservation } from "@/hooks/useDhcp";
