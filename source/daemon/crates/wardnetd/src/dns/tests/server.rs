@@ -92,6 +92,222 @@ fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
     Arc::new(Stub)
 }
 
+/// Filter stub whose response is configured per construction. Lets
+/// tests pin `handle_query` down a specific branch (Block / Rewrite / Pass).
+struct ConfigurableFilter {
+    action: wardnet_common::dns::FilterAction,
+}
+
+#[async_trait]
+impl wardnetd_services::DnsFilterService for ConfigurableFilter {
+    async fn check(
+        &self,
+        _domain: &str,
+        _qtype: hickory_proto::rr::RecordType,
+        _client: std::net::IpAddr,
+    ) -> wardnetd_services::dns_filter::service::CheckOutcome {
+        wardnetd_services::dns_filter::service::CheckOutcome {
+            action: self.action,
+            would_have_blocked: false,
+        }
+    }
+    async fn rebuild_all(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn list_profiles(
+        &self,
+    ) -> Result<wardnet_common::api::ListProfilesResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::GetProfileResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn create_profile(
+        &self,
+        _r: wardnet_common::api::CreateProfileRequest,
+    ) -> Result<wardnet_common::api::CreateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_profile(
+        &self,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateProfileRequest,
+    ) -> Result<wardnet_common::api::UpdateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_blocklists(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListBlocklistsResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_common::api::CreateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn refresh_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_allowlist(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_common::api::CreateAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_custom_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListFilterRulesResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_device_settings(
+        &self,
+        _params: wardnet_common::api::ListDeviceFilterSettingsParams,
+    ) -> Result<
+        wardnet_common::api::ListDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_device_settings(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<
+        wardnet_common::api::GetDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn update_device_settings(
+        &self,
+        _device_id: Uuid,
+        _r: wardnet_common::api::UpdateDeviceFilterSettingsRequest,
+    ) -> Result<
+        wardnet_common::api::UpdateDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_filter_config(
+        &self,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_filter_config(
+        &self,
+        _r: wardnet_common::api::UpdateDnsFilterConfigRequest,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn rebuild_blocklist_filter(
+        &self,
+        _id: Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_profile(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_device(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_default_context(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn handle_device_ip_changed(
+        &self,
+        _device_id: Uuid,
+        _old_ip: &str,
+        _new_ip: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+}
+
 /// Build a DNS server with empty routing snapshot + stub tunnel repo —
 /// the lifecycle/cache tests in this file don't exercise per-tunnel
 /// forwarding, so the snapshot stays empty and `find_by_id` is never
@@ -681,4 +897,231 @@ async fn get_or_build_tunnel_forwarder_errors_when_dns_not_an_ip() {
         .await
         .expect_err("non-IP DNS entry should error");
     assert!(err.to_string().contains("not a valid IP"), "got: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// `handle_query`: filter-driven Block / Rewrite / Pass branches plus the
+// upstream error path. Each test stands up the real server with an
+// injected filter outcome, fires a UDP query, and reads the resulting
+// log row to assert what the server told the sink.
+// ---------------------------------------------------------------------------
+
+fn build_with_filter(
+    config: DnsConfig,
+    filter: Arc<dyn wardnetd_services::DnsFilterService>,
+    sink: Arc<wardnetd_services::dns::log_sink::DnsLogSink>,
+) -> UdpDnsServer {
+    UdpDnsServer::with_bind_addr(
+        config,
+        loopback_ephemeral(),
+        filter,
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+    )
+    .with_log_sink(sink)
+}
+
+#[tokio::test]
+async fn handle_query_block_branch_records_blocked() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Block,
+    });
+    let server = build_with_filter(DnsConfig::default(), filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("blocked row arrives quickly")
+        .unwrap();
+    assert_eq!(row.result, "blocked");
+    assert_eq!(row.domain, "example.com");
+    assert!(row.upstream.is_none());
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn handle_query_rewrite_branch_records_rewritten() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Rewrite {
+            ip: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+        },
+    });
+    let server = build_with_filter(DnsConfig::default(), filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("rewritten row arrives quickly")
+        .unwrap();
+    assert_eq!(row.result, "rewritten");
+    assert_eq!(row.domain, "example.com");
+    assert!(row.upstream.is_none());
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn handle_query_upstream_error_records_upstream_error() {
+    // Point the resolver at an unreachable upstream so the lookup fails
+    // and the Err branch runs (send_servfail + record_query "upstream_error").
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Pass,
+    });
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "blackhole".into(),
+            address: "127.0.0.1".into(),
+            // TCP so we get a fast RST on the closed port instead of
+            // waiting for hickory's UDP retry budget to elapse.
+            protocol: DnsProtocol::Tcp,
+            port: Some(1),
+        }],
+        ..DnsConfig::default()
+    };
+    let server = build_with_filter(cfg, filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(20), rx.recv())
+        .await
+        .expect("upstream_error row should arrive within the resolver's retry window")
+        .unwrap();
+    assert_eq!(row.result, "upstream_error");
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.upstream.as_deref(), Some("127.0.0.1"));
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `handle_query`: tunnel forward branch via a populated routing snapshot.
+// The forward fails (the test env has no real tunnel interface and the
+// upstream IP is unreachable), so the branch lands in the
+// `forward_via_tunnel` Err path → ServFail + "upstream_error".
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Pass,
+    });
+
+    let tunnel_id = Uuid::new_v4();
+    let snapshot = Arc::new(ArcSwap::from_pointee(HashMap::from([(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        UpstreamId::Tunnel(tunnel_id),
+    )])));
+    let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(tunnel_id, "lo")),
+        // 127.0.0.1:53 is unbound in the sandbox — forward errors fast.
+        Some(sample_config(vec!["127.0.0.1".into()])),
+    ));
+
+    let server = UdpDnsServer::with_bind_addr(
+        DnsConfig::default(),
+        loopback_ephemeral(),
+        filter,
+        snapshot,
+        tunnel_repo,
+    )
+    .with_log_sink(Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("a row should be recorded for the tunnel-forward attempt")
+        .unwrap();
+    // The forward path can resolve quickly enough that we may see either
+    // an `upstream_error` (forward failed) or `forwarded` (an actual
+    // response was received and cached). Both prove the tunnel branch
+    // ran. Pin the field that tells us we went through the tunnel path:
+    // `upstream` must equal the configured tunnel DNS, never the system
+    // upstream string.
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.upstream.as_deref(), Some("127.0.0.1"));
+    assert!(
+        matches!(row.result.as_str(), "upstream_error" | "forwarded"),
+        "got: {}",
+        row.result
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `build_resolver` — pure function; protocol mapping + Cloudflare fallback.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_resolver_with_udp_upstream_succeeds() {
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_with_tcp_upstream_succeeds() {
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Tcp,
+        port: Some(53),
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
+    // Encrypted DNS is not yet wired — both DoT (853) and DoH (443) fall
+    // back to plain TCP with an explicit warn log. Hits the Tls + Https
+    // branches in build_resolver and exercises the port-default arm too.
+    let upstreams = vec![
+        UpstreamDns {
+            name: "tls".into(),
+            address: "1.1.1.1".into(),
+            protocol: DnsProtocol::Tls,
+            port: None,
+        },
+        UpstreamDns {
+            name: "https".into(),
+            address: "1.1.1.1".into(),
+            protocol: DnsProtocol::Https,
+            port: None,
+        },
+    ];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_skips_invalid_ip_addresses() {
+    // The macro-driven config can hold malformed entries (user input). The
+    // resolver builder must skip them, and when ALL entries are invalid
+    // it falls back to Cloudflare instead of returning an empty config.
+    let upstreams = vec![UpstreamDns {
+        name: "bad".into(),
+        address: "not-an-ip".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
 }

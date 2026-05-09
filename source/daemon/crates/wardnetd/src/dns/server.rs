@@ -860,7 +860,7 @@ pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;
 
-fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
+pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
     let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {
