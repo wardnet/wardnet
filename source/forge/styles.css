@@ -505,8 +505,10 @@ button { font-family: inherit; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   transition: left 160ms;
 }
-.toggle.is-on { background: var(--accent); }
-.toggle.is-on::after { left: 18px; }
+.toggle.is-on,
+.toggle[data-state="checked"] { background: var(--accent); }
+.toggle.is-on::after,
+.toggle[data-state="checked"]::after { left: 18px; }
 
 /* ---------- Tunnels ---------- */
 .tcard {

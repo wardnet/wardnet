@@ -2,7 +2,7 @@ import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
 import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { Label } from "@/components/core/ui/label";
 import {
   Select,
@@ -195,7 +195,7 @@ export function UpdateCard({
                 </Select>
               </div>
               <div className="flex items-center gap-3">
-                <Switch
+                <Toggle
                   id="auto-update-toggle"
                   checked={status.auto_update_enabled}
                   onCheckedChange={onToggleAutoUpdate}

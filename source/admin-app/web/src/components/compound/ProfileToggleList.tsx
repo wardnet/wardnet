@@ -1,5 +1,5 @@
 import { Pill } from "@wardnet/forge-web/pill";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import type { DnsFilterProfile } from "@wardnet/js";
 
 interface ProfileToggleListProps {
@@ -20,7 +20,7 @@ interface ProfileToggleListProps {
   ariaLabelledBy?: string;
 }
 
-/** Toggle list of DNS filter profiles. Each row is a labeled `Switch`; the
+/** Toggle list of DNS filter profiles. Each row is a labeled `Toggle`; the
  *  callback is fired with the resulting full id list (add or remove). The
  *  caller owns the surrounding label and any explanatory hint. */
 export function ProfileToggleList({
@@ -76,7 +76,7 @@ function ProfileToggleRow({ profile, checked, disabled, onChange }: ProfileToggl
           </Pill>
         )}
       </div>
-      <Switch
+      <Toggle
         checked={checked}
         onCheckedChange={onChange}
         disabled={disabled}

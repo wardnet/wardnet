@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@wardnet/forge-web/card";
 import { Label } from "@/components/core/ui/label";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
@@ -109,7 +109,7 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
                   "blocked (skipped)" in the DNS log.
                 </p>
               </div>
-              <Switch id="dns-filter-enabled" checked={enabled} onCheckedChange={setEnabled} />
+              <Toggle id="dns-filter-enabled" checked={enabled} onCheckedChange={setEnabled} />
             </div>
 
             <div className="flex flex-col gap-2">

@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
 import { Card, CardContent } from "@wardnet/forge-web/card";
 import { Input } from "@/components/core/ui/input";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { Label } from "@/components/core/ui/label";
 import { Button } from "@wardnet/forge-web/button";
 import { Pill } from "@wardnet/forge-web/pill";
@@ -260,7 +260,7 @@ export default function DnsLogs() {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:ml-auto">
-            <Switch id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
+            <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
             <Label htmlFor="live-tail" className="text-sm">
               Live tail{liveConnected ? "" : " (offline)"}
             </Label>

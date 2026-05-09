@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Pill } from "@wardnet/forge-web/pill";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { Label } from "@/components/core/ui/label";
 import { Input } from "@/components/core/ui/input";
 import { Button } from "@wardnet/forge-web/button";
@@ -71,7 +71,7 @@ export default function Dns() {
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="dns-toggle">Enable DNS</Label>
-                    <Switch
+                    <Toggle
                       id="dns-toggle"
                       checked={status.enabled}
                       onCheckedChange={(enabled) => toggleDns.mutate(enabled)}
@@ -147,7 +147,7 @@ export default function Dns() {
                       Live stream remains available regardless.
                     </p>
                   </div>
-                  <Switch
+                  <Toggle
                     id="query-log-toggle"
                     checked={config.query_log_enabled}
                     onCheckedChange={(enabled) =>

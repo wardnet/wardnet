@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Label } from "@/components/core/ui/label";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
   useDnsFilterConfig,
@@ -42,7 +42,7 @@ export function DnsFilterSettingsCard() {
                   per-device or per-profile settings.
                 </p>
               </div>
-              <Switch
+              <Toggle
                 id="filter-enabled"
                 checked={config.enabled}
                 disabled={update.isPending}

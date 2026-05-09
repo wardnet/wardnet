@@ -16,6 +16,10 @@
     "./pill": {
       "import": "./src/primitives/pill.tsx",
       "types": "./src/primitives/pill.tsx"
+    },
+    "./toggle": {
+      "import": "./src/primitives/toggle.tsx",
+      "types": "./src/primitives/toggle.tsx"
     }
   },
   "files": [

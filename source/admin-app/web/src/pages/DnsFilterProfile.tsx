@@ -11,7 +11,7 @@ import {
 } from "@wardnet/forge-web/card";
 import { Input } from "@/components/core/ui/input";
 import { Label } from "@/components/core/ui/label";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { Pill } from "@wardnet/forge-web/pill";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
@@ -342,7 +342,7 @@ function BlocklistForm({ mode, initial, onSubmit, onCancel, isSaving, error }: B
             <span className="text-sm text-muted-foreground">
               {enabled ? "Active in this profile" : "Saved but not applied"}
             </span>
-            <Switch id="bl-enabled" checked={enabled} onCheckedChange={setEnabled} />
+            <Toggle id="bl-enabled" checked={enabled} onCheckedChange={setEnabled} />
           </div>
         </div>
         {error != null && (
@@ -546,7 +546,7 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
                   <span className="text-sm text-muted-foreground">
                     {enabled ? "Applied to traffic" : "Saved but inactive"}
                   </span>
-                  <Switch id="fr-enabled" checked={enabled} onCheckedChange={setEnabled} />
+                  <Toggle id="fr-enabled" checked={enabled} onCheckedChange={setEnabled} />
                 </div>
               </div>
               {create.isError && (

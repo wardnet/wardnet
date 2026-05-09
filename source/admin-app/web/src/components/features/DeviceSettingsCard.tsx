@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/core/ui/select";
-import { Switch } from "@/components/core/ui/switch";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
@@ -152,7 +152,7 @@ export function DeviceSettingsCard({ device, currentRule }: DeviceSettingsCardPr
               <Label htmlFor="device-lock">Admin lock</Label>
               <div className="flex h-9 items-center justify-between">
                 <span className="text-sm text-muted-foreground">Prevent user routing changes</span>
-                <Switch id="device-lock" checked={adminLocked} onCheckedChange={setAdminLocked} />
+                <Toggle id="device-lock" checked={adminLocked} onCheckedChange={setAdminLocked} />
               </div>
             </div>
 

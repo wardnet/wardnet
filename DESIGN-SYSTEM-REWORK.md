@@ -141,7 +141,7 @@ Radix primitive needed (pure visual or HTML element).
 | dropdown-menu.tsx | DropdownMenu       | popover-style menu (Forge §07)                         | [ ]    |
 | popover.tsx       | Popover            | `--bg-card` + `--shadow-pop`                           | [ ]    |
 | select.tsx        | Select             | field with chevron, popover list                       | [ ]    |
-| switch.tsx        | Switch             | `.toggle`                                              | [ ]    |
+| switch.tsx → toggle | Switch           | `.toggle` (renamed `Switch` → `Toggle`)                | [x]    |
 | tabs.tsx          | Tabs               | `.tabs` (pill) for view switches; underline tabs (`.tabs-bar` from §05) for page nav | [ ] |
 | radio-group.tsx   | RadioGroup         | Forge §09 form-row pattern                             | [ ]    |
 | label.tsx         | Label              | `.field label` / `.read-label`                         | [ ]    |
@@ -463,6 +463,77 @@ all facts; status pills via `.pill--*`.
   head: padding, border, sunken background, plus a nested `.right`
   selector for right-aligned actions. `.card--flush` is no longer needed
   for a footer-bearing card — the `:has()` rule above takes care of it.
+- **Component name always follows Forge class name — no Radix exception**
+  (2026-05-09, Toggle slice — supersedes the Pill slice's "modulo Radix
+  conventions" wording). Earlier the Pill finding carved out an
+  exception "where the Radix name is the lingua franca." On porting
+  Switch we walked that back: Radix's sub-library names
+  (`Switch.Root`, `Dialog.Trigger`, `Tabs.Content`) belong inside the
+  primitive's implementation file — that's where you're staring at
+  Radix docs — but they don't earn the export name. The rule is now
+  flat: **the file, the export, and the subpath are Forge's name**.
+  Toggle, not Switch (`toggle.tsx`, `./toggle`, `<Toggle …/>`); Modal,
+  not Dialog (when we get there); Pill, not Badge. The Radix umbrella
+  import keeps its Radix name inside the file (`import { Switch } from
+  "radix-ui"`, then render `<Switch.Root … />`). Future Radix-wrap
+  slices follow the same pattern: Dialog (Radix) → Modal (Forge
+  `.modal`); DropdownMenu likely keeps its name (no Forge collision);
+  Tabs stays Tabs (Forge `.tabs`).
+- **Radix `data-state` ↔ Forge modifier classes — bridged in CSS**
+  (2026-05-09, Toggle slice — sets the template for every state-bearing
+  Radix-wrap that follows: Tabs, RadioGroup, DropdownMenu, Popover,
+  Dialog→Modal, Sheet, AlertDialog, Select). Forge expresses primitive
+  state through modifier classes (`.toggle.is-on`, etc.) authored
+  alongside the CSS-only mocks. Radix expresses the same state through
+  `data-state="checked|unchecked|open|closed|active"` attributes
+  rendered onto its primitive root. We bridge the two **in Forge's
+  stylesheet**, not in JS-side class juggling, by giving the modifier
+  rule a dual selector:
+  ```css
+  .toggle.is-on,
+  .toggle[data-state="checked"] { background: var(--accent); }
+  .toggle.is-on::after,
+  .toggle[data-state="checked"]::after { left: 18px; }
+  ```
+  CSS-only consumers (the `forge/docs/` studio mocks) keep using
+  `.is-on`; the React primitive renders the bare Forge class on Radix
+  Switch.Root and lets Radix's `data-state="checked"` flip the visual.
+  No JS-side state→className computation, no doubled selector logic
+  inside the primitive. **Rule:** Forge will grow a family of
+  `[data-state="…"]` selectors alongside its existing modifier classes
+  as Radix-wrap primitives land — that is deliberate and correct, not
+  drift. Add the dual selector in the same slice that introduces the
+  Radix-wrapped primitive.
+- **Radix umbrella import shape — `radix-ui` + `Sub.Root`**
+  (2026-05-09, Toggle slice). Verified by reading the legacy
+  `core/ui/switch.tsx`: Radix's unified package is imported as
+  `import { Switch } from "radix-ui"` (not `import * as Switch from
+  "radix-ui/react-switch"`), and the parts are accessed as
+  `Switch.Root`, `Switch.Thumb`, etc. This matches the existing Button
+  primitive's `import { Slot } from "radix-ui"` shape. **Template for
+  future Radix-wrap primitives:** import the sub-library by its Radix
+  name from `"radix-ui"`, render its parts as `Sub.Root` /
+  `Sub.Trigger` etc. inside the file; export under the Forge name.
+- **Forge thumbs come from Forge** (2026-05-09, Toggle slice). Radix
+  Switch traditionally renders a `<Switch.Thumb>` child for the
+  draggable knob; Forge's `.toggle::after` already provides it. The
+  Toggle primitive renders `<Switch.Root>` with no children — adding
+  `Switch.Thumb` would double up the visual. Generalises to other
+  Radix primitives where Forge's CSS owns a sub-element via
+  pseudo-element: don't render the Radix sub-component if Forge
+  already provides the visual.
+- **Legacy shadcn alias audit — Toggle slice** (2026-05-09). The
+  deleted `switch.tsx` referenced `bg-input`, `bg-primary`,
+  `bg-background`, `bg-foreground`, `bg-primary-foreground`,
+  `border-ring`, `ring-ring`, `border-destructive`, `ring-destructive`.
+  None of those alias rows in `admin-app/web/src/index.css` reached
+  zero references after deletion — they're all still used by other
+  unmigrated components. Pre-existing zero-referenced rows
+  (`card-foreground`, `secondary`, `secondary-foreground`,
+  `destructive-foreground`, `sidebar-primary`,
+  `sidebar-primary-foreground`, `sidebar-ring`) were already zero
+  before this slice; the alias-pruning slice can drop them whenever
+  it lands.
 
 ---
 
@@ -804,3 +875,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | **Architecture revision again — root workspace abandoned in favour of admin-app-internal workspace + context-per-source-dir.** During the workspace conversion the bigger structural concern surfaced: `source/<thing>/` is already organised by deployment unit (daemon / SDK / site / admin / e2e). Hoisting forge / forge-web / forge-native to the same level would have flattened that segregation. New decision: yarn workspace lives **inside `source/admin-app/`** (containing `web` + `forge-web`, and later `mobile` + `forge-native`). Top-level `source/forge/` is the platform-neutral design language, consumed by both admin-app/web AND marketing-site. SDK stays top-level (separate cadence, will be published). Big restructure landed in this slice: `source/web-ui/` → `source/admin-app/web/`; old `source/forge/` (React primitives) → `source/admin-app/forge-web/`; `source/site/` → `source/marketing-site/`; repo-root `design-system/` → `source/forge/docs/`. New top-level `source/forge/` with `tokens.ts` (initial extraction — brand, status, radius, density, font) + `styles.css` (lifted out of forge-web). All 44 button imports retargeted to `@wardnet/forge-web/button`. Makefile, CI workflows, gitignore, daemon rust-embed paths, dependabot, codeql, detect-changes filters all updated. Type-check + lint + build clean for admin-app/web; type-check + format:check + build clean for marketing-site (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged). | (this commit) |
 | 2026-05-09 | Card primitive port (second primitive — multi-part). Mapped legacy 7-component API (`Card`/`CardHeader`/`CardTitle`/`CardDescription`/`CardAction`/`CardContent`/`CardFooter`) onto Forge's `.card` / `.card__head` (with auto-styled nested `h3`, `.sub`, `.right`) and a new `.card__foot` class added to `source/forge/styles.css` per the Forge-first rule. Export shape locked as flat named exports — kept the 29 call sites' import shape stable so the migration was a pure import-path retarget. Caught a flush prop in review and removed it: replaced the consumer-facing `flush` prop with a CSS `:has()` rule (`.card:has(> .card__head), .card:has(> .card__foot) { padding: 0; }`) so layout follows from composition rather than from a prop the consumer might mis-set. `.card--flush` stays in Forge for explicit no-head/no-foot cases (image-only, table-only) and CSS-only consumers. Legacy `core/ui/card.tsx` deleted; 29 imports retargeted to `@wardnet/forge-web/card`. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Pill primitive port (third primitive — first variant rename). Renamed component `Badge` → `Pill` to match Forge's class vocabulary; renamed legacy variant strings to Forge's semantic vocabulary (`success` → `ok`, `destructive` → `down`, `outline`/`secondary` → `ghost`; added `warn`/`info` where call sites had been forced into stylistic substitutes). Migration was wider than Button/Card (touched the `StatusBadge` wrapper's `variantForTone` map, `LogViewer.levelVariant`, `DnsLogs.RESULT_BADGE` lookup table, and 9 call sites' import + JSX) but tractable at this size — captured in Findings as the rule "adopt Forge variant vocabulary when semantic, keep legacy when stylistic, weight by call-site count." Forge `.pill` / `.pill--*` classes used directly via CVA; primitive supports `asChild` via Radix `Slot.Root` (matches Button). New `./pill` subpath export in forge-web. Legacy `core/ui/badge.tsx` deleted. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Toggle primitive port (fourth primitive — first Radix-wrap template). Renamed `Switch` → `Toggle` to match Forge's `.toggle` class; the legacy `core/ui/switch.tsx` is gone. Two rules locked in this slice: (1) **component name always follows Forge class name — no Radix exception**, supersedes the Pill slice's "modulo Radix" wording; the Radix umbrella import keeps its Radix name inside the file (`import { Switch } from "radix-ui"`, render `<Switch.Root>`), but the file/export/subpath are Forge's name. (2) **Radix `data-state` ↔ Forge modifier classes are bridged in Forge's stylesheet, not in JS** — added `.toggle[data-state="checked"]` selectors next to `.toggle.is-on` so CSS-only consumers and React primitives land on the same visual. This is the template for every state-bearing Radix-wrap that follows (Tabs, RadioGroup, Dialog→Modal, Popover, Sheet, AlertDialog, Select, DropdownMenu) — Forge will grow a family of `[data-state="…"]` selectors and that's deliberate. Toggle primitive is minimal: `<Switch.Root className="toggle" {...props} />`, no `Switch.Thumb` child since Forge's `.toggle::after` provides the thumb (a generalisable rule — don't render Radix sub-components Forge already owns visually). Subpath `./toggle` added to `@wardnet/forge-web`; 9 call sites retargeted (`@/components/core/ui/switch` → `@wardnet/forge-web/toggle`, `<Switch …>` → `<Toggle …>`); one stale JSDoc reference in `ProfileToggleList.tsx` updated. Legacy alias audit: switch.tsx's referenced aliases (`bg-input`, `bg-primary`, `bg-background`, `bg-foreground`, `bg-primary-foreground`, `border-ring`, `ring-ring`, `border-destructive`, `ring-destructive`) all retain other consumers — no rows newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
