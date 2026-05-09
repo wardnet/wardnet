@@ -656,7 +656,7 @@ button { font-family: inherit; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ---------- Drawer ---------- */
+/* ---------- Modal (centered dialog) ---------- */
 .scrim {
   position: fixed; inset: 0;
   background: color-mix(in oklab, #000 35%, transparent);
@@ -710,6 +710,42 @@ button { font-family: inherit; }
 @keyframes modal-out {
   from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   to { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.97); }
+}
+
+/* ---------- Drawer (edge-pinned slide-in panel) ---------- */
+.drawer {
+  position: fixed;
+  top: 0; bottom: 0;
+  width: 280px;
+  max-width: 80vw;
+  background: var(--side-bg);
+  color: var(--side-ink);
+  box-shadow: var(--shadow-pop);
+  z-index: 41;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.drawer[data-side="left"]  { left: 0;  border-right: 1px solid var(--side-line); }
+.drawer[data-side="right"] { right: 0; border-left:  1px solid var(--side-line); }
+.drawer[data-state="open"][data-side="left"]   { animation: drawer-in-left  200ms ease; }
+.drawer[data-state="open"][data-side="right"]  { animation: drawer-in-right 200ms ease; }
+.drawer[data-state="closed"][data-side="left"]  { animation: drawer-out-left  160ms ease forwards; }
+.drawer[data-state="closed"][data-side="right"] { animation: drawer-out-right 160ms ease forwards; }
+@keyframes drawer-in-left {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes drawer-out-left {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+@keyframes drawer-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes drawer-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
 }
 
 /* ---------- Popover ---------- */
