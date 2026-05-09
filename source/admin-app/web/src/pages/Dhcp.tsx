@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@wardnet/forge-web/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DhcpStatusCard } from "@/components/compound/DhcpStatusCard";
 import { DhcpConfigCard } from "@/components/compound/DhcpConfigCard";

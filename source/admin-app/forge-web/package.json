@@ -40,6 +40,10 @@
     "./select": {
       "import": "./src/primitives/select.tsx",
       "types": "./src/primitives/select.tsx"
+    },
+    "./tabs": {
+      "import": "./src/primitives/tabs.tsx",
+      "types": "./src/primitives/tabs.tsx"
     }
   },
   "files": [

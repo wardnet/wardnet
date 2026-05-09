@@ -451,7 +451,8 @@ button { font-family: inherit; }
   border-radius: 6px;
   cursor: pointer;
 }
-.tabs button.is-active {
+.tabs button.is-active,
+.tabs button[data-state="active"] {
   background: var(--bg-card);
   color: var(--ink);
   box-shadow: var(--shadow-card);

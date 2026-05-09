@@ -1,6 +1,6 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { ManualTunnelTab } from "./ManualTunnelTab";
 import { ProviderTunnelTab } from "./ProviderTunnelTab";
 

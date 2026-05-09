@@ -3,7 +3,7 @@ import { Brush, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } 
 
 import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { useTunnelMetrics } from "@/hooks/useTunnels";
 import { formatBytes } from "@/lib/utils";
 import type { TunnelMetricsRange } from "@wardnet/js";

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/core/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";

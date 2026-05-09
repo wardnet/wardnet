@@ -142,7 +142,7 @@ Radix primitive needed (pure visual or HTML element).
 | popover.tsx       | Popover            | `.popover` (added — `--bg-card` + `--shadow-pop` + side-aware entrance) | [x] |
 | select.tsx        | Select             | `.select-trigger` (added) + `.popover` `.select-content` (added) + `.menu-item` (incl. `[data-state="checked"]::after` checkmark, added) | [x] |
 | switch.tsx → toggle | Switch           | `.toggle` (renamed `Switch` → `Toggle`)                | [x]    |
-| tabs.tsx          | Tabs               | `.tabs` (pill) for view switches; underline tabs (`.tabs-bar` from §05) for page nav | [ ] |
+| tabs.tsx          | Tabs               | `.tabs` (pill) for view switches — only surface this slice; legacy `variant="line"` had zero call sites and was dropped. Underline page-nav surface (`.tabs-bar`) deferred until a router-driven nav consumer needs it. | [x] |
 | radio-group.tsx   | RadioGroup         | Forge §09 form-row pattern                             | [ ]    |
 | label.tsx         | Label              | `.field label` / `.read-label`                         | [ ]    |
 | input.tsx         | n/a                | `.field input`                                         | [ ]    |
@@ -1092,6 +1092,107 @@ all facts; status pills via `.pill--*`.
   `bg-popover` and `text-popover-foreground` are now one-
   consumer rows; the Command port will set them up for
   deletion.
+- **Tabs — first non-floating Radix-wrap; surveyed five call sites,
+  zero used `variant="line"` or `orientation="vertical"`** (2026-05-09,
+  tenth primitive). Going-in load-bearing question was which of
+  Forge's two tabs surfaces (`.tabs` pill / `.tabs-bar` underline)
+  the primitive lands on. Survey of `core/ui/tabs.tsx` consumers
+  (`DnsStatsSection`, `TunnelThroughputChart`, `CreateTunnelInline`,
+  `pages/Devices`, `pages/Dhcp`) showed all five exclusively use
+  the default pill — none pass `variant="line"`, none pass
+  `orientation="vertical"`, and all five are *view switches inside
+  a card or section*, never page-level navigation. So Decision 1
+  collapsed to option (a) per the briefing: ship one primitive
+  bound to one surface (`.tabs`). The legacy `variant="line"`
+  branch and its parallel CVA was a feature with zero consumers —
+  dropped per the locked rule "drop features the migration doesn't
+  require." `.tabs-bar` itself doesn't even exist in `source/forge/
+  styles.css` (only referenced in `source/forge/docs/tailwind.
+  config.js`), so the slice doesn't add it; if a future router-
+  driven page-nav surface needs an underline strip, that's a CSS
+  + nav-component slice on its own (and it likely won't go through
+  Radix Tabs at all — URL state is the source of truth, not React
+  state). **Generalisation:** "primitive ships only the surface(s)
+  consumers actually use; surfaces with zero consumers don't ship,
+  even when Forge's docs imply they exist."
+- **Tabs — `.tabs` already styles `button` descendants, so the
+  Trigger is a passthrough, not a Forge-class-bearing part**
+  (2026-05-09, tenth primitive). Forge's `.tabs button { … }`
+  selector targets descendants directly (line 444 of styles.css);
+  there's no `.tabs__btn` / `.tab` class for individual triggers.
+  Radix's `Tabs.Trigger` defaults to a `<button>` element, so it
+  drops naturally into the `.tabs button` selector with zero
+  className needed on the Radix part. Three of four exports are
+  passthrough Radix (`Tabs`, `TabsTrigger`, `TabsContent`) and
+  only `TabsList` bears a Forge class (`.tabs`). **Generalisation:**
+  when Forge's surface uses a descendant selector (`.parent child`)
+  rather than a child class (`.parent__child`), the inner Radix
+  parts become passthroughs — the parent's class plus the Radix
+  default element is enough to land Forge's visuals. Same
+  pattern would apply to any future Radix-wrap whose Forge surface
+  styles by tag rather than by class.
+- **Tabs — third application of the data-state bridge; static
+  visual, no keyframes** (2026-05-09, tenth primitive). Toggle
+  bridged `[data-state="checked"]` ↔ `.is-on`; Modal/Popover/
+  DropdownMenu/Select bridged `[data-state="open"|"closed"]` and
+  side-aware `[data-side="…"]` for floating surfaces. Tabs adds
+  `[data-state="active"]` next to the existing `.tabs button.is-
+  active` selector — same Toggle-pattern dual selector — so CSS-
+  only mocks (using `.is-active`) and React primitives (Radix-
+  emitted `data-state="active"`) land on the same visual. Unlike
+  the floating-surface primitives, the active-state visual on
+  `.tabs button` is a **static** transition (background + color +
+  shadow swap, no animation declared), so no new keyframes —
+  this confirms the Modal-slice intrinsic-vs-variant rule covers
+  static state changes too: state-driven CSS lives in Forge
+  whether or not the change is animated. **Generalisation:** the
+  state-bridge selector family is universal — every state-bearing
+  Radix-wrap grows it — but the Forge keyframe family is
+  conditional on whether the surface animates the state at all.
+- **Tabs — multi-part template's downward extreme so far**
+  (2026-05-09, tenth primitive). Four exports across two shapes
+  (3 passthrough Radix + 1 Forge-class-bearing). Comparison axis
+  across the ten Radix-wrap primitives that have shipped:
+  `Modal` 9/4 → `AlertModal` 8/4 → `DropdownMenu` 5/2 →
+  `Select` 5/2 → `Tabs` 4/2 → `Toggle` 1/1 → `Popover` 3/2.
+  Tabs sits between Toggle (single export) and Popover (3/2) on
+  the small end. Confirms the template handles the floor of the
+  range as cleanly as the ceiling — no new shape needed. Briefing
+  prediction "4 exports across 1–2 shapes" landed exactly.
+- **Tabs — Root passthrough is fine without a baked flex column
+  default; call sites that need layout already pass it explicitly**
+  (2026-05-09, tenth primitive). Legacy primitive's Root applied
+  `flex gap-2 data-horizontal:flex-col` so the Root acted as a
+  vertical flex column. New primitive's Root is a plain Radix
+  passthrough (default `<div>`, no flex). Verified per call site:
+  `Devices` and `Dhcp` already pass `className="flex min-h-0 flex-1
+  flex-col"` for their fill-the-card layout (legacy default was
+  redundant there); `CreateTunnelInline` has a TabsList followed
+  by TabsContent panels — the panels are block-level so they
+  break onto a new line below the inline-flex `.tabs`, with
+  `mt-4` on each TabsContent providing the gap (legacy `gap-2`
+  was ineffective here for the same reason — only one TabsContent
+  renders at a time); `DnsStatsSection` and `TunnelThroughputChart`
+  contain only a TabsList, so Root layout is irrelevant.
+  **Generalisation:** when removing a default-className from a
+  primitive Root, walk every call site and confirm either (a) the
+  default was never load-bearing, or (b) the call site already
+  supplies its own equivalent — leaving the default in place
+  would propagate a feature with no consumers (same shape as the
+  `variant="line"` drop earlier in this slice).
+- **Legacy shadcn alias audit — Tabs slice** (2026-05-09). The
+  deleted `tabs.tsx` referenced `bg-muted`, `text-muted-foreground`,
+  `bg-foreground`, `bg-background`, `border-input`, `bg-input`,
+  `text-foreground`, `border-ring`, `ring-ring`. None of the
+  shadcn alias rows reached zero after deletion — these are
+  long-tail rows with many remaining consumers (`text-muted-
+  foreground` ~73 files, `bg-muted` ~19, etc.). The Command port
+  remains the next slice that materially moves the alias-deletion
+  needle (`bg-popover` 1→0, `text-popover-foreground` 1→0).
+  **`tw-animate-css` holdout state unchanged** — `core/ui/sheet.
+  tsx` is still the sole file carrying utility-class motion, and
+  Tabs didn't touch it; dependency removal still rides whichever
+  feature slice last migrates a Sheet consumer.
 
 ---
 
@@ -1440,3 +1541,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | **Sheet dropped from design + Popover primitive port (seventh primitive — first floating-non-modal Radix-wrap).** Two parts in one commit. **Part 1 — Sheet drop (doc-only):** sheets fragment the navigation model — they slide a second surface on top of the page and force the user to hold two contexts to edit one record. Inline detail/edit is the same affordance with one fewer layer, and falls out of the edit-mode-card protocol that DhcpConfigCard / DeviceSettingsCard / BackupCard already use. Ripples: new `[-]` "Removed from scope" status legend row added; `sheet.tsx` primitive marked `[-]`; `EditDhcpConfigSheet` marked `[-]` (folds into DhcpConfigCard edit-mode); `CreateReservationSheet` notes updated (likely renamed CreateReservationInline — own slice); `MobileMenu` notes updated (no Sheet → mobile-nav approach TBD); `tw-animate-css` Locked-defaults note rewritten to "Keep (re-evaluate)" since Sheet's slide-from-bottom — the canonical variant-specific-motion example in the Modal-slice animation rule — no longer exists; multi-part Radix-wrap template still holds for Popover/DropdownMenu/Select. **Part 2 — Popover port:** Forge had no `.pop`/`.popover`/`.menu` class; added `.popover` to `source/forge/styles.css` per the Forge-first rule (`--bg-card` background, `--shadow-pop` shadow, `--radius` corner, 1px `--line` border, default 10px padding). Naming choice: `.popover` (not `.pop`) — the `--shadow-pop` token and `pop` keyframe (toast) keep their terse names, but component classes follow the React-vocabulary name (`Popover` ↔ `.popover`) per the Toggle-slice rule. Animations live in Forge per the Modal-slice intrinsic-vs-variant rule: side-aware entrance is intrinsic to popover-style floating surfaces (every popover slides from its anchor side), so four `[data-state="open"][data-side="…"]` open keyframes (`popover-in-bottom/top/left/right` — translate from anchor + scale 0.97→1) plus a direction-agnostic `popover-out` (fade + zoom-out, no slide) live in `styles.css`. `transform-origin` honors Radix's `--radix-popover-content-transform-origin` var with a `center` fallback for CSS-only consumers. **No tw-animate-css used here** — Sheet's removal didn't sink the rule, and Popover proves intrinsic-and-side-aware-as-Forge-keyframes works for floating surfaces; question of whether DropdownMenu / Select land utility-side motion is now open until concrete need surfaces. Surface stripped to three exports — `Popover` / `PopoverTrigger` / `PopoverContent` — since `PopoverAnchor` / `PopoverHeader` / `PopoverTitle` / `PopoverDescription` had zero call sites. Multi-part template stresses *downward* this slice (3 exports across 2 of 4 shapes) — DropdownMenu (next, ten-plus parts) will stress upward. New `./popover` subpath export in `@wardnet/forge-web`; 2 call sites migrated (`compound/CountryCombobox` + `compound/CronSchedulePicker`) — pure import-path retarget, no JSX rewrite (the legacy primitive's `align="center"` / `sideOffset=4` defaults preserved). Legacy `core/ui/popover.tsx` deleted. Legacy alias audit: counts dropped slightly (`bg-popover` 6→5, `text-popover-foreground` 4→3, `text-muted-foreground` ~230→~230) but no aliases newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | DropdownMenu primitive port (eighth primitive — second proof point for the side-aware-keyframe approach, and the first slice to surface that "stress-tests the multi-part template upward" was the wrong frame). Going-in scope listed ten-plus Radix parts (DropdownMenu / Trigger / Portal / Content / Item / CheckboxItem / RadioItem / RadioGroup / Label / Separator / Sub / SubTrigger / SubContent / Group / ItemIndicator / Shortcut). Reading the legacy `core/ui/dropdown-menu.tsx` collapsed the surface to **five exports** — `DropdownMenu` / `DropdownMenuTrigger` / `DropdownMenuContent` / `DropdownMenuItem` (with `variant: "default" \| "destructive"` prop) / `DropdownMenuSeparator` — and three call sites (AllowlistTable, FilterRuleTable, BlocklistTable) used exactly those five. So Decisions 3 (CheckboxItem / RadioItem indicator strategy) and 4 (Sub\*) dissolved trivially by the locked rule "drop features the migration doesn't require" (same calculus that stripped Popover from seven exports to three). **Forge-first:** added `.menu-item` and `.menu-separator` to `source/forge/styles.css` (after the popover keyframes); `DropdownMenuContent` reuses `className="popover"` for the surface — same `.popover` class as the Popover slice, no parallel `.menu` class, so the intrinsic side-aware motion (`[data-state="open"][data-side="…"]` keyframes from the Popover slice) is inherited verbatim. `.menu-item` uses `[data-highlighted]` (Radix-driven row highlight → `--bg-sunken`), `[data-disabled]` (opacity), and `[data-variant="destructive"]` (Forge `--danger` for rest, `--danger-soft` / `--danger-soft-ink` for highlighted) — destructive framing modeled as a `data-*` attribute (matches the existing `data-state` / `data-side` / `data-highlighted` family on Radix-wrap primitives) rather than a `.menu-item--destructive` modifier class, so the CSS selector vocabulary stays uniform. `.menu-separator` is `1px var(--line)` with `4px -6px` margin so it bleeds past the popover's 10px padding to span full width. **Multi-part template:** DropdownMenu lands at five exports across two shapes — passthrough Radix (`DropdownMenu`, `DropdownMenuTrigger`) and Radix-part-bearing-Forge-class (`DropdownMenuContent` = popover, `DropdownMenuItem` = menu-item, `DropdownMenuSeparator` = menu-separator). Modal remains the largest port (nine exports across all four shapes); the upward stress was driven by *consumer* usage, not Radix exposure — locked as a Findings clarification. **Animation rule (third application):** `.popover` keyframes inherited; **no tw-animate-css used**. Open question on tw-animate-css removal narrows to Select alone — if Select.Content also lands `.popover`, the dependency can be dropped in that slice. Subpath `./dropdown-menu` added to `@wardnet/forge-web`; 3 call sites retargeted (`@/components/core/ui/dropdown-menu` → `@wardnet/forge-web/dropdown-menu`) — pure import-path swap, no JSX rewrite (the legacy primitive's `align="end"` / `sideOffset=4` defaults preserved; `variant` prop on Item preserved as-is). Legacy `core/ui/dropdown-menu.tsx` deleted. Legacy alias audit: deletion dropped two rows to two consumers each — `bg-popover` (5→2) and `text-popover-foreground` (3→2), both with their remaining consumers in the primitive-port queue (`select.tsx` + `command.tsx`); next two slices touching those files set up both rows for deletion in the alias-pruning slice. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Select primitive port (ninth primitive — last Popover-shaped positioning consumer in the Radix-wrap queue, which made it the slice that decides whether `tw-animate-css` can be removed). Surface stripped to **five exports** — `Select` / `SelectTrigger` / `SelectValue` / `SelectContent` / `SelectItem` — by surveying the 10 call sites (UpdateCard, DashboardLogWidget, DeviceSettingsCard, ProviderTunnelTab, DeviceSelect, RoutingSelector, CronSchedulePicker, DnsLogs, MyDevice, Step3DhcpOnboarding); zero use `Group` / `Label` / `Separator` / `ScrollUpButton` / `ScrollDownButton`, dropped per "drop features the migration doesn't require." `Viewport`, `ItemText`, `ItemIndicator`, `Portal` are internal. **Forge-first:** added `.select-trigger` (input visuals — `--bg-elev` background, `--line` border, 8px radius, accent focus ring — plus flex+space-between layout and a chevron `::after` mask-image), `.select-content` as additive modifier on `.popover` (min-width tied to `--radix-select-trigger-width`, max-height-with-scroll, transform-origin overrides `.popover`'s Popover-var default with `--radix-select-content-transform-origin`). Items reuse `.menu-item` with two new Select-only extensions: `.menu-item[data-state] { padding-right: 26px }` reserves indicator gutter, and `.menu-item[data-state="checked"]::after { … mask-image }` paints the check (only Radix Select.Item emits `data-state`; DropdownMenu.Item doesn't, so these selectors don't pollute existing menus). `SelectContent` renders `<RadixSelect.Content className="popover select-content">` so the four side-aware popover keyframes apply unchanged — third slice in a row to validate the intrinsic-motion-as-Forge-keyframes rule. Default `position` switched from legacy `"item-aligned"` → `"popper"` (so `data-side` is emitted and side-aware keyframes trigger); default `align` switched from `"center"` → `"start"`; no call site passes either prop explicitly. **Forge owns the icons:** chevron and checkmark are CSS `::after` pseudo-elements with mask-image data URIs (lucide stroke-2 path geometry), keying on `currentColor` for the check and `--ink-3` for the chevron — primitive renders zero icon JSX, matching the Toggle-slice rule "don't render Radix sub-components Forge already owns visually" (Select.Icon and Select.ItemIndicator both dropped). **Multi-part template:** five exports across two shapes — passthrough Radix (`Select`, `SelectValue`) and Radix-part-bearing-Forge-class (`SelectTrigger`, composed `SelectContent` = Portal+Content with `.popover .select-content`, composed `SelectItem` = Item+ItemText with `.menu-item`); fits between DropdownMenu (5/2) and Popover (3/2) on the same axis Modal anchors at the top (9/4). Subpath `./select` added to `@wardnet/forge-web`; 10 call sites retargeted (`@/components/core/ui/select` → `@wardnet/forge-web/select`) — pure import-path swap, no JSX rewrite (export shape preserved). Legacy `core/ui/select.tsx` deleted. **tw-animate-css removal call:** _blocked, but not by a primitive_ — `core/ui/sheet.tsx` is still in the tree pending its three consumers' migrations (`EditDhcpConfigSheet`, `CreateReservationSheet`, `MobileMenu`) and is the sole remaining file with `data-open:animate-in` / `data-closed:animate-out` / `data-[side=…]:data-open:slide-in-from-…-10` etc. So the dep stays in `package.json` + `index.css` `@import` until whichever feature slice last touches Sheet replaces it; that slice closes the open question. Legacy alias audit: deletion dropped `bg-popover` (2→1) and `text-popover-foreground` (2→1) — both now have `core/ui/command.tsx` as their sole remaining consumer; Command port (post-tabs/forms slice) zeroes them. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Tabs primitive port (tenth primitive — first non-floating Radix-wrap; first slice where Forge styles inner parts via descendant selector). Survey of the five legacy call sites (`DnsStatsSection`, `TunnelThroughputChart`, `CreateTunnelInline`, `pages/Devices`, `pages/Dhcp`) found all five exclusively use the default pill (`.tabs`) surface — zero use legacy `variant="line"` or `orientation="vertical"`, and all five are *view switches inside a card or section*, never page-level navigation. So Decision 1 collapsed to "ship one primitive bound to one surface" — `.tabs` only; the legacy `variant="line"` branch and its parallel CVA dropped per "drop features the migration doesn't require"; `.tabs-bar` itself doesn't exist in `source/forge/styles.css` (only in `source/forge/docs/tailwind.config.js`) so the slice doesn't add it — if a future router-driven page-nav surface wants an underline strip, that lands in its own slice (and likely won't go through Radix Tabs at all since URL state is the source of truth). **Forge-first:** added `[data-state="active"]` next to the existing `.tabs button.is-active` selector (Toggle-pattern dual selector — third application of the data-state bridge across CSS-only mocks and React primitives); active-state visual is **static** (background + color + shadow swap, no animation declared), so no keyframes — confirms the Modal-slice intrinsic-vs-variant rule covers static state changes too. **Multi-part template:** four exports across two shapes — passthrough Radix (`Tabs`, `TabsTrigger`, `TabsContent`) and Radix-part-bearing-Forge-class (`TabsList` = `.tabs`). Forge's `.tabs button` selector targets descendants directly (no `.tabs__btn` class), so `TabsTrigger` is a passthrough — Radix Trigger renders a `<button>` by default and inherits `.tabs button` styles automatically; `TabsContent` is also a passthrough since Forge has nothing for content panels (call sites supply their own `mt-4` etc.). Tabs sits between Toggle (1/1) and Popover (3/2) on the small end of the template axis (Modal at 9/4 anchors the ceiling). Briefing prediction "4 exports across 1–2 shapes" landed exactly. **Root passthrough verification:** legacy primitive baked `flex gap-2 data-horizontal:flex-col` defaults on the Root; the new primitive drops them. Walked every call site and confirmed either (a) the default was redundant (`Devices`/`Dhcp` already pass their own `flex min-h-0 flex-1 flex-col`) or (b) layout still works because content panels are block-level (`CreateTunnelInline` — TabsList is inline-flex, TabsContent panels break onto a new line, `mt-4` provides the gap). New `./tabs` subpath export in `@wardnet/forge-web`; 5 call sites retargeted (`@/components/core/ui/tabs` → `@wardnet/forge-web/tabs`) — pure import-path swap, no JSX rewrite. Legacy `core/ui/tabs.tsx` deleted. Legacy alias audit: deletion didn't zero any rows (the deleted aliases were long-tail rows — `text-muted-foreground`, `bg-muted`, `bg-foreground`, `bg-background`, `border-input`, etc., all with many remaining consumers). **`tw-animate-css` holdout state unchanged** — `core/ui/sheet.tsx` is still the sole file carrying utility-class motion; this slice didn't touch it. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
