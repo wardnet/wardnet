@@ -376,6 +376,8 @@ async fn run(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
+            services.routing.dns_upstream_snapshot(),
+            services.tunnel_repo.clone(),
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );

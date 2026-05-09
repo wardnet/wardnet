@@ -194,6 +194,22 @@ pub struct TunnelDetailResponse {
     pub tunnel: Tunnel,
 }
 
+/// Request body for `PUT /api/tunnels/{id}/dns-override`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateTunnelDnsOverrideRequest {
+    /// `true` routes tunneled-device DNS through wardnet (so the
+    /// ad-blocking filter still runs) using the tunnel's DNS server as
+    /// upstream with `SO_BINDTODEVICE`. `false` falls back to the
+    /// system-wide upstream pool. See issue #342.
+    pub override_default_dns: bool,
+}
+
+/// Response for `PUT /api/tunnels/{id}/dns-override`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateTunnelDnsOverrideResponse {
+    pub tunnel: Tunnel,
+}
+
 /// Range selector for `GET /api/tunnels/{id}/metrics`.
 ///
 /// `OneHour..FortyEightHours` are served from the intraday table at

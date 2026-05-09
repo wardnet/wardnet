@@ -102,6 +102,7 @@ impl TunnelRepository for MockTunnelRepo {
                     dns,
                     listen_port,
                     peer,
+                    override_default_dns: r.override_default_dns,
                 }))
             }
             None => Ok(None),
@@ -117,6 +118,14 @@ impl TunnelRepository for MockTunnelRepo {
         let mut rows = self.rows.lock().unwrap();
         if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
             r.status = status.to_owned();
+        }
+        Ok(())
+    }
+
+    async fn update_dns_override(&self, id: &str, value: bool) -> anyhow::Result<()> {
+        let mut rows = self.rows.lock().unwrap();
+        if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
+            r.override_default_dns = value;
         }
         Ok(())
     }
@@ -272,6 +281,7 @@ fn row_to_tunnel(
         bytes_tx: s.bytes_tx.cast_unsigned(),
         bytes_rx: s.bytes_rx.cast_unsigned(),
         created_at: chrono::Utc::now(),
+        override_default_dns: r.override_default_dns,
     })
 }
 

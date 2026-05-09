@@ -29,6 +29,8 @@ pub struct TunnelRow {
     pub peer_config: String,
     /// Optional listen port for the local interface.
     pub listen_port: Option<u16>,
+    /// See [`wardnet_common::tunnel::Tunnel::override_default_dns`].
+    pub override_default_dns: bool,
 }
 
 /// Data access for `WireGuard` tunnel records.
@@ -56,6 +58,9 @@ pub trait TunnelRepository: Send + Sync {
 
     /// Update the status of a tunnel.
     async fn update_status(&self, id: &str, status: &str) -> anyhow::Result<()>;
+
+    /// Update only the `override_default_dns` flag for a tunnel.
+    async fn update_dns_override(&self, id: &str, value: bool) -> anyhow::Result<()>;
 
     /// Update live stats for a tunnel.
     async fn update_stats(

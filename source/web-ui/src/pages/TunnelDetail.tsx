@@ -6,7 +6,9 @@ import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
-import { useTunnel, useDeleteTunnel } from "@/hooks/useTunnels";
+import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@/hooks/useTunnels";
+import { Switch } from "@/components/core/ui/switch";
+import { Label } from "@/components/core/ui/label";
 import { useNavigate } from "react-router";
 import { countryFlag } from "@/lib/country";
 import { timeAgo } from "@/lib/utils";
@@ -57,6 +59,7 @@ export default function TunnelDetail() {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnel(id);
   const deleteTunnel = useDeleteTunnel();
+  const setDnsOverride = useSetTunnelDnsOverride();
 
   if (isLoading) {
     return (
@@ -100,18 +103,40 @@ export default function TunnelDetail() {
         <CardHeader>
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
-          <MetadataRow label="Provider">{tunnel.provider ?? "—"}</MetadataRow>
-          <MetadataRow label="Country">
-            {flag ? `${flag} ` : ""}
-            {tunnel.country_code?.toUpperCase() ?? "—"}
-          </MetadataRow>
-          <MetadataRow label="Endpoint">
-            <span className="font-mono text-xs">{tunnel.endpoint}</span>
-          </MetadataRow>
-          <MetadataRow label="Interface">
-            <span className="font-mono text-xs">{tunnel.interface_name}</span>
-          </MetadataRow>
+        <CardContent className="flex flex-col gap-6">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
+            <MetadataRow label="Provider">{tunnel.provider ?? "—"}</MetadataRow>
+            <MetadataRow label="Country">
+              {flag ? `${flag} ` : ""}
+              {tunnel.country_code?.toUpperCase() ?? "—"}
+            </MetadataRow>
+            <MetadataRow label="Endpoint">
+              <span className="font-mono text-xs">{tunnel.endpoint}</span>
+            </MetadataRow>
+            <MetadataRow label="Interface">
+              <span className="font-mono text-xs">{tunnel.interface_name}</span>
+            </MetadataRow>
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="dns-override" className="text-sm font-medium">
+                Filter and route DNS through this tunnel
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When on, devices routed through this tunnel resolve DNS via wardnet so ad-blocking
+                still applies, and wardnet forwards those queries via the tunnel interface using the
+                tunnel's DNS server. When off, the system-wide upstream pool is used.
+              </p>
+            </div>
+            <Switch
+              id="dns-override"
+              checked={tunnel.override_default_dns}
+              disabled={setDnsOverride.isPending}
+              onCheckedChange={(checked) =>
+                setDnsOverride.mutate({ id: tunnel.id, value: checked })
+              }
+            />
+          </div>
         </CardContent>
       </Card>
 

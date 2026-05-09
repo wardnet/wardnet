@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use wardnet_common::device::Device;
+use wardnet_common::dns::UpstreamId;
 use wardnet_common::routing::{RoutingRule, RoutingTarget};
 use wardnet_common::tunnel::TunnelStatus;
 
@@ -112,6 +115,22 @@ pub trait RoutingService: Send + Sync {
 
     /// Read the current global default routing policy.
     async fn default_policy(&self) -> Result<String, AppError>;
+
+    /// Lock-free, atomically swappable snapshot of `device_ip → UpstreamId`
+    /// for the DNS server's per-query upstream selection.
+    ///
+    /// Returned entries map a tunneled device's IP to `Tunnel(id)` only
+    /// when the targeted tunnel has `override_default_dns = true`.
+    /// Lookup misses (LAN devices, or tunneled devices with override
+    /// disabled) implicitly resolve to `UpstreamId::Default`.
+    fn dns_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>;
+
+    /// Force a rebuild + atomic swap of the snapshot returned by
+    /// [`Self::dns_upstream_snapshot`]. Called on
+    /// [`wardnet_common::event::WardnetEvent::TunnelDnsOverrideChanged`]
+    /// so already-applied device rules pick up the new upstream choice
+    /// without waiting for the next routing-rule mutation.
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError>;
 }
 
 /// Tracks kernel state that has been applied for a single device.
@@ -124,6 +143,11 @@ struct AppliedRule {
     table: Option<u32>,
     /// The tunnel ID if targeting a tunnel.
     tunnel_id: Option<Uuid>,
+    /// The DNS upstream this device's queries should be forwarded to.
+    /// `Tunnel(id)` only when the device targets a tunnel **and** that
+    /// tunnel has `override_default_dns = true`. Otherwise `Default`.
+    /// Read by the DNS server's per-query upstream selection.
+    dns_upstream: UpstreamId,
 }
 
 /// Aggregate kernel state tracked by the routing service.
@@ -154,6 +178,10 @@ pub struct RoutingServiceImpl {
     lan_interface: String,
     /// Mutable in-memory state protected by a mutex.
     state: Mutex<RoutingState>,
+    /// `device_ip → UpstreamId` snapshot consulted lock-free by the DNS
+    /// server hot path. Rebuilt and atomically swapped on every change
+    /// to [`RoutingState::applied`].
+    dns_upstream_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
 }
 
 impl RoutingServiceImpl {
@@ -182,7 +210,40 @@ impl RoutingServiceImpl {
                 applied: HashMap::new(),
                 tunnel_tables: HashSet::new(),
             }),
+            dns_upstream_snapshot: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         }
+    }
+
+    /// Walk [`RoutingState::applied`] and produce the fresh
+    /// `device_ip → UpstreamId` map.
+    fn build_dns_upstream_map(state: &RoutingState) -> HashMap<IpAddr, UpstreamId> {
+        let mut map = HashMap::with_capacity(state.applied.len());
+        for rule in state.applied.values() {
+            if matches!(rule.dns_upstream, UpstreamId::Default) {
+                continue;
+            }
+            let Ok(ip) = rule.device_ip.parse::<IpAddr>() else {
+                tracing::warn!(
+                    device_ip = %rule.device_ip,
+                    "skipping invalid IP in DNS upstream snapshot rebuild"
+                );
+                continue;
+            };
+            map.insert(ip, rule.dns_upstream);
+        }
+        map
+    }
+
+    /// Rebuild and atomically swap the DNS-upstream snapshot. Caller must
+    /// hold (or have just released) the [`RoutingState`] mutex so the
+    /// snapshot reflects a consistent view.
+    fn refresh_dns_upstream_snapshot(&self, state: &RoutingState) {
+        let map = Self::build_dns_upstream_map(state);
+        tracing::debug!(
+            entry_count = map.len(),
+            "rebuilt DNS upstream snapshot from routing state"
+        );
+        self.dns_upstream_snapshot.store(Arc::new(map));
     }
 
     /// Snapshot the current default policy.
@@ -282,14 +343,6 @@ impl RoutingServiceImpl {
                         removed = removed
                     );
                 }
-            }
-            tracing::debug!(device_ip = %rule.device_ip, "removing DNS redirect");
-            if let Err(e) = self.nftables.remove_dns_redirect(&rule.device_ip).await {
-                tracing::warn!(
-                    error = %e,
-                    device_ip = %rule.device_ip,
-                    "failed to remove DNS redirect"
-                );
             }
         } else {
             tracing::debug!(
@@ -634,11 +687,15 @@ impl RoutingService for RoutingServiceImpl {
             None
         };
 
-        // Fetch tunnel DNS if we have a tunnel.
-        let dns_ip = if let Some(ref tunnel) = tunnel_info {
+        // Fetch tunnel DNS-override flag if we have a tunnel. When the
+        // tunnel has `override_default_dns = true`, we mark this device's
+        // DNS upstream as `Tunnel(id)` so wardnet's DNS server forwards
+        // its queries via a `SO_BINDTODEVICE`-bound socket on the tunnel.
+        // No nftables prerouting DNAT is installed — see issue #342.
+        let tunnel_dns_override = if let Some(ref tunnel) = tunnel_info {
             tracing::debug!(
                 tunnel_id = %tunnel.id,
-                "loading tunnel config for DNS servers"
+                "loading tunnel config for DNS override flag"
             );
             match self
                 .tunnel_repo
@@ -646,29 +703,30 @@ impl RoutingService for RoutingServiceImpl {
                 .await
             {
                 Ok(Some(config)) => {
-                    let dns = config.dns.first().cloned();
+                    let on = config.override_default_dns && !config.dns.is_empty();
                     tracing::debug!(
                         tunnel_id = %tunnel.id,
-                        dns_servers = ?config.dns,
-                        selected_dns = ?dns,
-                        "resolved tunnel DNS configuration"
+                        override_default_dns = config.override_default_dns,
+                        has_dns = !config.dns.is_empty(),
+                        active = on,
+                        "resolved tunnel DNS override"
                     );
-                    dns
+                    on
                 }
                 Ok(None) => {
                     tracing::debug!(
                         tunnel_id = %tunnel.id,
-                        "no tunnel config found, DNS redirect will be skipped"
+                        "no tunnel config found, DNS override defaults to off"
                     );
-                    None
+                    false
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "failed to load tunnel config for DNS");
-                    None
+                    tracing::warn!(error = %e, "failed to load tunnel config for DNS override");
+                    false
                 }
             }
         } else {
-            None
+            false
         };
 
         // -- Phase 3: Apply kernel state (locked) ----------------------------
@@ -704,8 +762,10 @@ impl RoutingService for RoutingServiceImpl {
                         target: RoutingTarget::Direct,
                         table: None,
                         tunnel_id: None,
+                        dns_upstream: UpstreamId::Default,
                     },
                 );
+                self.refresh_dns_upstream_snapshot(&state);
                 return Ok(());
             };
             let table = table_for_index(index);
@@ -728,8 +788,10 @@ impl RoutingService for RoutingServiceImpl {
                         target: RoutingTarget::Direct,
                         table: None,
                         tunnel_id: None,
+                        dns_upstream: UpstreamId::Default,
                     },
                 );
+                self.refresh_dns_upstream_snapshot(&state);
                 return Ok(());
             }
 
@@ -749,29 +811,20 @@ impl RoutingService for RoutingServiceImpl {
                         target: RoutingTarget::Direct,
                         table: None,
                         tunnel_id: None,
+                        dns_upstream: UpstreamId::Default,
                     },
                 );
+                self.refresh_dns_upstream_snapshot(&state);
                 return Ok(());
             }
 
             tracing::debug!(device_ip, table, "ip rule added successfully");
 
-            // Add DNS redirect if tunnel has DNS servers.
-            if let Some(ref dns) = dns_ip {
-                tracing::debug!(device_ip, dns, "adding DNS redirect");
-                if let Err(e) = self.nftables.add_dns_redirect(device_ip, dns).await {
-                    tracing::warn!(
-                        error = %e,
-                        device_ip,
-                        dns,
-                        "failed to add DNS redirect (non-fatal)"
-                    );
-                } else {
-                    tracing::debug!(device_ip, dns, "DNS redirect added successfully");
-                }
+            let dns_upstream = if tunnel_dns_override {
+                UpstreamId::Tunnel(*tunnel_id)
             } else {
-                tracing::debug!(device_ip, "no tunnel DNS configured, skipping DNS redirect");
-            }
+                UpstreamId::Default
+            };
 
             tracing::info!(
                 device_id = %device_id,
@@ -779,6 +832,7 @@ impl RoutingService for RoutingServiceImpl {
                 tunnel_id = %tunnel_id,
                 interface = %tunnel.interface_name,
                 table,
+                ?dns_upstream,
                 "applied tunnel routing rule"
             );
 
@@ -789,6 +843,7 @@ impl RoutingService for RoutingServiceImpl {
                     target: resolved.clone(),
                     table: Some(table),
                     tunnel_id: Some(*tunnel_id),
+                    dns_upstream,
                 },
             );
         } else {
@@ -806,9 +861,12 @@ impl RoutingService for RoutingServiceImpl {
                     target: RoutingTarget::Direct,
                     table: None,
                     tunnel_id: None,
+                    dns_upstream: UpstreamId::Default,
                 },
             );
         }
+
+        self.refresh_dns_upstream_snapshot(&state);
 
         // Flush stale connections: inject temporary TCP RST reject rule,
         // flush conntrack, wait for device retransmits, then clean up.
@@ -829,6 +887,7 @@ impl RoutingService for RoutingServiceImpl {
         tracing::debug!(device_id = %device_id, "remove_device_routes called");
         let mut state = self.state.lock().await;
         self.remove_device_kernel_state(&mut state, device_id).await;
+        self.refresh_dns_upstream_snapshot(&state);
         tracing::info!(device_id = %device_id, "removed device routing state");
         Ok(())
     }
@@ -943,6 +1002,7 @@ impl RoutingService for RoutingServiceImpl {
         // Release the lock before flushing stale connections for affected
         // devices — without this, existing flows stay pinned to the now-dead
         // tunnel route instead of falling back to the default route.
+        self.refresh_dns_upstream_snapshot(&state);
         drop(state);
         for ip in &affected_ips {
             self.flush_stale_connections(ip).await;
@@ -1040,6 +1100,15 @@ impl RoutingService for RoutingServiceImpl {
             .init_wardnet_table()
             .await
             .map_err(AppError::Internal)?;
+
+        // One-shot upgrade migration: scrub leftover `wardnet:dns:*`
+        // prerouting DNAT rules from previous daemon versions (the
+        // mechanism removed by #342). Idempotent. Runs *before* the
+        // table flush so the cleanup also covers daemons that crash
+        // between init and flush. See `firewall_nftables.rs`.
+        if let Err(e) = self.nftables.cleanup_legacy_dns_redirects().await {
+            tracing::warn!(error = %e, "failed to clean up legacy DNS redirect rules");
+        }
 
         // Flush nftables rules to start clean.
         tracing::debug!("flushing nftables wardnet table");
@@ -1440,5 +1509,57 @@ impl RoutingService for RoutingServiceImpl {
     async fn default_policy(&self) -> Result<String, AppError> {
         auth_context::require_admin()?;
         Ok(self.current_default_policy())
+    }
+
+    fn dns_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
+        Arc::clone(&self.dns_upstream_snapshot)
+    }
+
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        // No auth guard — invoked from the routing listener on
+        // `TunnelDnsOverrideChanged`, which already runs inside an
+        // `auth_context::with_context(Admin)` wrapper.
+        let mut state = self.state.lock().await;
+
+        // Re-fetch the override flag for every tunnel currently referenced
+        // by an applied rule. Caching by tunnel id avoids repeating the
+        // repo lookup when multiple devices share a tunnel.
+        let mut override_cache: HashMap<Uuid, bool> = HashMap::new();
+        for rule in state.applied.values_mut() {
+            let Some(tunnel_id) = rule.tunnel_id else {
+                rule.dns_upstream = UpstreamId::Default;
+                continue;
+            };
+            let active = if let Some(v) = override_cache.get(&tunnel_id) {
+                *v
+            } else {
+                let v = match self
+                    .tunnel_repo
+                    .find_config_by_id(&tunnel_id.to_string())
+                    .await
+                {
+                    Ok(Some(cfg)) => cfg.override_default_dns && !cfg.dns.is_empty(),
+                    Ok(None) => false,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            tunnel_id = %tunnel_id,
+                            "failed to load tunnel config during DNS upstream rebuild"
+                        );
+                        false
+                    }
+                };
+                override_cache.insert(tunnel_id, v);
+                v
+            };
+            rule.dns_upstream = if active {
+                UpstreamId::Tunnel(tunnel_id)
+            } else {
+                UpstreamId::Default
+            };
+        }
+
+        self.refresh_dns_upstream_snapshot(&state);
+        Ok(())
     }
 }

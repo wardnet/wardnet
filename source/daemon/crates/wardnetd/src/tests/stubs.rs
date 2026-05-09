@@ -312,6 +312,13 @@ impl TunnelService for StubTunnelService {
     async fn list_tunnel_devices(&self, _id: Uuid) -> Result<TunnelDevicesResponse, AppError> {
         unimplemented!()
     }
+    async fn set_dns_override(
+        &self,
+        _id: Uuid,
+        _value: bool,
+    ) -> Result<wardnet_common::tunnel::Tunnel, AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -406,6 +413,20 @@ impl RoutingService for StubRoutingService {
         unimplemented!()
     }
     async fn default_policy(&self) -> Result<String, AppError> {
+        unimplemented!()
+    }
+    fn dns_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<
+            std::collections::HashMap<std::net::IpAddr, wardnet_common::dns::UpstreamId>,
+        >,
+    > {
+        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+            std::collections::HashMap::new(),
+        ))
+    }
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
         unimplemented!()
     }
 }

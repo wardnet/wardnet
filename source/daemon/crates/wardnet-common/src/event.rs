@@ -155,6 +155,14 @@ pub enum WardnetEvent {
         error: String,
         timestamp: DateTime<Utc>,
     },
+    /// A tunnel's `override_default_dns` flag was toggled. Listeners
+    /// rebuild the routing service's `device_ip → UpstreamId` snapshot
+    /// so already-applied device rules pick up the new upstream choice
+    /// without waiting for the next routing-rule mutation.
+    TunnelDnsOverrideChanged {
+        tunnel_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

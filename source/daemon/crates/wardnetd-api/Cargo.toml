@@ -54,3 +54,5 @@ async-trait.workspace = true
 sqlx.workspace = true
 # https://crates.io/crates/hickory-proto — RecordType used by stub DnsFilterService
 hickory-proto.workspace = true
+# https://crates.io/crates/arc-swap — referenced by stub RoutingService impls for the DNS upstream snapshot
+arc-swap.workspace = true

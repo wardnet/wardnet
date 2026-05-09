@@ -259,6 +259,18 @@ impl RoutingService for MockRoutingService {
             Err(e) => Err(clone_app_error(e)),
         }
     }
+    fn dns_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<
+            std::collections::HashMap<std::net::IpAddr, wardnet_common::dns::UpstreamId>,
+        >,
+    > {
+        self.inner.dns_upstream_snapshot()
+    }
+    async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        self.inner.rebuild_dns_upstream_snapshot().await
+    }
 }
 
 /// Re-create an [`AppError`] of the same variant as `err` so a mock

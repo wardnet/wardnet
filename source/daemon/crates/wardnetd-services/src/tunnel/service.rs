@@ -86,6 +86,13 @@ pub trait TunnelService: Send + Sync {
     /// List the devices currently routed through this tunnel.
     async fn list_tunnel_devices(&self, id: Uuid) -> Result<TunnelDevicesResponse, AppError>;
 
+    /// Update the per-tunnel `override_default_dns` flag.
+    ///
+    /// Toggles whether tunneled-device DNS queries are filtered + forwarded
+    /// through the tunnel's DNS server (`true`) or left to the system-wide
+    /// upstream pool (`false`).
+    async fn set_dns_override(&self, id: Uuid, value: bool) -> Result<Tunnel, AppError>;
+
     /// Bring a tunnel interface up.
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError>;
 
@@ -736,6 +743,15 @@ impl TunnelService for TunnelServiceImpl {
         let peer_config_json =
             serde_json::to_string(peer).map_err(|e| AppError::Internal(e.into()))?;
 
+        // Default to override-default-DNS when the imported config carries
+        // a DNS server: tunneled devices route their DNS through wardnet
+        // (so the ad-blocking filter still runs) and wardnet forwards
+        // those queries to the tunnel's DNS server with `SO_BINDTODEVICE`
+        // to avoid leaking via the ISP's default route. Tunnels with no
+        // configured DNS default to false — there is nothing to override
+        // and the system-wide upstream pool is the right choice.
+        let override_default_dns = !config.interface.dns.is_empty();
+
         let row = TunnelRow {
             id: id.to_string(),
             label: req.label.clone(),
@@ -748,6 +764,7 @@ impl TunnelService for TunnelServiceImpl {
             dns: dns_json,
             peer_config: peer_config_json,
             listen_port: config.interface.listen_port,
+            override_default_dns,
         };
 
         self.tunnels
@@ -768,6 +785,7 @@ impl TunnelService for TunnelServiceImpl {
             bytes_tx: 0,
             bytes_rx: 0,
             created_at: now,
+            override_default_dns,
         };
 
         Ok(CreateTunnelResponse {
@@ -842,6 +860,26 @@ impl TunnelService for TunnelServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         Ok(TunnelDevicesResponse { devices })
+    }
+
+    async fn set_dns_override(&self, id: Uuid, value: bool) -> Result<Tunnel, AppError> {
+        auth_context::require_admin()?;
+        self.require_tunnel(id).await?;
+        self.tunnels
+            .update_dns_override(&id.to_string(), value)
+            .await
+            .map_err(AppError::Internal)?;
+        // Re-emit a routing-rules-changed signal so the DNS-upstream
+        // snapshot rebuild picks up the new value for already-applied
+        // device rules. Devices keep their applied rule; only the
+        // upstream selection (filter on/off, tunnel vs default upstream)
+        // is affected.
+        self.events.publish(WardnetEvent::TunnelDnsOverrideChanged {
+            tunnel_id: id,
+            timestamp: chrono::Utc::now(),
+        });
+        let tunnel = self.require_tunnel(id).await?;
+        Ok(tunnel)
     }
 
     async fn get_metrics(

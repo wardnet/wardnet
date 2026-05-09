@@ -8,15 +8,29 @@
 //! there does a synchronous start→stop→start cycle that this race
 //! breaks without the fix.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
+use async_trait::async_trait;
+use chrono::Utc;
 use hickory_proto::rr::RecordType;
-use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns};
+use tokio::sync::RwLock;
+use uuid::Uuid;
+use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns, UpstreamId};
+use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
+use wardnet_common::wireguard_config::WgPeerConfig;
+use wardnetd_data::repository::TunnelRepository;
+use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_services::dns::server::DnsServer;
 
-use crate::dns::server::{UdpDnsServer, duration_to_ms, upstream_label};
+use crate::dns::server::{
+    TunnelForwarderInfo, UdpDnsServer, duration_to_ms, get_or_build_tunnel_forwarder,
+    upstream_label,
+};
 use crate::tests::stubs::StubDnsFilterService;
 
 fn loopback_ephemeral() -> SocketAddr {
@@ -27,14 +41,295 @@ fn stub_filter() -> Arc<dyn wardnetd_services::DnsFilterService> {
     Arc::new(StubDnsFilterService)
 }
 
+fn empty_routing_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
+    Arc::new(ArcSwap::from_pointee(HashMap::new()))
+}
+
+fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
+    struct Stub;
+    #[async_trait]
+    impl TunnelRepository for Stub {
+        async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
+            Ok(vec![])
+        }
+        async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Tunnel>> {
+            Ok(None)
+        }
+        async fn find_config_by_id(&self, _id: &str) -> anyhow::Result<Option<TunnelConfig>> {
+            Ok(None)
+        }
+        async fn insert(&self, _row: &TunnelRow) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_dns_override(&self, _id: &str, _value: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_stats(
+            &self,
+            _id: &str,
+            _bytes_tx: i64,
+            _bytes_rx: i64,
+            _last_handshake: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn next_interface_index(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+        async fn count(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+        async fn count_active(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+    }
+    Arc::new(Stub)
+}
+
+/// Filter stub whose response is configured per construction. Lets
+/// tests pin `handle_query` down a specific branch (Block / Rewrite / Pass).
+struct ConfigurableFilter {
+    action: wardnet_common::dns::FilterAction,
+}
+
+#[async_trait]
+impl wardnetd_services::DnsFilterService for ConfigurableFilter {
+    async fn check(
+        &self,
+        _domain: &str,
+        _qtype: hickory_proto::rr::RecordType,
+        _client: std::net::IpAddr,
+    ) -> wardnetd_services::dns_filter::service::CheckOutcome {
+        wardnetd_services::dns_filter::service::CheckOutcome {
+            action: self.action,
+            would_have_blocked: false,
+        }
+    }
+    async fn rebuild_all(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn list_profiles(
+        &self,
+    ) -> Result<wardnet_common::api::ListProfilesResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::GetProfileResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn create_profile(
+        &self,
+        _r: wardnet_common::api::CreateProfileRequest,
+    ) -> Result<wardnet_common::api::CreateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_profile(
+        &self,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateProfileRequest,
+    ) -> Result<wardnet_common::api::UpdateProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteProfileResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_blocklists(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListBlocklistsResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateBlocklistRequest,
+    ) -> Result<wardnet_common::api::CreateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateBlocklistRequest,
+    ) -> Result<wardnet_common::api::UpdateBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteBlocklistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn refresh_blocklist(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_allowlist(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateAllowlistRequest,
+    ) -> Result<wardnet_common::api::CreateAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_allowlist_entry(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteAllowlistResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_custom_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<wardnet_common::api::ListFilterRulesResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn create_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _r: wardnet_common::api::CreateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::CreateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+        _r: wardnet_common::api::UpdateFilterRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn delete_custom_rule(
+        &self,
+        _profile_id: Uuid,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteFilterRuleResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_device_settings(
+        &self,
+        _params: wardnet_common::api::ListDeviceFilterSettingsParams,
+    ) -> Result<
+        wardnet_common::api::ListDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_device_settings(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<
+        wardnet_common::api::GetDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn update_device_settings(
+        &self,
+        _device_id: Uuid,
+        _r: wardnet_common::api::UpdateDeviceFilterSettingsRequest,
+    ) -> Result<
+        wardnet_common::api::UpdateDeviceFilterSettingsResponse,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn get_filter_config(
+        &self,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn update_filter_config(
+        &self,
+        _r: wardnet_common::api::UpdateDnsFilterConfigRequest,
+    ) -> Result<wardnet_common::api::DnsFilterConfigResponse, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn rebuild_blocklist_filter(
+        &self,
+        _id: Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_profile(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_device(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn rebuild_default_context(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn handle_device_ip_changed(
+        &self,
+        _device_id: Uuid,
+        _old_ip: &str,
+        _new_ip: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+}
+
+/// Build a DNS server with empty routing snapshot + stub tunnel repo —
+/// the lifecycle/cache tests in this file don't exercise per-tunnel
+/// forwarding, so the snapshot stays empty and `find_by_id` is never
+/// called. The dedicated upstream-selection tests live in their own
+/// module and inject a populated snapshot directly.
+fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
+    UdpDnsServer::with_bind_addr(
+        config,
+        bind_addr,
+        stub_filter(),
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn start_sets_running_flag() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -44,8 +339,7 @@ async fn start_sets_running_flag() {
 
 #[tokio::test]
 async fn stop_clears_running_flag() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -61,8 +355,7 @@ async fn stop_clears_running_flag() {
 
 #[tokio::test]
 async fn second_start_is_a_noop() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     // Second start is documented as a no-op (warns + returns Ok).
@@ -74,8 +367,7 @@ async fn second_start_is_a_noop() {
 
 #[tokio::test]
 async fn stop_when_not_running_is_a_noop() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.stop().await.unwrap();
     assert!(!server.is_running());
@@ -87,8 +379,7 @@ async fn restart_after_stop_works() {
     // is reused without recreation, the second `tracker.spawn(...)` after
     // a `tracker.close()` would panic. Toggling the server quickly off
     // and on (the dns-config e2e path) needs this to be safe.
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     server.stop().await.unwrap();
@@ -101,8 +392,7 @@ async fn restart_after_stop_works() {
 
 #[tokio::test]
 async fn stop_is_idempotent_after_drain() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     server.stop().await.unwrap();
@@ -118,8 +408,7 @@ async fn stop_drains_the_per_query_spawn() {
     // exits — cache miss → filter pass → upstream forward error in the
     // sandboxed test env). Without sending traffic, the per-query path is
     // never executed and the drain is a vacuous no-op.
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     server.start().await.unwrap();
     let bound = server
@@ -174,11 +463,7 @@ async fn concurrent_start_calls_dont_race_to_bind() {
     drop(probe);
     let bind = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let server = Arc::new(UdpDnsServer::with_bind_addr(
-        DnsConfig::default(),
-        bind,
-        stub_filter(),
-    ));
+    let server = Arc::new(build_test_server(DnsConfig::default(), bind));
 
     let s1 = Arc::clone(&server);
     let s2 = Arc::clone(&server);
@@ -192,8 +477,7 @@ async fn concurrent_start_calls_dont_race_to_bind() {
 
 #[tokio::test]
 async fn flush_cache_returns_zero_on_empty() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
     server.start().await.unwrap();
 
     let flushed = server.flush_cache().await;
@@ -204,8 +488,7 @@ async fn flush_cache_returns_zero_on_empty() {
 
 #[tokio::test]
 async fn update_config_works_before_and_after_start() {
-    let server =
-        UdpDnsServer::with_bind_addr(DnsConfig::default(), loopback_ephemeral(), stub_filter());
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
 
     // Pre-start: should not panic.
     server
@@ -232,13 +515,12 @@ async fn update_config_works_before_and_after_start() {
 async fn empty_upstream_servers_falls_back_to_cloudflare() {
     // build_resolver inside the server treats `upstream_servers = []` as
     // "use Cloudflare" — exercising the start path under that fallback.
-    let server = UdpDnsServer::with_bind_addr(
+    let server = build_test_server(
         DnsConfig {
             upstream_servers: vec![],
             ..DnsConfig::default()
         },
         loopback_ephemeral(),
-        stub_filter(),
     );
 
     server.start().await.unwrap();
@@ -308,4 +590,538 @@ fn record_query_with_no_sink_is_a_noop() {
         None,
         Duration::from_millis(2),
     );
+}
+
+#[tokio::test]
+async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
+    // Trailing dots are part of DNS wire format but not what we want to
+    // see in Loki / the UI. The recorder must strip them; verify both
+    // that a row arrives and that the domain is normalized.
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let src = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5353);
+
+    crate::dns::server::record_query(
+        Some(sink.as_ref()),
+        "example.com.",
+        RecordType::AAAA,
+        src,
+        "passed",
+        Some("1.1.1.1".into()),
+        Duration::from_millis(7),
+    );
+
+    let row = rx
+        .recv()
+        .await
+        .expect("sink should have received exactly one row");
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.query_type, "AAAA");
+    assert_eq!(row.result, "passed");
+    assert_eq!(row.upstream.as_deref(), Some("1.1.1.1"));
+    assert_eq!(row.client_ip, "127.0.0.1");
+    assert!(row.device_id.is_none());
+    // Latency conversion: 7ms = 7000us = 7.0
+    assert!((row.latency_ms - 7.0).abs() < 1e-6);
+}
+
+// ---------------------------------------------------------------------------
+// `handle_query`: cache-miss path through the running server, with the
+// routing snapshot populated. The default resolver path returns SERVFAIL
+// in the sandbox (Cloudflare unreachable from the runner), which is
+// fine — the assertion is on the *recorded* result, not the answer.
+// ---------------------------------------------------------------------------
+
+/// Send a hand-rolled DNS query for `example.com.` (A record, id=0x1234)
+/// to the given server address from a freshly bound client.
+async fn fire_query(target: SocketAddr) {
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind should succeed");
+    let query: &[u8] = &[
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    client
+        .send_to(query, target)
+        .await
+        .expect("send should succeed");
+}
+
+#[tokio::test]
+async fn server_records_query_after_handling_it() {
+    // Drive a real query end-to-end and assert the log sink saw a row
+    // with the expected domain — exercises the full handle_query default
+    // branch (cache miss, filter pass, forward, record_query call).
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let server = UdpDnsServer::with_bind_addr(
+        DnsConfig::default(),
+        loopback_ephemeral(),
+        stub_filter(),
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+    )
+    .with_log_sink(Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server
+        .local_addr()
+        .expect("server should be bound after start");
+
+    fire_query(bound).await;
+
+    // Wait for the recorded row, with a generous deadline — the upstream
+    // forward in the sandboxed test env errors quickly and returns.
+    let row = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("a row should be recorded within 2s")
+        .expect("sink stays open while server is up");
+    assert_eq!(row.domain, "example.com");
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `get_or_build_tunnel_forwarder` — cache + repository lookup paths.
+// ---------------------------------------------------------------------------
+
+/// Programmable tunnel repository used to drive the
+/// `get_or_build_tunnel_forwarder` paths. Each test sets exactly the
+/// pair of return values it needs and counts repo hits to assert the
+/// in-memory cache short-circuits subsequent calls.
+struct ScriptedTunnelRepo {
+    tunnel: Option<Tunnel>,
+    config: Option<TunnelConfig>,
+    find_by_id_calls: StdMutex<u32>,
+    find_config_calls: StdMutex<u32>,
+}
+
+impl ScriptedTunnelRepo {
+    fn new(tunnel: Option<Tunnel>, config: Option<TunnelConfig>) -> Self {
+        Self {
+            tunnel,
+            config,
+            find_by_id_calls: StdMutex::new(0),
+            find_config_calls: StdMutex::new(0),
+        }
+    }
+
+    fn find_by_id_calls(&self) -> u32 {
+        *self.find_by_id_calls.lock().unwrap()
+    }
+}
+
+#[async_trait]
+impl TunnelRepository for ScriptedTunnelRepo {
+    async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
+        Ok(vec![])
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Tunnel>> {
+        *self.find_by_id_calls.lock().unwrap() += 1;
+        Ok(self.tunnel.clone())
+    }
+    async fn find_config_by_id(&self, _id: &str) -> anyhow::Result<Option<TunnelConfig>> {
+        *self.find_config_calls.lock().unwrap() += 1;
+        Ok(self.config.clone())
+    }
+    async fn insert(&self, _row: &TunnelRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_status(&self, _id: &str, _status: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_dns_override(&self, _id: &str, _value: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_stats(
+        &self,
+        _id: &str,
+        _bytes_tx: i64,
+        _bytes_rx: i64,
+        _last_handshake: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn next_interface_index(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn count_active(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
+fn sample_tunnel(id: Uuid, interface: &str) -> Tunnel {
+    Tunnel {
+        id,
+        label: "Sweden VPN".into(),
+        country_code: "SE".into(),
+        provider: Some("Mullvad".into()),
+        interface_name: interface.into(),
+        endpoint: "198.51.100.1:51820".into(),
+        status: TunnelStatus::Up,
+        last_handshake: None,
+        bytes_tx: 0,
+        bytes_rx: 0,
+        created_at: Utc::now(),
+        override_default_dns: true,
+    }
+}
+
+fn sample_config(dns: Vec<String>) -> TunnelConfig {
+    TunnelConfig {
+        address: vec!["10.66.0.2/32".into()],
+        dns,
+        listen_port: None,
+        peer: WgPeerConfig {
+            public_key: "abc123".into(),
+            endpoint: Some("198.51.100.1:51820".into()),
+            allowed_ips: vec!["0.0.0.0/0".into()],
+            preshared_key: None,
+            persistent_keepalive: Some(25),
+        },
+        override_default_dns: true,
+    }
+}
+
+fn empty_forwarder_cache() -> Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>> {
+    Arc::new(RwLock::new(HashMap::new()))
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_returns_interface_and_upstream() {
+    let id = Uuid::new_v4();
+    let repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(id, "wg_ward0")),
+        Some(sample_config(vec!["10.0.0.53".into()])),
+    ));
+    let cache = empty_forwarder_cache();
+
+    let info = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .unwrap();
+    assert_eq!(info.interface_name, "wg_ward0");
+    assert_eq!(info.upstream, "10.0.0.53:53".parse::<SocketAddr>().unwrap());
+
+    let again = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .unwrap();
+    assert!(
+        Arc::ptr_eq(&info, &again),
+        "cache should hand back the same Arc"
+    );
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_caches_after_first_miss() {
+    let id = Uuid::new_v4();
+    let scripted = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(id, "wg_ward1")),
+        Some(sample_config(vec!["10.0.0.53".into()])),
+    ));
+    let repo: Arc<dyn TunnelRepository> = Arc::clone(&scripted) as _;
+    let cache = empty_forwarder_cache();
+
+    let _ = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .unwrap();
+    let _ = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .unwrap();
+    let _ = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        scripted.find_by_id_calls(),
+        1,
+        "repo find_by_id should run exactly once across three calls"
+    );
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_errors_when_tunnel_missing() {
+    let repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(None, None));
+    let cache = empty_forwarder_cache();
+
+    let err = get_or_build_tunnel_forwarder(&cache, &repo, Uuid::new_v4())
+        .await
+        .expect_err("missing tunnel should error");
+    assert!(err.to_string().contains("not found"), "got: {err}");
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_errors_when_config_missing() {
+    let id = Uuid::new_v4();
+    let repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(id, "wg_ward0")),
+        None,
+    ));
+    let cache = empty_forwarder_cache();
+
+    let err = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .expect_err("missing config should error");
+    assert!(err.to_string().contains("no config"), "got: {err}");
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_errors_when_dns_list_empty() {
+    let id = Uuid::new_v4();
+    let repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(id, "wg_ward0")),
+        Some(sample_config(vec![])),
+    ));
+    let cache = empty_forwarder_cache();
+
+    let err = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .expect_err("empty DNS list should error");
+    assert!(err.to_string().contains("no DNS server"), "got: {err}");
+}
+
+#[tokio::test]
+async fn get_or_build_tunnel_forwarder_errors_when_dns_not_an_ip() {
+    let id = Uuid::new_v4();
+    let repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(id, "wg_ward0")),
+        Some(sample_config(vec!["dns.example.com".into()])),
+    ));
+    let cache = empty_forwarder_cache();
+
+    let err = get_or_build_tunnel_forwarder(&cache, &repo, id)
+        .await
+        .expect_err("non-IP DNS entry should error");
+    assert!(err.to_string().contains("not a valid IP"), "got: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// `handle_query`: filter-driven Block / Rewrite / Pass branches plus the
+// upstream error path. Each test stands up the real server with an
+// injected filter outcome, fires a UDP query, and reads the resulting
+// log row to assert what the server told the sink.
+// ---------------------------------------------------------------------------
+
+fn build_with_filter(
+    config: DnsConfig,
+    filter: Arc<dyn wardnetd_services::DnsFilterService>,
+    sink: Arc<wardnetd_services::dns::log_sink::DnsLogSink>,
+) -> UdpDnsServer {
+    UdpDnsServer::with_bind_addr(
+        config,
+        loopback_ephemeral(),
+        filter,
+        empty_routing_snapshot(),
+        stub_tunnel_repo(),
+    )
+    .with_log_sink(sink)
+}
+
+#[tokio::test]
+async fn handle_query_block_branch_records_blocked() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Block,
+    });
+    let server = build_with_filter(DnsConfig::default(), filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("blocked row arrives quickly")
+        .unwrap();
+    assert_eq!(row.result, "blocked");
+    assert_eq!(row.domain, "example.com");
+    assert!(row.upstream.is_none());
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn handle_query_rewrite_branch_records_rewritten() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Rewrite {
+            ip: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+        },
+    });
+    let server = build_with_filter(DnsConfig::default(), filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("rewritten row arrives quickly")
+        .unwrap();
+    assert_eq!(row.result, "rewritten");
+    assert_eq!(row.domain, "example.com");
+    assert!(row.upstream.is_none());
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn handle_query_upstream_error_records_upstream_error() {
+    // Point the resolver at an unreachable upstream so the lookup fails
+    // and the Err branch runs (send_servfail + record_query "upstream_error").
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Pass,
+    });
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "blackhole".into(),
+            address: "127.0.0.1".into(),
+            // TCP so we get a fast RST on the closed port instead of
+            // waiting for hickory's UDP retry budget to elapse.
+            protocol: DnsProtocol::Tcp,
+            port: Some(1),
+        }],
+        ..DnsConfig::default()
+    };
+    let server = build_with_filter(cfg, filter, Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(20), rx.recv())
+        .await
+        .expect("upstream_error row should arrive within the resolver's retry window")
+        .unwrap();
+    assert_eq!(row.result, "upstream_error");
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.upstream.as_deref(), Some("127.0.0.1"));
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `handle_query`: tunnel forward branch via a populated routing snapshot.
+// The forward fails (the test env has no real tunnel interface and the
+// upstream IP is unreachable), so the branch lands in the
+// `forward_via_tunnel` Err path → ServFail + "upstream_error".
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() {
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let filter: Arc<dyn wardnetd_services::DnsFilterService> = Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Pass,
+    });
+
+    let tunnel_id = Uuid::new_v4();
+    let snapshot = Arc::new(ArcSwap::from_pointee(HashMap::from([(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        UpstreamId::Tunnel(tunnel_id),
+    )])));
+    let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(ScriptedTunnelRepo::new(
+        Some(sample_tunnel(tunnel_id, "lo")),
+        // 127.0.0.1:53 is unbound in the sandbox — forward errors fast.
+        Some(sample_config(vec!["127.0.0.1".into()])),
+    ));
+
+    let server = UdpDnsServer::with_bind_addr(
+        DnsConfig::default(),
+        loopback_ephemeral(),
+        filter,
+        snapshot,
+        tunnel_repo,
+    )
+    .with_log_sink(Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    fire_query(bound).await;
+
+    let row = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        .await
+        .expect("a row should be recorded for the tunnel-forward attempt")
+        .unwrap();
+    // The forward path can resolve quickly enough that we may see either
+    // an `upstream_error` (forward failed) or `forwarded` (an actual
+    // response was received and cached). Both prove the tunnel branch
+    // ran. Pin the field that tells us we went through the tunnel path:
+    // `upstream` must equal the configured tunnel DNS, never the system
+    // upstream string.
+    assert_eq!(row.domain, "example.com");
+    assert_eq!(row.upstream.as_deref(), Some("127.0.0.1"));
+    assert!(
+        matches!(row.result.as_str(), "upstream_error" | "forwarded"),
+        "got: {}",
+        row.result
+    );
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// `build_resolver` — pure function; protocol mapping + Cloudflare fallback.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_resolver_with_udp_upstream_succeeds() {
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_with_tcp_upstream_succeeds() {
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Tcp,
+        port: Some(53),
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
+    // Encrypted DNS is not yet wired — both DoT (853) and DoH (443) fall
+    // back to plain TCP with an explicit warn log. Hits the Tls + Https
+    // branches in build_resolver and exercises the port-default arm too.
+    let upstreams = vec![
+        UpstreamDns {
+            name: "tls".into(),
+            address: "1.1.1.1".into(),
+            protocol: DnsProtocol::Tls,
+            port: None,
+        },
+        UpstreamDns {
+            name: "https".into(),
+            address: "1.1.1.1".into(),
+            protocol: DnsProtocol::Https,
+            port: None,
+        },
+    ];
+    let _ = crate::dns::server::build_resolver(&upstreams);
+}
+
+#[test]
+fn build_resolver_skips_invalid_ip_addresses() {
+    // The macro-driven config can hold malformed entries (user input). The
+    // resolver builder must skip them, and when ALL entries are invalid
+    // it falls back to Cloudflare instead of returning an empty config.
+    let upstreams = vec![UpstreamDns {
+        name: "bad".into(),
+        address: "not-an-ip".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams);
 }

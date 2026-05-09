@@ -79,6 +79,26 @@ pub fn parse_rule_handle(output: &str, comment: &str) -> Option<u64> {
     None
 }
 
+/// Collect every prerouting-rule handle whose comment matches the legacy
+/// `wardnet:dns:*` DNS redirect pattern. The fix for issue #342 removes
+/// the DNAT mechanism; this helper lets the daemon evict the leftover
+/// rules on startup so upgrades take effect without a reboot.
+#[must_use]
+pub fn collect_legacy_dns_redirect_handles(output: &str) -> Vec<u64> {
+    let mut handles = Vec::new();
+    for line in output.lines() {
+        if !line.contains("wardnet:dns:") {
+            continue;
+        }
+        if let Some(handle_str) = line.rsplit("# handle ").next()
+            && let Ok(handle) = handle_str.trim().parse::<u64>()
+        {
+            handles.push(handle);
+        }
+    }
+    handles
+}
+
 #[async_trait]
 impl FirewallManager for NftablesFirewallManager {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
@@ -152,41 +172,29 @@ add chain inet wardnet forward { type filter hook forward priority 0 ; policy ac
         Ok(())
     }
 
-    async fn add_dns_redirect(&self, device_ip: &str, dns_ip: &str) -> anyhow::Result<()> {
-        let comment = format!("\"wardnet:dns:{device_ip}\"");
-        self.run(&[
-            "add",
-            "rule",
-            "inet",
-            "wardnet",
-            "prerouting",
-            "ip",
-            "saddr",
-            device_ip,
-            "udp",
-            "dport",
-            "53",
-            "dnat",
-            "to",
-            dns_ip,
-            "comment",
-            &comment,
-        ])
-        .await?;
-        tracing::info!(device_ip, dns_ip, "nftables: DNS redirect rule added");
-        Ok(())
-    }
-
-    async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()> {
-        let comment = format!("\"wardnet:dns:{device_ip}\"");
-        let output = self
+    async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
+        let output = match self
             .run(&["-a", "list", "chain", "inet", "wardnet", "prerouting"])
-            .await?;
+            .await
+        {
+            Ok(out) => out,
+            Err(e) => {
+                // Pre-existing chain may not be there yet on a fresh
+                // install. The list call surfaces this as a failure; that
+                // is the correct steady state, not an error to propagate.
+                tracing::debug!(
+                    error = %e,
+                    "nftables: prerouting chain not present, no legacy DNS redirects to clean"
+                );
+                return Ok(());
+            }
+        };
 
-        match parse_rule_handle(&output, &comment) {
-            Some(h) => {
-                let handle_str = h.to_string();
-                self.run(&[
+        let mut removed = 0u32;
+        for handle in collect_legacy_dns_redirect_handles(&output) {
+            let handle_str = handle.to_string();
+            match self
+                .run(&[
                     "delete",
                     "rule",
                     "inet",
@@ -195,17 +203,25 @@ add chain inet wardnet forward { type filter hook forward priority 0 ; policy ac
                     "handle",
                     &handle_str,
                 ])
-                .await?;
-                tracing::info!(device_ip, handle = h, "nftables: DNS redirect rule removed");
-            }
-            None => {
-                tracing::warn!(
-                    device_ip,
-                    "nftables: DNS redirect rule not found, nothing to remove"
-                );
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!(
+                        handle,
+                        "nftables: removed legacy wardnet:dns:* prerouting rule"
+                    );
+                    removed += 1;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        handle,
+                        "nftables: failed to remove legacy wardnet:dns:* rule"
+                    );
+                }
             }
         }
-
+        tracing::debug!(removed, "nftables: legacy DNS redirect cleanup complete");
         Ok(())
     }
 
