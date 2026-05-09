@@ -2,8 +2,8 @@
 //!
 //! A **DNS Filter Profile** groups blocklists, an allowlist, and custom
 //! filter rules under a single name. Devices opt into one or more profiles;
-//! when a device has no explicit profiles the global default profile
-//! applies. Three profiles are seeded as `builtin`: "Ad Blocking",
+//! when a device has no explicit profiles the global default profiles
+//! apply. Three profiles are seeded as `builtin`: "Ad Blocking",
 //! "Parental Controls", and "Malware & Phishing".
 //!
 //! See `.agents/architecture.md` for the layered design and
@@ -30,12 +30,12 @@ pub struct DnsFilterProfile {
 ///
 /// `enabled = false` is the kill switch; the device's queries skip filtering
 /// entirely. When `enabled = true` and `profile_ids` is empty, the device
-/// inherits the global default profile from [`DnsFilterConfig`].
+/// inherits the global default profiles from [`DnsFilterConfig`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeviceDnsFilterSettings {
     pub device_id: Uuid,
     pub enabled: bool,
-    /// Explicit profile assignments. Empty means "follow the default profile".
+    /// Explicit profile assignments. Empty means "follow the default profiles".
     pub profile_ids: Vec<Uuid>,
     pub updated_at: DateTime<Utc>,
 }
@@ -60,16 +60,18 @@ pub struct DnsFilterConfig {
     /// Global emergency stop. When `false`, every query short-circuits to
     /// `Pass` regardless of profile state.
     pub enabled: bool,
-    /// Profile applied to devices with no explicit assignment. `None` means
-    /// unassigned devices skip filtering.
-    pub default_profile_id: Option<Uuid>,
+    /// Profiles applied to devices with no explicit assignment. Empty means
+    /// unassigned devices skip filtering. Multiple profiles stack — a domain
+    /// blocked in any of them is blocked. Treat as a set: the order across
+    /// the get/set roundtrip is not preserved.
+    pub default_profile_ids: Vec<Uuid>,
 }
 
 impl Default for DnsFilterConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            default_profile_id: None,
+            default_profile_ids: Vec::new(),
         }
     }
 }

@@ -523,16 +523,34 @@ impl DnsFilterServiceImpl {
 
     async fn rebuild_default_context_inner(&self) -> Result<(), AppError> {
         let cfg = self.config.load_full();
-        let new_ctx = match cfg.default_profile_id {
-            Some(pid) => {
-                let map = self.profiles.read().await;
-                let profiles = map.get(&pid).cloned().into_iter().collect();
+        let new_ctx = if cfg.default_profile_ids.is_empty() {
+            DeviceFilterContext::unfiltered()
+        } else {
+            let map = self.profiles.read().await;
+            let profiles: Vec<_> = cfg
+                .default_profile_ids
+                .iter()
+                .filter_map(|id| {
+                    let resolved = map.get(id).cloned();
+                    if resolved.is_none() {
+                        // Survives FK CASCADE so should be unreachable in
+                        // practice; surface it if a race ever lets it through.
+                        tracing::warn!(profile_id = %id, "default profile not found in cache");
+                    }
+                    resolved
+                })
+                .collect();
+            // Converge the empty-after-resolve case with the explicit-empty
+            // case — "filtering on with zero rules" is observationally
+            // identical to unfiltered but reports differently.
+            if profiles.is_empty() {
+                DeviceFilterContext::unfiltered()
+            } else {
                 DeviceFilterContext {
                     enabled: true,
                     profiles,
                 }
             }
-            None => DeviceFilterContext::unfiltered(),
         };
         self.default_context.store(Arc::new(new_ctx));
         Ok(())
@@ -1139,17 +1157,28 @@ impl DnsFilterService for DnsFilterServiceImpl {
             changed_global = current.enabled != enabled;
             current.enabled = enabled;
         }
-        if let Some(default) = req.default_profile_id {
-            if let Some(pid) = default {
-                self.ensure_profile_exists(pid).await?;
+        if let Some(mut ids) = req.default_profile_ids {
+            // Storage has profile_id as PK — duplicates would abort the
+            // replace-set tx. Sort+dedup also doubles as the canonical
+            // form for the change-detection compare below.
+            ids.sort();
+            ids.dedup();
+            for pid in &ids {
+                self.ensure_profile_exists(*pid).await?;
             }
-            changed_default = current.default_profile_id != default;
-            current.default_profile_id = default;
+            let mut current_sorted = current.default_profile_ids.clone();
+            current_sorted.sort();
+            changed_default = current_sorted != ids;
+            current.default_profile_ids = ids;
         }
         self.repo
             .set_dns_filter_config(&current)
             .await
             .map_err(AppError::Internal)?;
+        // Refresh the in-memory Arc immediately so synchronous readers
+        // (e.g. the kill-switch short-circuit in `check()`) don't run
+        // against the stale config until the runner picks up the event.
+        self.config.store(Arc::new(current.clone()));
         if changed_default {
             self.publish(DnsFilterChange::DefaultProfile);
         }
@@ -1191,7 +1220,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
 
         // Default-context might point at this profile; refresh it.
         let cfg = self.config.load_full();
-        if cfg.default_profile_id == Some(profile_id) {
+        if cfg.default_profile_ids.contains(&profile_id) {
             self.rebuild_default_context_inner().await?;
         }
 

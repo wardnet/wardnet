@@ -94,6 +94,7 @@ impl AuthService for MockAuthService {
 // ---------------------------------------------------------------------------
 
 const PROFILE_ID: Uuid = Uuid::from_u128(0x100);
+const PROFILE_ID_B: Uuid = Uuid::from_u128(0x101);
 const BLOCKLIST_ID: Uuid = Uuid::from_u128(0x200);
 const RULE_ID: Uuid = Uuid::from_u128(0x300);
 const ENTRY_ID: Uuid = Uuid::from_u128(0x400);
@@ -345,7 +346,7 @@ impl DnsFilterService for MockDnsFilterService {
         Ok(DnsFilterConfigResponse {
             config: DnsFilterConfig {
                 enabled: true,
-                default_profile_id: Some(PROFILE_ID),
+                default_profile_ids: vec![PROFILE_ID],
             },
         })
     }
@@ -356,7 +357,7 @@ impl DnsFilterService for MockDnsFilterService {
         Ok(DnsFilterConfigResponse {
             config: DnsFilterConfig {
                 enabled: true,
-                default_profile_id: Some(PROFILE_ID),
+                default_profile_ids: vec![PROFILE_ID],
             },
         })
     }
@@ -807,12 +808,35 @@ async fn get_config_returns_ok() {
     let (status, json) = get_json(app, "/api/dns/filter/config").await;
     assert_eq!(status, StatusCode::OK);
     assert!(json["config"]["enabled"].as_bool().unwrap());
+    let ids = json["config"]["default_profile_ids"].as_array().unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0].as_str().unwrap(), PROFILE_ID.to_string());
 }
 
 #[tokio::test]
 async fn update_config_returns_ok() {
     let app = router(build_state());
     let (status, _) = put_json(app, "/api/dns/filter/config", r#"{"enabled":false}"#).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn update_config_accepts_multi_default_ids() {
+    let app = router(build_state());
+    let body = format!(r#"{{"default_profile_ids":["{PROFILE_ID}","{PROFILE_ID_B}"]}}"#);
+    let (status, _) = put_json(app, "/api/dns/filter/config", &body).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn update_config_accepts_empty_default_ids() {
+    let app = router(build_state());
+    let (status, _) = put_json(
+        app,
+        "/api/dns/filter/config",
+        r#"{"default_profile_ids":[]}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
 }
 

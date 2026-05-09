@@ -26,12 +26,17 @@ export interface DeviceDnsFilterSettings {
   updated_at: string;
 }
 
-/** Global DNS filtering configuration (emergency stop + default profile). */
+/** Global DNS filtering configuration (emergency stop + default profiles). */
 export interface DnsFilterConfig {
   /** Global emergency stop. When `false`, every query short-circuits to `Pass`. */
   enabled: boolean;
-  /** Profile applied to devices with no explicit assignment. `null` = unfiltered. */
-  default_profile_id: string | null;
+  /**
+   * Profiles applied to devices with no explicit assignment. Empty array =
+   * unassigned devices skip filtering. Multiple profiles stack — a domain
+   * blocked in any of them is blocked. Treat as a set: the order across
+   * the get/set roundtrip is not preserved.
+   */
+  default_profile_ids: string[];
 }
 
 /** A URL-sourced domain blocklist scoped to a DNS filter profile. */
@@ -226,10 +231,12 @@ export interface DnsFilterConfigResponse {
 /**
  * Request body for PUT /api/dns/filter/config.
  *
- * `default_profile_id` honors three states: omitted = no change, `null` =
- * clear the default, `"<uuid>"` = set.
+ * Both fields are partial-update: omitted from JSON = no change. For
+ * `default_profile_ids`, an empty array clears the default (unassigned
+ * devices stop being filtered) and a non-empty array replaces the entire
+ * set.
  */
 export interface UpdateDnsFilterConfigRequest {
   enabled?: boolean;
-  default_profile_id?: string | null;
+  default_profile_ids?: string[];
 }

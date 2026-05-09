@@ -166,12 +166,14 @@ pub trait DnsFilterRepository: Send + Sync {
 
     // ── Global filter config ────────────────────────────────────────────
 
-    /// Read `dns_filtering_enabled` + `dns_default_filter_profile_id` from
-    /// `system_config`.
+    /// Read `dns_filtering_enabled` from `system_config` and the membership
+    /// of `dns_filter_default_profile`.
     async fn get_dns_filter_config(&self) -> anyhow::Result<DnsFilterConfig>;
 
-    /// Persist both fields. `default_profile_id = None` writes an empty
-    /// string to `system_config`, preserving the "unset" semantic.
+    /// Persist both fields. `default_profile_ids` is replace-set semantics:
+    /// the prior membership of `dns_filter_default_profile` is wiped and
+    /// rewritten to the supplied list. An empty list leaves the table empty,
+    /// which the service treats as "unassigned devices skip filtering".
     async fn set_dns_filter_config(&self, config: &DnsFilterConfig) -> anyhow::Result<()>;
 }
 

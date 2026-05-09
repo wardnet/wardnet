@@ -1043,14 +1043,16 @@ pub struct DnsFilterConfigResponse {
 
 /// Request body for PUT /api/dns/filter/config.
 ///
-/// `default_profile_id` uses double-`Option` semantics: omitted from JSON =
-/// no change, `null` = clear the default, `"<uuid>"` = set.
+/// Both fields are partial-update: omitted from JSON = no change. For
+/// `default_profile_ids`, an empty list clears the default (unassigned
+/// devices stop being filtered) and a non-empty list replaces the entire
+/// set.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDnsFilterConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_profile_id: Option<Option<Uuid>>,
+    pub default_profile_ids: Option<Vec<Uuid>>,
 }
 
 // ---------------------------------------------------------------------------
