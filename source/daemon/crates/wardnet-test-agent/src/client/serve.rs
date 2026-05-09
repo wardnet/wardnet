@@ -20,6 +20,7 @@ use clap::Args;
 use serde::Deserialize;
 use tracing::info;
 
+use super::arp;
 use super::dhcp::{self, DhcpClient, DhcpRenewArgs};
 use super::dns::{self, DnsResolveArgs};
 use super::interfaces::{self, InterfacesArgs};
@@ -48,7 +49,9 @@ pub async fn run(args: ServeArgs) {
         .route("/routes", get(get_routes))
         .route("/dns/resolve", get(get_dns_resolve))
         .route("/ping", post(post_ping))
-        .route("/dhcp/renew", post(post_dhcp_renew));
+        .route("/dhcp/renew", post(post_dhcp_renew))
+        .route("/arp/send", post(arp::post_arp_send))
+        .route("/arp/capture", post(arp::post_arp_capture));
 
     info!(%addr, "starting wardnet-test-agent client serve");
 

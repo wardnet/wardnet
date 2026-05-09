@@ -209,6 +209,18 @@ fn stub_backends() -> Backends {
         power_ops: Arc::new(StubPowerOps),
         network_inspector: Arc::new(StubNetworkInspector),
         network_probe: Arc::new(StubNetworkProbe),
+        garp_ops: Arc::new(StubGarpOps),
+    }
+}
+
+struct StubGarpOps;
+#[async_trait]
+impl crate::garp::GarpOps for StubGarpOps {
+    async fn broadcast_farewell(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn broadcast_claim(&self) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 

@@ -364,6 +364,92 @@ async fn update_config_invalid_ip() {
 }
 
 #[tokio::test]
+async fn update_config_clears_garp_router_mac() {
+    // Issue #213, decision 1: any update to dhcp_router_ip invalidates
+    // the passively-learned upstream router MAC. Discovery repopulates
+    // it next time it observes a packet from the (possibly new)
+    // router IP.
+    let dhcp = Arc::new(MockDhcpRepository::new());
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    system_config
+        .data
+        .lock()
+        .unwrap()
+        .insert("garp_router_mac".to_owned(), "AA:BB:CC:DD:EE:FF".to_owned());
+    let svc = DhcpServiceImpl::new(
+        dhcp,
+        system_config.clone(),
+        events,
+        "10.0.0.1".parse().unwrap(),
+    );
+
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "10.0.0.50".to_owned(),
+        pool_end: "10.0.0.150".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 3600,
+        router_ip: Some("10.0.0.1".to_owned()),
+    };
+    auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+
+    let stored = system_config
+        .data
+        .lock()
+        .unwrap()
+        .get("garp_router_mac")
+        .cloned();
+    assert_eq!(stored.as_deref(), Some(""));
+}
+
+#[tokio::test]
+async fn update_config_idempotent_when_garp_unset() {
+    // No prior `garp_router_mac` -> update_config still writes "" and
+    // returns Ok. Guards against a regression where the clear path
+    // requires the key to exist first.
+    let dhcp = Arc::new(MockDhcpRepository::new());
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    assert!(
+        !system_config
+            .data
+            .lock()
+            .unwrap()
+            .contains_key("garp_router_mac"),
+        "fixture should not pre-seed garp_router_mac"
+    );
+    let svc = DhcpServiceImpl::new(
+        dhcp,
+        system_config.clone(),
+        events,
+        "10.0.0.1".parse().unwrap(),
+    );
+
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "10.0.0.50".to_owned(),
+        pool_end: "10.0.0.150".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 3600,
+        router_ip: None,
+    };
+    auth_context::with_context(admin_ctx(), svc.update_config(req))
+        .await
+        .unwrap();
+
+    let stored = system_config
+        .data
+        .lock()
+        .unwrap()
+        .get("garp_router_mac")
+        .cloned();
+    assert_eq!(stored.as_deref(), Some(""));
+}
+
+#[tokio::test]
 async fn update_config_pool_end_before_start() {
     let svc = build_service();
     let req = UpdateDhcpConfigRequest {

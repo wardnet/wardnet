@@ -1,5 +1,6 @@
 mod device_detector;
 mod firewall_nftables;
+mod garp_learning;
 mod heartbeat;
 mod hostname_resolver;
 mod metrics_collector;

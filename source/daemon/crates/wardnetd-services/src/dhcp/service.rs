@@ -412,6 +412,17 @@ impl DhcpService for DhcpServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Invalidate the passively-learned upstream router MAC. Any
+        // change to `dhcp_router_ip` (including a no-op rewrite) means
+        // the previously stored MAC may no longer correspond to the
+        // gateway that lives at this IP. Discovery will repopulate
+        // `garp_router_mac` next time it observes a packet from the
+        // (possibly new) router IP. See issue #213, decision 1.
+        self.system_config
+            .set("garp_router_mac", "")
+            .await
+            .map_err(AppError::Internal)?;
+
         let config = self.load_config().await?;
         Ok(DhcpConfigResponse { config })
     }

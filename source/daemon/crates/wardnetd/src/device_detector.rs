@@ -8,9 +8,12 @@ use tracing::Instrument;
 
 use wardnet_common::config::DetectionConfig;
 use wardnet_common::event::WardnetEvent;
+use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_services::device::packet_capture::PacketCapture;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
+
+use crate::garp_learning;
 
 /// Background device detection orchestrator.
 ///
@@ -39,6 +42,7 @@ impl DeviceDetector {
     pub fn start(
         capture: Arc<dyn PacketCapture>,
         discovery: Arc<dyn DeviceDiscoveryService>,
+        system_config: Arc<dyn SystemConfigRepository>,
         events: &dyn EventPublisher,
         config: &DetectionConfig,
         interface: String,
@@ -56,7 +60,8 @@ impl DeviceDetector {
         );
 
         let processor_handle = tokio::spawn(
-            processor_task(rx, discovery.clone(), cancel.clone()).instrument(span.clone()),
+            processor_task(rx, discovery.clone(), system_config, cancel.clone())
+                .instrument(span.clone()),
         );
 
         let flush_handle = tokio::spawn(
@@ -131,6 +136,7 @@ async fn capture_task(
 async fn processor_task(
     mut rx: mpsc::Receiver<wardnetd_services::device::packet_capture::ObservedDevice>,
     discovery: Arc<dyn DeviceDiscoveryService>,
+    system_config: Arc<dyn SystemConfigRepository>,
     cancel: CancellationToken,
 ) {
     loop {
@@ -138,6 +144,22 @@ async fn processor_task(
             () = cancel.cancelled() => break,
             obs = rx.recv() => {
                 let Some(obs) = obs else { break };
+
+                // Passive learning of the upstream router MAC for GARP
+                // failover. Runs on every observation (not just
+                // state-change variants) so a router replacement that
+                // keeps the same IP is still picked up. See issue
+                // #213, decision 2. The skip-if-unchanged guard inside
+                // `maybe_record_router_mac` keeps this off the hot DB
+                // path for typical traffic.
+                if let Err(e) = garp_learning::maybe_record_router_mac(&obs, &system_config).await {
+                    tracing::warn!(
+                        error = %e,
+                        mac = %obs.mac,
+                        ip = %obs.ip,
+                        "failed to update garp_router_mac from observation",
+                    );
+                }
 
                 match discovery.process_observation(&obs).await {
                     Ok(ObservationResult::NewDevice { device_id, .. }) => {
