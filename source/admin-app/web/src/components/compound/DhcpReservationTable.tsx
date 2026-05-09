@@ -74,7 +74,12 @@ interface DhcpReservationTableProps {
   reservations: DhcpReservation[];
   devices: Device[];
   onDelete: (id: string) => void;
-  onAdd: () => void;
+  /**
+   * Called when the operator clicks the table's "Add reservation" button or
+   * the empty-state action. Pass `undefined` to hide both — useful when an
+   * inline create card is already open above the table.
+   */
+  onAdd?: () => void;
 }
 
 /** Table listing DHCP reservations with delete action and add button. */
@@ -92,7 +97,7 @@ export function DhcpReservationTable({
       <EmptyStatePlaceholder
         message="No DHCP reservations"
         hint="Add your first reservation to assign a permanent IP address to a device."
-        actionLabel="Add reservation"
+        actionLabel={onAdd ? "Add reservation" : undefined}
         onAction={onAdd}
       />
     );
@@ -100,9 +105,11 @@ export function DhcpReservationTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button onClick={onAdd}>Add reservation</Button>
-      </div>
+      {onAdd && (
+        <div className="flex justify-end">
+          <Button onClick={onAdd}>Add reservation</Button>
+        </div>
+      )}
 
       <DataTable columns={columns} data={reservations} />
     </div>

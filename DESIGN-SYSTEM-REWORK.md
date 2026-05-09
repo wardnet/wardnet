@@ -188,7 +188,7 @@ all facts; status pills via `.pill--*`.
 | DeviceIcon                      | [ ]    | use Forge Icon set or stay on lucide (open Q)              |
 | DeviceSelect                    | [ ]    | Radix Select wrapper                                       |
 | DeviceTable                     | [ ]    | `.tbl` + `.host` row                                       |
-| DhcpConfigCard                  | [ ]    | edit-mode card protocol                                    |
+| DhcpConfigCard                  | [x]    | edit-mode card protocol — folded `EditDhcpConfigSheet` into the card's edit mode, hook-coupled (`useUpdateDhcpConfig`) per the DeviceSettingsCard precedent |
 | DhcpLeaseTable                  | [ ]    | `.tbl`                                                     |
 | DhcpReservationTable            | [ ]    | `.tbl`                                                     |
 | DhcpStatusCard                  | [ ]    | first-card pattern (status pill + headline number)         |
@@ -219,7 +219,7 @@ all facts; status pills via `.pill--*`.
 | Component                | Status | Notes                                            |
 | ------------------------ | ------ | ------------------------------------------------ |
 | BackupCard               | [ ]    | edit-mode card                                   |
-| CreateReservationSheet   | [ ]    | inline create form (sheet dropped — likely renamed CreateReservationInline) |
+| CreateReservationInline  | [x]    | inline create card mirroring CreateTunnelInline; rendered above DhcpReservationTable (renamed from CreateReservationSheet, sheet dropped) |
 | CreateTunnelInline       | [ ]    | inline form + WireGuard config paste             |
 | DashboardLogWidget       | [ ]    | `.logs`                                          |
 | DeviceDnsFilterCard      | [ ]    | edit-mode card                                   |
@@ -1670,6 +1670,86 @@ all facts; status pills via `.pill--*`.
   Same logic as the Toggle-then-Label decision — a primitive
   shouldn't grow positional knobs for layout variations a
   consumer can express in slot composition.
+- **Sheet-to-inline migrations are mechanical once Field is the
+  form-row primitive — the rewrite is wrapper-only, no per-row
+  JSX work** (2026-05-09, fifteenth slice). EditDhcpConfigSheet
+  folded into `compound/DhcpConfigCard` as an edit-mode (the
+  DeviceSettingsCard precedent: `editing` state, Edit button in
+  CardHeader's CardAction, Cancel/Save buttons in CardFooter,
+  hook-coupled via `useUpdateDhcpConfig`); CreateReservationSheet
+  renamed `features/CreateReservationInline.tsx` and rendered
+  above the reservations table when open (the CreateTunnelInline
+  / Tunnels.tsx precedent). Both form bodies copied verbatim from
+  the sheet — every Field-wrapped row from slice 14 needed zero
+  edits, only the chrome (Sheet → Card) changed. **Generalisation:**
+  consolidating form rows into Field (slice 14) was the prerequisite
+  that made these sheet-to-inline migrations near-mechanical. The
+  same migration before slice 14 would have meant per-row Label /
+  Input rewrites alongside the Sheet → Card rewrite — confirms
+  the value of consolidation slices as scaffolding for downstream
+  feature-shape changes.
+- **Compound vs features dir is loose for cards that import
+  hooks** (2026-05-09, fifteenth slice). Going-in question on
+  A1: should DhcpConfigCard move from `compound/` to `features/`
+  once it imports `useUpdateDhcpConfig` directly (matching
+  DeviceSettingsCard's location)? Survey answer: `compound/`
+  already has multiple hook-importing files (`RecentErrorsCard`,
+  `TunnelCard`, `ConnectionBanner`, `Sidebar`,
+  `UncleanShutdownBanner`), so "imports a domain hook" isn't the
+  features/ litmus. Locked: **features/ is for whole-feature
+  flows** (BackupCard's two-step export/restore, DeviceSettingsCard's
+  device-edit composition, CreateReservationInline's create flow,
+  CreateTunnelInline's manual-vs-provider create flow). compound/
+  is for cards that present or edit *one* domain object even when
+  they own the mutation hook. Result: DhcpConfigCard stays in
+  `compound/`; CreateReservationInline lands in `features/`.
+  Avoids a noisy file move and keeps the dir convention legible.
+- **`onAdd?: () => void` (optional) on tables to hide both the
+  in-table button and the empty-state action when undefined**
+  (2026-05-09, fifteenth slice). DhcpReservationTable's
+  `onAdd: () => void` (required) became `onAdd?: () => void`
+  (optional) so the Dhcp page can pass `undefined` while the
+  inline create card is already showing. Same shape as
+  TunnelGrid's `onAdd?: () => void` (used by Tunnels.tsx:
+  `onAdd={creating ? undefined : () => setCreating(true)}`).
+  EmptyStatePlaceholder already gates its action button on
+  `actionLabel && onAction`, so the table just forwards
+  `actionLabel={onAdd ? "Add reservation" : undefined}` to it
+  and wraps the in-table top-right button in `{onAdd && …}`.
+  **Generalisation:** for tables that own both a top-right "Add"
+  button and an empty-state CTA, an optional `onAdd` is the
+  cleanest way to let the consumer hide *both* affordances for
+  states where the create flow is already showing elsewhere on
+  the page.
+- **Tabs go from uncontrolled to controlled when one tab triggers
+  state on another tab** (2026-05-09, fifteenth slice). The Dhcp
+  page's "Make static" action lives in the Leases tab but opens
+  a CreateReservationInline that lives above the Reservations
+  table, so clicking it must (a) switch tabs and (b) open the
+  inline form pre-filled. That requires `value` + `onValueChange`
+  on the Tabs root — uncontrolled `defaultValue="leases"` can't
+  flip the active tab from outside the Tabs root. Single
+  `openReservationCreate(defaults?)` helper on the page batches
+  both state changes (`setTab("reservations")` +
+  `setReservationCreate({open: true, defaults})`). **Generalisation:**
+  Tabs default to uncontrolled (the simplest API) but switch to
+  controlled when an action on tab A drives state on tab B. No
+  ceremony needed — Tabs primitive already supports both modes;
+  just lift `value`/`onValueChange` to the page when needed.
+- **`tw-animate-css` removal now blocked by `MobileMenu` only**
+  (2026-05-09, fifteenth slice). Slice 9 (Select port) noted the
+  removal was blocked by `core/ui/sheet.tsx` and its three
+  consumers (EditDhcpConfigSheet, CreateReservationSheet,
+  MobileMenu). This slice migrated the two form consumers; only
+  MobileMenu remains. After A3 (mobile-nav redesign), `sheet.tsx`
+  deletes, the `tw-animate-css` package drops from
+  `admin-app/web/package.json`, and the `@import "tw-animate-css"`
+  line drops from `index.css` — likely a one-commit follow-up to
+  the MobileMenu slice. Confirms the slice 7 prediction
+  ("`tw-animate-css` removal lands when whichever feature slice
+  last touches Sheet replaces it") and locks the removal as a
+  trailing edge of the MobileMenu slice rather than its own
+  alias-pruning slice.
 
 ---
 
@@ -2023,3 +2103,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | RadioGroup drop + MyDevice routing-form simplification (twelfth slice — first slice where the planned port flipped to a drop). Briefing scoped this as Option A "port RadioGroup as the fourth data-state-bridge." Pre-flight survey turned up exactly one consumer: `pages/MyDevice.tsx`'s `RoutingForm`, where RadioGroup rendered a binary `Direct (no VPN)` / `VPN` choice followed by a conditional `<Select>` listing tunnels. That two-control composition is the same affordance as the unified `<Select>` already encapsulated by `compound/RoutingSelector` (used by `features/DeviceSettingsCard` and `pages/setup/Step6Policy`) — single dropdown with `Direct (no VPN)` as the first option, followed by tunnels. So the slice flipped: replace MyDevice's RoutingForm contents with a `<RoutingSelector />` instance, drop RadioGroup's app-wide consumer count to zero, mark `radio-group.tsx` as `[-]` Removed from scope, delete the legacy file — no forge-web port written, no new `.radio` Forge classes added. **`RoutingSelector` prop narrowed from `Tunnel[]` to `TunnelSummary[]`** — the compound only consumes `id` / `label` / `country_code`, and `TunnelSummary` is the SDK's auth-scoped shape for self-service routing selection (the unauthenticated/self-service `/api/devices/me` endpoint deliberately ships only the minimum fields, not full `Tunnel` data which carries internal stats like `bytes_tx`/`endpoint`/`last_handshake`). Two existing `RoutingSelector` consumers keep working because `Tunnel` is structurally a `TunnelSummary` — TS structural assignability lets `Tunnel[]` flow into a `TunnelSummary[]` prop. **`MyDevice` RoutingForm shrunk from ~60 lines to ~30** — separate `mode`/`tunnelId` state collapsed into a single `useState<RoutingTarget>`, conditional Select + empty-tunnels message all moved into `RoutingSelector`. **Generalisations locked:** (a) "drop features the migration doesn't require" extends one more rung — when a primitive's lone consumer can be expressed with an existing primitive or compound, the primitive itself drops, not just its unused parts; the Forge-vocabulary threshold for shipping a primitive is "≥1 consumer that can't be expressed with what we already have," not "≥1 consumer"; (b) when a compound takes a domain type where only a structural subset is consumed, prefer the narrower shape and let TS structural assignability handle the wider call sites; (c) pre-flight surveys can change the slice's shape from "port" to "drop" without writing a primitive at all — the briefing's "fourth data-state-bridge application" lands as a *deferred* generalisation the next state-bearing primitive will surface, nothing lost by skipping it here. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Combobox primitive — Command renamed + InputGroup dropped + first alias rows deleted (thirteenth slice). Pre-flight survey: legacy `core/ui/command.tsx` had **one** app consumer (`compound/CountryCombobox.tsx`) and three of nine exports were unused (`CommandDialog`/`CommandShortcut`/`CommandSeparator`); there is no global ⌘K palette in this app. cmdk is being used solely as a typeahead-filterable select inside a Popover, so the primitive's shadcn name (`Command`, evoking command palettes) misrepresented its actual role. **Renamed to `Combobox`** — standards-compliant ARIA name and the noun the consumer file already uses (`CountryCombobox`). **High-level composite, not multi-part:** new `Combobox` owns Popover + trigger Button (variant=outline, full-width, chevron) + search input (with leading search icon) + scrollable list scaffold + empty state + selected-checkmark indicator; consumer fills the trigger *content* via `trigger` prop and the list items via `<ComboboxItem>` children. Two exports (`Combobox`, `ComboboxItem`) replace the legacy nine; eight-layer call-site shape collapses to one. Selected-checkmark is owned by Forge — `<ComboboxItem>` emits `data-state={isSelected ? "checked" : "unchecked"}` and the existing Select-slice `.menu-item[data-state="checked"]::after` rule paints the check (no JSX duplication). cmdk dependency moved from `admin-app/web` to `admin-app/forge-web`. **Forge-first:** added `.combobox-trigger` / `.combobox-content` / `.combobox-input` / `.combobox-list` / `.combobox-empty` classes; bridged cmdk's `data-selected="true"` (keyboard-focus highlight) to the existing `.menu-item[data-highlighted]` rule via comma selector — third application of the comma-selector dedupe pattern (after the form-row slice's `.label`/`.field label` and `.input`/`.field input`). **InputGroup dropped:** the legacy `CommandInput` wrapped its search input in `<InputGroup>`; the new `Combobox` uses `.combobox-input` instead, dropping InputGroup's app-wide consumer count to zero — second consecutive slice where the briefing's "port primitive X" flipped to "drop primitive X" (RadioGroup last slice, InputGroup this slice). Legacy `core/ui/{command,input-group}.tsx` deleted; no forge-web port for InputGroup. **First alias rows deleted from `admin-app/web/src/index.css`:** `--color-popover` and `--color-popover-foreground` (lines 89-90) zeroed by Command's deletion (their consumer counts had been counting down through the Popover/DropdownMenu/Select/DropdownMenu slice audits — 7→6→5→2→1→0). Bundled the row deletion into this commit since two trivial line removals don't merit a separate alias-pruning slice. **CountryCombobox** rewritten to use the new composite — 90-line file shrunk to 50 lines, three primitive imports collapsed to one. Toggle-to-deselect-on-reclick behavior preserved at the consumer (`onChange={(next) => onChange(next === value ? "" : next)}`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Field consolidation sweep — Field is the only form-row primitive in the app; Label is encapsulated and no longer imported by any consumer (fourteenth slice). Sweep slice that picked up the eleventh slice's unfinished work: migrated every remaining `<Label>` + control pair across `pages/`, `components/features/`, and `components/compound/` to `<Field>`. Files touched: `pages/setup/{Step1Admin,Step4RouterMac}.tsx`, `pages/{Dns,DnsLogs,DnsFilterProfile,DnsFilterProfileNew}.tsx`, `components/features/{BackupCard,CreateReservationSheet,DeviceDnsFilterCard,DeviceNetworkCard,DeviceSettingsCard,DnsFilterSettingsCard,ManualTunnelTab,ProviderTunnelTab,UpdateCard}.tsx`, `components/compound/{DhcpStatusCard,CronSchedulePicker}.tsx`. After the sweep, `grep -rn '<Label\b' source/admin-app/web/src/` returns zero JSX matches and the Label primitive's only remaining consumer is `forge-web/src/primitives/field.tsx` itself. **Field gained `direction="row"` and `labelId` props** to absorb every remaining label+control pattern — (a) horizontal settings rows (label-and-help block on the left, toggle/select on the right) get `direction="row"` which renders as `.field[data-direction="row"]` with `flex-direction: row; align-items: center; justify-content: space-between` and wraps label+help into a `.field-text` block; (b) `aria-labelledby`-style controls (ProfileToggleList) get `labelId` which passes through to the internal Label as `id`. Forge gained `.field[data-direction="row"]` + `.field-text` rules in `styles.css`. **Two toggle-then-label call sites flipped to label-then-toggle** (UpdateCard's "Automatically install when available", DnsLogs's "Live tail") — Field renders [label, control] and the consistency win across every form/setting row outweighs preserving the inverse idiom for two cosmetic cases. **Help-text placement rule:** `help` prop renders below children; for help that should sit *above* the control (e.g., DefaultProfileHint above ProfileToggleList in DeviceDnsFilterCard), keep it inside `children` so the consumer keeps ordering control without Field needing a `helpPosition` prop. **Generalisations:** (a) consolidation slices are valuable when an earlier slice introduced a primitive as proof-of-pattern — the "half-adopted primitive" state is technical debt; every slice after introduction either ships more consumers or accepts the primitive as decorative; (b) a primitive shouldn't grow positional knobs (helpPosition, controlPosition) for layout variations a consumer can express in slot composition — the threshold for adding the prop is enough consumers (or strong enough domain meaning) to justify a divergent convention; (c) data-attribute > modifier-class for prop-driven variants, third application after Toggle's `data-state` and DropdownMenuItem's `data-variant` (Field's `data-direction`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` resolved by --fix during this slice); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | Sheet consumers' inline migration — A1 + A2 of three (fifteenth slice). Folded `EditDhcpConfigSheet` into `compound/DhcpConfigCard` as an edit-mode (DeviceSettingsCard precedent: `editing` state, Edit button in CardHeader's `CardAction`, Cancel/Save in `CardFooter`, hook-coupled via `useUpdateDhcpConfig`); renamed `CreateReservationSheet` → `features/CreateReservationInline.tsx` and rendered it above the reservations table when open (CreateTunnelInline / Tunnels.tsx precedent). Both form bodies copied verbatim from the sheets — every Field-wrapped row from slice 14 needed zero edits, only the chrome (Sheet → Card) changed. **Tabs flipped uncontrolled → controlled** on `pages/Dhcp.tsx` so the Leases-tab "Make static" action can switch to the Reservations tab AND open the inline pre-filled in one batched state change (`openReservationCreate(defaults?)` helper). **`onAdd?: () => void` (optional)** on `compound/DhcpReservationTable` so the page can pass `undefined` while the inline create card is showing — same shape as TunnelGrid's optional onAdd; EmptyStatePlaceholder already gated its action on `actionLabel && onAction`. Legacy `features/EditDhcpConfigSheet.tsx` and `features/CreateReservationSheet.tsx` deleted. **Compound vs features dir is loose for cards that import hooks** — DhcpConfigCard kept in `compound/` even though it now imports `useUpdateDhcpConfig` directly; matches the existing compound files that already import hooks (`RecentErrorsCard`, `TunnelCard`, `ConnectionBanner`, `Sidebar`, `UncleanShutdownBanner`). features/ is for whole-feature flows (BackupCard's two-step export/restore, DeviceSettingsCard, CreateReservationInline's create flow, CreateTunnelInline) — not just any hook-using card. **`tw-animate-css` removal now blocked by `MobileMenu` only** — sheet.tsx's two form consumers migrated; only nav consumer remains. After A3 (mobile-nav redesign), sheet.tsx deletes, the `tw-animate-css` package drops from `admin-app/web/package.json`, and the `@import "tw-animate-css"` line drops from `index.css` — likely a one-commit follow-up to the MobileMenu slice. **Generalisation:** consolidating form rows into Field (slice 14) was the prerequisite that made these sheet-to-inline migrations near-mechanical; the same migration before slice 14 would have meant per-row Label/Input rewrites alongside the Sheet → Card rewrite. Confirms the value of consolidation slices as scaffolding for downstream feature-shape changes. Type-check + lint + format:check clean for admin-app/web (lint errors auto-fixed by `yarn lint --fix`; only pre-existing react-hooks/react-refresh warnings on out-of-scope files remain). | (this commit) |
