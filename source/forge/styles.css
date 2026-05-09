@@ -710,6 +710,50 @@ button { font-family: inherit; }
   from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   to { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.97); }
 }
+
+/* ---------- Popover ---------- */
+.popover {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  padding: 10px;
+  z-index: 41;
+  /* Honors Radix's content transform-origin so scale animates from the
+     anchor edge. Falls back to center for CSS-only consumers. */
+  transform-origin: var(--radix-popover-content-transform-origin, center);
+}
+.popover[data-state="open"] { animation: popover-in 140ms ease; }
+.popover[data-state="closed"] { animation: popover-out 120ms ease forwards; }
+.popover[data-state="open"][data-side="bottom"] { animation-name: popover-in-bottom; }
+.popover[data-state="open"][data-side="top"]    { animation-name: popover-in-top; }
+.popover[data-state="open"][data-side="left"]   { animation-name: popover-in-left; }
+.popover[data-state="open"][data-side="right"]  { animation-name: popover-in-right; }
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes popover-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+@keyframes popover-in-bottom {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes popover-in-top {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes popover-in-left {
+  from { opacity: 0; transform: translateX(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0)   scale(1); }
+}
+@keyframes popover-in-right {
+  from { opacity: 0; transform: translateX(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 12px; color: var(--ink-3); font-weight: 500; }
 .field input, .field select, .field textarea {

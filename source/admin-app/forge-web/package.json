@@ -28,6 +28,10 @@
     "./alert-modal": {
       "import": "./src/primitives/alert-modal.tsx",
       "types": "./src/primitives/alert-modal.tsx"
+    },
+    "./popover": {
+      "import": "./src/primitives/popover.tsx",
+      "types": "./src/primitives/popover.tsx"
     }
   },
   "files": [

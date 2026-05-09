@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/core/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@wardnet/forge-web/popover";
 import {
   Command,
   CommandEmpty,

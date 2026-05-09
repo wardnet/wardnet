@@ -49,7 +49,7 @@ in `.agents/skills/using-design-system/SKILL.md`.
 | Public site chrome     | **Match admin.** Ward Navy navbar + footer, --bg surface for content, Signal Green CTAs. |
 | Icons                  | **Keep `lucide-react`.** Forge `<Icon>` set in `primitives.jsx` is reference-only. Adopt lucide's `strokeWidth={1.7}` default to match Forge's hand-tuned strokes. |
 | CVA                    | **Keep `class-variance-authority`** for our own primitives (Button, Pill, Card variants). |
-| `tw-animate-css`       | **Keep.** Used for dialog/sheet/dropdown entrance animations. |
+| `tw-animate-css`       | **Keep (re-evaluate).** Originally retained for dialog/sheet/dropdown entrance animations. With Sheet dropped (see Findings) and Modal/AlertModal motion now living in Forge keyframes, the remaining justification is variant-specific motion in DropdownMenu / Popover / Select. The Popover slice will tell us whether those land Forge keyframes (consistent with Modal) or tw-animate-css utilities. |
 | Accent color           | **Lock to Signal Green.** No user picker. `--accent` is the only brand hue; warn/danger/info still vary per status. |
 
 ### How this evolved
@@ -137,9 +137,9 @@ Radix primitive needed (pure visual or HTML element).
 | badge.tsx → pill  | n/a                | `.pill` / `.pill--ok|warn|down|info|ghost` (renamed `Badge` → `Pill`) | [x] |
 | dialog.tsx → modal | Dialog            | `.modal` (`.scrim` / `.modal__head` / `.modal__body` / `.modal__foot`) (renamed `Dialog` → `Modal`) | [x] |
 | alert-dialog.tsx → alert-modal | AlertDialog | `.modal` (no new modifier — danger framing is button-level; renamed `AlertDialog` → `AlertModal`) | [x] |
-| sheet.tsx         | Dialog (slide)     | mobile bottom sheet (Forge mobile.html §sheet)         | [ ]    |
+| sheet.tsx         | —                  | dropped — replaced by inline detail/edit pattern (see Findings) | [-]    |
 | dropdown-menu.tsx | DropdownMenu       | popover-style menu (Forge §07)                         | [ ]    |
-| popover.tsx       | Popover            | `--bg-card` + `--shadow-pop`                           | [ ]    |
+| popover.tsx       | Popover            | `.popover` (added — `--bg-card` + `--shadow-pop` + side-aware entrance) | [x] |
 | select.tsx        | Select             | field with chevron, popover list                       | [ ]    |
 | switch.tsx → toggle | Switch           | `.toggle` (renamed `Switch` → `Toggle`)                | [x]    |
 | tabs.tsx          | Tabs               | `.tabs` (pill) for view switches; underline tabs (`.tabs-bar` from §05) for page nav | [ ] |
@@ -199,7 +199,7 @@ all facts; status pills via `.pill--*`.
 | JobProgressDescription          | [ ]    | mono job state                                             |
 | Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
 | LogViewer                       | [ ]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) |
-| MobileMenu                      | [ ]    | sheet pattern                                              |
+| MobileMenu                      | [ ]    | sheet dropped — new mobile-nav approach TBD (own slice)    |
 | PageHeader                      | [ ]    | `.h-title` + `.h-sub` + right-aligned actions              |
 | ProfileToggleList               | [ ]    | toggle-row list (added on main 2026-05-09 in #343)         |
 | RecentErrorsCard                | [ ]    | log-style list                                             |
@@ -218,7 +218,7 @@ all facts; status pills via `.pill--*`.
 | Component                | Status | Notes                                            |
 | ------------------------ | ------ | ------------------------------------------------ |
 | BackupCard               | [ ]    | edit-mode card                                   |
-| CreateReservationSheet   | [ ]    | sheet (mobile) / dialog (desktop)                |
+| CreateReservationSheet   | [ ]    | inline create form (sheet dropped — likely renamed CreateReservationInline) |
 | CreateTunnelInline       | [ ]    | inline form + WireGuard config paste             |
 | DashboardLogWidget       | [ ]    | `.logs`                                          |
 | DeviceDnsFilterCard      | [ ]    | edit-mode card                                   |
@@ -227,7 +227,7 @@ all facts; status pills via `.pill--*`.
 | DeviceSettingsCard       | [ ]    | edit-mode card                                   |
 | DnsFilterSettingsCard    | [ ]    | edit-mode card with toggles                      |
 | DnsStatsSection          | [ ]    | qchart + donut + stat tiles                      |
-| EditDhcpConfigSheet      | [ ]    | sheet                                            |
+| EditDhcpConfigSheet      | [-]    | subsumed by DhcpConfigCard edit-mode (sheet dropped) |
 | ManualTunnelTab          | [ ]    | tabbed sub-form                                  |
 | PowerCard                | [ ]    | danger-toned actions outside card per skill §detail |
 | ProviderTunnelTab        | [ ]    | tabbed sub-form                                  |
@@ -721,6 +721,131 @@ all facts; status pills via `.pill--*`.
   `text-popover-foreground` (5→4), `bg-muted` (31→29),
   `text-muted-foreground` (231→230). Counts dropped slightly but
   the alias-pruning slice still has consumers to migrate.
+- **Sheet dropped from design — replaced by inline detail/edit
+  pattern** (2026-05-09, after the AlertModal slice). Originally the
+  primitive table listed `sheet.tsx` as a Dialog-with-slide-from-bottom
+  port targeting Forge's `mobile.html §sheet`. Walked it back: sheets
+  fragment the navigation model — they slide a second surface on top
+  of the page so the user has to mentally hold two contexts (the page
+  underneath + the sheet) just to edit one record. Inline detail/edit
+  is the same affordance with one fewer layer: the page itself
+  expands the row / card / form into edit mode, then collapses back.
+  Same affordance, less chrome, and it falls out of the
+  edit-mode-card protocol that DhcpConfigCard / DeviceSettingsCard /
+  BackupCard already use. Ripples:
+  - `sheet.tsx` primitive marked `[-]` (Removed from scope; new
+    legend row added).
+  - `EditDhcpConfigSheet` marked `[-]` — its functionality folds
+    into `DhcpConfigCard` edit-mode.
+  - `CreateReservationSheet` notes updated — likely renamed to
+    `CreateReservationInline` (precedent: `CreateTunnelInline`).
+    Component itself ports in its own slice.
+  - `MobileMenu` notes updated — without Sheet, mobile-nav needs a
+    new approach (own slice will decide).
+  - `tw-animate-css` justification narrows: Modal/AlertModal motion
+    is in Forge keyframes; Sheet's slide-from-bottom (the canonical
+    variant-specific-motion example in the Modal slice's animation
+    rule) no longer exists as a use case. Whether DropdownMenu /
+    Popover / Select land Forge keyframes or tw-animate-css will be
+    settled by the Popover slice; until then `tw-animate-css` stays
+    in deps.
+  - The multi-part-Radix-wrap template (passthrough Radix /
+    Forge-owned div / composed Radix tree / Radix-part-wearing-
+    Forge-element-via-asChild) still holds for Popover, DropdownMenu,
+    Select — Sheet would have been the variant test for slide motion;
+    instead Popover (the next slice) becomes the floating-surface
+    test, and the rule covering intrinsic-vs-variant motion gets
+    re-examined there.
+- **Popover — Forge gains `.popover` (no `.pop`)** (2026-05-09,
+  seventh primitive). Forge had no class for floating non-modal
+  surfaces; the `--shadow-pop` token existed (used by `.toast`)
+  and the legacy `pop` keyframe shipped a fade+rise that `.toast`
+  consumes, but no `.pop` / `.popover` / `.menu` class. Considered
+  naming the new class `.pop` to mirror the existing `pop`
+  keyframe + `--shadow-pop` token (terse, consistent with toast's
+  vocabulary), but the React-export side reads weirdly as
+  `<Pop>`, and the locked rule "component name follows Forge class
+  name — no Radix exception" (Toggle slice) cuts both ways: if the
+  React export should be `Popover` (matches Radix lingua franca
+  inside the file, and `<Popover>` is what the rest of the
+  ecosystem calls it), then the Forge class is `.popover` so the
+  rule holds. The `--shadow-pop` token name and `pop` keyframe
+  stay as they are — they're token / animation primitives, not
+  component classes; the rule binds component classes to React
+  components, not every CSS identifier. **Generalisation:** when
+  picking a name for a new Forge class, prefer the unambiguous
+  React-vocabulary name (`.popover`, `.modal`, `.toggle`) over
+  terse forms; tokens and keyframes can keep their own
+  shorter / pre-existing names.
+- **Popover entrance motion is intrinsic — Forge keyframes scoped
+  to `[data-state="…"]` + `[data-side="…"]`** (2026-05-09, seventh
+  primitive — applies the Modal slice's animation rule). Modal
+  locked: intrinsic motion → Forge keyframes; variant-specific
+  motion → tw-animate-css. Popover's entrance is side-aware
+  (slide-in from the anchor side: trigger-on-top → popover slides
+  in from below; trigger-on-bottom → from above, etc.) — this is
+  intrinsic to popover-style floating surfaces, not a per-call-site
+  variant. Fits the Modal rule cleanly: stays in Forge. Implemented
+  by extending the existing `[data-state="open"|"closed"]` family
+  with a parallel `[data-side="top|right|bottom|left"]` family that
+  swaps the open keyframe (`popover-in-top` / `popover-in-bottom` /
+  `popover-in-left` / `popover-in-right`) while close stays
+  direction-agnostic (`popover-out` — fade + zoom, no slide). The
+  legacy primitive used Radix's `--radix-popover-content-transform-
+  origin` CSS var to anchor scale to the trigger edge; Forge
+  honors it via `transform-origin: var(--radix-popover-content-
+  transform-origin, center)`, with a `center` fallback for
+  CSS-only consumers (no Radix var present). **Generalisation
+  for DropdownMenu / Select:** Radix exposes the same
+  `data-side` attribute on `DropdownMenu.Content` /
+  `Select.Content`; both should reuse the `.popover` class +
+  these data-side keyframes rather than ship parallel selectors.
+  Confirms Sheet's removal didn't sink the intrinsic-vs-variant
+  rule — Popover is the cleaner test case anyway because the
+  motion is geometric (anchor-side), not modal (slide-from-bottom).
+  `tw-animate-css` not used here; whether DropdownMenu / Select
+  / future floating surfaces ever land utility-side motion is now
+  open until a concrete need surfaces.
+- **Popover surface stripped to three exports** (2026-05-09,
+  seventh primitive). Legacy `core/ui/popover.tsx` exported seven
+  parts — `Popover`, `PopoverTrigger`, `PopoverContent`,
+  `PopoverAnchor`, `PopoverHeader`, `PopoverTitle`,
+  `PopoverDescription`. Both call sites (CountryCombobox,
+  CronSchedulePicker) imported only `Popover` / `PopoverTrigger`
+  / `PopoverContent`; the other four had zero consumers. Stripped
+  per the locked rule "drop features the migration doesn't
+  require." If a future call site needs `Anchor` (decoupled
+  positioning) or header/title/description, those add back as
+  needed — Radix's `Popover.Anchor` is one line, and the legacy
+  Header/Title/Description were Forge-owned divs with trivial
+  Tailwind classes (`flex flex-col gap-0.5 text-sm`,
+  `font-medium`, `text-muted-foreground`) that don't survive a
+  Forge port unchanged anyway.
+- **Multi-part template — Popover lands cleanly in three of the
+  four shapes; no Title/Description = no asChild trick this
+  slice** (2026-05-09, seventh primitive). Modal locked the
+  four-shape classification (passthrough Radix / Forge-owned div
+  / composed Radix tree / Radix-part-wearing-Forge-element-
+  via-asChild). Popover slots into three: `Popover` and
+  `PopoverTrigger` are passthrough Radix; `PopoverContent`
+  composes `<Popover.Portal>` + `<Popover.Content>` (no Overlay
+  — Popover is non-modal, no scrim, no focus trap). The fourth
+  shape (Radix-part-wearing-Forge-expected-element via asChild)
+  doesn't show up because the stripped surface has no Title /
+  Description / Header. Sub-component count is the variable —
+  Modal had nine exports across all four shapes; Popover has
+  three across two. **Confirms the template scales down as well
+  as up** — DropdownMenu (next, ten-plus parts) will stress the
+  template upward; Popover stresses it downward.
+- **Legacy shadcn alias audit — Popover slice** (2026-05-09).
+  The deleted `popover.tsx` referenced `bg-popover` (one
+  consumer here), `text-popover-foreground` (one),
+  `text-muted-foreground` (one), plus `ring-foreground/10` and
+  Tailwind animation utilities. None of the shadcn alias rows
+  reached zero after deletion — `bg-popover` (6→5),
+  `text-popover-foreground` (4→3), `text-muted-foreground`
+  (230→ish — same order of magnitude). Counts continue to drop
+  slowly; the alias-pruning slice still has consumers to migrate.
 
 ---
 
@@ -1048,6 +1173,7 @@ forge-web is not a dependency of marketing-site at all.
 - `[~]` — In progress this session
 - `[x]` — Done (visually verified in dev server)
 - `[!]` — Blocked — see Findings note
+- `[-]` — Removed from scope — see Findings note
 
 ---
 
@@ -1065,3 +1191,4 @@ forge-web is not a dependency of marketing-site at all.
 | 2026-05-09 | Toggle primitive port (fourth primitive — first Radix-wrap template). Renamed `Switch` → `Toggle` to match Forge's `.toggle` class; the legacy `core/ui/switch.tsx` is gone. Two rules locked in this slice: (1) **component name always follows Forge class name — no Radix exception**, supersedes the Pill slice's "modulo Radix" wording; the Radix umbrella import keeps its Radix name inside the file (`import { Switch } from "radix-ui"`, render `<Switch.Root>`), but the file/export/subpath are Forge's name. (2) **Radix `data-state` ↔ Forge modifier classes are bridged in Forge's stylesheet, not in JS** — added `.toggle[data-state="checked"]` selectors next to `.toggle.is-on` so CSS-only consumers and React primitives land on the same visual. This is the template for every state-bearing Radix-wrap that follows (Tabs, RadioGroup, Dialog→Modal, Popover, Sheet, AlertDialog, Select, DropdownMenu) — Forge will grow a family of `[data-state="…"]` selectors and that's deliberate. Toggle primitive is minimal: `<Switch.Root className="toggle" {...props} />`, no `Switch.Thumb` child since Forge's `.toggle::after` provides the thumb (a generalisable rule — don't render Radix sub-components Forge already owns visually). Subpath `./toggle` added to `@wardnet/forge-web`; 9 call sites retargeted (`@/components/core/ui/switch` → `@wardnet/forge-web/toggle`, `<Switch …>` → `<Toggle …>`); one stale JSDoc reference in `ProfileToggleList.tsx` updated. Legacy alias audit: switch.tsx's referenced aliases (`bg-input`, `bg-primary`, `bg-background`, `bg-foreground`, `bg-primary-foreground`, `border-ring`, `ring-ring`, `border-destructive`, `ring-destructive`) all retain other consumers — no rows newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | Modal primitive port (fifth primitive — first multi-part-Radix-wrap template). Renamed `Dialog` → `Modal` to match Forge's `.modal` class; the legacy `core/ui/dialog.tsx` is gone. The Radix umbrella import keeps its Radix name inside the file: `import { Dialog } from "radix-ui"`, render `<Dialog.Root>` / `<Dialog.Portal>` / `<Dialog.Overlay>` / `<Dialog.Content>` etc. Multi-part export shape (`Modal` / `ModalTrigger` / `ModalContent` / `ModalHeader` / `ModalTitle` / `ModalDescription` / `ModalBody` / `ModalFooter` / `ModalClose`) follows the flat-named-exports precedent set by Card. Each export classified as one of four shapes — **passthrough Radix** (Modal, ModalTrigger, ModalDescription, ModalClose), **Forge-owned div** (ModalHeader = `.modal__head`, ModalBody = `.modal__body`, ModalFooter = `.modal__foot` — generalises Toggle's "don't render Radix sub-components Forge already owns visually" from a single pseudo-element to whole structural divs), **composed Radix tree** (ModalContent = Portal + Overlay[scrim] + Content[modal]), or **Radix part wearing Forge's expected element via asChild** (ModalTitle renders `<Dialog.Title asChild><h3>...</h3></Dialog.Title>` so a11y wiring lands on the `<h3>` Forge's `.modal__head h3` selector already styles). Forge gained the second instance of the data-state bridge: `.scrim[data-state="open"\|"closed"]` and `.modal[data-state="open"\|"closed"]` selectors with new `scrim-in/out` + `modal-in/out` keyframes; `.modal` was given fixed-positioning + a `.scrim > .modal { position: static; transform: none }` reset so Radix's sibling Overlay/Content tree and CSS-only mocks (modal nested inside scrim) both render correctly. Locked the rule on where animations live: **intrinsic** to `.scrim` / `.modal` → Forge keyframes scoped to `[data-state="…"]`; **variant-specific** (e.g. Sheet's slide-from-bottom) → tw-animate-css utilities on the primitive's className. Subpath `./modal` added to `@wardnet/forge-web`; 2 call sites migrated (`core/ui/command.tsx` wrapper + `features/BackupCard.tsx`'s ExportDialog & RestoreDialog) — full Dialog* → Modal* JSX rename plus added explicit `<ModalBody>` wrappers around the body content per Forge's structural expectation (Forge's `.modal__body` provides body padding; the legacy DialogContent's grid+gap pattern is gone). Note on `Dialog.Trigger`: Radix's own `asChild` prop covers the Slot wrapping that Button needed to add explicitly — ModalTrigger is a one-line passthrough. Legacy `dialog.tsx` deleted. Legacy alias audit: dialog.tsx's shadcn token aliases (`bg-background`, `bg-muted`, `text-muted-foreground`, `bg-popover`, `text-popover-foreground`) all retain other consumers — no rows newly zero-referenced; the `data-open:animate-in` / `data-closed:animate-out` / `data-open:fade-in-0` / `data-open:zoom-in-95` etc. utilities are tw-animate-css (kept) rather than shadcn-token aliases, and their replacement now lives in Forge's stylesheet. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
 | 2026-05-09 | AlertModal primitive port (sixth primitive — multi-part Radix-wrap on a shared Forge surface). Renamed `AlertDialog` → `AlertModal` to anchor the React vocabulary on the `.modal` class (same surface as Modal) while the `Alert` prefix marks Radix 's behavioral semantics (role="alertdialog", forced confirmation, overlay-click suppressed). Going-in expectation was that Forge needed a `.modal--danger` / `.modal--alert` modifier — reading the legacy file dissolved that: `AlertDialogAction` defaulted to `variant="default"` and accepted a `variant` prop, so danger framing was always per-call-site on the *button*, never on the modal surface. Conclusion: Forge needs nothing new for this slice; visuals match Modal token-for-token. Action/Cancel ported as **pure Radix passthroughs** (legacy baked a `<Button>` wrapper with a `variant` prop — that 's the same escape-hatch shape the Card slice locked against; consumers now wire `<AlertModalAction asChild><Button variant="destructive">…</Button></AlertModalAction>`). New `./alert-modal` subpath export in `@wardnet/forge-web`. Four call sites migrated (`compound/ConfirmDialog`, `features/PowerCard` — three dialogs, `features/ShutdownProgressDialog`, `features/RestartProgressDialog`); JSX expanded by one wrapper per action/cancel — eight new `<Button asChild>` wrappers across the four files. Legacy `core/ui/alert-dialog.tsx` deleted; `AlertDialogMedia` (zero call sites) and `AlertDialogPortal`/`AlertDialogOverlay` (consumed via `AlertDialogContent` only) dropped from the surface. State-bridge selectors inherited unchanged from the Modal slice (`.scrim` / `.modal` `[data-state="open"\|"closed"]` already in `styles.css`). Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
+| 2026-05-09 | **Sheet dropped from design + Popover primitive port (seventh primitive — first floating-non-modal Radix-wrap).** Two parts in one commit. **Part 1 — Sheet drop (doc-only):** sheets fragment the navigation model — they slide a second surface on top of the page and force the user to hold two contexts to edit one record. Inline detail/edit is the same affordance with one fewer layer, and falls out of the edit-mode-card protocol that DhcpConfigCard / DeviceSettingsCard / BackupCard already use. Ripples: new `[-]` "Removed from scope" status legend row added; `sheet.tsx` primitive marked `[-]`; `EditDhcpConfigSheet` marked `[-]` (folds into DhcpConfigCard edit-mode); `CreateReservationSheet` notes updated (likely renamed CreateReservationInline — own slice); `MobileMenu` notes updated (no Sheet → mobile-nav approach TBD); `tw-animate-css` Locked-defaults note rewritten to "Keep (re-evaluate)" since Sheet's slide-from-bottom — the canonical variant-specific-motion example in the Modal-slice animation rule — no longer exists; multi-part Radix-wrap template still holds for Popover/DropdownMenu/Select. **Part 2 — Popover port:** Forge had no `.pop`/`.popover`/`.menu` class; added `.popover` to `source/forge/styles.css` per the Forge-first rule (`--bg-card` background, `--shadow-pop` shadow, `--radius` corner, 1px `--line` border, default 10px padding). Naming choice: `.popover` (not `.pop`) — the `--shadow-pop` token and `pop` keyframe (toast) keep their terse names, but component classes follow the React-vocabulary name (`Popover` ↔ `.popover`) per the Toggle-slice rule. Animations live in Forge per the Modal-slice intrinsic-vs-variant rule: side-aware entrance is intrinsic to popover-style floating surfaces (every popover slides from its anchor side), so four `[data-state="open"][data-side="…"]` open keyframes (`popover-in-bottom/top/left/right` — translate from anchor + scale 0.97→1) plus a direction-agnostic `popover-out` (fade + zoom-out, no slide) live in `styles.css`. `transform-origin` honors Radix's `--radix-popover-content-transform-origin` var with a `center` fallback for CSS-only consumers. **No tw-animate-css used here** — Sheet's removal didn't sink the rule, and Popover proves intrinsic-and-side-aware-as-Forge-keyframes works for floating surfaces; question of whether DropdownMenu / Select land utility-side motion is now open until concrete need surfaces. Surface stripped to three exports — `Popover` / `PopoverTrigger` / `PopoverContent` — since `PopoverAnchor` / `PopoverHeader` / `PopoverTitle` / `PopoverDescription` had zero call sites. Multi-part template stresses *downward* this slice (3 exports across 2 of 4 shapes) — DropdownMenu (next, ten-plus parts) will stress upward. New `./popover` subpath export in `@wardnet/forge-web`; 2 call sites migrated (`compound/CountryCombobox` + `compound/CronSchedulePicker`) — pure import-path retarget, no JSX rewrite (the legacy primitive's `align="center"` / `sideOffset=4` defaults preserved). Legacy `core/ui/popover.tsx` deleted. Legacy alias audit: counts dropped slightly (`bg-popover` 6→5, `text-popover-foreground` 4→3, `text-muted-foreground` ~230→~230) but no aliases newly zero-referenced. Type-check + lint + build clean for admin-app/web (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for marketing-site. | (this commit) |
