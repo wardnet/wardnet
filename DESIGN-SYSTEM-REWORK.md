@@ -13,7 +13,7 @@ in `.agents/skills/using-design-system/SKILL.md`.
 ## Strategy (decided)
 
 1. **Forge as source of truth.** Adopt `design-system/styles.css` tokens verbatim
-   into `source/web-ui/src/index.css` and `source/site/src/index.css`. Both
+   into `source/admin-app/web/src/index.css` and `source/marketing-site/src/index.css`. Both
    surfaces (admin web-ui and public site) end up on the same token set so
    "matches the admin web-ui" stops being a comment in CSS and starts being
    a fact.
@@ -30,7 +30,7 @@ in `.agents/skills/using-design-system/SKILL.md`.
    (focus traps, keyboard nav, ARIA, portal logic). `radix-ui@1.4.3` is already
    installed as a unified package.
 4. **Tailwind 4.2.4** is the latest as of 2026-05-08 — already pinned, no bump.
-5. **Public site = Ward Navy chrome.** `source/site/` retires its
+5. **Public site = Ward Navy chrome.** `source/marketing-site/` retires its
    `--brand-indigo|slate|green` tokens and adopts Forge tokens, with the same
    Ward Navy chrome (`--side-bg`) for navbar/footer that the admin sidebar uses.
    Marketing visitor and admin user see the same Wardnet — heavier than a
@@ -125,7 +125,7 @@ Six principles (gate every screen before marking it done):
 
 ---
 
-## Primitives — `source/web-ui/src/components/core/ui/`
+## Primitives — `source/admin-app/web/src/components/core/ui/`
 
 Replace each shadcn wrapper with a Radix-backed Forge component. `n/a` = no
 Radix primitive needed (pure visual or HTML element).
@@ -166,7 +166,7 @@ Radix primitive needed (pure visual or HTML element).
 
 ---
 
-## Compound components — `source/web-ui/src/components/compound/`
+## Compound components — `source/admin-app/web/src/components/compound/`
 
 Each is a Forge-native rewrite. Move utility-class soup → Forge classes; mono-wrap
 all facts; status pills via `.pill--*`.
@@ -213,7 +213,7 @@ all facts; status pills via `.pill--*`.
 
 ---
 
-## Feature components — `source/web-ui/src/components/features/`
+## Feature components — `source/admin-app/web/src/components/features/`
 
 | Component                | Status | Notes                                            |
 | ------------------------ | ------ | ------------------------------------------------ |
@@ -239,7 +239,7 @@ all facts; status pills via `.pill--*`.
 
 ---
 
-## Layouts — `source/web-ui/src/components/layouts/`
+## Layouts — `source/admin-app/web/src/components/layouts/`
 
 | File         | Status | Notes                                                              |
 | ------------ | ------ | ------------------------------------------------------------------ |
@@ -248,7 +248,7 @@ all facts; status pills via `.pill--*`.
 
 ---
 
-## Pages — `source/web-ui/src/pages/`
+## Pages — `source/admin-app/web/src/pages/`
 
 | Page                  | Status | Forge ref                                                   |
 | --------------------- | ------ | ----------------------------------------------------------- |
@@ -271,7 +271,7 @@ all facts; status pills via `.pill--*`.
 
 ---
 
-## Public site — `source/site/`
+## Public site — `source/marketing-site/`
 
 | File / area                       | Status | Notes                                                                             |
 | --------------------------------- | ------ | --------------------------------------------------------------------------------- |
@@ -305,7 +305,7 @@ all facts; status pills via `.pill--*`.
   less surface to keep correct.
 - **Theme strategy**: `next-themes` defaults to class (`.dark`); needs
   `attribute="data-theme"` config so Forge's token block fires.
-- **Public site palette**: `source/site/src/index.css` carries its own
+- **Public site palette**: `source/marketing-site/src/index.css` carries its own
   `--brand-indigo|slate|green` tokens with a leading comment "Brand palette
   (matches admin web-ui)" — that comment becomes a fact once both surfaces share
   Forge tokens.
@@ -450,263 +450,249 @@ first, then into the apps.
 | Update `design-system.html` §05 Components when we add new components in code | [ ]    |
 | Bootstrap `source/forge/` workspace package (first primitive slice — see "Where Forge lives" below) | [x] |
 | Move `styles.css` from `design-system/` to `source/forge/` once package exists; retarget `@wardnet/forge` alias | [x] |
-| **Convert repo to yarn workspaces** — root `package.json` with `workspaces` array, root `.yarnrc.yml`, single `yarn.lock`; flip every `portal:` → `workspace:^`. Update Makefile + CI workflows + pre-commit. (See "Repo packaging — yarn workspaces" below.) | [ ] |
-| **Platform split — `forge` ⇄ `forge-web`.** Rename current `source/forge/` to `source/forge-web/` (`@wardnet/forge-web`). Create new `source/forge/` (`@wardnet/forge`) as platform-neutral: `tokens.ts`, `types.ts`, `voice.ts`. `forge-web` depends on `forge`. Flip the 44 web-ui Button imports (`@wardnet/forge/button` → `@wardnet/forge-web/button`) and the two `@import` lines in app CSS. (See "Where Forge lives — platform split" below.) | [ ] |
-| **Reserve `source/forge-native/`** for the future React Native primitives package (`@wardnet/forge-native`). No code in this branch — placeholder rule that the name is taken. | [ ] |
-| Convert `design-system/` to docs-only (mocks + studio HTML) — primitives.jsx mocks may be retired or rendered against `source/forge-web/` | [ ] |
-| Delete legacy shadcn-token alias block in `source/web-ui/src/index.css` once no component references the old utilities (`bg-background`, `text-foreground`, `bg-primary`, `border-border`, `border-input`, `ring-ring`, `bg-sidebar*`, `bg-destructive`, `bg-muted`, `bg-success`, `bg-warning`, `bg-popover`, `bg-secondary`, `text-muted-foreground`, etc.) | [ ] |
-| Delete legacy `--brand-indigo` / `--brand-slate` / `--brand-green` / `--brand-green-hover` aliases in `source/site/src/index.css` once site components consume Forge tokens (`var(--accent)`, `bg-accent`, etc.) | [ ] |
+| **Restructure: context-per-source-dir + admin-app internal workspace.** Rename `source/web-ui/` → `source/admin-app/web/`; move `source/forge/` (Radix primitives) → `source/admin-app/forge-web/`; rename `source/site/` → `source/marketing-site/`; move repo-root `design-system/` → `source/forge/docs/`. Create new top-level `source/forge/` (platform-neutral) with `tokens.ts` + `styles.css` + exports map. Create `source/admin-app/package.json` (workspaces: web, forge-web). Flip 44 button imports to `@wardnet/forge-web/button`. Update Makefile, CI, gitignore, daemon rust-embed paths. (See "Where Forge lives — context-per-source-dir + admin-app workspace" below.) | [x] |
+| **Reserve `source/admin-app/forge-native/` and `source/admin-app/mobile/`** for the future React Native primitives + mobile bundle. No code in this branch — placeholder rule that the names are taken. | [ ] |
+| Complete `tokens.ts` extraction — initial slice covered brand / status / radius / density / font; surfaces (`--bg`, `--bg-elev`, …), ink (`--ink`, `--ink-2`, …), sidebar (`--side-*`), shadows, and soft-variant pairs still need transcribing. Until then `styles.css` is authoritative for web rendering. | [ ] |
+| Convert `source/forge/docs/` to docs-only (mocks + studio HTML rendered against the real package builds long-term). | [ ] |
+| Delete legacy shadcn-token alias block in `source/admin-app/web/src/index.css` once no component references the old utilities (`bg-background`, `text-foreground`, `bg-primary`, `border-border`, `border-input`, `ring-ring`, `bg-sidebar*`, `bg-destructive`, `bg-muted`, `bg-success`, `bg-warning`, `bg-popover`, `bg-secondary`, `text-muted-foreground`, etc.) | [ ] |
+| Delete legacy `--brand-indigo` / `--brand-slate` / `--brand-green` / `--brand-green-hover` aliases in `source/marketing-site/src/index.css` once site components consume Forge tokens (`var(--accent)`, `bg-accent`, etc.) | [ ] |
 
 ---
 
-## Where Forge lives — platform split (locked 2026-05-09; revised 2026-05-09)
+## Where Forge lives — context-per-source-dir + admin-app workspace (locked 2026-05-09; revised again 2026-05-09)
 
-> **Status:** the bootstrap slice landed primitives in `source/forge/`. That
-> name is now reserved for the platform-neutral package; the web-side code
-> that lives there today moves to `source/forge-web/` in the platform-split
-> migration slice (next). The architecture below is the target end-state —
-> everything new from this point (compositions, primitives, tokens) follows
-> these rules from the word go.
+> **Status:** implemented. The previously-locked "root yarn workspace" plan
+> was reconsidered before it shipped — it would have flattened the
+> deployment-unit segregation that already organises `source/`. Final shape
+> is described below.
 
-End-state layout (web + native):
+### The organising principle
+
+`source/` is **context-per-source-dir** — every top-level entry is a
+deployment unit / release context with its own runtime and cadence:
+
+| Dir                                | What ships                                | Cadence                          |
+| ---------------------------------- | ----------------------------------------- | -------------------------------- |
+| `source/daemon/`                   | The Rust daemon binary                    | CalVer release tags              |
+| `source/forge/`                    | The Wardnet design language               | Versioned with the design system |
+| `source/sdk/wardnet-js/`           | `@wardnet/js` — published TypeScript SDK  | Independent (eventually npm)     |
+| `source/marketing-site/`           | Static public marketing site              | Continuous deploy                |
+| `source/admin-app/`                | Admin product (web today, mobile later)   | Tied to daemon release           |
+| `source/end2end-tests/daemon/`     | Container-based e2e harness               | Internal, not shipped            |
+
+Forge being top-level matches this rule: it's the design language consumed
+by both `admin-app/web` AND `marketing-site`. It is not an admin-product
+internal.
+
+### End-state layout
 
 ```
-source/forge/              ← @wardnet/forge — platform-NEUTRAL
-  src/
-    tokens.ts              ← canonical token VALUES (TS object)
-    types.ts               ← shared component-API types (ButtonProps, CardProps, …)
-    voice.ts               ← banned words, principle strings, content rules
-  exports                  ← ./tokens, ./types, ./voice
-
-source/forge-web/          ← @wardnet/forge-web — WEB implementation
-  src/
-    styles.css             ← Forge CSS (classes consume CSS-var tokens)
-    primitives/            ← Button, Card, Dialog, Switch, … (Radix + Forge classes)
-  exports                  ← ./styles.css, ./button, ./card, …
-  depends on               → @wardnet/forge, radix-ui, react
-
-source/forge-native/       ← @wardnet/forge-native — RN implementation (later)
-  src/
-    primitives/            ← Button, Card, Dialog, … (RN Pressable/View, StyleSheet from tokens)
-    theme.ts               ← StyleSheet derived from @wardnet/forge tokens
-  depends on               → @wardnet/forge, react-native
-
-design-system/             ← docs-only "studio" (visual reference + mocks)
-  README.md
-  design-system.html
-  screens.jsx
-  detail-screens.jsx
+source/
+  daemon/                       ← Rust daemon (unchanged)
+  forge/                        ← @wardnet/forge — platform-NEUTRAL
+                                  styles.css         ← Forge CSS (web manifestation of tokens)
+                                  src/tokens.ts      ← canonical token VALUES (TS)
+                                  src/types.ts       ← shared component-API contracts (later)
+                                  src/voice.ts       ← banned words, principle strings (later)
+                                  docs/              ← visual studio (was repo-root design-system/)
+  sdk/wardnet-js/               ← @wardnet/js — published SDK, standalone yarn project
+  marketing-site/               ← public site, standalone yarn project
+                                  Consumes @wardnet/forge via portal:.
+  admin-app/                    ← admin product
+    package.json                ← workspaces: ["forge-web", "web", (later) "forge-native", "mobile"]
+    .yarnrc.yml
+    yarn.lock                   ← single lockfile for everything inside admin-app
+    forge-web/                  ← @wardnet/forge-web — Radix + Forge classes (React primitives)
+                                  Depends on: @wardnet/forge (portal:../../forge), radix-ui, react.
+    web/                        ← @wardnet/admin-web — the admin web bundle
+                                  (formerly source/web-ui).
+                                  Depends on: @wardnet/forge-web (workspace:^),
+                                              @wardnet/forge (portal:../../forge),
+                                              @wardnet/js   (portal:../../sdk/wardnet-js).
+    forge-native/               ← (future) @wardnet/forge-native — RN primitives
+    mobile/                     ← (future) @wardnet/admin-mobile — admin mobile bundle
+  end2end-tests/                ← unchanged, standalone yarn
 ```
 
-Imports (consumer side):
-- **web-ui / site** import `@wardnet/forge-web/*` for primitives and CSS, and may import `@wardnet/forge/tokens` directly when they need JS-side token values (e.g. computing a chart color in TS).
-- **mobile (future)** imports `@wardnet/forge-native/*` for primitives, `@wardnet/forge/tokens` for tokens.
-- Apps **never** import `radix-ui` directly. They never import `react-native` primitives "raw" either — both come pre-styled through their platform package.
+### Why this shape, not "root workspace covering everything"
 
-### Why split now, not later
+Three points:
 
-The single-package shape we landed in the bootstrap slice mixes two concerns
-that diverge in mobile: **what tokens / contracts mean** (platform-neutral)
-and **how a Button renders** (Radix `Slot` and CSS classes are web-only). If
-we let composition components and tokens accrete in one package, the
-mobile-day refactor is a hairy fork that touches every consumer; if we keep
-them split from the start, mobile-day is "drop in `forge-native` next to
-`forge-web`, share `forge`, swap import paths in the mobile entrypoint."
-The cost today is one extra package and a doc rule. The cost of deferring
-is paid once per platform we add.
+1. **Context-per-source-dir is already the rule.** `source/<thing>/` already
+   reads as "this is a deployment unit." Hoisting `forge` / `forge-web` /
+   `forge-native` to siblings of `daemon` and `marketing-site` would muddy
+   the rule: forge-web isn't a deployment unit, it's an admin-product
+   internal. Keeping the workspace at admin-product scope keeps the rule
+   intact — `source/admin-app/` is "the admin product"; what's inside is
+   private to it.
+2. **Different release cadences map cleanly to different yarn projects.** The
+   SDK has its own publish cadence (eventually npm). The daemon has CalVer
+   tags. The marketing site deploys continuously. Forging them all into one
+   workspace would force a single `yarn install` and a single dep graph
+   across release units that move at different speeds. Standalone yarn
+   projects per top-level context preserve that independence.
+3. **Mobile arrives at a known place.** When the React Native admin app
+   spins up, it lands at `source/admin-app/mobile/` next to the existing
+   `web/`, sharing `forge-native/` via `workspace:^`. No structural
+   rewrite — just two new workspace members.
+
+### Why `source/admin-app/web/` and not just `source/admin-app/`
+
+Today the admin app is web-only; it would feel natural to have admin-app
+*be* the web bundle. But the moment mobile lands the directory has to
+either (a) split mid-stream, breaking history, or (b) get a `mobile/`
+subfolder while web sits awkwardly at the package root. Putting `web/`
+inside `admin-app/` from day one matches what mobile + native primitives
+will look like once they exist, and makes the "admin product, web build"
+mental model explicit.
+
+### Imports
+
+- **`source/admin-app/web`** imports primitives from
+  `@wardnet/forge-web/*` and tokens / types from `@wardnet/forge/*` (and
+  the SDK from `@wardnet/js`). Apps **never** import `radix-ui` directly
+  — primitives wrap it.
+- **`source/marketing-site`** imports only `@wardnet/forge/styles.css` and
+  (future) `@wardnet/forge/tokens`. It does **not** depend on
+  `forge-web` and never pulls Radix into its bundle.
+- **`source/admin-app/forge-web`** imports from `@wardnet/forge` for
+  shared tokens / types.
+- **`source/admin-app/mobile`** (future) imports from
+  `@wardnet/forge-native/*` and `@wardnet/forge/tokens`.
+- **No cross-platform leakage.** `forge-web` may not import
+  `react-native`; `forge-native` may not import `radix-ui` or
+  `styles.css`. Only `@wardnet/forge` sits in both import graphs.
+
+### Cross-package dependency protocols
+
+| From                          | To                       | Protocol                       |
+| ----------------------------- | ------------------------ | ------------------------------ |
+| admin-app/web                 | admin-app/forge-web      | `workspace:^`                  |
+| admin-app/web                 | top-level forge          | `portal:../../forge`           |
+| admin-app/web                 | sdk/wardnet-js           | `portal:../../sdk/wardnet-js`  |
+| admin-app/forge-web           | top-level forge          | `portal:../../forge`           |
+| marketing-site                | top-level forge          | `portal:../forge`              |
+| end2end-tests/daemon          | sdk/wardnet-js           | `portal:../../sdk/wardnet-js`  |
+| (future) admin-app/mobile     | admin-app/forge-native   | `workspace:^`                  |
+| (future) admin-app/mobile     | top-level forge          | `portal:../../forge`           |
+
+`workspace:^` is reserved for siblings inside the same yarn workspace
+(only admin-app has one). Cross-context links — admin-app needing the SDK,
+marketing-site needing forge — use `portal:`. When the SDK eventually
+publishes to npm, those `portal:` references flip to a normal version
+range; nothing else changes.
 
 ### Rules
 
-1. **`@wardnet/forge` is platform-neutral.** No `react`, no `react-dom`, no
-   `radix-ui`, no `react-native`, no `.css` files. It exports plain TS:
-   token values, type contracts, voice rules. If a value can be expressed
-   in TypeScript and consumed from any runtime, it goes here.
-2. **`@wardnet/forge-web` is the web implementation.** It owns the CSS
-   (`styles.css` with `.btn`/`.card`/etc.) and React primitives that wrap
-   Radix in Forge classes. CVA stays in this package — it's a web concept.
-   This is where the slice's current primitives (Button so far) actually live.
-3. **`@wardnet/forge-native` is the native implementation (future).** Same
-   primitive contracts as web (so app code shares types/props), but
-   implemented with RN core (Pressable, View, Text) and `StyleSheet.create`.
-   Reads the same tokens from `@wardnet/forge`.
-4. **Tokens are the shared substrate.** Source of truth lives in
-   `@wardnet/forge/src/tokens.ts` as a typed TS object. `forge-web`'s
-   `styles.css` is the **CSS-var manifestation** of those tokens (today
-   maintained by hand and matched to `tokens.ts` in lockstep; if drift
-   becomes a problem we add a tiny generator, but not before). `forge-native`
-   reads `tokens.ts` directly into `StyleSheet`.
+1. **`@wardnet/forge` is platform-neutral and shared.** No `react`, no
+   `radix-ui`, no `react-native`. It exports `./styles.css` (the web
+   manifestation of its tokens), `./tokens` (TS values), eventually
+   `./types` and `./voice`. Both admin-app and marketing-site consume it.
+2. **`@wardnet/forge-web` lives inside `source/admin-app/`.** It is the
+   web implementation of forge primitives — Radix + Forge classes, CVA
+   for variants forge doesn't define. It is never consumed by
+   marketing-site (verified — site uses CSS only).
+3. **`@wardnet/forge-native` will live inside `source/admin-app/`.** Same
+   sibling rules as forge-web.
+4. **Tokens are the shared substrate.** `source/forge/src/tokens.ts` is
+   the canonical TS object. `source/forge/styles.css` is the CSS-var
+   manifestation of those values for web consumers (today maintained by
+   hand and matched to `tokens.ts` in lockstep — generator if drift
+   becomes a problem). `forge-native` reads `tokens.ts` directly into
+   `StyleSheet`.
 5. **Component-API contracts are shared, implementations are not.** A
-   `ButtonProps` type in `@wardnet/forge/types` is referenced by both
-   `forge-web/src/primitives/button.tsx` and `forge-native/src/primitives/button.tsx`,
-   so app-side code that types a button handler doesn't care which platform
-   it lands on.
+   `ButtonProps` type in `@wardnet/forge/types` will be consumed by
+   `forge-web` and `forge-native` so app-side code is platform-agnostic.
 6. **Compositions follow the same split.** Multi-part primitives like
-   `Card.Header` / `Card.Body` / `Card.Footer` are part of the Card
-   primitive itself and live in `forge-web` (and `forge-native`). They
-   are NOT a third package. Compositions specific to an app (e.g.,
-   `DashboardStatCard`) stay in `web-ui/components/compound/` — they're
-   domain-coupled and not design-system vocabulary.
-7. **No cross-platform leakage.** `forge-web` may not import
-   `react-native`. `forge-native` may not import `radix-ui` or reference
-   `styles.css`. Only `@wardnet/forge` is allowed to be in the import
-   graph of both.
-8. **Subpath exports are mandatory** in `forge-web` and `forge-native`
-   (Radix tree-shaking is the whole point — `import { Button } from
-   "@wardnet/forge-web/button"`, never the barrel). `@wardnet/forge`
-   exports `./tokens`, `./types`, `./voice` — also subpath-only.
-9. **`design-system/` stays read-only.** Mocks (`primitives.jsx` etc.) are
-   reference snapshots. Long-term direction: render mocks against
-   `forge-web` builds. Until then, accept drift — the packages are
-   canonical.
+   `Card.Header` / `Card.Body` / `Card.Footer` belong inside the platform
+   package (forge-web today, forge-native later). Domain-coupled
+   compositions (e.g., `DashboardStatCard`) stay in
+   `admin-app/web/src/components/compound/`.
+7. **Subpath exports are mandatory** in forge, forge-web, and forge-native.
+   No barrel imports — `import { Button } from "@wardnet/forge-web/button"`,
+   `@import "@wardnet/forge/styles.css"`. The marketing-site bundle must
+   stay Radix-free.
+8. **`source/forge/docs/` stays read-only.** Mocks (`design-system.html`,
+   `screens.jsx`, `detail-screens.jsx`, `data.jsx`) are reference snapshots.
+   Long-term direction: render mocks against the real package builds.
+   Until then, accept drift — the packages are canonical.
 
-### Repo packaging — yarn workspaces
+### What changed in this slice
 
-The current `portal:` setup (`@wardnet/js` portal'd into web-ui, ditto
-`@wardnet/forge`) was fine for two packages. With three (`forge`,
-`forge-web`, `wardnet-js`) plus a fourth on the horizon (`forge-native`),
-we promote to **yarn workspaces** at the repo root. Reasons:
+**Directory moves:**
+- `source/web-ui/` → `source/admin-app/web/`
+- `source/forge/` (the React primitives bootstrapped earlier) →
+  `source/admin-app/forge-web/`
+- `source/site/` → `source/marketing-site/`
+- `design-system/` (repo root) → `source/forge/docs/`
+- `styles.css` lifted from `admin-app/forge-web/src/` to top-level
+  `source/forge/styles.css` so marketing-site can consume it without
+  reaching into admin-app internals.
 
-- **Single dependency graph.** A root `package.json` with a `workspaces`
-  field declares the topology explicitly — `forge-web` depends on `forge`,
-  apps depend on `forge-web`, etc. `workspace:^` is the canonical
-  intra-monorepo protocol; `portal:` is a workaround for the no-workspaces
-  case.
-- **Hoisted deduped deps.** React, Radix, TypeScript, Prettier all install
-  once at the root. The dual-`@types/react` symptom that forced
-  `preserveSymlinks: true` in the bootstrap slice ceases to require a
-  workaround — workspaces hoist types into a single resolvable location.
-  (We may still keep `preserveSymlinks: true` for predictability — to be
-  re-evaluated during the migration slice.)
-- **One `yarn install` at the root** instead of one per app. Faster CI,
-  one lockfile to review.
-- **Idiomatic.** Most JS monorepos this size use workspaces; new
-  contributors expect to find a root `package.json` and don't expect to
-  hunt for per-app installs.
+**Package shape:**
+- New top-level `source/forge/` with `package.json`, `tsconfig.json`,
+  `src/tokens.ts` (initial extraction — accent / status / radius / density /
+  font), exports map for `./styles.css` and `./tokens`.
+- New `source/admin-app/package.json` declaring `workspaces:
+  ["forge-web", "web"]`. Single yarn.lock at admin-app root.
+- `admin-app/web/package.json` renamed to `@wardnet/admin-web` (was
+  `wardnet-ui`).
+- `admin-app/forge-web/package.json` renamed to `@wardnet/forge-web` (was
+  `@wardnet/forge`); dropped its `./styles.css` export (lives at top-level
+  forge now); kept `./button` export.
+- All 44 button imports in admin-app/web flipped from `@wardnet/forge/button`
+  to `@wardnet/forge-web/button`. CSS `@import "@wardnet/forge/styles.css"`
+  unchanged — it now resolves to the top-level forge package.
 
-End-state packaging layout:
+**Tooling:**
+- `Makefile`: `WEBUI_DIR := source/admin-app/web`,
+  `SITE_DIR := source/marketing-site`, new `ADMIN_DIR := source/admin-app`,
+  new `FORGE_DIR := source/forge`. `init` installs in
+  sdk/forge/admin-app/marketing-site. `build-web` and `check-web` do
+  install at admin-app root, then run scripts in admin-app/web.
+- CI workflows: `cache-dependency-path: source/admin-app/yarn.lock` for
+  admin-app jobs, `source/marketing-site/yarn.lock` for site jobs. Daemon
+  Dockerfiles, dockerignores, dependabot, codeql, detect-changes filters
+  all updated.
+- `.gitignore`: paths shifted to the new dirs.
+- Daemon Rust: `wardnetd-api/src/web.rs` rust-embed `folder` and
+  `wardnetd-api/src/openapi.rs` `include_bytes!` paths updated.
 
-```
-<repo-root>/
-  package.json               ← workspaces: ["source/forge", "source/forge-web",
-                                            "source/forge-native", "source/sdk/wardnet-js",
-                                            "source/web-ui", "source/site",
-                                            "source/end2end-tests/daemon"]
-  yarn.lock                  ← single lockfile for the whole repo
-  .yarnrc.yml                ← single nodeLinker config
-  source/forge/package.json
-  source/forge-web/package.json
-  source/sdk/wardnet-js/package.json
-  source/web-ui/package.json
-  source/site/package.json
-  …
-```
+**`preserveSymlinks: true`** stays on in `admin-app/web/tsconfig.app.json`
+and `admin-app/web/vite.config.ts`. Reason: forge-web's source still
+imports React across a portal symlink boundary, and (separately)
+admin-app/web's source imports forge-web across a workspace symlink.
+Without the flag, real-path resolution lands in `source/admin-app/forge-web/`
+which has no React installed locally — same root cause as the bootstrap
+slice. Hoisting via the admin-app workspace covers types within
+admin-app, but forge-web also pulls react via portal-from-top-level-forge
+in a way that doesn't fully dedupe. Cleanest is to leave the flag on.
 
-Inside each package, cross-package deps look like:
-```jsonc
-// source/web-ui/package.json
-"dependencies": {
-  "@wardnet/forge": "workspace:^",
-  "@wardnet/forge-web": "workspace:^",
-  "@wardnet/js": "workspace:^"
-}
-```
+### Migration ordering (slices going forward)
 
-### Impacts of the platform split + workspaces migration
+1. **(Done — this slice)** Restructure: directory moves, admin-app
+   workspace, top-level forge with `tokens.ts` + `styles.css`.
+2. **Subsequent primitive slices** (Card, Pill, Dialog, …) land in
+   `source/admin-app/forge-web/src/primitives/`. New tokens go into
+   `source/forge/src/tokens.ts`; new shared types go into
+   `source/forge/src/types.ts` (create the file lazily).
+3. **Tokens.ts completion.** The initial `tokens.ts` covers a representative
+   subset (brand, status, radius, density, font). Extracting the full
+   surface / ink / sidebar / shadow / soft-variant set is a follow-up
+   slice — not blocking, since `styles.css` is still authoritative for
+   web rendering.
+4. **`forge-native` slice** lands when the mobile app spins up — adds
+   `source/admin-app/forge-native/` and `source/admin-app/mobile/`
+   alongside web + forge-web. Two new workspace members; no structural
+   rewrite.
 
-**Code & layout**
-- Rename `source/forge/` → `source/forge-web/` (git mv: `package.json`,
-  `tsconfig.json`, `.yarnrc.yml`, `src/` and everything inside).
-- Update `package.json` `name` to `@wardnet/forge-web`.
-- Create new `source/forge/` (platform-neutral): `package.json`,
-  `tsconfig.json`, `src/tokens.ts`, `src/types.ts`, exports map.
-- Initial `tokens.ts` is a TS transcription of the values currently in
-  `styles.css` (`:root` and `[data-theme="dark"]` blocks). One-time
-  manual extraction; the values themselves don't change.
-- `forge-web` declares `"@wardnet/forge": "workspace:^"` as a dep.
-- App imports flip:
-  - `@wardnet/forge/styles.css` → `@wardnet/forge-web/styles.css`
-    (in `web-ui/src/index.css`, `site/src/index.css`).
-  - `@wardnet/forge/button` → `@wardnet/forge-web/button` (44 call
-    sites in web-ui — handled by the same kind of grep+sed that the
-    bootstrap slice used).
-- web-ui's not-yet-ported shadcn wrappers (Card, Dialog, etc.) keep
-  importing `radix-ui` directly until they get ported — same pattern as
-  today.
+### Marketing-site bundle weight
 
-**Tooling & repo plumbing**
-- Add root `package.json` with `workspaces` array.
-- Move `.yarnrc.yml` from each app to the root (single `nodeLinker:
-  node-modules`). Per-app `.yarnrc.yml` files deleted.
-- Delete per-package `yarn.lock` files (`source/web-ui/yarn.lock`,
-  `source/site/yarn.lock`, `source/forge/yarn.lock`,
-  `source/sdk/wardnet-js/yarn.lock`); single root `yarn.lock` replaces
-  them.
-- Replace every `portal:` reference (`@wardnet/js`, `@wardnet/forge`) with
-  `workspace:^`.
-- `.gitignore`: only the root `node_modules/` and `.yarn/` are tracked
-  patterns now; per-app entries collapse.
-- `Makefile` targets that currently `cd source/web-ui && yarn …` rewire
-  to root-level `yarn workspace wardnet-ui run …` (or stay app-relative
-  via cd if simpler — both work).
-- CI workflows (`.github/workflows/build-daemon.yml`, `pr.yml`,
-  `tests-e2e.yml`, `coverage.yml`, `deploy-site.yml`, etc.) collapse
-  per-app install steps into one root `yarn install`. Each workflow
-  needs an audit pass.
-- Pre-commit hooks (`.pre-commit-config.yaml`) — audit for any
-  per-app yarn references.
-- `gt clone` / worktree setup is unaffected (it's git-level, not
-  yarn-level), but the post-clone "run yarn install" instruction in any
-  agent docs becomes "run `yarn install` at the root."
-
-**Behavior & runtime**
-- `preserveSymlinks: true` in `web-ui/tsconfig.app.json` and
-  `web-ui/vite.config.ts` is re-evaluated during the migration. Yarn
-  workspaces still symlink, but hoisting may make the flag unnecessary.
-  Keep it on if removing it produces resolution errors; otherwise drop
-  it (one less special-case).
-- Subpath exports stay mandatory and load-bearing — site bundle still
-  must not pull in Radix.
-- Apps see no behavior change (same primitives, same CSS, same theme
-  attribute) — this is purely a packaging refactor.
-
-**Risk surface (highest → lowest)**
-1. CI workflows breaking on the install-step rewrite — mitigation: do
-   the workspace migration in its own slice, run the full CI matrix
-   before merging.
-2. `preserveSymlinks` interactions with hoisted deps — mitigation:
-   verify type-check + build for both apps before declaring the slice
-   done.
-3. Token drift between `tokens.ts` and `styles.css` once both exist —
-   mitigation: doc rule "if you change one, change the other in the
-   same commit" until a generator is worth building.
-4. Touch volume in 44 import sites again — mitigation: scripted, same
-   as the bootstrap slice; no manual editing.
-
-### Migration ordering (slices)
-
-1. **Workspaces conversion slice.** Add root `package.json` with
-   workspaces, move `.yarnrc.yml` to root, delete per-app `yarn.lock`s,
-   flip `portal:` → `workspace:^`, single `yarn install`. No file
-   moves, no rename. Verifies: type-check + build both apps; CI green.
-2. **`forge` ⇄ `forge-web` split slice.** Rename current `source/forge/`
-   to `source/forge-web/`; create new `source/forge/` with `tokens.ts`
-   (and `types.ts` if a primitive needs shared types). Flip 44 import
-   sites in web-ui. `web-ui/index.css` and `site/index.css` switch their
-   `@import` lines. `forge-web` declares `@wardnet/forge` workspace dep.
-   No new primitives ported in this slice — pure structural move.
-3. **Subsequent primitive slices** (Card, Pill, Dialog, …) follow the
-   already-established rhythm, but land in `source/forge-web/`. New
-   tokens/types (if any) go to `source/forge/`.
-4. **`forge-native` slice** is whenever the mobile app spins up — not
-   on this branch.
-
-### Site bundle weight (unchanged)
-
-The public site still consumes only `@wardnet/forge-web/styles.css` —
-no primitives. Subpath exports prevent Radix from leaking in. The split
-introduces a new dep edge (`forge-web → forge`) but `forge` is pure TS
-with no runtime overhead — site bundles `tokens.ts` only if it explicitly
-imports it.
+The marketing site still imports only `@wardnet/forge/styles.css` (top-level
+forge — pure CSS, no Radix). When tokens are needed in JS (e.g., chart
+colors), it'll import from `@wardnet/forge/tokens` — also pure TS, no
+runtime overhead. The site bundle stays Radix-free by construction:
+forge-web is not a dependency of marketing-site at all.
 
 ---
 
@@ -747,5 +733,6 @@ imports it.
 | ---------- | ------------------------------------------------- | --------------- |
 | 2026-05-08 | Strategy locked, all 8 open questions answered, Forge promoted to source-of-truth, doc bootstrapped, audit complete | (this commit) |
 | 2026-05-09 | Foundation slice: Forge updates (skill rename, density block stripped, floating rail collapsed into `.app`, README import-strategy doc); web-ui font swap to Inter Tight + JetBrains Mono, `index.css` rewritten on Forge tokens via `@theme inline`, `useTheme` hook switched to `data-theme` attribute, legacy shadcn-token aliases retained for build compatibility; site font swap, `index.css` rewritten on Forge tokens, `--brand-*` vars retained as Forge-mapped aliases; Vite alias `@wardnet/forge` added in both apps targeting `design-system/`; "Where Forge lives" strategy locked (`source/forge/` workspace package — bootstrap in first primitive slice). Type-check + build pass for both apps; site format clean. | (this commit) |
-| 2026-05-09 | Forge bootstrap + Button primitive: created `source/forge/` workspace package (`@wardnet/forge` portal:, subpath exports for `./styles.css` + `./button`); `styles.css` moved from `design-system/` to `source/forge/src/`; `radix-ui` moved from web-ui deps to forge deps (apps consume primitives, not Radix). Vite alias `@wardnet/forge` dropped in both apps — exports-map resolution via portal protocol replaces it. `preserveSymlinks: true` set in web-ui's `tsconfig.app.json` and `vite.config.ts` so cross-package source imports reach web-ui's `react` / `@types/react`. Button primitive ported to `source/forge/src/primitives/button.tsx` using Radix `Slot.Root` for `asChild` and Forge `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` / `.btn--icon` classes; legacy shadcn variant strings (`outline`/`secondary`/`destructive`/`tertiary` and sizes `sm`/`icon`/`icon-sm`) kept as the public API and mapped to Forge classes via CVA so call sites stay stable. `source/web-ui/src/components/core/ui/button.tsx` deleted; 44 imports retargeted to `@wardnet/forge/button`. Type-check + lint clean for web-ui (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for site. Build verified for both apps. | (this commit) |
+| 2026-05-09 | Forge bootstrap + Button primitive: created `source/forge/` workspace package (`@wardnet/forge` portal:, subpath exports for `./styles.css` + `./button`); `styles.css` moved from `design-system/` to `source/forge/src/`; `radix-ui` moved from web-ui deps to forge deps (apps consume primitives, not Radix). Vite alias `@wardnet/forge` dropped in both apps — exports-map resolution via portal protocol replaces it. `preserveSymlinks: true` set in web-ui's `tsconfig.app.json` and `vite.config.ts` so cross-package source imports reach web-ui's `react` / `@types/react`. Button primitive ported to `source/forge/src/primitives/button.tsx` using Radix `Slot.Root` for `asChild` and Forge `.btn` / `.btn--primary` / `.btn--ghost` / `.btn--danger` / `.btn--sm` / `.btn--icon` classes; legacy shadcn variant strings (`outline`/`secondary`/`destructive`/`tertiary` and sizes `sm`/`icon`/`icon-sm`) kept as the public API and mapped to Forge classes via CVA so call sites stay stable. `source/admin-app/web/src/components/core/ui/button.tsx` deleted; 44 imports retargeted to `@wardnet/forge/button`. Type-check + lint clean for web-ui (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged); type-check + format:check clean for site. Build verified for both apps. | (this commit) |
 | 2026-05-09 | **Architecture revision — platform split locked + yarn workspaces locked.** Decision: Forge splits into three packages — `@wardnet/forge` (platform-neutral: tokens, types, voice), `@wardnet/forge-web` (Radix + CSS classes — the package that exists today, just mis-named), `@wardnet/forge-native` (future RN). Compositions (Card.Header etc.) live alongside primitives in the platform package, not a separate "forge-ui." Domain-coupled compositions stay in `web-ui/components/compound/`. Yarn workspaces replace `portal:` once we have ≥3 packages — root `package.json` with `workspaces` array, single `yarn.lock`, `workspace:^` for intra-repo deps. Doc-only commit: rewrote "Where Forge lives" with the platform-split architecture, the workspaces rationale, end-state layouts, full rules set, and a detailed impacts list (code/layout, tooling, runtime, risk surface, migration ordering). Added two new tasks to the Forge update checklist: (1) yarn workspaces conversion slice; (2) `forge` ⇄ `forge-web` rename slice. No code change in this commit. | (this commit) |
+| 2026-05-09 | **Architecture revision again — root workspace abandoned in favour of admin-app-internal workspace + context-per-source-dir.** During the workspace conversion the bigger structural concern surfaced: `source/<thing>/` is already organised by deployment unit (daemon / SDK / site / admin / e2e). Hoisting forge / forge-web / forge-native to the same level would have flattened that segregation. New decision: yarn workspace lives **inside `source/admin-app/`** (containing `web` + `forge-web`, and later `mobile` + `forge-native`). Top-level `source/forge/` is the platform-neutral design language, consumed by both admin-app/web AND marketing-site. SDK stays top-level (separate cadence, will be published). Big restructure landed in this slice: `source/web-ui/` → `source/admin-app/web/`; old `source/forge/` (React primitives) → `source/admin-app/forge-web/`; `source/site/` → `source/marketing-site/`; repo-root `design-system/` → `source/forge/docs/`. New top-level `source/forge/` with `tokens.ts` (initial extraction — brand, status, radius, density, font) + `styles.css` (lifted out of forge-web). All 44 button imports retargeted to `@wardnet/forge-web/button`. Makefile, CI workflows, gitignore, daemon rust-embed paths, dependabot, codeql, detect-changes filters all updated. Type-check + lint + build clean for admin-app/web; type-check + format:check + build clean for marketing-site (1 pre-existing prettier error in `Step4RouterMac.tsx` unchanged). | (this commit) |

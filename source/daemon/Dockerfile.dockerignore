@@ -9,7 +9,7 @@
 # context and aren't blocked by this filter.
 #
 # When Dockerfile.test is added (Stage 5) this file will be updated to
-# allow source/daemon/, source/web-ui/, and source/sdk/wardnet-js/ while
+# allow source/daemon/, source/admin-app/web/, and source/sdk/wardnet-js/ while
 # still excluding their build artefacts (target/, node_modules/, dist/).
 
 *

@@ -34,7 +34,7 @@ runs:
             - 'Makefile'
             - 'VERSION'
           site:
-            - 'source/site/**'
+            - 'source/marketing-site/**'
             - 'Makefile'
           ci:
             - '.github/workflows/**'

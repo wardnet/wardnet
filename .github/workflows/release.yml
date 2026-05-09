@@ -154,10 +154,10 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/site/yarn.lock
+          cache-dependency-path: source/marketing-site/yarn.lock
 
       - name: Install site dependencies
-        run: cd source/site && yarn install --immutable
+        run: cd source/marketing-site && yarn install --immutable
 
       - name: Regenerate release manifests
         env:
@@ -165,13 +165,13 @@ jobs:
           # API rate limit (60/hr → 1000/hr) so the API call won't fail
           # silently and ship an empty manifest.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: cd source/site && yarn generate:release-manifests
+        run: cd source/marketing-site && yarn generate:release-manifests
 
       - name: Patch refreshed manifests into bundle
         run: |
           set -euo pipefail
-          cp source/site/public/releases/stable.json site/releases/stable.json
-          cp source/site/public/releases/beta.json   site/releases/beta.json
+          cp source/marketing-site/public/releases/stable.json site/releases/stable.json
+          cp source/marketing-site/public/releases/beta.json   site/releases/beta.json
           echo "Refreshed stable.json:"
           cat site/releases/stable.json
 

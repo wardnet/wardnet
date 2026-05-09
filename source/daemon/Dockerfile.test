@@ -16,7 +16,7 @@
 #
 # Build context: repo root
 #   docker build -f source/daemon/Dockerfile.test -t wardnetd:dev-test .
-#   make image-test            (builds source/web-ui/dist first)
+#   make image-test            (builds source/admin-app/web/dist first)
 
 # ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
@@ -30,18 +30,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-# Rust workspace lives at /build; the web-ui/dist tree must be at
-# /web-ui/dist so wardnetd-api's `#[folder = "../../../web-ui/dist"]`
+# Rust workspace lives at /build; the admin-app/web/dist tree must be at
+# /admin-app/web/dist so wardnetd-api's `#[folder = "../../../admin-app/web/dist"]`
 # rust-embed annotation resolves correctly from
 # /build/crates/wardnetd-api/. /deploy/keys/wardnet-release.pub is
 # baked into wardnetd-services via include_str! against a six-level
 # relative path that walks back to the repo root, so the deploy tree
 # must mirror its repo location too.
 COPY source/daemon/ /build/
-COPY source/web-ui/dist/ /web-ui/dist/
-# wardnetd-api also `include_bytes!`s web-ui/src/assets/logo.png (the
-# OpenAPI swagger logo). Same anchor reasoning as web-ui/dist.
-COPY source/web-ui/src/assets/ /web-ui/src/assets/
+COPY source/admin-app/web/dist/ /admin-app/web/dist/
+# wardnetd-api also `include_bytes!`s admin-app/web/src/assets/logo.png (the
+# OpenAPI swagger logo). Same anchor reasoning as admin-app/web/dist.
+COPY source/admin-app/web/src/assets/ /admin-app/web/src/assets/
 COPY deploy/ /deploy/
 # CALVER is read by the daemon build scripts (build-support/version.rs)
 # and resolved as `../../../../CALVER` from each crate's build.rs cwd

@@ -7,7 +7,7 @@ description: >
 
 inputs:
   cache-dependency-path:
-    description: Path to the yarn.lock used as the cache key (e.g. source/web-ui/yarn.lock).
+    description: Path to the yarn.lock used as the cache key (e.g. source/admin-app/yarn.lock).
     required: true
   node-version:
     description: Node.js major version to install.

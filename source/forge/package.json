@@ -1,34 +1,28 @@
 {
   "name": "@wardnet/forge",
   "version": "0.1.0",
-  "description": "Wardnet Forge — design system primitives, tokens, and CSS",
+  "description": "Wardnet Forge — platform-neutral design language (tokens, types, voice, CSS)",
   "private": true,
   "type": "module",
   "exports": {
-    "./styles.css": "./src/styles.css",
-    "./button": {
-      "import": "./src/primitives/button.tsx",
-      "types": "./src/primitives/button.tsx"
+    "./styles.css": "./styles.css",
+    "./tokens": {
+      "import": "./src/tokens.ts",
+      "types": "./src/tokens.ts"
     }
   },
   "files": [
-    "src"
+    "src",
+    "styles.css"
   ],
   "scripts": {
-    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
-  },
-  "dependencies": {
-    "class-variance-authority": "0.7.1",
-    "clsx": "2.1.1",
-    "radix-ui": "1.4.3"
-  },
-  "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\""
   },
   "devDependencies": {
-    "prettier": "3.8.3"
+    "prettier": "3.8.3",
+    "typescript": "6.0.3"
   },
   "packageManager": "yarn@4.13.0"
 }

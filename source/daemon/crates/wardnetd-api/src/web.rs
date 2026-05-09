@@ -7,7 +7,7 @@ use rust_embed::Embed;
 /// In debug mode, reads files from the filesystem (no rebuild needed
 /// for UI changes). In release mode, all files are baked into the binary.
 #[derive(Embed)]
-#[folder = "../../../web-ui/dist"]
+#[folder = "../../../admin-app/web/dist"]
 struct Assets;
 
 /// Fallback handler that serves embedded static files.

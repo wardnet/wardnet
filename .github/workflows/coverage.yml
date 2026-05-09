@@ -99,16 +99,16 @@ jobs:
         with:
           node-version: "25"
           cache: yarn
-          cache-dependency-path: source/site/yarn.lock
+          cache-dependency-path: source/marketing-site/yarn.lock
 
       - name: Generate site coverage + test results
-        run: cd source/site && yarn install --immutable && yarn test:coverage
+        run: cd source/marketing-site && yarn install --immutable && yarn test:coverage
 
       - name: Collect into shared layout
         run: |
           mkdir -p coverage
-          cp source/site/coverage/lcov.info coverage/site-lcov.info
-          cp source/site/test-results/junit.xml coverage/site-junit.xml
+          cp source/marketing-site/coverage/lcov.info coverage/site-lcov.info
+          cp source/marketing-site/test-results/junit.xml coverage/site-junit.xml
 
       - name: Upload site coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

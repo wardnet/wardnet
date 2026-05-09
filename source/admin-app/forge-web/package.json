@@ -1,0 +1,34 @@
+{
+  "name": "@wardnet/forge-web",
+  "version": "0.1.0",
+  "description": "Wardnet Forge — web implementation (Radix-backed primitives applying Forge classes)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./button": {
+      "import": "./src/primitives/button.tsx",
+      "types": "./src/primitives/button.tsx"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
+  },
+  "dependencies": {
+    "@wardnet/forge": "portal:../../forge",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.4.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "prettier": "3.8.3"
+  },
+  "packageManager": "yarn@4.13.0"
+}
