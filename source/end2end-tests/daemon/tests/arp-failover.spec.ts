@@ -94,6 +94,14 @@ interface LinkShowResponse {
  * Returns the captured frames once the window closes. Coalesces the
  * window setup so each test reads as a linear "do this while
  * capturing" rather than juggling promises.
+ *
+ * The window is intentionally generous: HTTP round-trip +
+ * `spawn_blocking` scheduling + `pnet`'s `datalink::channel` open can
+ * take 1-2s on a cold runner before the agent is actually listening,
+ * so we wait 2s before triggering anything in `during` and run the
+ * capture for 15s total. The full daemon restart cycle (farewell +
+ * exit + systemd respawn + claim) fits comfortably inside the
+ * remaining window.
  */
 async function captureWhile(
   durationMs: number,
@@ -109,8 +117,7 @@ async function captureWhile(
       filter,
     } satisfies ArpCaptureBody,
   );
-  // Give pnet a moment to open the channel before the action begins.
-  await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 2_000));
   await during();
   return capturePromise;
 }
@@ -173,31 +180,35 @@ describe("GARP failover (issue #213)", () => {
     // configureRouterIp in beforeAll cleared garp_router_mac, so the
     // pre-restart farewell hits the no-op matrix and only the
     // post-restart claim should land in the capture window.
-    const frames = await captureWhile(
-      8_000,
-      { sender_ip: ROUTER_IP, opcode: ARP_REPLY_OPCODE },
-      async () => {
-        await restartDaemon(admin);
-      },
-    );
+    //
+    // Capture without an agent-side filter so the failure message
+    // shows what (if anything) the agent saw on the wire — narrowing
+    // the diagnostic from "no claim pulses" to "no traffic at all"
+    // vs "traffic but wrong sender_ip".
+    const frames = await captureWhile(15_000, undefined, async () => {
+      await restartDaemon(admin);
+    });
 
-    const claim = frames.filter(
+    const arpReplies = frames.filter(
+      (f) => f.opcode === ARP_REPLY_OPCODE && f.sender_ip === ROUTER_IP,
+    );
+    const claim = arpReplies.filter(
       (f) => f.sender_mac.toLowerCase() === daemonMac,
     );
 
     expect(
       claim.length,
-      `expected ≥2 claim pulses; saw ${frames.length} total frames`,
+      `expected ≥2 claim pulses; saw ${frames.length} total ARP frames, ${arpReplies.length} matching sender_ip=${ROUTER_IP} opcode=2. macs: ${JSON.stringify(frames.map((f) => f.sender_mac).slice(0, 20))}`,
     ).toBeGreaterThanOrEqual(2);
 
     // No-op matrix sanity: with garp_router_mac cleared, no farewell
     // pulses should appear. Anything from a sender_mac other than the
     // daemon's own MAC would mean the no-op path didn't trigger.
-    const nonDaemon = frames.filter(
+    const nonDaemonReplies = arpReplies.filter(
       (f) => f.sender_mac.toLowerCase() !== daemonMac,
     );
     expect(
-      nonDaemon,
+      nonDaemonReplies,
       "no farewell pulses expected when garp_router_mac is empty",
     ).toEqual([]);
 
@@ -240,23 +251,20 @@ describe("GARP failover (issue #213)", () => {
     // Step 2: capture window covering the next restart cycle. The
     // farewell goes out from the synthetic router MAC; the
     // immediately-following claim goes out from the daemon's MAC.
-    const frames = await captureWhile(
-      8_000,
-      { sender_ip: ROUTER_IP, opcode: ARP_REPLY_OPCODE },
-      async () => {
-        await restartDaemon(admin);
-      },
-    );
+    const frames = await captureWhile(15_000, undefined, async () => {
+      await restartDaemon(admin);
+    });
 
-    const farewell = frames.filter(
+    const arpReplies = frames.filter(
+      (f) => f.opcode === ARP_REPLY_OPCODE && f.sender_ip === ROUTER_IP,
+    );
+    const farewell = arpReplies.filter(
       (f) => f.sender_mac.toLowerCase() === SYNTHETIC_ROUTER_MAC,
     );
 
     expect(
       farewell.length,
-      `expected ≥2 farewell pulses with sender_mac=${SYNTHETIC_ROUTER_MAC}; saw frames: ${JSON.stringify(
-        frames.map((f) => f.sender_mac),
-      )}`,
+      `expected ≥2 farewell pulses with sender_mac=${SYNTHETIC_ROUTER_MAC}; ${frames.length} total frames, ${arpReplies.length} matching reply+ROUTER_IP. macs: ${JSON.stringify(arpReplies.map((f) => f.sender_mac).slice(0, 20))}`,
     ).toBeGreaterThanOrEqual(2);
 
     for (const frame of farewell) {
@@ -277,7 +285,7 @@ describe("GARP failover (issue #213)", () => {
     }
 
     // Sanity: the post-restart claim also fired from the daemon's MAC.
-    const claimAfterFarewell = frames.filter(
+    const claimAfterFarewell = arpReplies.filter(
       (f) => f.sender_mac.toLowerCase() === daemonMac,
     );
     expect(claimAfterFarewell.length).toBeGreaterThanOrEqual(1);
