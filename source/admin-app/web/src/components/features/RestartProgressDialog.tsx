@@ -128,7 +128,7 @@ function PhaseIcon({ phase }: { phase: RestartPhase }) {
     case "timeout":
     case "failed":
     case "did_not_fire":
-      return <AlertTriangleIcon className="h-5 w-5 text-destructive" />;
+      return <AlertTriangleIcon className="h-5 w-5 text-danger" />;
     default:
       return null;
   }

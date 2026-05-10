@@ -120,7 +120,7 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
                 type="button"
                 onClick={handleRemove}
                 disabled={busy}
-                className="self-end text-sm text-destructive underline-offset-4 hover:underline disabled:opacity-50"
+                className="self-end text-sm text-danger underline-offset-4 hover:underline disabled:opacity-50"
               >
                 Remove reservation
               </button>

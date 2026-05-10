@@ -37,7 +37,7 @@ function createColumns(
             {row.original.url}
           </span>
           {row.original.last_error && (
-            <span className="truncate text-xs text-destructive" title={row.original.last_error}>
+            <span className="truncate text-xs text-danger" title={row.original.last_error}>
               {row.original.last_error}
             </span>
           )}

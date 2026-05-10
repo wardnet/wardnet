@@ -128,10 +128,10 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
           )}
           <div className="flex items-center justify-end gap-3">
             {probe.isError && (
-              <p className="flex-1 text-sm text-destructive">Probe failed — try again.</p>
+              <p className="flex-1 text-sm text-danger">Probe failed — try again.</p>
             )}
             {probeBlocked && (
-              <p className="flex-1 text-sm text-destructive">
+              <p className="flex-1 text-sm text-danger">
                 A foreign DHCP server responded
                 {probeResult?.foreign_server_ip ? ` (${probeResult.foreign_server_ip})` : ""}.
                 Re-check the disable-DHCP steps.

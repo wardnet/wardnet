@@ -167,7 +167,7 @@ export function UpdateCard({
             {status.install_phase.phase === "failed" && (
               <div
                 role="alert"
-                className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+                className="rounded-md border border-danger/50 bg-danger/10 p-3 text-sm text-danger"
               >
                 <div className="font-medium">Last install failed</div>
                 <div className="mt-0.5 break-words">{status.install_phase.reason}</div>

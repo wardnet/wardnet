@@ -60,7 +60,7 @@ export default function Login() {
             className="h-12"
           />
         </Field>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
         <p className="text-center text-xs text-muted-foreground">
           Credentials are set during initial daemon setup.
         </p>

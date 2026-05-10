@@ -183,7 +183,7 @@ function ExportDialog({
               htmlFor="backup-passphrase"
               help={
                 tooShort ? (
-                  <span className="text-destructive">
+                  <span className="text-danger">
                     At least {MIN_PASSPHRASE_LEN} characters required.
                   </span>
                 ) : undefined
@@ -202,7 +202,7 @@ function ExportDialog({
               htmlFor="backup-passphrase-confirm"
               help={
                 mismatch ? (
-                  <span className="text-destructive">Passphrases do not match.</span>
+                  <span className="text-danger">Passphrases do not match.</span>
                 ) : undefined
               }
             >
@@ -370,7 +370,7 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto text-sm">
       {!preview.compatible && (
-        <div className="flex gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive">
+        <div className="flex gap-2 rounded-md border border-danger/50 bg-danger/10 p-3 text-danger">
           <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0">
             <div className="font-medium">Bundle incompatible</div>

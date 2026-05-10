@@ -84,7 +84,6 @@
    */
   --color-primary: var(--accent);
   --color-muted-foreground: var(--ink-3);
-  --color-destructive: var(--danger);
 }
 
 @layer base {

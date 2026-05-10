@@ -94,7 +94,7 @@ function PhaseIcon({ phase }: { phase: ShutdownPhase }) {
     case "did_not_fire":
     case "timeout":
     case "failed":
-      return <AlertTriangleIcon className="h-5 w-5 text-destructive" />;
+      return <AlertTriangleIcon className="h-5 w-5 text-danger" />;
     default:
       return null;
   }

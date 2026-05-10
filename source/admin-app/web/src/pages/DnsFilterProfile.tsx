@@ -152,7 +152,7 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
           <CardFooter className="justify-between gap-2">
             <Button
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-danger hover:text-danger"
               onClick={() => setConfirmDelete(true)}
               disabled={builtin || update.isPending || del.isPending}
             >

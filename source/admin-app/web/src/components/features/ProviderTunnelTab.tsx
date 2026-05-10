@@ -23,8 +23,7 @@ import type { ProviderCredentials, ProviderInfo, ServerInfo } from "@wardnet/js"
 
 /** Visual load indicator with a colored dot and percentage. */
 function LoadIndicator({ load }: { load: number }) {
-  const color =
-    load < 30 ? "text-accent-ink" : load < 70 ? "text-warn-soft-ink" : "text-destructive";
+  const color = load < 30 ? "text-accent-ink" : load < 70 ? "text-warn-soft-ink" : "text-danger";
   return (
     <span className={`flex items-center gap-1 text-xs ${color}`}>
       <span className="inline-block size-2 rounded-full bg-current" />
@@ -238,7 +237,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           )}
           <div className="flex items-center justify-end gap-3">
             {validateCreds.data && !validateCreds.data.valid && (
-              <p className="flex-1 text-sm text-destructive">{validateCreds.data.message}</p>
+              <p className="flex-1 text-sm text-danger">{validateCreds.data.message}</p>
             )}
             <Button
               variant="secondary"

@@ -79,7 +79,7 @@ function createColumns(
             )}
             <Button
               variant="tertiary"
-              className="text-destructive hover:text-destructive"
+              className="text-danger hover:text-danger"
               onClick={() => onRevoke(row.original.id)}
             >
               Revoke

@@ -37,19 +37,19 @@ export function UncleanShutdownBanner() {
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
+      className="flex items-center gap-3 border-b border-danger/30 bg-danger/10 px-4 py-2.5 text-sm text-danger"
     >
       <CircleAlertIcon className="size-4 shrink-0" />
       <div className="flex-1">
         <span className="font-medium">Wardnet did not shut down cleanly</span>
-        <span className="ml-2 text-destructive/80">
+        <span className="ml-2 text-danger/80">
           Last seen {timeAgo(shutdown.at)} — likely a crash or power loss.
         </span>
       </div>
       <Button
         size="sm"
         variant="ghost"
-        className="h-7 px-2 text-destructive hover:bg-destructive/20 hover:text-destructive"
+        className="h-7 px-2 text-danger hover:bg-danger/20 hover:text-danger"
         onClick={() => ack.mutate()}
         disabled={ack.isPending}
         aria-label="Dismiss unclean shutdown banner"

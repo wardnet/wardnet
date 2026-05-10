@@ -106,7 +106,7 @@ export default function Step1Admin() {
             className="h-12"
           />
         </Field>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
         <Button
           type="submit"
           disabled={setup.isPending || advance.isPending}
