@@ -16,19 +16,22 @@ interface NavbarProps {
 }
 
 /**
- * Sticky navigation bar used across the site.
+ * Sticky top navigation. Rendered as Ward Navy chrome on `--color-side`
+ * (Forge sidebar token), with no border or shadow below — the page surface
+ * runs straight under it. Type and ink follow the Forge scale: `text-sm`
+ * with the `side-ink` family for foreground.
  */
 export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
   const brand = (
     <>
-      {showBack && <ArrowLeft size={16} className="text-white/60" />}
+      {showBack && <ArrowLeft size={16} className="text-side-ink-2" />}
       <Logo size={28} />
-      <span className="text-sm font-semibold text-white">Wardnet</span>
+      <span className="text-sm font-semibold text-side-ink-active">Wardnet</span>
     </>
   );
 
   return (
-    <nav className="sticky top-0 z-50 flex w-full items-center justify-between bg-[oklch(0.22_0.12_275)]/80 px-6 py-4 backdrop-blur-md">
+    <nav className="bg-side sticky top-0 z-50 flex w-full items-center justify-between px-6 py-4">
       {onLogoClick ? (
         <button onClick={onLogoClick} className="flex items-center gap-2">
           {brand}
@@ -44,13 +47,13 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
       <div className="flex items-center gap-6">
         <Link
           to="/docs"
-          className="text-sm font-medium text-white/70 transition-colors hover:text-white"
+          className="text-side-ink hover:text-side-ink-active text-sm font-medium transition-colors"
         >
           Documentation
         </Link>
         <a
           href="https://github.com/wardnet/wardnet"
-          className="text-white/70 transition-colors hover:text-white"
+          className="text-side-ink hover:text-side-ink-active transition-colors"
           aria-label="GitHub"
         >
           <svg viewBox="0 0 16 16" className="h-5 w-5 fill-current" aria-hidden="true">
