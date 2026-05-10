@@ -223,7 +223,7 @@ all facts; status pills via `.pill--*`.
 | CreateTunnelInline       | [ ]    | inline form + WireGuard config paste             |
 | DashboardLogWidget       | [ ]    | `.logs`                                          |
 | DeviceDnsFilterCard      | [x]    | edit-mode card protocol per DhcpConfigCard / DeviceSettingsCard precedent — Card/CardHeader/CardAction (Edit) → CardContent/CardFooter (Cancel + Save) on `editing`, hook-coupled (`useUpdateDeviceFilterSettings`); read-mode reshaped to `<dl>`/`<dt>`/`<dd>` grid (Status / Profiles); loading branch keeps `Card` chrome with `text-ink-3` Loading line; uses Forge `Button`/`Card`/`Field`/`Toggle` primitives + `text-ink-3` / `text-ink` tokens; no shadcn, no hex, no inline styles. Public API (`device`) preserved on 2026-05-10 (slice T4-α). |
-| DeviceIdentityCard       | [ ]    | always read-only (per skill §detail)             |
+| DeviceIdentityCard       | [x]    | always read-only key/value rows — Forge `Card` + `<Field editing={false} value=…>` per row (MAC / Hostname / Manufacturer / First seen / Last seen); `.field-value` (13px ink, 8px vertical padding) replaces ad-hoc label/value pairs; `.mono` wraps the MAC; inner `Row` helper dropped — Field's column layout owns the rhythm. Public API (`device`) preserved (slice T4-α on 2026-05-10). |
 | DeviceNetworkCard        | [ ]    | edit-mode card                                   |
 | DeviceSettingsCard       | [ ]    | edit-mode card                                   |
 | DnsFilterSettingsCard    | [ ]    | edit-mode card with toggles                      |
