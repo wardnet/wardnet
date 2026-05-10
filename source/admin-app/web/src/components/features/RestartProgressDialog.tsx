@@ -1,16 +1,8 @@
-import { useEffect, useState } from "react";
-import { Loader2Icon, CheckCircle2Icon, AlertTriangleIcon, LogInIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import { CheckCircle2Icon, LogInIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
-import {
-  AlertModal,
-  AlertModalAction,
-  AlertModalCancel,
-  AlertModalContent,
-  AlertModalDescription,
-  AlertModalFooter,
-  AlertModalHeader,
-  AlertModalTitle,
-} from "@wardnet/forge-web/alert-modal";
+import { AlertModalAction } from "@wardnet/forge-web/alert-modal";
+import { ProgressDialog, type GenericPhase } from "@/components/compound/ProgressDialog";
 import type { RestartPhase } from "@/hooks/useRestart";
 
 interface Props {
@@ -31,22 +23,19 @@ interface Props {
 /**
  * Full-screen-overlay progress modal for a daemon restart.
  *
- * Phase copy maps 1:1 with [`RestartPhase`](../../hooks/useRestart.ts):
+ * Thin wrapper around the generic [`ProgressDialog`](../compound/ProgressDialog.tsx)
+ * compound. Maps the richer [`RestartPhase`](../../hooks/useRestart.ts) enum into
+ * the three-bucket `GenericPhase` machine and supplies copy/icons per phase:
  *
- * | Phase              | Icon     | Message                                            |
- * | ------------------ | -------- | -------------------------------------------------- |
- * | scheduled          | spinner  | "Waiting for the daemon to exit…"                  |
- * | down               | spinner  | "Daemon is offline. Waiting for it to come back…"  |
- * | ready              | check    | "Daemon is back online." + Continue button         |
- * | ready_signed_out   | login    | "Daemon is back, session expired." + Sign in btn   |
- * | timeout            | warning  | "Daemon didn't come back." + Dismiss               |
- * | failed             | warning  | request never accepted — show error + Dismiss      |
- *
- * Only the three terminal phases (`ready`, `ready_signed_out`,
- * `timeout`, `failed`) show a close/action button. The two in-flight
- * phases (`scheduled`, `down`) render a spinner with no escape —
- * the modal is intentionally modal. Radix `AlertDialog` already
- * dims the background and traps focus; no further CSS needed.
+ * | RestartPhase     | GenericPhase | Icon / CTA                            |
+ * | ---------------- | ------------ | ------------------------------------- |
+ * | scheduled        | in-progress  | spinner — "Restarting daemon"         |
+ * | down             | in-progress  | spinner — "Waiting for daemon…"       |
+ * | ready            | success      | check — Continue                      |
+ * | ready_signed_out | success      | login — Sign in again                 |
+ * | timeout          | failed       | warning — "Daemon didn't come back"   |
+ * | failed           | failed       | warning — request rejected            |
+ * | did_not_fire     | failed       | warning — "Restart didn't fire"       |
  */
 export function RestartProgressDialog({
   open,
@@ -56,80 +45,79 @@ export function RestartProgressDialog({
   onDismiss,
   onSignIn,
 }: Props) {
-  const elapsed = useElapsedSeconds(open ? startedAt : null);
-
-  const terminal =
-    phase === "ready" ||
-    phase === "ready_signed_out" ||
-    phase === "timeout" ||
-    phase === "failed" ||
-    phase === "did_not_fire";
+  const generic = toGenericPhase(phase);
+  const { title, description, successIcon, successTitle, successDescription, successAction } =
+    contentFor(phase, onSignIn);
 
   return (
-    <AlertModal
+    <ProgressDialog
       open={open}
-      // Only allow dismissal in terminal phases; swallow escape/outside
-      // clicks while the daemon is mid-restart.
-      onOpenChange={(next) => {
-        if (!next && terminal) onDismiss();
-      }}
-    >
-      <AlertModalContent>
-        <AlertModalHeader>
-          <AlertModalTitle className="flex items-center gap-2">
-            <PhaseIcon phase={phase} />
-            {titleFor(phase)}
-          </AlertModalTitle>
-          <AlertModalDescription>{descriptionFor(phase, errorMessage)}</AlertModalDescription>
-        </AlertModalHeader>
-
-        {!terminal && (
-          <div className="text-xs text-ink-3">Elapsed: {elapsed}s (times out at 45s).</div>
-        )}
-
-        <AlertModalFooter>
-          {phase === "ready" && (
-            <AlertModalAction asChild>
-              <Button onClick={onDismiss}>Continue</Button>
-            </AlertModalAction>
-          )}
-          {phase === "ready_signed_out" && (
-            <AlertModalAction asChild>
-              <Button onClick={onSignIn}>
-                <LogInIcon className="mr-2 h-4 w-4" />
-                Sign in again
-              </Button>
-            </AlertModalAction>
-          )}
-          {(phase === "timeout" || phase === "failed" || phase === "did_not_fire") && (
-            <AlertModalCancel asChild>
-              <Button variant="outline" onClick={onDismiss}>
-                Dismiss
-              </Button>
-            </AlertModalCancel>
-          )}
-        </AlertModalFooter>
-      </AlertModalContent>
-    </AlertModal>
+      phase={generic}
+      title={title}
+      description={description}
+      startedAt={startedAt}
+      errorMessage={errorMessage}
+      successIcon={successIcon}
+      successTitle={successTitle}
+      successDescription={successDescription}
+      successAction={successAction}
+      onDismiss={onDismiss}
+    />
   );
 }
 
-function PhaseIcon({ phase }: { phase: RestartPhase }) {
+function toGenericPhase(phase: RestartPhase): GenericPhase {
   switch (phase) {
     case "scheduled":
     case "down":
-      return <Loader2Icon className="h-5 w-5 animate-spin text-ink-3" />;
+      return "in-progress";
     case "ready":
-      return <CheckCircle2Icon className="h-5 w-5 text-green-600" />;
     case "ready_signed_out":
-      return <LogInIcon className="h-5 w-5 text-amber-600" />;
+      return "success";
     case "timeout":
     case "failed":
     case "did_not_fire":
-      return <AlertTriangleIcon className="h-5 w-5 text-danger" />;
+      return "failed";
     default:
-      return null;
+      return "in-progress";
   }
+}
+
+interface PhaseContent {
+  title: string;
+  description: ReactNode;
+  successIcon: ReactNode;
+  successTitle: string;
+  successDescription?: ReactNode;
+  successAction?: ReactNode;
+}
+
+function contentFor(phase: RestartPhase, onSignIn: () => void): PhaseContent {
+  // `ready` is the happy path; `ready_signed_out` reuses the same shell
+  // but swaps the icon to login + amber and offers a Sign-in CTA.
+  const signedOut = phase === "ready_signed_out";
+
+  return {
+    title: titleFor(phase),
+    description: descriptionFor(phase),
+    successIcon: signedOut ? (
+      <LogInIcon className="h-5 w-5 text-amber-600" />
+    ) : (
+      <CheckCircle2Icon className="h-5 w-5 text-green-600" />
+    ),
+    successTitle: signedOut ? "Daemon restarted, session expired" : "Daemon is back online",
+    successDescription: signedOut
+      ? "Service is back on, but your session cookie was invalidated. Sign in again to continue."
+      : "Service is back on and your session is still valid.",
+    successAction: signedOut ? (
+      <AlertModalAction asChild>
+        <Button onClick={onSignIn}>
+          <LogInIcon className="mr-2 h-4 w-4" />
+          Sign in again
+        </Button>
+      </AlertModalAction>
+    ) : undefined,
+  };
 }
 
 function titleFor(phase: RestartPhase): string {
@@ -138,10 +126,6 @@ function titleFor(phase: RestartPhase): string {
       return "Restarting daemon";
     case "down":
       return "Waiting for daemon to come back";
-    case "ready":
-      return "Daemon is back online";
-    case "ready_signed_out":
-      return "Daemon restarted, session expired";
     case "timeout":
       return "Daemon didn't come back";
     case "failed":
@@ -153,34 +137,17 @@ function titleFor(phase: RestartPhase): string {
   }
 }
 
-function descriptionFor(phase: RestartPhase, errorMessage: string | null): string {
+function descriptionFor(phase: RestartPhase): string {
   switch (phase) {
     case "scheduled":
       return "Waiting for the service to exit.";
     case "down":
       return "Service is no longer responsive, restart in progress.";
-    case "ready":
-      return "Service is back on and your session is still valid.";
-    case "ready_signed_out":
-      return "Service is back on, but your session cookie was invalidated. Sign in again to continue.";
     case "timeout":
       return "The daemon didn't come back within 45 seconds. This usually means the supervisor (systemd) needs attention.";
-    case "failed":
-      return errorMessage ?? "The restart request itself was rejected.";
     case "did_not_fire":
       return "Wardnet didn't restart. The privileged migration may not have run — try Settings → Updates, or re-run install.sh.";
     default:
       return "";
   }
-}
-
-/** Live-updating elapsed-seconds counter, paused while `startedAt` is null. */
-function useElapsedSeconds(startedAt: number | null): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (startedAt === null) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [startedAt]);
-  return startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000));
 }

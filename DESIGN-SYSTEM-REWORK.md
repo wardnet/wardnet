@@ -232,8 +232,8 @@ all facts; status pills via `.pill--*`.
 | ManualTunnelTab          | [ ]    | tabbed sub-form                                  |
 | PowerCard                | [ ]    | danger-toned actions outside card per skill §detail |
 | ProviderTunnelTab        | [ ]    | tabbed sub-form                                  |
-| RestartProgressDialog    | [ ]    | dialog                                           |
-| ShutdownProgressDialog   | [ ]    | dialog                                           |
+| RestartProgressDialog    | [x]    | thin wrapper over the new generic `<ProgressDialog>` compound (slice T4-β consolidation) — maps `RestartPhase` to `in-progress`/`success`/`failed`, supplies `LogIn` icon + "Sign in again" action for the signed-out terminal. Public API (`open`, `phase`, `startedAt`, `errorMessage`, `onDismiss`, `onSignIn`) preserved. |
+| ShutdownProgressDialog   | [x]    | thin wrapper over the new generic `<ProgressDialog>` compound (slice T4-β consolidation) — maps `ShutdownPhase` to `in-progress`/`success`/`failed`, supplies `PowerOff` icon for the off terminal. Public API (`open`, `phase`, `startedAt`, `errorMessage`, `onDismiss`) preserved. |
 | TunnelDevicesTable       | [ ]    | `.tbl` + `.host`                                 |
 | TunnelThroughputChart    | [ ]    | line chart §10 (Download = `--accent`, Upload = `--info`) |
 | UpdateCard               | [x]    | already on Forge primitives (Card / Field / Button / Toggle / Select); StatusBadge for "Up to date"; danger alert on `failed` phase reuses sibling pattern; tokens (`text-ink-3`, `text-danger`, `bg-danger/10`, `border-danger/50`) are Forge `@theme` colors. Verified on 2026-05-10 (slice T4-α), no code changes required. |
