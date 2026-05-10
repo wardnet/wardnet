@@ -115,21 +115,21 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
               <Ipv4Input id="device-ip" value={ip} onChange={setIp} />
             </Field>
 
-            {reservation && (
-              <button
-                type="button"
-                onClick={handleRemove}
-                disabled={busy}
-                className="self-end text-sm text-danger underline-offset-4 hover:underline disabled:opacity-50"
-              >
-                Remove reservation
-              </button>
-            )}
-
             {isError && <ApiErrorAlert error={error} fallback="Failed to update reservation" />}
           </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button variant="ghost" onClick={cancelEdit} disabled={busy}>
+          <CardFooter className="gap-2">
+            {reservation && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleRemove}
+                disabled={busy}
+                className="mr-auto"
+              >
+                Remove reservation
+              </Button>
+            )}
+            <Button variant="ghost" onClick={cancelEdit} disabled={busy} className="ml-auto">
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={busy}>
