@@ -32,7 +32,7 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
           active leases &middot; {poolPercent}% pool used
         </p>
         {status.pool_total > 0 && (
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
             <div
               className={`h-full rounded-full ${poolPercent > 80 ? "bg-destructive" : poolPercent > 50 ? "bg-yellow-500" : "bg-primary"}`}
               style={{ width: `${Math.min(100, poolPercent)}%` }}

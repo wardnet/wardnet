@@ -40,7 +40,7 @@ function ProviderLogo({ provider }: { provider: ProviderInfo | undefined }) {
     return <img src={provider.icon_url} alt="" className="size-4 rounded-sm object-contain" />;
   }
   return (
-    <span className="flex size-4 items-center justify-center rounded-sm bg-muted text-[10px] font-bold uppercase text-muted-foreground">
+    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-muted-foreground">
       {provider.name[0]}
     </span>
   );

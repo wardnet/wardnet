@@ -62,12 +62,12 @@ export function DataTable<TData, TValue>({
       <table className={cn("w-full caption-bottom text-sm", fixedLayout && "table-fixed")}>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id} className="bg-muted hover:bg-muted">
+            <TableRow key={headerGroup.id} className="bg-sunken hover:bg-sunken">
               {headerGroup.headers.map((header) => (
                 <TableHead
                   key={header.id}
                   className={cn(
-                    "sticky top-0 z-10 bg-muted px-4 py-3 text-muted-foreground",
+                    "sticky top-0 z-10 bg-sunken px-4 py-3 text-muted-foreground",
                     header.column.columnDef.meta?.className,
                   )}
                 >

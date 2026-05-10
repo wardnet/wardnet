@@ -60,7 +60,7 @@ function ProviderLogo({ provider }: { provider: ProviderInfo | undefined }) {
     return <img src={provider.icon_url} alt="" className="size-4 rounded-sm object-contain" />;
   }
   return (
-    <span className="flex size-4 items-center justify-center rounded-sm bg-muted text-[10px] font-bold uppercase text-muted-foreground">
+    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-muted-foreground">
       {provider.name[0]}
     </span>
   );
@@ -159,7 +159,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
       </Link>
       <CardContent className="pt-0">
         {testResult && (
-          <div className="mb-3 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+          <div className="mb-3 rounded-md border bg-sunken/40 px-3 py-2 text-xs">
             <div className="flex items-center gap-2">
               <span aria-hidden>{countryFlag(testResult.country_code)}</span>
               <span className="font-medium">{testResult.country_code.toUpperCase()}</span>

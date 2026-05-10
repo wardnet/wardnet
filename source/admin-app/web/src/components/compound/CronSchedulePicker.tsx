@@ -275,7 +275,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
             )}
 
             {/* Human-readable summary */}
-            <div className="rounded-md bg-muted/50 px-3 py-2">
+            <div className="rounded-md bg-sunken/50 px-3 py-2">
               <p className="text-xs text-muted-foreground">{cronToHuman(buildCron(state))}</p>
             </div>
 

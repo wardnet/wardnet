@@ -4,7 +4,7 @@ export function DashboardUsageBar({ value }: { value: number }) {
   const color = clamped > 80 ? "bg-destructive" : clamped > 50 ? "bg-yellow-500" : "bg-primary";
 
   return (
-    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
       <div className={`h-full rounded-full ${color}`} style={{ width: `${clamped}%` }} />
     </div>
   );

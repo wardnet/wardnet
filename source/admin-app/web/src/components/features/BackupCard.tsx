@@ -84,7 +84,7 @@ export function BackupCard({
         {/* Danger zone — Restore overwrites state and is sequestered into a
             subtle inset block so it never sits next to the safe Download CTA
             (WEBUI-DESIGN-GUIDELINES §4.5). */}
-        <div className="flex items-start justify-between gap-4 rounded-md bg-muted p-4">
+        <div className="flex items-start justify-between gap-4 rounded-md bg-sunken p-4">
           <div className="min-w-0">
             <p className="text-sm font-medium">Restore from backup</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -313,7 +313,7 @@ function RestoreDialog({
                     const file = e.target.files?.[0] ?? null;
                     setBundle(file);
                   }}
-                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-sunken file:px-3 file:py-1.5 file:text-sm file:font-medium"
                 />
               </Field>
               <Field label="Passphrase" htmlFor="restore-passphrase">
@@ -404,7 +404,7 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
       </div>
       <p className="text-xs text-muted-foreground">
         A{" "}
-        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.7rem]">
+        <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[0.7rem]">
           .bak-&lt;timestamp&gt;
         </code>{" "}
         sibling is kept for every replaced file and retained for 24&nbsp;hours.

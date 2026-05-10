@@ -107,7 +107,7 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
       </div>
 
       <div
-        className="overflow-y-auto rounded-lg border border-line bg-muted/30 font-mono text-xs"
+        className="overflow-y-auto rounded-lg border border-line bg-sunken/30 font-mono text-xs"
         style={{ maxHeight }}
       >
         {entries.length === 0 ? (

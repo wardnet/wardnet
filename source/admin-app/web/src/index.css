@@ -83,7 +83,6 @@
    * commit of the migration once nothing references these names.
    */
   --color-primary: var(--accent);
-  --color-muted: var(--bg-sunken);
   --color-muted-foreground: var(--ink-3);
   --color-destructive: var(--danger);
 }
