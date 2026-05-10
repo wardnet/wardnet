@@ -12,10 +12,8 @@ export function ConnectionStatus() {
     <div className="flex items-center gap-2">
       <span className={`inline-block size-2 rounded-full ${color}`} />
       <div className="flex flex-col">
-        <span className="text-xs text-sidebar-foreground/70">{label}</span>
-        {data?.version && (
-          <span className="text-[10px] text-sidebar-foreground/40">v{data.version}</span>
-        )}
+        <span className="text-xs text-side-ink/70">{label}</span>
+        {data?.version && <span className="text-[10px] text-side-ink/40">v{data.version}</span>}
       </div>
     </div>
   );

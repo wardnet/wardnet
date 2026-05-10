@@ -44,7 +44,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full flex-col bg-side text-side-ink">
       <div className="flex items-center gap-2.5 p-4">
         <Logo size={28} />
         <h1 className="text-lg font-bold tracking-tight text-primary">Wardnet</h1>
@@ -61,7 +61,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               `rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? "bg-side-active text-side-ink-active"
-                  : "text-sidebar-foreground/60 hover:bg-side-active/50 hover:text-sidebar-foreground"
+                  : "text-side-ink/60 hover:bg-side-active/50 hover:text-side-ink"
               }`
             }
           >
@@ -70,7 +70,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="flex flex-col gap-3 border-t border-sidebar-border p-4">
+      <div className="flex flex-col gap-3 border-t border-side-line p-4">
         {isAdmin && (
           <UpdateBanner
             updateAvailable={updateStatus?.status.update_available ?? false}
@@ -84,13 +84,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               href="/api/docs"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-left text-xs text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground/70"
+              className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
             >
               API docs
             </a>
             <button
               onClick={handleLogout}
-              className="text-left text-xs text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground/70"
+              className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
             >
               Sign out
             </button>
@@ -99,7 +99,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <NavLink
             to="/login"
             onClick={onNavigate}
-            className="text-left text-xs text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground/70"
+            className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
           >
             Sign in as admin
           </NavLink>

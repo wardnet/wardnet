@@ -92,9 +92,6 @@
   --color-warning-foreground: var(--warn-soft-ink);
   --color-border: var(--line);
   --color-ring: var(--accent);
-  --color-sidebar: var(--side-bg);
-  --color-sidebar-foreground: var(--side-ink);
-  --color-sidebar-border: var(--side-line);
 }
 
 @layer base {

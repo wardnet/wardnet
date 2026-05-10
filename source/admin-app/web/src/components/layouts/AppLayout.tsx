@@ -19,7 +19,7 @@ export function AppLayout() {
     <div className="flex h-screen bg-background text-foreground">
       {/* Desktop sidebar — only for admins */}
       {isAdmin && (
-        <aside className="hidden w-56 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
+        <aside className="hidden w-56 shrink-0 border-r border-side-line bg-side md:block">
           <Sidebar />
         </aside>
       )}
