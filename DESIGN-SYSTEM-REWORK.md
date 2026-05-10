@@ -276,7 +276,7 @@ all facts; status pills via `.pill--*`.
 
 | File / area                       | Status | Notes                                                                             |
 | --------------------------------- | ------ | --------------------------------------------------------------------------------- |
-| `src/index.css`                   | [ ]    | replace `--brand-indigo|slate|green` with Forge tokens; swap Geist → Inter Tight + JetBrains Mono |
+| `src/index.css`                   | [x]    | brand-* aliases dropped + Forge tokens (slice 7a, commit eaa1e5e); fonts (Inter Tight + JetBrains Mono) confirmed already imported. |
 | `pages/Home.tsx`                  | [ ]    | Hero on `--bg-elev` w/ Ward Navy accent block; principle: numbers earn the room    |
 | `pages/Docs.tsx`                  | [ ]    | sidebar + body, mono code, Forge `.kbd` style                                      |
 | `pages/DocsArticle.tsx`           | [ ]    | typography pass — Inter Tight body, JBM for `<code>`                               |
