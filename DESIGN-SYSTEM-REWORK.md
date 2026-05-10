@@ -263,7 +263,7 @@ all facts; status pills via `.pill--*`.
 | DnsLogs               | [x]    | already conformant — DataTable-based DNS query log (timestamp/IP/domain/type/result/latency) with Forge `Card`/`Field`/`Input`/`Toggle`/`Button`/`Pill`/`Select` filter controls; PageHeader + DeviceIcon + DeviceSelect already ported; full-height `flex min-h-0 flex-1 flex-col` shell matches Devices/Dhcp pattern. Verified on 2026-05-10 (slice T6-β), no code changes required. |
 | DnsFilter             | [x]    | profile list — top-level fragment swapped for Forge `col gap-20`; "Add profile" hoisted into `PageHeader` actions slot per Tunnels precedent; populated branch is now a bare `DataTable`. Slice T6-γ on 2026-05-10. NOTE: screens.jsx §06 `.cat` rows belong to the profile-detail surface, not this list view. |
 | DnsFilterProfile      | [x]    | profile detail — composes ported AllowlistTable + BlocklistTable + FilterRuleTable + DetailPageHeader + ApiErrorAlert + ConfirmDialog + CronSchedulePicker; all primitives from `@wardnet/forge-web/*`, no shadcn / hex / inline-styles. Verified on 2026-05-10 (slice T6-γ), no code changes required. |
-| DnsFilterProfileNew   | [ ]    | profile create form                                         |
+| DnsFilterProfileNew   | [x]    | profile create form — already on Forge `Button`/`Card`/`Field`/`Input` + DetailPageHeader/ApiErrorAlert; outer wrapper switched from `flex flex-col gap-6 p-4 md:p-6` to Forge `col gap-20`. Slice T6-γ on 2026-05-10. |
 | MyDevice              | [ ]    | per-device dashboard                                        |
 | Settings              | [ ]    | screens.jsx §07 — backup / power / update cards             |
 | Setup (+ setup/*)     | [ ]    | wizard — first-card status pattern, multi-step              |
