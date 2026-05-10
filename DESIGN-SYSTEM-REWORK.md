@@ -290,7 +290,7 @@ all facts; status pills via `.pill--*`.
 | `components/compound/LatestReleaseBadge.tsx` | [x] | Forge `.pill` (light variant) and `.pill .pill--ghost` (dark/hero variant); version uses `.mono` + `font-semibold`. Slice T7. |
 | `components/compound/Logo.tsx`    | [x]    | replaced PNG `<img>` with the canonical inline-SVG shield + signal mark from admin Logo (T3-δ); same 40px chrome/marketing threshold; `--accent`/`--ink`/`--side-bg` Forge tokens. Each app keeps its own copy with explicit "keep in sync" JSDoc note (forge-web promotion deferred). Slice T7. |
 | `components/compound/StepCard.tsx` | [x]   | re-skinned to Forge `.card`; step number rendered via `.h-title` + `text-accent`; title `text-ink`, description `text-ink-3`. Slice T7. |
-| `components/compound/TechBadge.tsx` | [ ]  | `.pill--ghost` (mono)                                                              |
+| `components/compound/TechBadge.tsx` | [x]  | Forge `.pill .pill--ghost .mono` replaces bespoke rounded-full + grey bg + dark variant. Slice T7. |
 
 ---
 

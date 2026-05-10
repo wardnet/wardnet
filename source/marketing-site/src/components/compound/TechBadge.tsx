@@ -7,17 +7,10 @@ interface TechBadgeProps {
 }
 
 /**
- * Pill-shaped badge for displaying a technology name.
+ * Pill-shaped badge for displaying a technology name. Uses Forge `.pill
+ * .pill--ghost` (transparent surface, subtle border) with `.mono` so the
+ * tech name reads as a code-style token rather than prose.
  */
 export function TechBadge({ label, className }: TechBadgeProps) {
-  return (
-    <span
-      className={cn(
-        "inline-block rounded-full bg-gray-100 px-4 py-1.5 text-sm font-medium text-gray-700 dark:bg-[oklch(0.22_0.02_270)] dark:text-gray-300",
-        className,
-      )}
-    >
-      {label}
-    </span>
-  );
+  return <span className={cn("pill pill--ghost mono", className)}>{label}</span>;
 }
