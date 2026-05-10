@@ -33,18 +33,18 @@ export default function DeviceDetail() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <p className="text-sm text-ink-3">Loading…</p>
+      <div className="col gap-20">
+        <p className="text-ink-3">Loading…</p>
       </div>
     );
   }
 
   if (isError || !data) {
     return (
-      <div className="flex flex-col gap-2 p-6">
-        <h1 className="text-xl font-semibold">Device not found</h1>
-        <p className="text-sm text-ink-3">The device you're looking for may have been removed.</p>
-        <Link to="/devices" className="text-sm text-accent underline">
+      <div className="col gap-8">
+        <h1 className="h-title">Device not found</h1>
+        <p className="h-sub">The device you're looking for may have been removed.</p>
+        <Link to="/devices" className="text-accent">
           Back to Devices
         </Link>
       </div>
@@ -64,7 +64,7 @@ export default function DeviceDetail() {
   const typeLabel = deviceTypeLabel(device.device_type);
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="col gap-20">
       <DetailPageHeader
         parentLabel="Devices"
         parentTo="/devices"
