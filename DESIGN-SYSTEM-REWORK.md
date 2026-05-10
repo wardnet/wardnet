@@ -202,7 +202,7 @@ all facts; status pills via `.pill--*`.
 | LogViewer                       | [x]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) — uses `.t`/`.l`/`.m` slot triplet from screens.jsx mock; connection dot uses `bg-accent`/`bg-danger` Forge tokens (was raw `bg-green-500`/`bg-red-500`); empty state rendered as a single `.logrow.is-info` for shell consistency on 2026-05-10 |
 | MobileMenu                      | [x]    | hamburger → `<Drawer side="left">` hosting the existing `<Sidebar />` — slice 16 |
 | PageHeader                      | [x]    | `.h-title` heading + `.row` layout with right-aligned actions — slice T3-δ on 2026-05-10; replaced `text-2xl font-bold tracking-tight` with Forge `.h-title` and swapped Tailwind flex utilities for `.row`/`gap-8`; API (`title`, `actions`) unchanged |
-| ProfileToggleList               | [ ]    | toggle-row list (added on main 2026-05-09 in #343)         |
+| ProfileToggleList               | [x]    | toggle-row list — already conformant: wraps `Pill` + `Toggle` Forge-web primitives; container/row utilities resolve through Forge tokens (`border-line`, `text-ink-3`, `rounded-md`); no raw hex / inline styles / non-token Tailwind palette refs; verified on 2026-05-10 (slice T3-δ), no code changes required |
 | RecentErrorsCard                | [x]    | `.logs` / `.logrow` (`is-warn`/`is-err`/`is-info`) inside Card chrome — slice T3-γ on 2026-05-10; dropped Pill in favour of canonical `.t`/`.l`/`.m` triplet |
 | RoutingSelector                 | [ ]    | radio-group field                                          |
 | Sidebar                         | [ ]    | `.side` + floating variant + nav items + brand mark + foot |
