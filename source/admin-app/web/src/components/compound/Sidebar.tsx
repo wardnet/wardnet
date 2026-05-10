@@ -27,7 +27,19 @@ const adminLinks: NavItem[] = [
   { to: "/settings", label: "Settings" },
 ];
 
-/** Sidebar navigation with branding and admin-conditional links. */
+/**
+ * Sidebar navigation with branding and admin-conditional links.
+ *
+ * Renders the Forge `.side` family throughout: `.side__brand` for the brand
+ * mark, `.side__nav` wrapping `.side__item` rows (`.is-active` driven by
+ * react-router's `NavLink` active state), and `.side__foot` for the footer
+ * cluster with `.side__status` around `<ConnectionStatus />` and `.side__links`
+ * for API-docs / sign-out / sign-in. Floating chrome is baked into `.side`
+ * itself per the slice 0a sweep, so no variant prop is needed.
+ *
+ * `<UpdateBanner />` stays mounted as a child — it's a separate compound
+ * already on Forge accent tokens.
+ */
 export function Sidebar({ onNavigate }: SidebarProps) {
   const { isAdmin, logout } = useAuth();
   const navigate = useNavigate();
@@ -44,66 +56,56 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-side text-side-ink">
-      <div className="flex items-center gap-2.5 p-4">
-        <Logo size={28} />
-        <h1 className="text-lg font-bold tracking-tight text-accent">Wardnet</h1>
+    <div className="side h-full">
+      <div className="side__brand">
+        <Logo size={28} className="logo" />
+        <span>Wardnet</span>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 px-3">
+      <nav className="side__nav flex-1">
         {links.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}
             end={"end" in link ? link.end : false}
             onClick={onNavigate}
-            className={({ isActive }) =>
-              `rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-side-active text-side-ink-active"
-                  : "text-side-ink/60 hover:bg-side-active/50 hover:text-side-ink"
-              }`
-            }
+            className={({ isActive }) => `side__item${isActive ? " is-active" : ""}`}
           >
             {link.label}
           </NavLink>
         ))}
       </nav>
 
-      <div className="flex flex-col gap-3 border-t border-side-line p-4">
+      <div className="side__foot">
         {isAdmin && (
           <UpdateBanner
             updateAvailable={updateStatus?.status.update_available ?? false}
             latestVersion={updateStatus?.status.latest_version ?? null}
           />
         )}
-        <ConnectionStatus />
-        {isAdmin ? (
-          <>
-            <a
-              href="/api/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
-            >
-              API docs
-            </a>
-            <button
-              onClick={handleLogout}
-              className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
-            >
-              Sign out
-            </button>
-          </>
-        ) : (
-          <NavLink
-            to="/login"
-            onClick={onNavigate}
-            className="text-left text-xs text-side-ink/40 transition-colors hover:text-side-ink/70"
-          >
-            Sign in as admin
-          </NavLink>
-        )}
+        <div className="side__status">
+          <ConnectionStatus />
+        </div>
+        <div className="side__links">
+          {isAdmin ? (
+            <>
+              <a href="/api/docs" target="_blank" rel="noopener noreferrer">
+                API docs
+              </a>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="cursor-pointer border-none bg-transparent p-0 text-inherit"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <NavLink to="/login" onClick={onNavigate}>
+              Sign in as admin
+            </NavLink>
+          )}
+        </div>
       </div>
     </div>
   );
