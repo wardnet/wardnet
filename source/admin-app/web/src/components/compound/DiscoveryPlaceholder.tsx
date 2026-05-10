@@ -45,7 +45,7 @@ export function DiscoveryPlaceholder({
   );
 
   return (
-    <div className="relative flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
+    <div className="relative flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-bg">
       <style>{`
         @keyframes scan-sweep {
           0% { top: -3rem; opacity: 0; }
@@ -67,7 +67,7 @@ export function DiscoveryPlaceholder({
       {/* Skeleton grid — fills the flex area, clips overflow */}
       <div className="relative min-h-0 flex-1 overflow-hidden px-4 py-3">
         {/* Header row */}
-        <div className="flex gap-4 border-b border-border/30 pb-3">
+        <div className="flex gap-4 border-b border-line/30 pb-3">
           {Array.from({ length: cols }).map((_, i) => (
             <div
               key={`h-${i}`}
@@ -79,7 +79,7 @@ export function DiscoveryPlaceholder({
 
         {/* Data rows — enough to overflow, parent clips */}
         {Array.from({ length: rows }).map((_, row) => (
-          <div key={`r-${row}`} className="flex gap-4 border-b border-border/15 py-4">
+          <div key={`r-${row}`} className="flex gap-4 border-b border-line/15 py-4">
             {Array.from({ length: cols }).map((_, col) => (
               <div
                 key={`c-${row}-${col}`}
@@ -114,7 +114,7 @@ export function DiscoveryPlaceholder({
       </div>
 
       {/* Status area — always visible at the bottom */}
-      <div className="flex shrink-0 flex-col items-center gap-3 border-t border-border/20 px-4 py-6">
+      <div className="flex shrink-0 flex-col items-center gap-3 border-t border-line/20 px-4 py-6">
         <div className="relative flex items-center justify-center">
           <Radar className="size-12 text-primary/25 animate-pulse" />
           <div className="absolute size-12 animate-ping rounded-full bg-primary/5" />

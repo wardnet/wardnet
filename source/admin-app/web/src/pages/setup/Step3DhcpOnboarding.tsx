@@ -55,7 +55,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3">
           <input
             type="radio"
             name="dhcp-mode"
@@ -71,7 +71,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
             </span>
           </div>
         </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3">
           <input
             type="radio"
             name="dhcp-mode"
@@ -91,7 +91,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       </div>
 
       {mode === "primary" && (
-        <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-muted/30 p-4">
           <div className="flex flex-col gap-1">
             <span className="text-sm font-medium">Pick your router</span>
             <Select value={routerId} onValueChange={setRouterId}>
@@ -148,7 +148,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       )}
 
       {mode === "locked_router" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-muted/30 p-4 text-sm text-muted-foreground">
           <p>
             Configure each opted-in device's network settings to use Wardnet as its gateway and DNS
             server. Other devices on the LAN keep their normal connectivity.

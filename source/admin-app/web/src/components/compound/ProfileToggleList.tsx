@@ -67,7 +67,7 @@ interface ProfileToggleRowProps {
 
 function ProfileToggleRow({ profile, checked, disabled, onChange }: ProfileToggleRowProps) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+    <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="text-sm">{profile.name}</span>
         {profile.builtin && (

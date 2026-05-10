@@ -56,7 +56,7 @@ export default function Step4RouterMac() {
       )}
 
       {probedMac && (
-        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+        <div className="rounded-lg border border-line bg-muted/30 p-4 text-sm">
           <p className="font-medium text-ink">
             {probedSource === "arp" ? "Discovered via ARP" : "Recorded"}
           </p>

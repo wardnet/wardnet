@@ -53,8 +53,8 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
         className={cn(
           "flex aspect-video w-full justify-center text-xs",
           "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground",
-          "[&_.recharts-cartesian-grid_line]:stroke-border",
-          "[&_.recharts-tooltip-cursor]:stroke-border",
+          "[&_.recharts-cartesian-grid_line]:stroke-line",
+          "[&_.recharts-tooltip-cursor]:stroke-line",
           className,
         )}
         style={cssVars as React.CSSProperties}

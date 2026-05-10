@@ -27,7 +27,7 @@ export function AppLayout() {
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Mobile header */}
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-bg/80 px-4 backdrop-blur-sm md:hidden">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-bg/80 px-4 backdrop-blur-sm md:hidden">
           {isAdmin && <MobileMenu />}
           <Logo size={24} />
           <span className="text-lg font-bold tracking-tight text-primary">Wardnet</span>

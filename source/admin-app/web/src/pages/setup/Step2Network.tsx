@@ -24,7 +24,7 @@ export default function Step2Network() {
         </p>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-line bg-muted/30 p-4 text-sm">
         <dt className="text-muted-foreground">Interface</dt>
         <dd className="font-mono">{isLoading ? "…" : isError ? "—" : (data?.interface ?? "—")}</dd>
         <dt className="text-muted-foreground">IP address</dt>

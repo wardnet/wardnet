@@ -107,7 +107,7 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
       </div>
 
       <div
-        className="overflow-y-auto rounded-lg border border-border bg-muted/30 font-mono text-xs"
+        className="overflow-y-auto rounded-lg border border-line bg-muted/30 font-mono text-xs"
         style={{ maxHeight }}
       >
         {entries.length === 0 ? (
@@ -115,7 +115,7 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
             {connected ? "Waiting for log entries…" : "Not connected"}
           </p>
         ) : (
-          <div className="divide-y divide-border/50">
+          <div className="divide-y divide-line/50">
             {entries.map((entry, i) => (
               <div key={i} className={`flex gap-3 px-3 py-1.5 ${levelColor(entry.level)}`}>
                 <span className="shrink-0 text-muted-foreground/60">

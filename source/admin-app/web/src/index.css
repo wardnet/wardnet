@@ -86,7 +86,6 @@
   --color-muted: var(--bg-sunken);
   --color-muted-foreground: var(--ink-3);
   --color-destructive: var(--danger);
-  --color-border: var(--line);
 }
 
 @layer base {

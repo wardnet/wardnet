@@ -58,7 +58,7 @@ export function DataTable<TData, TValue>({
     // ourselves keeps sticky positioning working all the way up to the
     // nearest scrolling ancestor (page-level main, or a per-page
     // wrapper like the DNS log's flex column).
-    <div className="rounded-xl border border-border">
+    <div className="rounded-xl border border-line">
       <table className={cn("w-full caption-bottom text-sm", fixedLayout && "table-fixed")}>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
