@@ -7,7 +7,7 @@ import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
 import { HostCell, buildDeviceIndex } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { cn, timeAgo } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import type { Device, DhcpLease, DhcpLeaseStatus } from "@wardnet/js";
 
 function leaseStatusTone(status: DhcpLeaseStatus): "success" | "neutral" {
@@ -38,7 +38,7 @@ function createColumns(
         const icon = device ? (
           <DeviceIcon type={device.device_type} />
         ) : (
-          <Clock size={18} className={cn("text-ink-3")} />
+          <Clock size={18} className="text-ink-3" />
         );
         return <HostCell primary={primary} secondary={secondary} icon={icon} />;
       },
