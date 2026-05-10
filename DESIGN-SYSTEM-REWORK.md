@@ -282,7 +282,7 @@ all facts; status pills via `.pill--*`.
 | `pages/DocsArticle.tsx`           | [x]    | markdown component map ported to Forge: body `text-ink-2`, headings `text-ink` (Inter Tight via `--font-sans`), inline `<code>` → `.kbd`, fenced `<pre>` → `.logs` family (`--bg-sunken` + JBM), tables/blockquote/hr/img on `border-line`/`text-ink-*`. ComingSoon rebuilt as `.empty` block. Slice T7. |
 | `pages/ErrorView.tsx` / `NotFound.tsx` | [x] | full-page Forge `.empty` shell on both; `.h-title` / `.h-sub` for copy; `.btn` / `.btn--primary` for CTAs; `.kbd` for error message detail. Slice T7. |
 | `components/layouts/Navbar.tsx`   | [x]    | top nav — dropped `bg-[oklch(...)]/80 backdrop-blur-md` chrome → `bg-side` (Ward Navy); `text-side-ink-active` brand, `text-side-ink` links with `hover:text-side-ink-active`; no border/shadow below. Slice T7. |
-| `components/layouts/Hero.tsx`     | [ ]    | display type, accent CTA                                                           |
+| `components/layouts/Hero.tsx`     | [x]    | Ward Navy chrome via `bg-side` (gradient + raw oklch dropped); display via `.h-title` (scaled `text-5xl sm:text-6xl`); body via `.h-sub` with `text-side-ink`/`text-side-ink-2` ramp; Download CTA `.btn .btn--primary`, GitHub CTA `.btn`. Slice T7. |
 | `components/layouts/HowItWorks.tsx` / `Features.tsx` / `TechStack.tsx` / `GetStarted.tsx` / `Footer.tsx` | [ ] | re-skin with Forge classes & tokens |
 | `components/compound/CodeBlock.tsx` | [ ]  | `.logs` family / `--bg-sunken` + `--font-mono`                                     |
 | `components/compound/ErrorBoundary.tsx` | [ ] | full-page error using `.empty` + danger pill                                     |
