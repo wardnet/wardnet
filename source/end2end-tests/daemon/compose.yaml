@@ -113,6 +113,21 @@ services:
         set +e
         chown -R wardnet:wardnet /var/lib/wardnet 2>&1 || true
         chmod 750 /var/lib/wardnet 2>&1 || true
+        # Pin lan_interface to whichever NIC Docker assigned the
+        # wardnet_lan IP (10.91.0.1). Docker does NOT guarantee a
+        # stable eth0/eth1/eth2 mapping when a container attaches to
+        # multiple networks, so the `LAN_INTERFACE=eth0` hardcoded
+        # in Dockerfile.test is right by luck only. Rewrite the
+        # config before systemd boots wardnetd so GARP, DHCP, the
+        # mDNS advertiser, and packet capture all bind to the same
+        # bridge `test_debian` is on.
+        LAN_IFACE=$(ip -o -4 addr show | awk '/inet 10\.91\.0\.1\//{print $2; exit}')
+        if [ -n "$LAN_IFACE" ]; then
+          sed -i "s|^lan_interface = .*|lan_interface = \"$LAN_IFACE\"|" /etc/wardnet/wardnet.toml
+          echo "wardnetd e2e fixture: pinned lan_interface=$LAN_IFACE in /etc/wardnet/wardnet.toml" >&2
+        else
+          echo "wardnetd e2e fixture: WARNING no NIC holds 10.91.0.1; leaving lan_interface as-is" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
