@@ -84,17 +84,11 @@
    */
   --color-background: var(--bg);
   --color-foreground: var(--ink);
-  --color-card-foreground: var(--ink);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-ink);
-  --color-secondary: var(--bg-sunken);
-  --color-secondary-foreground: var(--ink);
   --color-muted: var(--bg-sunken);
   --color-muted-foreground: var(--ink-3);
-  --color-accent-foreground: var(--ink);
   --color-destructive: var(--danger);
-  --color-destructive-foreground: var(--danger-soft-ink);
-  --color-success: var(--accent);
   --color-success-foreground: var(--accent-ink);
   --color-warning: var(--warn);
   --color-warning-foreground: var(--warn-soft-ink);
@@ -103,12 +97,9 @@
   --color-ring: var(--accent);
   --color-sidebar: var(--side-bg);
   --color-sidebar-foreground: var(--side-ink);
-  --color-sidebar-primary: var(--accent);
-  --color-sidebar-primary-foreground: var(--accent-ink);
   --color-sidebar-accent: var(--side-active-bg);
   --color-sidebar-accent-foreground: var(--side-ink-active);
   --color-sidebar-border: var(--side-line);
-  --color-sidebar-ring: var(--accent);
 }
 
 @layer base {
