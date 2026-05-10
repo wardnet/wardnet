@@ -195,7 +195,7 @@ all facts; status pills via `.pill--*`.
 | DhcpSummaryCard                 | [ ]    | StatTile-derived                                           |
 | DiscoveryPlaceholder            | [ ]    | `.empty`                                                   |
 | EmptyStatePlaceholder           | [ ]    | `.empty`                                                   |
-| FilterRuleTable                 | [ ]    | `.tbl`                                                     |
+| FilterRuleTable                 | [x]    | `.tbl` (already conformant — verified post-slice-1b on 2026-05-10; no code changes required) |
 | HostCell                        | [ ]    | `.host` markup                                             |
 | JobProgressDescription          | [ ]    | mono job state                                             |
 | Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
