@@ -38,6 +38,16 @@
   --info: #4d8df6;
   --info-soft: #dde9fe;
 
+  /* Chart palette — §10 rule 01 · COLOR. Categorical charts cycle
+     accent → info → warn → ink-3. Two-series time charts use 1 + 2
+     (Download / Upload). Never invent a new chart palette — extend the
+     cycle here if a chart truly needs a fifth slot.
+     TODO: T0-d will mirror this in tokens.ts. */
+  --chart-1: var(--accent);
+  --chart-2: var(--info);
+  --chart-3: var(--warn);
+  --chart-4: var(--ink-3);
+
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;
@@ -637,6 +647,97 @@ button { font-family: inherit; }
   padding-top: 6px;
 }
 .qchart-axis span:not(:first-child) { text-align: right; }
+
+/* ---------- Chart (Recharts wrapper) ---------- */
+/* Forge §10 — line/area time-series. Two series max, accent + info.
+   `.chart` styles the Recharts SVG primitives so the wrapper can stay
+   dumb (<ChartContainer/> just attaches the class). CSS rules win
+   over Recharts' SVG presentation attributes at any specificity, so
+   we override gridline dash patterns and hide the vertical grid here
+   without forcing every call-site to pass props. */
+.chart {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+/* Horizontal hairlines only (§10 rule 02). 1px / --line at 2 4 dash.
+   Vertical grid is suppressed — networks read horizontally. */
+.chart .recharts-cartesian-grid-horizontal line {
+  stroke: var(--line);
+  stroke-dasharray: 2 4;
+  stroke-width: 1;
+}
+.chart .recharts-cartesian-grid-vertical { display: none; }
+/* Axis ticks: Y mono (§10 rule 03 — "numbers, not headers"), X stays
+   sans (timestamps read as labels). Both at --ink-3, no axis line. */
+.chart .recharts-cartesian-axis-line,
+.chart .recharts-cartesian-axis-tick-line { stroke: transparent; }
+.chart .recharts-cartesian-axis-tick text { fill: var(--ink-3); }
+.chart .recharts-yAxis .recharts-cartesian-axis-tick text {
+  font-family: var(--font-mono);
+  font-feature-settings: "zero";
+}
+/* Tooltip cursor (the vertical guideline): 1px hairline at --ink-4
+   per §13 anatomy F. Recharts also renders a cursor for area charts
+   as a filled rect — we keep it transparent so only the guideline
+   shows. */
+.chart .recharts-tooltip-cursor {
+  stroke: var(--ink-4);
+  stroke-width: 1;
+  fill: transparent;
+}
+/* Soft-fill area below the line (§13 anatomy C). Consumers opt in by
+   rendering <Area> instead of <Line>; this rule sets the wash so the
+   call-site only specifies the stroke colour. */
+.chart .recharts-area-area { fill-opacity: 0.12; }
+/* Brush (§10 rule 05 / §13 anatomy D). Mini overview track tinted
+   with --accent-soft; handles inherit the stroke prop set by the
+   consumer. */
+.chart .recharts-brush rect.recharts-brush-slide { fill: var(--accent-soft); fill-opacity: 0.6; }
+.chart .recharts-brush rect.recharts-brush-texts { display: none; }
+/* Legend (§10 rule 07): mono 11px, --ink-3. Dot color comes from the
+   series stroke, which Recharts paints inline — no override needed. */
+.chart .recharts-default-legend {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ---------- Tooltip ---------- */
+/* §10 rule 08 — card-style hover surface with --bg-card + --shadow-pop.
+   The `.tooltip` standalone class is for any tooltip surface (cmdk,
+   custom hover popovers). Recharts emits its own `.recharts-default-
+   tooltip` wrapper inside `.chart`; we restyle that with the same
+   visual contract so consumers don't have to wire `wrapperClassName`
+   to opt in. Mono numerics, no entrance animation. */
+.tooltip,
+.chart .recharts-default-tooltip {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-pop);
+  padding: 10px 12px !important;
+  font-size: 12px;
+  color: var(--ink);
+}
+.tooltip .recharts-tooltip-label,
+.chart .recharts-tooltip-label,
+.tooltip .recharts-tooltip-item,
+.chart .recharts-tooltip-item {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.tooltip .recharts-tooltip-label,
+.chart .recharts-tooltip-label {
+  color: var(--ink-3) !important;
+  margin-bottom: 4px;
+}
+.tooltip .recharts-tooltip-item,
+.chart .recharts-tooltip-item { color: var(--ink-2) !important; }
+.tooltip .recharts-tooltip-item-value,
+.chart .recharts-tooltip-item-value { color: var(--ink) !important; font-weight: 600; }
 
 /* ---------- Toaster ---------- */
 .toast {

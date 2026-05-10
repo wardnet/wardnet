@@ -14,8 +14,8 @@ const RANGES: { value: number; label: string }[] = [
 ];
 
 const chartConfig: ChartConfig = {
-  total: { label: "Total", color: "var(--chart-1, #3b82f6)" },
-  blocked: { label: "Blocked", color: "var(--chart-2, #ef4444)" },
+  total: { label: "Total", color: "var(--chart-1)" },
+  blocked: { label: "Blocked", color: "var(--chart-2)" },
 };
 
 interface ChartPoint {

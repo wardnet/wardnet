@@ -17,8 +17,8 @@ const RANGES: { value: TunnelMetricsRange; label: string }[] = [
 ];
 
 const chartConfig: ChartConfig = {
-  rx: { label: "Download", color: "var(--chart-1, #3b82f6)" },
-  tx: { label: "Upload", color: "var(--chart-2, #10b981)" },
+  rx: { label: "Download", color: "var(--chart-1)" },
+  tx: { label: "Upload", color: "var(--chart-2)" },
 };
 
 interface ChartPoint {

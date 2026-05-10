@@ -26,13 +26,24 @@ export interface ChartContainerProps extends React.ComponentProps<"div"> {
   children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>["children"];
 }
 
+/**
+ * Forge §10 chart wrapper. The `.chart` Forge class owns the visual
+ * contract — horizontal hairlines only, mono Y-axis labels, no
+ * vertical grid, soft-fill area, card-styled tooltip — so this
+ * component just attaches the class and a ResponsiveContainer.
+ *
+ * Per-instance series colours are exposed as `--color-<key>` CSS
+ * variables on the wrapper so consumers can write
+ * `<Line stroke="var(--color-rx)">` and have Recharts' SVG props
+ * (which require string values, not class lookups) resolve through
+ * the chartConfig. This is NOT the legacy shadcn `--color-*` alias
+ * bridge — those were drained in earlier slices. The Forge chart
+ * palette (`--chart-1` … `--chart-4`) is defined globally in
+ * `styles.css`; consumers point a chartConfig entry at
+ * `var(--chart-1)` and the indirection bridges the named series
+ * (e.g. "rx") to the concrete colour.
+ */
 export function ChartContainer({ config, className, children, ...props }: ChartContainerProps) {
-  // Recharts SVG props (stroke/fill) take string values, so we expose
-  // each series colour as a per-instance CSS custom property
-  // (`--color-<key>`) on the wrapper. Consumers reference those via
-  // `var(--color-<key>)` on `<Line stroke=...>` and friends. These vars
-  // are scoped to this container — they are *not* the legacy shadcn
-  // `--color-*` aliases.
   const cssVars = React.useMemo(() => {
     const out: Record<string, string> = {};
     for (const [key, entry] of Object.entries(config)) {
@@ -47,13 +58,7 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
     <ChartContext.Provider value={{ config }}>
       <div
         data-slot="chart"
-        className={cn(
-          "flex aspect-video w-full justify-center text-xs",
-          "[&_.recharts-cartesian-axis-tick_text]:fill-ink-3",
-          "[&_.recharts-cartesian-grid_line]:stroke-line",
-          "[&_.recharts-tooltip-cursor]:stroke-line",
-          className,
-        )}
+        className={cn("chart", className)}
         style={cssVars as React.CSSProperties}
         {...props}
       >
