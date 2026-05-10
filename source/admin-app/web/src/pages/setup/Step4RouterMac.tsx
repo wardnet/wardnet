@@ -44,7 +44,7 @@ export default function Step4RouterMac() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">Router MAC</h2>
+        <h2 className="text-lg font-semibold text-ink">Router MAC</h2>
         <p className="text-sm text-muted-foreground">
           Wardnet uses the upstream router's MAC address for diagnostics and packet-capture
           filtering.
@@ -57,7 +57,7 @@ export default function Step4RouterMac() {
 
       {probedMac && (
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-          <p className="font-medium text-foreground">
+          <p className="font-medium text-ink">
             {probedSource === "arp" ? "Discovered via ARP" : "Recorded"}
           </p>
           <p className="mt-1 font-mono">{probedMac}</p>

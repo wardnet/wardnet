@@ -198,7 +198,7 @@ function DefaultProfileHint({ enabled, hasExplicit, defaultProfiles }: DefaultPr
     return (
       <p className="text-xs text-muted-foreground">
         No profile selected — this device follows the global default {noun}{" "}
-        <span className="font-medium text-foreground">
+        <span className="font-medium text-ink">
           {defaultProfiles.map((p) => p.name).join(", ")}
         </span>
         .

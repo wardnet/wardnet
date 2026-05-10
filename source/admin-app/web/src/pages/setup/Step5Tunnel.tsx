@@ -30,7 +30,7 @@ export default function Step5Tunnel() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">First VPN tunnel</h2>
+        <h2 className="text-lg font-semibold text-ink">First VPN tunnel</h2>
         <p className="text-sm text-muted-foreground">
           Optional — connect a VPN provider so opted-in devices can route through it. You can add
           more from the Tunnels page once setup is complete.

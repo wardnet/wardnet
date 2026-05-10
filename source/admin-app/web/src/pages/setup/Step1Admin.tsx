@@ -65,7 +65,7 @@ export default function Step1Admin() {
   return (
     <div>
       <div className="mb-5 flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">Create admin account</h2>
+        <h2 className="text-lg font-semibold text-ink">Create admin account</h2>
         <p className="text-sm text-muted-foreground">
           Set up your administrator credentials. You'll use these to sign in to Wardnet.
         </p>

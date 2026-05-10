@@ -17,7 +17,7 @@ export default function Step2Network() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">Confirm network</h2>
+        <h2 className="text-lg font-semibold text-ink">Confirm network</h2>
         <p className="text-sm text-muted-foreground">
           Wardnet should have a stable LAN IP so opted-in devices keep pointing at it across
           reboots.
@@ -49,7 +49,7 @@ export default function Step2Network() {
 
       {data?.dhcp_source !== "static" && (
         <div className="rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
-          <p className="font-medium text-foreground">Your IP isn't pinned</p>
+          <p className="font-medium text-ink">Your IP isn't pinned</p>
           <p className="mt-1 text-muted-foreground">
             The router is currently leasing this address — it may change on the next reboot. Re-run{" "}
             <code>install.sh</code> with <code>--static-ip {data?.ip ?? "&lt;cidr&gt;"}/24</code>{" "}

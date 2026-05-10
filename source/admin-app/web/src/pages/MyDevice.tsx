@@ -106,7 +106,7 @@ export default function MyDevice() {
     <div className="mx-auto max-w-lg pt-8">
       <p className="text-xs text-muted-foreground">My device</p>
       <div className="mt-1 flex items-center gap-3">
-        <DeviceIcon type={device.device_type} size={28} className="text-foreground/60" />
+        <DeviceIcon type={device.device_type} size={28} className="text-ink/60" />
         <h1 className="text-2xl font-medium">{device.name ?? device.hostname ?? device.mac}</h1>
       </div>
 

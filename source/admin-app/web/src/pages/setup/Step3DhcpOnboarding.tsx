@@ -48,7 +48,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">DHCP onboarding</h2>
+        <h2 className="text-lg font-semibold text-ink">DHCP onboarding</h2>
         <p className="text-sm text-muted-foreground">
           Choose how Wardnet handles DHCP on your LAN.
         </p>
@@ -138,7 +138,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
               </p>
             )}
             {probeClean && (
-              <p className="flex-1 text-sm text-foreground">Only Wardnet responded — good.</p>
+              <p className="flex-1 text-sm text-ink">Only Wardnet responded — good.</p>
             )}
             <Button variant="secondary" onClick={() => probe.mutate()} disabled={probe.isPending}>
               {probe.isPending ? "Probing…" : probeResult ? "Probe again" : "Probe LAN"}

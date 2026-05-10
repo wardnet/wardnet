@@ -38,7 +38,7 @@ export function DetailPageHeader({
         aria-label="Breadcrumb"
         className="flex items-center gap-1 text-sm text-muted-foreground"
       >
-        <Link to={parentTo} className="hover:text-foreground">
+        <Link to={parentTo} className="hover:text-ink">
           {parentLabel}
         </Link>
         <ChevronRight aria-hidden className="size-4" />
@@ -46,7 +46,7 @@ export function DetailPageHeader({
       </nav>
       <div className="flex flex-wrap items-center gap-3">
         {icon ? (
-          <span aria-hidden className="inline-flex items-center text-foreground/70">
+          <span aria-hidden className="inline-flex items-center text-ink/70">
             {icon}
           </span>
         ) : null}

@@ -16,7 +16,7 @@ export function AppLayout() {
   const { isAdmin } = useAuth();
 
   return (
-    <div className="flex h-screen bg-bg text-foreground">
+    <div className="flex h-screen bg-bg text-ink">
       {/* Desktop sidebar — only for admins */}
       {isAdmin && (
         <aside className="hidden w-56 shrink-0 border-r border-side-line bg-side md:block">

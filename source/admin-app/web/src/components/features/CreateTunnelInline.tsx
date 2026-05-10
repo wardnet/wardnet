@@ -45,7 +45,7 @@ export function CreateTunnelInline({ onClose, embedded = false }: CreateTunnelIn
   if (embedded) {
     return (
       <div className="flex flex-col gap-4">
-        <h3 className="text-base font-semibold text-foreground">Add WireGuard tunnel</h3>
+        <h3 className="text-base font-semibold text-ink">Add WireGuard tunnel</h3>
         {body}
         <div className="flex justify-end">
           <Button variant="ghost" onClick={onClose}>
