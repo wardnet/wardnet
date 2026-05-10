@@ -45,7 +45,7 @@ export function DiscoveryPlaceholder({
   );
 
   return (
-    <div className="relative flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-bg">
+    <div className="empty relative flex min-h-64 flex-1 flex-col overflow-hidden !p-0 text-left">
       <style>{`
         @keyframes scan-sweep {
           0% { top: -3rem; opacity: 0; }
@@ -114,7 +114,7 @@ export function DiscoveryPlaceholder({
       </div>
 
       {/* Status area — always visible at the bottom */}
-      <div className="flex shrink-0 flex-col items-center gap-3 border-t border-line/20 px-4 py-6">
+      <div className="flex shrink-0 flex-col items-center gap-3 border-t border-line/20 px-4 py-6 text-center">
         <div className="relative flex items-center justify-center">
           <Radar className="size-12 text-accent/25 animate-pulse" />
           <div className="absolute size-12 animate-ping rounded-full bg-accent/5" />
