@@ -23,6 +23,11 @@ interface DetailPageHeaderProps {
  *
  * Established by the tunnel detail page; other detail pages should adopt
  * this header as part of the routed-detail refactor (issue #316).
+ *
+ * Forge mapping (T3-δ): title uses `.h-title`, meta line uses `.h-sub`,
+ * layout rows use `.row`/`.col` helpers. Breadcrumb mirrors the
+ * `.topbar__crumbs` pattern (ink-3 trail, ink current segment) without
+ * the topbar chrome, since this lives in the page body, not the chrome.
  */
 export function DetailPageHeader({
   parentLabel,
@@ -33,24 +38,24 @@ export function DetailPageHeader({
   meta,
 }: DetailPageHeaderProps) {
   return (
-    <header className="flex flex-col gap-2 pb-4">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-ink-3">
-        <Link to={parentTo} className="hover:text-ink">
+    <header className="col gap-8 pb-4">
+      <nav aria-label="Breadcrumb" className="row gap-8 text-[13px] text-ink-3">
+        <Link to={parentTo} className="text-ink-3 hover:text-ink">
           {parentLabel}
         </Link>
-        <ChevronRight aria-hidden className="size-4" />
-        <span className="truncate">{itemLabel}</span>
+        <ChevronRight aria-hidden className="size-4 text-ink-4" />
+        <span className="truncate font-semibold text-ink">{itemLabel}</span>
       </nav>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="row wrap gap-12">
         {icon ? (
-          <span aria-hidden className="inline-flex items-center text-ink/70">
+          <span aria-hidden className="row text-ink-2">
             {icon}
           </span>
         ) : null}
-        <h1 className="text-2xl font-semibold tracking-tight">{itemLabel}</h1>
+        <h1 className="h-title">{itemLabel}</h1>
         {status}
       </div>
-      {meta ? <div className="text-sm text-ink-3">{meta}</div> : null}
+      {meta ? <p className="h-sub">{meta}</p> : null}
     </header>
   );
 }
