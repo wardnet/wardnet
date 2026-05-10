@@ -1,5 +1,4 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Pill } from "@wardnet/forge-web/pill";
 import type { RecentError } from "@/hooks/useSystemStatus";
 
 function formatTimestamp(ts: string): string {
@@ -8,6 +7,12 @@ function formatTimestamp(ts: string): string {
   const hms = date.toLocaleTimeString([], { hour12: false });
   const ms = String(date.getMilliseconds()).padStart(3, "0");
   return `${hms}.${ms}`;
+}
+
+function levelClass(level: string): string {
+  if (level === "ERROR") return "is-err";
+  if (level === "WARN" || level === "WARNING") return "is-warn";
+  return "is-info";
 }
 
 interface RecentErrorsCardProps {
@@ -19,30 +24,18 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-semibold">Recent errors</CardTitle>
+        <CardTitle>Recent errors</CardTitle>
       </CardHeader>
       <CardContent>
         {errors.length === 0 ? (
           <p className="py-4 text-center text-sm text-ink-3">No recent errors</p>
         ) : (
-          <div className="flex max-h-60 flex-col gap-1 overflow-y-auto font-mono text-xs">
+          <div className="logs">
             {[...errors].reverse().map((err, i) => (
-              <div
-                key={i}
-                className={`flex gap-2 rounded px-2 py-1 ${
-                  err.level === "ERROR"
-                    ? "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300"
-                    : "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300"
-                }`}
-              >
-                <span className="shrink-0 text-ink-3/60">{formatTimestamp(err.timestamp)}</span>
-                <Pill
-                  variant={err.level === "ERROR" ? "down" : "warn"}
-                  className="h-5 shrink-0 text-[10px]"
-                >
-                  {err.level}
-                </Pill>
-                <span className="min-w-0 break-all">{err.message}</span>
+              <div key={i} className={`logrow ${levelClass(err.level)}`}>
+                <div className="t">{formatTimestamp(err.timestamp)}</div>
+                <div className="l">{err.level}</div>
+                <div className="m">{err.message}</div>
               </div>
             ))}
           </div>

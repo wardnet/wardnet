@@ -203,7 +203,7 @@ all facts; status pills via `.pill--*`.
 | MobileMenu                      | [x]    | hamburger → `<Drawer side="left">` hosting the existing `<Sidebar />` — slice 16 |
 | PageHeader                      | [ ]    | `.h-title` + `.h-sub` + right-aligned actions              |
 | ProfileToggleList               | [ ]    | toggle-row list (added on main 2026-05-09 in #343)         |
-| RecentErrorsCard                | [ ]    | log-style list                                             |
+| RecentErrorsCard                | [x]    | `.logs` / `.logrow` (`is-warn`/`is-err`/`is-info`) inside Card chrome — slice T3-γ on 2026-05-10; dropped Pill in favour of canonical `.t`/`.l`/`.m` triplet |
 | RoutingSelector                 | [ ]    | radio-group field                                          |
 | Sidebar                         | [ ]    | `.side` + floating variant + nav items + brand mark + foot |
 | StatusBadge                     | [x]    | `.pill--*` via the `Pill` primitive — already conformant: tone vocabulary (`success`/`neutral`/`danger`) maps to Pill variants (`ok`/`ghost`/`down`); verified post-slice-1c on 2026-05-10, no code changes required |
