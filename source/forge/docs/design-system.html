@@ -459,6 +459,12 @@
                 <td style="padding:10px 14px">primitives/pill.tsx</td>
               </tr>
               <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.banner</span> (+ <span style="color:var(--accent-soft-ink)">--down</span> / <span style="color:var(--accent-soft-ink)">--warn</span> / <span style="color:var(--accent-soft-ink)">--info</span>) with <span style="color:var(--accent-soft-ink)">.banner__icon</span> · <span style="color:var(--accent-soft-ink)">.banner__msg</span> · <span style="color:var(--accent-soft-ink)">.banner__actions</span></td>
+                <td style="padding:10px 14px">native &lt;div role="alert" | "status"&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — variant-only; tone drives soft-bg + soft-ink + bottom border</td>
+                <td style="padding:10px 14px">primitives/banner.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
                 <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.input</span> · <span style="color:var(--accent-soft-ink)">.textarea</span></td>
                 <td style="padding:10px 14px">native &lt;input&gt; / &lt;textarea&gt; — no Radix primitive</td>
                 <td style="padding:10px 14px">native :focus / :focus-within / :disabled; segmented variant uses [data-segmented] on the wrapper</td>
@@ -485,6 +491,35 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div style="margin:0 0 24px">
+        <h3 style="margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Banner</h3>
+        <p style="margin:0 0 10px;font-size:13px;color:var(--ink-2);line-height:1.55;max-width:78ch">
+          A full-width strip rendered above page content for operator-facing
+          notices (daemon unreachable, prior unclean shutdown). One generic
+          recipe with three tone variants —
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--down</code>,
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--warn</code>,
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--info</code>
+          — share the same soft-bg / soft-ink token pairs as
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.pill--*</code>
+          and the toaster bridge so banner / pill / toast read as one family.
+          Three slots: a leading
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__icon</code>
+          (16px, optional), the
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__msg</code>
+          body (flex-grow), and an optional trailing
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__actions</code>
+          for buttons (Dismiss, Retry, …). Border-bottom only — the banner
+          stacks above page content rather than floating, so a full-border
+          ring would read as a card.
+        </p>
+        <pre style="margin:0;font-family:var(--font-mono);font-size:11.5px;background:var(--bg-sunken);color:var(--ink-2);padding:12px 14px;border-radius:8px;overflow-x:auto;line-height:1.55">&lt;div role="alert" class="banner banner--down"&gt;
+  &lt;span class="banner__icon"&gt;&lt;svg …/&gt;&lt;/span&gt;
+  &lt;span class="banner__msg"&gt;Unable to connect to the Wardnet daemon.&lt;/span&gt;
+  &lt;span class="banner__actions"&gt;&lt;button class="btn btn--ghost btn--sm"&gt;Dismiss&lt;/button&gt;&lt;/span&gt;
+&lt;/div&gt;</pre>
       </div>
 
       <div class="grid grid-2" style="margin-bottom:8px">

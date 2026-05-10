@@ -178,7 +178,7 @@ all facts; status pills via `.pill--*`.
 | ApiErrorAlert                   | [ ]    | `.pill--down` style or full-card error                     |
 | BlocklistTable                  | [x]    | `.tbl` via DataTable (slice 1b primitive) — name cell stack uses `.col` with `min-w-0`, URL + entry-count cells use `.mono` per styles.css §05 contract, outer wrapper on `.col gap-16` + `.row justify-end`, `fixedLayout` pins auxiliary column widths; public API (`blocklists` / `onRefresh` / `onToggle` / `onEdit` / `onDelete` / `refreshingId` / `onAdd`) preserved on 2026-05-10 |
 | ConfirmDialog                   | [ ]    | AlertDialog-backed                                         |
-| ConnectionBanner                | [ ]    | thin top banner, mono ws status                            |
+| ConnectionBanner                | [x]    | thin top banner, mono ws status — now thin wrapper over `<Banner tone='down'>` (forge-web/banner primitive added on 2026-05-10) |
 | ConnectionStatus                | [ ]    | `.pill--ok|warn|down`                                      |
 | CountryCombobox                 | [ ]    | cmdk-backed, country flag prefix                           |
 | CronSchedulePicker              | [ ]    | field cluster                                              |
@@ -209,7 +209,7 @@ all facts; status pills via `.pill--*`.
 | StatusBadge                     | [ ]    | `.pill--*`                                                 |
 | TunnelCard                      | [ ]    | `.tcard` (flag + title + grid + throughput strip)          |
 | TunnelGrid                      | [ ]    | grid wrapper                                               |
-| UncleanShutdownBanner           | [ ]    | banner, danger-soft tones                                  |
+| UncleanShutdownBanner           | [x]    | banner, danger-soft tones — now thin wrapper over `<Banner tone='down'>` with `actions={<Button>Dismiss</Button>}` (forge-web/banner primitive added on 2026-05-10) |
 | UpdateBanner                    | [ ]    | banner, info-soft tones                                    |
 
 ---

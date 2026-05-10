@@ -369,6 +369,44 @@ button { font-family: inherit; }
 .pill--info { background: var(--info-soft); color: var(--info); }
 .pill--ghost { background: transparent; border-color: var(--line); color: var(--ink-3); }
 
+/* ---------- Banner (full-width page strip) ---------- */
+/* §05 — operator-facing notices that ride above page content (e.g. daemon
+   unreachable, prior unclean shutdown). Sibling to `.toast` but a flat strip,
+   not a floating card: full-width, single horizontal line of message, optional
+   leading icon + trailing actions. Tone tokens are the same soft-tone pairs
+   `.pill--*` and the toaster bridge use, so banner / pill / toast read as one
+   family. Border-bottom only — banner stacks above page content, not floating,
+   so no full-border ring. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid transparent;
+}
+.banner__icon { display: inline-flex; flex-shrink: 0; line-height: 0; }
+.banner__icon > svg { width: 16px; height: 16px; }
+.banner__msg { flex: 1; min-width: 0; }
+.banner__actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.banner--down {
+  background: var(--danger-soft);
+  color: var(--danger-soft-ink);
+  border-bottom-color: color-mix(in oklab, var(--danger) 40%, var(--line));
+}
+.banner--warn {
+  background: var(--warn-soft);
+  color: var(--warn-soft-ink);
+  border-bottom-color: color-mix(in oklab, var(--warn) 40%, var(--line));
+}
+/* Tone parity with `.pill--info` — `--info-soft-ink` is intentionally not in
+   :root; both use `var(--info)` for the foreground. */
+.banner--info {
+  background: var(--info-soft);
+  color: var(--info);
+  border-bottom-color: color-mix(in oklab, var(--info) 40%, var(--line));
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; gap: 6px;

@@ -1,4 +1,5 @@
 import { CircleAlertIcon, X } from "lucide-react";
+import { Banner } from "@wardnet/forge-web/banner";
 import { Button } from "@wardnet/forge-web/button";
 import { useAcknowledgeShutdown, useSystemStatus } from "@/hooks/useSystemStatus";
 import { timeAgo } from "@/lib/utils";
@@ -15,10 +16,10 @@ import { timeAgo } from "@/lib/utils";
  * the new event timestamp is newer than the stored ack — no explicit
  * "reset on event" coupling is required.
  *
- * Styling mirrors the destructive tone of `ApiErrorAlert` but renders
- * full-width above the page content (à la `ConnectionBanner`) so the
- * operator notices it on every authenticated route until they
- * acknowledge it.
+ * Thin data-coupled wrapper over the Forge `<Banner>` primitive — visual
+ * shape (full-width danger-soft strip) lives in the `.banner` recipe
+ * (styles.css §05); this component owns the visibility predicate and the
+ * Dismiss action.
  */
 export function UncleanShutdownBanner() {
   const { data: status } = useSystemStatus();
@@ -35,28 +36,27 @@ export function UncleanShutdownBanner() {
   }
 
   return (
-    <div
+    <Banner
+      tone="down"
       role="alert"
-      className="flex items-center gap-3 border-b border-danger/30 bg-danger/10 px-4 py-2.5 text-sm text-danger"
+      icon={<CircleAlertIcon />}
+      actions={
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => ack.mutate()}
+          disabled={ack.isPending}
+          aria-label="Dismiss unclean shutdown banner"
+        >
+          <X className="mr-1 size-3.5" />
+          Dismiss
+        </Button>
+      }
     >
-      <CircleAlertIcon className="size-4 shrink-0" />
-      <div className="flex-1">
-        <span className="font-medium">Wardnet did not shut down cleanly</span>
-        <span className="ml-2 text-danger/80">
-          Last seen {timeAgo(shutdown.at)} — likely a crash or power loss.
-        </span>
-      </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 px-2 text-danger hover:bg-danger/20 hover:text-danger"
-        onClick={() => ack.mutate()}
-        disabled={ack.isPending}
-        aria-label="Dismiss unclean shutdown banner"
-      >
-        <X className="mr-1 size-3.5" />
-        Dismiss
-      </Button>
-    </div>
+      <span className="font-medium">Wardnet did not shut down cleanly</span>
+      <span className="ml-2 opacity-80">
+        Last seen {timeAgo(shutdown.at)} — likely a crash or power loss.
+      </span>
+    </Banner>
   );
 }
