@@ -44,14 +44,14 @@ export function GetStarted() {
 
         <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">
           See the{" "}
-          <a href="/docs/installation" className="text-[var(--brand-green)] hover:underline">
+          <a href="/docs/installation" className="text-accent hover:underline">
             installation guide
           </a>{" "}
           for compose options, air-gapped installs, and channel selection.
         </p>
         <a
           href="https://github.com/wardnet/wardnet"
-          className="mt-4 inline-block text-sm font-medium text-[var(--brand-green)] hover:underline"
+          className="mt-4 inline-block text-sm font-medium text-accent hover:underline"
         >
           View on GitHub
         </a>

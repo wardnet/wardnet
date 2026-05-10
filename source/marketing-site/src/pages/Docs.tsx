@@ -41,7 +41,7 @@ export function Docs() {
           </p>
 
           <div className="mb-12">
-            <div className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-[var(--brand-green)]">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-accent">
               <Star size={14} />
               Recommended
             </div>
@@ -52,11 +52,11 @@ export function Docs() {
                   <Link
                     key={entry.slug}
                     to={`/docs/${entry.slug}`}
-                    className="block rounded-lg border border-[var(--brand-green)]/20 bg-[var(--brand-green)]/5 p-5 transition-colors hover:bg-[var(--brand-green)]/10"
+                    className="block rounded-lg border border-accent/20 bg-accent/5 p-5 transition-colors hover:bg-accent/10"
                   >
                     <div className="mb-2 flex items-center gap-3">
                       {Icon && (
-                        <span className="text-[var(--brand-green)]">
+                        <span className="text-accent">
                           <Icon size={20} />
                         </span>
                       )}
@@ -86,7 +86,7 @@ export function Docs() {
                   >
                     <div className="mb-2 flex items-center gap-3">
                       {Icon && (
-                        <span className="text-[var(--brand-green)]">
+                        <span className="text-accent">
                           <Icon size={20} />
                         </span>
                       )}

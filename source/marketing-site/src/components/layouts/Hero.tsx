@@ -25,7 +25,7 @@ export function Hero({ onExplore }: HeroProps) {
       <div className="flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row sm:justify-center">
         <a
           href="https://github.com/wardnet/wardnet/releases"
-          className="inline-block w-full rounded-lg bg-[var(--brand-green)] px-8 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-[var(--brand-green-hover)] sm:w-48"
+          className="inline-block w-full rounded-lg bg-accent px-8 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_oklab,var(--accent)_92%,white)] sm:w-48"
         >
           Download
         </a>

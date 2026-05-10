@@ -71,21 +71,6 @@
   --ease-default: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/*
- * Legacy brand-* aliases.
- *
- * Existing site components reference `var(--brand-green)` / `--brand-green-hover`
- * directly via arbitrary-value utilities. Map them to Forge tokens so the
- * in-between state isn't a wreck. Delete once components are migrated to
- * Forge tokens (`var(--accent)`, `bg-accent`, etc.).
- */
-:root {
-  --brand-indigo: var(--side-bg);
-  --brand-slate: var(--ink-2);
-  --brand-green: var(--accent);
-  --brand-green-hover: color-mix(in oklab, var(--accent) 92%, white);
-}
-
 html {
   scroll-behavior: smooth;
 }

@@ -20,7 +20,7 @@ const MD_COMPONENTS: Components = {
   ul: (props) => <ul className="mb-4 list-disc space-y-1 pl-6" {...props} />,
   ol: (props) => <ol className="mb-4 list-decimal space-y-1 pl-6" {...props} />,
   li: (props) => <li className="text-gray-600 dark:text-gray-300" {...props} />,
-  a: (props) => <a className="font-medium text-[var(--brand-green)] hover:underline" {...props} />,
+  a: (props) => <a className="font-medium text-accent hover:underline" {...props} />,
   code: ({ children, className }) => {
     // Inline code has no language class; fenced blocks get a `language-*`.
     const isInline = !className;
@@ -41,7 +41,7 @@ const MD_COMPONENTS: Components = {
   ),
   blockquote: (props) => (
     <blockquote
-      className="mb-4 border-l-4 border-[var(--brand-green)]/40 pl-4 italic text-gray-500 dark:text-gray-400"
+      className="mb-4 border-l-4 border-accent/40 pl-4 italic text-gray-500 dark:text-gray-400"
       {...props}
     />
   ),
@@ -166,7 +166,7 @@ function ComingSoon({ title, description }: { title: string; description?: strin
       {description && (
         <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">{description}</p>
       )}
-      <p className="text-sm font-medium text-[var(--brand-green)]">Documentation coming soon.</p>
+      <p className="text-sm font-medium text-accent">Documentation coming soon.</p>
     </div>
   );
 }

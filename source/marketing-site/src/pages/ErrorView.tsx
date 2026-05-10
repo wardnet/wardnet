@@ -45,7 +45,7 @@ export function ErrorView({ message, onRetry }: ErrorViewProps) {
         <button
           type="button"
           onClick={onRetry ?? (() => window.location.reload())}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand-green)] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--brand-green-hover)] sm:w-48"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_oklab,var(--accent)_92%,white)] sm:w-48"
         >
           <RefreshCw size={16} aria-hidden="true" />
           Try again

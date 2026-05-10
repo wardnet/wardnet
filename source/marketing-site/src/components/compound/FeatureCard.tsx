@@ -22,7 +22,7 @@ export function FeatureCard({ icon, title, description, className }: FeatureCard
         className,
       )}
     >
-      <div className="mb-4 text-[var(--brand-green)]">{icon}</div>
+      <div className="mb-4 text-accent">{icon}</div>
       <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
       <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400">{description}</p>
     </div>
