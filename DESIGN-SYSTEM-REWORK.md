@@ -191,7 +191,7 @@ all facts; status pills via `.pill--*`.
 | DhcpConfigCard                  | [x]    | edit-mode card protocol — folded `EditDhcpConfigSheet` into the card's edit mode, hook-coupled (`useUpdateDhcpConfig`) per the DeviceSettingsCard precedent |
 | DhcpLeaseTable                  | [x]    | `.tbl`                                                     |
 | DhcpReservationTable            | [x]    | `.tbl`                                                     |
-| DhcpStatusCard                  | [ ]    | first-card pattern (status pill + headline number)         |
+| DhcpStatusCard                  | [x]    | first-card pattern (status pill + headline number) — replaced shadcn `Field`+Toggle body row with `CardAction` toggle, swapped `StatusBadge`+`DashboardUsageBar` for raw `Pill`+`.bar` and `stat__label`/`stat__value` headline numbers per the studio mock; kept `{ status, onToggle, isPending }` API on 2026-05-10 |
 | DhcpSummaryCard                 | [ ]    | StatTile-derived                                           |
 | DiscoveryPlaceholder            | [ ]    | `.empty`                                                   |
 | EmptyStatePlaceholder           | [ ]    | `.empty`                                                   |
