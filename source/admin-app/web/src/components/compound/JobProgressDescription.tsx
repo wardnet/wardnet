@@ -10,7 +10,7 @@ export function JobProgressDescription({ percentage }: { percentage: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums text-ink-3">{pct}%</span>
+      <span className="font-mono text-xs tabular-nums text-ink-3">{pct}%</span>
     </div>
   );
 }

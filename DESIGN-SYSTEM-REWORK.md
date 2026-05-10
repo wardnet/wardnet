@@ -197,7 +197,7 @@ all facts; status pills via `.pill--*`.
 | EmptyStatePlaceholder           | [x]    | `.empty` outer frame (dashed border + `--radius-lg`); concentric ripple rings + stacked-document + plus-badge preserved as the component's signature, retinted onto `--accent`/`--ink-3` via `color-mix` so no raw Tailwind palette refs remain (slice T3-γ on 2026-05-10) |
 | FilterRuleTable                 | [x]    | `.tbl` (already conformant — verified post-slice-1b on 2026-05-10; no code changes required) |
 | HostCell                        | [ ]    | `.host` markup                                             |
-| JobProgressDescription          | [ ]    | mono job state                                             |
+| JobProgressDescription          | [x]    | mono job state                                             |
 | Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
 | LogViewer                       | [ ]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) |
 | MobileMenu                      | [x]    | hamburger → `<Drawer side="left">` hosting the existing `<Sidebar />` — slice 16 |
