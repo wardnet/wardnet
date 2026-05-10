@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import {
   Select,
   SelectContent,
@@ -7,9 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/forge-web/select";
+import { DownloadIcon, PauseIcon, PlayIcon } from "lucide-react";
 import { LogViewer } from "@/components/compound/LogViewer";
 import { useLogStore } from "@/stores/logStore";
-import { Download, Pause, Play } from "lucide-react";
 
 const LEVELS = ["trace", "debug", "info", "warn", "error"] as const;
 
@@ -24,11 +24,11 @@ export function DashboardLogWidget() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle className="text-sm font-semibold">Logs</CardTitle>
-        <div className="flex flex-wrap items-center gap-2">
+      <CardHeader>
+        <CardTitle>Logs</CardTitle>
+        <CardAction className="flex flex-wrap items-center gap-2">
           <Select value={filter.level ?? "info"} onValueChange={handleLevelChange}>
-            <SelectTrigger className="h-8 w-24 text-xs">
+            <SelectTrigger className="w-24">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -39,26 +39,20 @@ export function DashboardLogWidget() {
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setPaused(!paused)}
-            className="h-8 text-xs"
-          >
-            {paused ? <Play className="mr-1 size-3" /> : <Pause className="mr-1 size-3" />}
+          <Button variant="ghost" size="sm" onClick={() => setPaused(!paused)}>
+            {paused ? <PlayIcon /> : <PauseIcon />}
             {paused ? "Resume" : "Pause"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={clear} className="h-8 text-xs">
+          <Button variant="ghost" size="sm" onClick={clear}>
             Clear
           </Button>
-          <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+          <Button variant="ghost" size="sm" asChild>
             <a href="/api/system/logs/download" download>
-              <Download className="mr-1 size-3 sm:hidden" />
-              <span className="hidden sm:inline">Download</span>
-              <span className="sm:hidden">Logs</span>
+              <DownloadIcon />
+              Download
             </a>
           </Button>
-        </div>
+        </CardAction>
       </CardHeader>
       <CardContent>
         <LogViewer entries={entries} connected={connected} skipped={skipped} maxHeight="20rem" />
