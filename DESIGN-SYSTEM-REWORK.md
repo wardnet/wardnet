@@ -1796,7 +1796,7 @@ first, then into the apps.
 | Strip `[data-density="compact"]` block from `styles.css` (we ship comfortable only) | [x] |
 | Strip non-floating sidebar variants from `styles.css` + collapse `.app[data-rail="floating"]` into `.app` | [x] |
 | Decide on import strategy: vendor `styles.css` into each app, or import from `design-system/` via Vite alias (preferred — single source) | [x] |
-| Document Radix-binding patterns in `design-system.html` §05 (e.g. how Switch ties to `.toggle`, how Dialog ties to `.modal`) | [ ] |
+| Document Radix-binding patterns in `design-system.html` §05 (e.g. how Switch ties to `.toggle`, how Dialog ties to `.modal`) — added Radix-binding sub-section in §05 on 2026-05-10 covering Switch/Dialog/AlertDialog/Drawer/DropdownMenu/Popover/Select/Tabs/Combobox/Label, plus four binding rules (class-on-Radix-node, state-in-DOM, scrim usage, Radix CSS vars); `.tbl`/`.stat` flagged as "Radix wrapper TBD". | [x] |
 | Add Tailwind 4 `@theme inline` reference snippet in `README.md` so future apps know how to consume Forge tokens | [x] |
 | Drop `tailwind.config.js` once Tailwind 4 reference is in README, OR keep as a Tailwind-3-compat reference (decide on first use) — decided drop on 2026-05-10 (no build consumes it; TW4 `@theme inline` reference already in `source/forge/docs/README.md` and `source/admin-app/web/src/index.css`) | [x] |
 | Add any new primitives we introduce in the apps back into `primitives.jsx` (StatTile already there; new ones go here too) | [ ] |

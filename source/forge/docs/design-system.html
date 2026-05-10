@@ -355,6 +355,190 @@
     </div>
 
     <div id="components-preview"></div>
+
+    <div style="margin-top:32px">
+      <h3 style="margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Radix bindings</h3>
+      <p style="margin:0 0 14px;font-size:13px;color:var(--ink-2);line-height:1.55;max-width:78ch">
+        Forge component classes are <em>Radix-shaped</em>: Radix primitives emit
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-state</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-side</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-orientation</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-disabled</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-highlighted</code>,
+        and <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-placeholder</code> attributes;
+        Forge CSS selectors in <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">styles.css</code>
+        key off those exact attributes. The React wrappers in
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">source/admin-app/forge-web/src/primitives/</code>
+        are thin: they import a Radix part, attach the matching Forge class,
+        and let the CSS take it from there. To port a new component: pick the
+        Radix primitive whose <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-*</code> contract matches the visual states you need, attach the Forge class on the same node, and don't reimplement state in JS.
+      </p>
+
+      <div class="card" style="margin-bottom:20px;padding:0">
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead>
+              <tr style="text-align:left;color:var(--ink-3);border-bottom:1px solid var(--line)">
+                <th style="padding:10px 14px;font-weight:500">Forge class</th>
+                <th style="padding:10px 14px;font-weight:500">Radix primitive</th>
+                <th style="padding:10px 14px;font-weight:500">State / attribute hooks</th>
+                <th style="padding:10px 14px;font-weight:500">Wrapper</th>
+              </tr>
+            </thead>
+            <tbody style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink-2)">
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.toggle</span></td>
+                <td style="padding:10px 14px">Switch.Root</td>
+                <td style="padding:10px 14px">[data-state="checked" | "unchecked"], [data-disabled]</td>
+                <td style="padding:10px 14px">primitives/toggle.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.modal</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">Dialog.Root → Portal → Overlay + Content</td>
+                <td style="padding:10px 14px">[data-state="open" | "closed"] on both nodes</td>
+                <td style="padding:10px 14px">primitives/modal.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.modal</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">AlertDialog.Root → Portal → Overlay + Content</td>
+                <td style="padding:10px 14px">[data-state="open" | "closed"]</td>
+                <td style="padding:10px 14px">primitives/alert-modal.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.drawer</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">Dialog.Root (slide variant) with side="left" | "right"</td>
+                <td style="padding:10px 14px">[data-state], [data-side="left" | "right"] (Forge sets data-side itself)</td>
+                <td style="padding:10px 14px">primitives/drawer.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.popover</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span> + <span style="color:var(--accent-soft-ink)">.menu-separator</span></td>
+                <td style="padding:10px 14px">DropdownMenu.Root → Portal → Content / Item / Separator</td>
+                <td style="padding:10px 14px">[data-state], [data-side], [data-highlighted], [data-disabled], [data-variant="destructive"]</td>
+                <td style="padding:10px 14px">primitives/dropdown-menu.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.popover</span></td>
+                <td style="padding:10px 14px">Popover.Root → Portal → Content</td>
+                <td style="padding:10px 14px">[data-state], [data-side]; uses --radix-popover-content-transform-origin</td>
+                <td style="padding:10px 14px">primitives/popover.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.select-trigger</span> + <span style="color:var(--accent-soft-ink)">.popover.select-content</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span></td>
+                <td style="padding:10px 14px">Select.Root → Trigger / Portal → Content / Item</td>
+                <td style="padding:10px 14px">trigger: [data-state="open" | "closed"], [data-placeholder], [data-disabled]; item: [data-state="checked" | "unchecked"], [data-highlighted]; content width: --radix-select-trigger-width</td>
+                <td style="padding:10px 14px">primitives/select.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.tabs</span></td>
+                <td style="padding:10px 14px">Tabs.Root → List / Trigger / Content</td>
+                <td style="padding:10px 14px">trigger: [data-state="active" | "inactive"], [data-orientation], [data-disabled]</td>
+                <td style="padding:10px 14px">primitives/tabs.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.combobox-trigger</span> + <span style="color:var(--accent-soft-ink)">.popover.combobox-content</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span></td>
+                <td style="padding:10px 14px">cmdk Command.* inside Popover.Root (not a Radix primitive on its own)</td>
+                <td style="padding:10px 14px">popover hooks (above) for the surface; cmdk handles list filter / selection internally</td>
+                <td style="padding:10px 14px">primitives/combobox.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.label</span></td>
+                <td style="padding:10px 14px">Label.Root</td>
+                <td style="padding:10px 14px">no state hooks — pure semantic htmlFor pairing</td>
+                <td style="padding:10px 14px">primitives/label.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.btn</span> (+ <span style="color:var(--accent-soft-ink)">.btn--primary</span> / <span style="color:var(--accent-soft-ink)">.btn--ghost</span> / <span style="color:var(--accent-soft-ink)">.btn--danger</span> / <span style="color:var(--accent-soft-ink)">.btn--sm</span> / <span style="color:var(--accent-soft-ink)">.btn--icon</span>)</td>
+                <td style="padding:10px 14px">native &lt;button&gt; or Slot.Root (asChild) — no Radix primitive</td>
+                <td style="padding:10px 14px">native :hover / :active / :focus-visible / :disabled</td>
+                <td style="padding:10px 14px">primitives/button.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.pill</span> (+ <span style="color:var(--accent-soft-ink)">--ok</span> / <span style="color:var(--accent-soft-ink)">--warn</span> / <span style="color:var(--accent-soft-ink)">--down</span> / <span style="color:var(--accent-soft-ink)">--info</span> / <span style="color:var(--accent-soft-ink)">--ghost</span>)</td>
+                <td style="padding:10px 14px">native &lt;span&gt; or Slot.Root (asChild) — no Radix primitive</td>
+                <td style="padding:10px 14px">none — variant-only</td>
+                <td style="padding:10px 14px">primitives/pill.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.input</span> · <span style="color:var(--accent-soft-ink)">.textarea</span></td>
+                <td style="padding:10px 14px">native &lt;input&gt; / &lt;textarea&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">native :focus / :focus-within / :disabled; segmented variant uses [data-segmented] on the wrapper</td>
+                <td style="padding:10px 14px">primitives/input.tsx, primitives/textarea.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.field</span></td>
+                <td style="padding:10px 14px">Forge composition over Label.Root + arbitrary control — no Radix primitive of its own</td>
+                <td style="padding:10px 14px">[data-direction="row" | "column"] (Forge-emitted, not Radix)</td>
+                <td style="padding:10px 14px">primitives/field.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.card</span></td>
+                <td style="padding:10px 14px">native &lt;div&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — layout container</td>
+                <td style="padding:10px 14px">primitives/card.tsx</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.tbl</span> · <span style="color:var(--accent-soft-ink)">.stat</span></td>
+                <td style="padding:10px 14px">native &lt;table&gt; / &lt;div&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — pure CSS recipes</td>
+                <td style="padding:10px 14px">(Radix wrapper TBD; see DESIGN-SYSTEM-REWORK.md primitives port)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-bottom:8px">
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Class on the Radix node, not a wrapper div</h3>
+          <p>Attach the Forge class to the exact Radix part that emits the
+          <code style="font-family:var(--font-mono);font-size:11px">data-state</code>
+          you're styling — wrapping it in a sibling
+          <code style="font-family:var(--font-mono);font-size:11px">&lt;div className="toggle"&gt;</code>
+          breaks the selector. Use Radix's
+          <code style="font-family:var(--font-mono);font-size:11px">asChild</code>
+          when you need to merge with another element.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>State lives in the DOM, never in JS</h3>
+          <p>"Is the dialog open?", "is the switch checked?", "which tab is
+          active?" — Radix already writes that to
+          <code style="font-family:var(--font-mono);font-size:11px">data-state</code>.
+          Forge styles read it directly. Don't add a parallel
+          <code style="font-family:var(--font-mono);font-size:11px">.is-open</code>
+          /
+          <code style="font-family:var(--font-mono);font-size:11px">.is-on</code>
+          class from React — the legacy
+          <code style="font-family:var(--font-mono);font-size:11px">.is-on</code>
+          / <code style="font-family:var(--font-mono);font-size:11px">.is-active</code>
+          selectors in <code style="font-family:var(--font-mono);font-size:11px">styles.css</code>
+          exist only for non-Radix mock pages.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Portals + overlays use <code style="font-family:var(--font-mono);font-size:11px">.scrim</code></h3>
+          <p>Dialog, AlertDialog, and Drawer all render through
+          <code style="font-family:var(--font-mono);font-size:11px">Radix.Portal</code>
+          and pair their content node with an Overlay carrying class
+          <code style="font-family:var(--font-mono);font-size:11px">.scrim</code>.
+          Popover, DropdownMenu, and Select portal too but render
+          <code style="font-family:var(--font-mono);font-size:11px">.popover</code>
+          without a scrim — they're click-outside-to-dismiss, not modal.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Side / orientation come from Radix CSS vars</h3>
+          <p>Popover-family animations honor
+          <code style="font-family:var(--font-mono);font-size:11px">--radix-popover-content-transform-origin</code>
+          so scale animates from the anchor edge. Select content width pins to
+          <code style="font-family:var(--font-mono);font-size:11px">--radix-select-trigger-width</code>.
+          Drawer reads
+          <code style="font-family:var(--font-mono);font-size:11px">[data-side]</code>
+          (Forge-emitted) to pick its slide axis. Don't recompute these in JS.</p>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- 06 SHELL PREVIEW -->
