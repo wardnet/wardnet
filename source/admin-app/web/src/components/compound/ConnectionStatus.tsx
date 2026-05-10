@@ -5,7 +5,7 @@ export function ConnectionStatus() {
   const { data, isLoading } = useDaemonStatus();
 
   const reachable = data?.reachable ?? false;
-  const color = isLoading ? "bg-yellow-400" : reachable ? "bg-emerald-400" : "bg-red-400";
+  const color = isLoading ? "bg-warn" : reachable ? "bg-accent" : "bg-danger";
   const label = isLoading ? "Connecting…" : reachable ? "Connected" : "Disconnected";
 
   return (
