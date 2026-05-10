@@ -244,7 +244,7 @@ all facts; status pills via `.pill--*`.
 
 | File         | Status | Notes                                                              |
 | ------------ | ------ | ------------------------------------------------------------------ |
-| AppLayout    | [ ]    | floating sidebar default; topbar with breadcrumbs + search + ⌘K kbd |
+| AppLayout    | [x]    | Forge `.app` grid (sidebar 252px + main 1fr) hosts `<Sidebar />` next to a `.main` card; inside, a `.topbar` header carries `MobileMenu` (admin-only, self-hides at desktop via existing `md:hidden`), `.topbar__crumbs` (Wardnet / current segment via `useLocation`), `.topbar__spacer`, and a TODO slot reserved for the ⌘K command palette (out-of-scope — no existing palette to port). `<ConnectionBanner>` + `<UncleanShutdownBanner>` (admin) render under the topbar per slice T3-β; `<Outlet />` lives inside `.scroll`. Dropped the conditional `<aside>` shell (Sidebar self-styles via `.side` since T3-δ and supports both admin and self-service link sets internally) and the mobile `<header>` with `<Logo>` + brand text (Sidebar's `.side__brand` is the single brand surface). All shadcn / Tailwind palette refs (`bg-bg`, `text-ink`, `border-side-line`, `bg-bg/80`, etc.) gone in favour of Forge tokens via `.app` / `.main` / `.topbar`. Public API unchanged (no props; consumed via `<Route element={<AppLayout />}>` in App.tsx). Slice T5-5a on 2026-05-10 |
 | AuthLayout   | [x]    | centered card on `--bg` (no chrome) — dropped indigo gradient + hex stops; Forge `<Card>` wraps `<Outlet />`, marketing-size `<Logo size={64}/>` above, brand title + sub on `text-ink`/`text-ink-3` (slice T5-5b on 2026-05-10) |
 
 ---

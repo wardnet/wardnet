@@ -1,7 +1,6 @@
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { Sidebar } from "@/components/compound/Sidebar";
 import { MobileMenu } from "@/components/compound/MobileMenu";
-import { Logo } from "@/components/compound/Logo";
 import { ConnectionBanner } from "@/components/compound/ConnectionBanner";
 import { UncleanShutdownBanner } from "@/components/compound/UncleanShutdownBanner";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,37 +8,57 @@ import { useAuth } from "@/hooks/useAuth";
 /**
  * Main application layout.
  *
- * Desktop: persistent left sidebar (w-56) + scrollable content area.
- * Mobile: sticky top header with hamburger menu + full-width content.
+ * Renders the Forge `.app` shell: a sidebar column hosting <Sidebar /> next
+ * to a `.main` content card. The `.main` card carries a `.topbar` header
+ * (breadcrumbs on the left, chrome controls on the right) above the
+ * connection / shutdown banners and the scrollable `<Outlet />` content.
  */
 export function AppLayout() {
   const { isAdmin } = useAuth();
+  const location = useLocation();
+  const crumb = crumbFromPath(location.pathname);
 
   return (
-    <div className="flex h-screen bg-bg text-ink">
-      {/* Desktop sidebar — only for admins */}
-      {isAdmin && (
-        <aside className="hidden w-56 shrink-0 border-r border-side-line bg-side md:block">
-          <Sidebar />
-        </aside>
-      )}
+    <div className="app">
+      <Sidebar />
 
-      {/* Main content area */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Mobile header */}
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-bg/80 px-4 backdrop-blur-sm md:hidden">
+      <main className="main">
+        <header className="topbar">
+          {/* Mobile drawer trigger — Sidebar is always visible at desktop
+              widths via the `.app` grid; MobileMenu hosts the same Sidebar
+              inside a Drawer for narrow viewports (admin-only). */}
           {isAdmin && <MobileMenu />}
-          <Logo size={24} />
-          <span className="text-lg font-bold tracking-tight text-accent">Wardnet</span>
+
+          <div className="topbar__crumbs">
+            <span>Wardnet</span>
+            <span aria-hidden="true">/</span>
+            <strong>{crumb}</strong>
+          </div>
+
+          <div className="topbar__spacer" />
+
+          {/* TODO(slice T5-future): ⌘K command palette trigger goes here.
+              Reserved by the Forge `.topbar` design but intentionally
+              out-of-scope for this slice (no existing palette to port). */}
         </header>
 
         <ConnectionBanner />
         {isAdmin && <UncleanShutdownBanner />}
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 md:p-6">
+        <div className="scroll">
           <Outlet />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
+}
+
+/**
+ * Map a route path to a single human-readable breadcrumb label.
+ * Kept intentionally tiny — full breadcrumb infra is deferred.
+ */
+function crumbFromPath(pathname: string): string {
+  const seg = pathname.split("/").filter(Boolean)[0];
+  if (!seg) return "Dashboard";
+  return seg.charAt(0).toUpperCase() + seg.slice(1);
 }
