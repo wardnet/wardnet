@@ -256,7 +256,7 @@ all facts; status pills via `.pill--*`.
 | Dashboard             | [x]    | screens.jsx §01 — composes already-ported DashboardStatCard / DnsStatsSection / DashboardLogWidget / RecentErrorsCard / DhcpSummaryCard. Outer wrapper switched to Forge `col gap-20` (matches §01 mock 20px section rhythm). Donut not introduced (deferred — no consumer; row hint speculative). Slice T6-α on 2026-05-10. |
 | Devices               | [x]    | screens.jsx §02 — `.tbl` with `.host` via the ported DeviceTable + HostCell. Discovered-tab empty fallback swapped from `<p className="py-10 text-center text-sm text-ink-3">…</p>` to Forge `.empty` class. PageHeader / Forge `Tabs` already conformant. Slice T6-α on 2026-05-10. |
 | DeviceDetail          | [ ]    | detail-screens.jsx — Identity / Settings / DNS / Network cards, edit-mode protocol |
-| Tunnels               | [ ]    | screens.jsx §03 — `.tcard` grid + add modal                 |
+| Tunnels               | [x]    | screens.jsx §03 — `.tcard` grid via TunnelGrid + CreateTunnelInline + PageHeader (all already ported); page wrapped in `col gap-20` matching §03 mock; no shadcn / hex / inline-styles. Slice T6-α on 2026-05-10. |
 | TunnelDetail          | [ ]    | detail-screens.jsx — throughput chart + connected devices   |
 | Dhcp                  | [ ]    | screens.jsx §04 — leases + reservations                     |
 | Dns                   | [ ]    | screens.jsx §05 — query stats + real-time stream            |

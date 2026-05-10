@@ -7,7 +7,12 @@ import { useTunnels, useDeleteTunnel } from "@/hooks/useTunnels";
 import { useProviders } from "@/hooks/useProviders";
 import { Button } from "@wardnet/forge-web/button";
 
-/** Tunnels page for managing WireGuard VPN tunnels (admin only). */
+/** Tunnels page for managing WireGuard VPN tunnels (admin only).
+ *  Composes the ported `PageHeader`, `TunnelGrid` (Forge `.tcard` family
+ *  per `forge/docs/screens.jsx` §03), and `CreateTunnelInline` panel
+ *  inside a `col gap-20` page wrapper that matches the studio mock.
+ *  Public API unchanged — default-exported, no props (consumed via
+ *  `<Route element={<Tunnels />} />` in `App.tsx`). */
 export default function Tunnels() {
   const { data, isLoading, isError } = useTunnels();
   const { data: providerData } = useProviders();
@@ -21,7 +26,7 @@ export default function Tunnels() {
   const hasTunnels = tunnels.length > 0;
 
   return (
-    <>
+    <div className="col gap-20">
       <PageHeader
         title="Tunnels"
         actions={
@@ -31,11 +36,7 @@ export default function Tunnels() {
         }
       />
 
-      {creating && (
-        <div className="mb-4">
-          <CreateTunnelInline onClose={() => setCreating(false)} />
-        </div>
-      )}
+      {creating && <CreateTunnelInline onClose={() => setCreating(false)} />}
 
       <TunnelGrid
         tunnels={tunnels}
@@ -59,6 +60,6 @@ export default function Tunnels() {
           setDeleteId(null);
         }}
       />
-    </>
+    </div>
   );
 }
