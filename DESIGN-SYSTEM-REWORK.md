@@ -187,7 +187,7 @@ all facts; status pills via `.pill--*`.
 | DetailPageHeader                | [ ]    | H1 + status pill + breadcrumb (per skill §detail page)     |
 | DeviceIcon                      | [ ]    | use Forge Icon set or stay on lucide (open Q)              |
 | DeviceSelect                    | [ ]    | Radix Select wrapper                                       |
-| DeviceTable                     | [ ]    | `.tbl` + `.host` row                                       |
+| DeviceTable                     | [x]    | `.tbl` + `.host` row                                       |
 | DhcpConfigCard                  | [x]    | edit-mode card protocol — folded `EditDhcpConfigSheet` into the card's edit mode, hook-coupled (`useUpdateDhcpConfig`) per the DeviceSettingsCard precedent |
 | DhcpLeaseTable                  | [ ]    | `.tbl`                                                     |
 | DhcpReservationTable            | [ ]    | `.tbl`                                                     |

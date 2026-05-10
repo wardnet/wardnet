@@ -3,6 +3,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Pill } from "@wardnet/forge-web/pill";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { HostCell } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { useDeviceFilterSettingsList, useDnsFilterProfiles } from "@/hooks/useDnsFilter";
 import { deviceTypeLabel } from "@/lib/device";
@@ -19,16 +20,14 @@ function buildColumns(
       header: "Device",
       cell: ({ row }) => {
         const device = row.original;
+        const primary = device.name ?? device.hostname ?? device.mac;
+        const secondary = device.name || device.hostname ? device.mac : null;
         return (
-          <div className="flex items-center gap-3">
-            <DeviceIcon type={device.device_type} />
-            <div className="flex flex-col">
-              <span className="font-medium">{device.name ?? device.hostname ?? device.mac}</span>
-              {(device.name || device.hostname) && (
-                <span className="text-xs text-ink-3">{device.mac}</span>
-              )}
-            </div>
-          </div>
+          <HostCell
+            primary={primary}
+            secondary={secondary}
+            icon={<DeviceIcon type={device.device_type} />}
+          />
         );
       },
     },
