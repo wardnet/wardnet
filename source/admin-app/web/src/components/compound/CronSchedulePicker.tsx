@@ -150,10 +150,10 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
         <PopoverTrigger asChild>
           <Button variant="outline" className="w-full justify-between font-normal">
             <span className="flex min-w-0 items-center gap-2">
-              <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+              <CalendarClock className="size-4 shrink-0 text-ink-3" />
               <span className="truncate">{cronToHuman(value)}</span>
             </span>
-            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            <ChevronDown className="size-4 shrink-0 text-ink-3" />
           </Button>
         </PopoverTrigger>
 
@@ -161,7 +161,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
           <div className="flex flex-col gap-4 p-1">
             {/* Frequency */}
             <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Repeat</p>
+              <p className="text-xs font-medium text-ink-3">Repeat</p>
               <Select
                 value={state.frequency}
                 onValueChange={(v) => update({ frequency: v as Frequency })}
@@ -182,7 +182,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
             {/* Interval — every N hours */}
             {state.frequency === "every-n-hours" && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Interval</p>
+                <p className="text-xs font-medium text-ink-3">Interval</p>
                 <Select
                   value={state.intervalHours}
                   onValueChange={(v) => update({ intervalHours: v })}
@@ -204,7 +204,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
             {/* Days of week — weekly (multi-select toggle row) */}
             {state.frequency === "weekly" && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Days</p>
+                <p className="text-xs font-medium text-ink-3">Days</p>
                 <div className="flex gap-1">
                   {DOW_SHORT.map((label, i) => {
                     const active = state.daysOfWeek.includes(i);
@@ -237,7 +237,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
             {/* Day of month — monthly */}
             {state.frequency === "monthly" && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Day of month</p>
+                <p className="text-xs font-medium text-ink-3">Day of month</p>
                 <Select value={state.dayOfMonth} onValueChange={(v) => update({ dayOfMonth: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -258,7 +258,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
               state.frequency === "weekly" ||
               state.frequency === "monthly") && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">At</p>
+                <p className="text-xs font-medium text-ink-3">At</p>
                 <Select value={state.hour} onValueChange={(v) => update({ hour: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -276,7 +276,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
 
             {/* Human-readable summary */}
             <div className="rounded-md bg-sunken/50 px-3 py-2">
-              <p className="text-xs text-muted-foreground">{cronToHuman(buildCron(state))}</p>
+              <p className="text-xs text-ink-3">{cronToHuman(buildCron(state))}</p>
             </div>
 
             <Button size="sm" className="w-full" onClick={() => setOpen(false)}>

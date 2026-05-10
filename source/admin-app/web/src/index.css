@@ -72,17 +72,6 @@
 
   /* Easing — Forge's "soft out" curve */
   --ease-default: cubic-bezier(0.2, 0.8, 0.2, 1);
-
-  /*
-   * Legacy shadcn-token aliases.
-   *
-   * Existing components reference utilities like `bg-background`, `text-foreground`,
-   * `border-border`, etc. We keep those resolving (mapped to the closest Forge
-   * token) so the build doesn't fail before each component is migrated. Visuals
-   * will look off until then — that's expected. Delete this block in the final
-   * commit of the migration once nothing references these names.
-   */
-  --color-muted-foreground: var(--ink-3);
 }
 
 @layer base {

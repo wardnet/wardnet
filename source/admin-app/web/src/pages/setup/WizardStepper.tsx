@@ -42,23 +42,19 @@ export function WizardStepper({ current }: { current: WizardStep }) {
                     ? "border-accent bg-accent text-accent-ink"
                     : isPast
                       ? "border-accent bg-accent/15 text-accent"
-                      : "border-muted-foreground/30 text-muted-foreground")
+                      : "border-ink-3/30 text-ink-3")
                 }
               >
                 {i + 1}
               </span>
               {i < STEPS.length - 1 && (
-                <span
-                  className={
-                    "mx-1 h-px flex-1 " + (isPast ? "bg-accent/40" : "bg-muted-foreground/20")
-                  }
-                />
+                <span className={"mx-1 h-px flex-1 " + (isPast ? "bg-accent/40" : "bg-ink-3/20")} />
               )}
             </li>
           );
         })}
       </ol>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-3">
         Step {currentIndex + 1} of {STEPS.length} — {currentStep?.label}
       </p>
     </div>

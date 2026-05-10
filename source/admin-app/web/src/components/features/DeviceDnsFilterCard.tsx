@@ -75,7 +75,7 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
           <CardTitle>DNS filtering</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         </CardContent>
       </Card>
     );
@@ -143,11 +143,11 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Status</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Status</span>
             <span className="text-sm">{settings.enabled ? "Filtering on" : "Filtering off"}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Profiles</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Profiles</span>
             <span className="text-sm">
               {!settings.enabled
                 ? "—"
@@ -181,14 +181,14 @@ interface DefaultProfileHintProps {
 function DefaultProfileHint({ enabled, hasExplicit, defaultProfiles }: DefaultProfileHintProps) {
   if (!enabled) {
     return (
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-3">
         Filtering off — DNS queries from this device skip every profile.
       </p>
     );
   }
   if (hasExplicit) {
     return (
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-3">
         Selected profiles are stacked — a domain blocked in any one of them is blocked.
       </p>
     );
@@ -196,7 +196,7 @@ function DefaultProfileHint({ enabled, hasExplicit, defaultProfiles }: DefaultPr
   if (defaultProfiles.length > 0) {
     const noun = defaultProfiles.length === 1 ? "profile" : "profiles";
     return (
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-3">
         No profile selected — this device follows the global default {noun}{" "}
         <span className="font-medium text-ink">
           {defaultProfiles.map((p) => p.name).join(", ")}
@@ -206,7 +206,7 @@ function DefaultProfileHint({ enabled, hasExplicit, defaultProfiles }: DefaultPr
     );
   }
   return (
-    <p className="text-xs text-muted-foreground">
+    <p className="text-xs text-ink-3">
       No profile selected and no global default is set — this device's traffic isn't filtered.
     </p>
   );

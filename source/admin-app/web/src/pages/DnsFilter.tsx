@@ -38,9 +38,7 @@ export default function DnsFilter() {
 
       {isLoading && (
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Loading profiles…
-          </CardContent>
+          <CardContent className="py-10 text-center text-ink-3">Loading profiles…</CardContent>
         </Card>
       )}
 

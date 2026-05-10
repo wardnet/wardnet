@@ -134,31 +134,31 @@ export function UpdateCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {isLoading || !status ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : (
           <>
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
               <div>
-                <dt className="text-muted-foreground">Current version</dt>
+                <dt className="text-ink-3">Current version</dt>
                 <dd className="font-medium">{status.current_version}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Latest</dt>
+                <dt className="text-ink-3">Latest</dt>
                 <dd className="font-medium">{status.latest_version ?? "unknown"}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Last checked</dt>
+                <dt className="text-ink-3">Last checked</dt>
                 <dd className="font-medium">
                   {status.last_check_at ? new Date(status.last_check_at).toLocaleString() : "never"}
                 </dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Current phase</dt>
+                <dt className="text-ink-3">Current phase</dt>
                 <dd className="font-medium">{describePhase(status.install_phase)}</dd>
               </div>
               {status.pending_version && (
                 <div>
-                  <dt className="text-muted-foreground">Pending</dt>
+                  <dt className="text-ink-3">Pending</dt>
                   <dd className="font-medium">{status.pending_version}</dd>
                 </div>
               )}
@@ -209,7 +209,7 @@ export function UpdateCard({
             {/* Footer action row: helper context on the left, utility
                 actions on the right (per WEBUI-DESIGN-GUIDELINES §3.6). */}
             <div className="flex items-center justify-between gap-2 border-t pt-4">
-              <p className="text-sm text-muted-foreground">Updates are checked hourly.</p>
+              <p className="text-sm text-ink-3">Updates are checked hourly.</p>
               <div className="flex flex-wrap justify-end gap-2">
                 {status.rollback_available && (
                   <Button

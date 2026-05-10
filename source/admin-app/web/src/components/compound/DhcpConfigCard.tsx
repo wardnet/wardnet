@@ -71,7 +71,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">Configuration</CardTitle>
+        <CardTitle className="text-sm font-medium text-ink-3">Configuration</CardTitle>
         {!editing && (
           <CardAction>
             <Button variant="outline" size="sm" onClick={startEdit}>
@@ -165,29 +165,29 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
         <CardContent>
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <dt className="text-muted-foreground">Gateway IP</dt>
+              <dt className="text-ink-3">Gateway IP</dt>
               <dd className="font-mono text-xs">{config.gateway_ip}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Pool range</dt>
+              <dt className="text-ink-3">Pool range</dt>
               <dd className="font-mono text-xs">
                 {config.pool_start} &ndash; {config.pool_end}
               </dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Subnet</dt>
+              <dt className="text-ink-3">Subnet</dt>
               <dd className="font-mono text-xs">{config.subnet_mask}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Lease duration</dt>
+              <dt className="text-ink-3">Lease duration</dt>
               <dd className="font-medium">{formatDuration(config.lease_duration_secs)}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Fallback router</dt>
+              <dt className="text-ink-3">Fallback router</dt>
               <dd className="font-mono text-xs">{config.router_ip ?? "—"}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Upstream DNS</dt>
+              <dt className="text-ink-3">Upstream DNS</dt>
               <dd className="font-mono text-xs">{config.upstream_dns.join(", ") || "—"}</dd>
             </div>
           </dl>

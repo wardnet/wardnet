@@ -30,10 +30,7 @@ function createColumns(
       cell: ({ row }) => (
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate font-medium">{row.original.name}</span>
-          <span
-            className="truncate font-mono text-xs text-muted-foreground"
-            title={row.original.url}
-          >
+          <span className="truncate font-mono text-xs text-ink-3" title={row.original.url}>
             {row.original.url}
           </span>
           {row.original.last_error && (
@@ -57,7 +54,7 @@ function createColumns(
       header: "Last updated",
       meta: { className: "hidden w-32 md:table-cell" },
       cell: ({ row }) => (
-        <span className="text-muted-foreground">
+        <span className="text-ink-3">
           {row.original.last_updated ? timeAgo(row.original.last_updated) : "Never"}
         </span>
       ),

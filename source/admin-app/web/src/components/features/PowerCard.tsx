@@ -56,7 +56,7 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
         <div className="flex items-center justify-between border-b pb-3">
           <div>
             <div className="text-sm font-medium">Safe Reboot</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-ink-3">
               Reboot the Pi. Wardnet will be unavailable for ~30–60 seconds while it comes back up;
               managed devices fall back to the upstream router during that gap.
             </div>
@@ -76,7 +76,7 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
         <div className="flex items-center justify-between border-b pb-3">
           <div>
             <div className="text-sm font-medium">Safe Shutdown</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-ink-3">
               Power the Pi off. Internet for managed devices will go through your home router until
               you turn the Pi back on manually.
             </div>
@@ -96,7 +96,7 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-medium">Restart daemon (advanced)</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-ink-3">
               Restart only the wardnetd process. The Pi keeps running. Use this if support has asked
               you to.
             </div>

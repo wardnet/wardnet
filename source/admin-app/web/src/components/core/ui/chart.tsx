@@ -52,7 +52,7 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
         data-slot="chart"
         className={cn(
           "flex aspect-video w-full justify-center text-xs",
-          "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground",
+          "[&_.recharts-cartesian-axis-tick_text]:fill-ink-3",
           "[&_.recharts-cartesian-grid_line]:stroke-line",
           "[&_.recharts-tooltip-cursor]:stroke-line",
           className,

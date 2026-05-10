@@ -76,8 +76,8 @@ export function EmptyStatePlaceholder({
 
       {/* Text + action */}
       <div className="mt-8 flex flex-col items-center gap-3 px-4 text-center">
-        <p className="text-sm font-medium text-muted-foreground">{message}</p>
-        {hint && <p className="max-w-sm text-xs text-muted-foreground/60">{hint}</p>}
+        <p className="text-sm font-medium text-ink-3">{message}</p>
+        {hint && <p className="max-w-sm text-xs text-ink-3/60">{hint}</p>}
         {actionLabel && onAction && (
           <Button onClick={onAction} className="mt-2">
             {actionLabel}

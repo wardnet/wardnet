@@ -45,14 +45,14 @@ export default function Step4RouterMac() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-ink">Router MAC</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Wardnet uses the upstream router's MAC address for diagnostics and packet-capture
           filtering.
         </p>
       </div>
 
       {probe.isPending && !probedMac && (
-        <p className="text-sm text-muted-foreground">Probing the gateway via ARP…</p>
+        <p className="text-sm text-ink-3">Probing the gateway via ARP…</p>
       )}
 
       {probedMac && (

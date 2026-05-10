@@ -60,9 +60,7 @@ export default function Dhcp() {
 
       {statusLoading && (
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Loading DHCP status...
-          </CardContent>
+          <CardContent className="py-10 text-center text-ink-3">Loading DHCP status...</CardContent>
         </Card>
       )}
 

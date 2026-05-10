@@ -83,7 +83,7 @@ export default function MyDevice() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-lg pt-8">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-ink-3">Loading…</p>
       </div>
     );
   }
@@ -91,9 +91,9 @@ export default function MyDevice() {
   if (!device) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 pt-16 text-center">
-        <WifiOffIcon className="size-12 text-muted-foreground/50" />
+        <WifiOffIcon className="size-12 text-ink-3/50" />
         <h2 className="text-base font-medium">Device not detected</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Your device has not been detected on the network yet. Make sure you are accessing Wardnet
           directly from the local network. Connections through SSH tunnels or proxies cannot be
           matched to your device.
@@ -104,7 +104,7 @@ export default function MyDevice() {
 
   return (
     <div className="mx-auto max-w-lg pt-8">
-      <p className="text-xs text-muted-foreground">My device</p>
+      <p className="text-xs text-ink-3">My device</p>
       <div className="mt-1 flex items-center gap-3">
         <DeviceIcon type={device.device_type} size={28} className="text-ink/60" />
         <h1 className="text-2xl font-medium">{device.name ?? device.hostname ?? device.mac}</h1>
@@ -118,7 +118,7 @@ export default function MyDevice() {
           {adminLocked ? (
             <div className="flex flex-col gap-3">
               <p className="text-sm">{routingLabel(currentRule, tunnels)}</p>
-              <div className="flex items-start gap-2 text-muted-foreground">
+              <div className="flex items-start gap-2 text-ink-3">
                 <LockIcon className="mt-0.5 size-4 shrink-0" />
                 <p className="text-sm">
                   The network administrator is not allowing you to change your internet access

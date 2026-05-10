@@ -84,9 +84,7 @@ export function RestartProgressDialog({
         </AlertModalHeader>
 
         {!terminal && (
-          <div className="text-xs text-muted-foreground">
-            Elapsed: {elapsed}s (times out at 45s).
-          </div>
+          <div className="text-xs text-ink-3">Elapsed: {elapsed}s (times out at 45s).</div>
         )}
 
         <AlertModalFooter>
@@ -120,7 +118,7 @@ function PhaseIcon({ phase }: { phase: RestartPhase }) {
   switch (phase) {
     case "scheduled":
     case "down":
-      return <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />;
+      return <Loader2Icon className="h-5 w-5 animate-spin text-ink-3" />;
     case "ready":
       return <CheckCircle2Icon className="h-5 w-5 text-green-600" />;
     case "ready_signed_out":

@@ -25,7 +25,7 @@ function buildColumns(
             <div className="flex flex-col">
               <span className="font-medium">{device.name ?? device.hostname ?? device.mac}</span>
               {(device.name || device.hostname) && (
-                <span className="text-xs text-muted-foreground">{device.mac}</span>
+                <span className="text-xs text-ink-3">{device.mac}</span>
               )}
             </div>
           </div>
@@ -36,7 +36,7 @@ function buildColumns(
       accessorKey: "last_ip",
       header: "IP",
       meta: { className: "hidden md:table-cell" },
-      cell: ({ row }) => <span className="text-muted-foreground">{row.original.last_ip}</span>,
+      cell: ({ row }) => <span className="text-ink-3">{row.original.last_ip}</span>,
     },
     {
       accessorKey: "device_type",
@@ -48,9 +48,7 @@ function buildColumns(
       accessorKey: "manufacturer",
       header: "Manufacturer",
       meta: { className: "hidden lg:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">{row.original.manufacturer ?? "—"}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-3">{row.original.manufacturer ?? "—"}</span>,
     },
     {
       accessorKey: "dhcp_status",
@@ -96,9 +94,7 @@ function buildColumns(
       accessorKey: "last_seen",
       header: "Last seen",
       meta: { className: "text-right" },
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">{timeAgo(row.original.last_seen)}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-3">{timeAgo(row.original.last_seen)}</span>,
     },
   ];
 }

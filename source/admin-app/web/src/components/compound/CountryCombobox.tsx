@@ -26,7 +26,7 @@ export function CountryCombobox({
       {selected.name}
     </span>
   ) : (
-    <span className="text-muted-foreground">{placeholder}</span>
+    <span className="text-ink-3">{placeholder}</span>
   );
 
   return (

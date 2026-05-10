@@ -60,13 +60,13 @@ export function RoutingSelector({
           <SelectContent>
             <SelectItem value={DIRECT_VALUE}>
               <span className="inline-flex items-center gap-2">
-                <WifiOffIcon className="size-4 text-muted-foreground" />
+                <WifiOffIcon className="size-4 text-ink-3" />
                 Direct (no VPN)
               </span>
             </SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           No tunnels configured.{" "}
           {isAdmin ? (
             <Link to="/tunnels" className="text-accent underline">
@@ -88,7 +88,7 @@ export function RoutingSelector({
       <SelectContent>
         <SelectItem value={DIRECT_VALUE}>
           <span className="inline-flex items-center gap-2">
-            <WifiOffIcon className="size-4 text-muted-foreground" />
+            <WifiOffIcon className="size-4 text-ink-3" />
             Direct (no VPN)
           </span>
         </SelectItem>

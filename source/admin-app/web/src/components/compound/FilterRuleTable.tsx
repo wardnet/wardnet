@@ -29,7 +29,7 @@ function createColumns(
             {row.original.rule_text}
           </span>
           {row.original.comment && (
-            <span className="truncate text-xs text-muted-foreground" title={row.original.comment}>
+            <span className="truncate text-xs text-ink-3" title={row.original.comment}>
               {row.original.comment}
             </span>
           )}

@@ -24,18 +24,16 @@ export function TunnelDevicesTable({ tunnelId }: Props) {
       <CardHeader>
         <CardTitle>
           Devices using this tunnel{" "}
-          <span className="text-sm font-normal text-muted-foreground">({devices.length})</span>
+          <span className="text-sm font-normal text-ink-3">({devices.length})</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         {isError ? (
-          <p className="text-sm text-muted-foreground">Failed to load devices for this tunnel.</p>
+          <p className="text-sm text-ink-3">Failed to load devices for this tunnel.</p>
         ) : isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : devices.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No devices are currently routed through this tunnel.
-          </p>
+          <p className="text-sm text-ink-3">No devices are currently routed through this tunnel.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -57,7 +55,7 @@ export function TunnelDevicesTable({ tunnelId }: Props) {
                         icon={<DeviceIcon type={d.device_type} />}
                       />
                     </TableCell>
-                    <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
+                    <TableCell className="hidden font-mono text-xs text-ink-3 md:table-cell">
                       {d.last_ip}
                     </TableCell>
                   </TableRow>

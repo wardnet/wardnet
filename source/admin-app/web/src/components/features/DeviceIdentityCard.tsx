@@ -14,7 +14,7 @@ interface RowProps {
 function Row({ label, children }: RowProps) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-xs uppercase tracking-wide text-ink-3">{label}</span>
       <span className="text-sm">{children}</span>
     </div>
   );

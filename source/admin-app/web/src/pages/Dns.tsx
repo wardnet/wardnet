@@ -44,9 +44,7 @@ export default function Dns() {
 
       {statusLoading && (
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            Loading DNS status...
-          </CardContent>
+          <CardContent className="py-10 text-center text-ink-3">Loading DNS status...</CardContent>
         </Card>
       )}
 
@@ -57,9 +55,7 @@ export default function Dns() {
             {/* Status card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  DNS server
-                </CardTitle>
+                <CardTitle className="text-sm font-medium text-ink-3">DNS server</CardTitle>
                 <StatusBadge
                   tone={status.running ? "success" : "neutral"}
                   withIcon={status.running}
@@ -79,11 +75,11 @@ export default function Dns() {
                   </Field>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-muted-foreground">Resolution mode</p>
+                      <p className="text-ink-3">Resolution mode</p>
                       <p className="text-lg font-semibold capitalize">{config.resolution_mode}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">DNSSEC</p>
+                      <p className="text-ink-3">DNSSEC</p>
                       <p className="text-lg font-semibold">
                         {config.dnssec_enabled ? "Enabled" : "Disabled"}
                       </p>
@@ -96,7 +92,7 @@ export default function Dns() {
             {/* Cache card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Cache</CardTitle>
+                <CardTitle className="text-sm font-medium text-ink-3">Cache</CardTitle>
                 <Button
                   variant="outline"
                   size="sm"
@@ -110,16 +106,16 @@ export default function Dns() {
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-muted-foreground">Entries</p>
+                      <p className="text-ink-3">Entries</p>
                       <p className="text-2xl font-bold">{status.cache_size}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Hit rate</p>
+                      <p className="text-ink-3">Hit rate</p>
                       <p className="text-2xl font-bold">{status.cache_hit_rate.toFixed(1)}%</p>
                     </div>
                   </div>
                   <div>
-                    <p className="mb-1 text-xs text-muted-foreground">
+                    <p className="mb-1 text-xs text-ink-3">
                       Cache usage ({status.cache_size} / {status.cache_capacity})
                     </p>
                     <DashboardUsageBar value={cacheUsagePercent} />
@@ -132,7 +128,7 @@ export default function Dns() {
           {/* Query log card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Query log</CardTitle>
+              <CardTitle className="text-sm font-medium text-ink-3">Query log</CardTitle>
               <Button asChild variant="outline" size="sm">
                 <Link to="/dns/logs">View DNS log →</Link>
               </Button>
@@ -196,13 +192,11 @@ export default function Dns() {
           {/* Upstream servers card */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Upstream servers
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-ink-3">Upstream servers</CardTitle>
             </CardHeader>
             <CardContent>
               {config.upstream_servers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No upstream servers configured.</p>
+                <p className="text-sm text-ink-3">No upstream servers configured.</p>
               ) : (
                 <div className="divide-y">
                   {config.upstream_servers.map((server, i) => (
@@ -212,7 +206,7 @@ export default function Dns() {
                     >
                       <div className="flex flex-col gap-0.5">
                         <p className="text-sm font-medium">{server.name}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-ink-3">
                           {server.address}
                           {server.port ? `:${server.port}` : ""}
                         </p>

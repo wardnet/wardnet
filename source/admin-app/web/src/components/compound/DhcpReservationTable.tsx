@@ -35,7 +35,7 @@ function createColumns(
         const icon = device ? (
           <DeviceIcon type={device.device_type} />
         ) : (
-          <Bookmark size={18} className={cn("text-muted-foreground")} />
+          <Bookmark size={18} className={cn("text-ink-3")} />
         );
         return <HostCell primary={primary} secondary={secondary} icon={icon} />;
       },
@@ -49,9 +49,7 @@ function createColumns(
       accessorKey: "description",
       header: "Description",
       meta: { className: "hidden md:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">{row.original.description ?? "—"}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-3">{row.original.description ?? "—"}</span>,
     },
     {
       id: "actions",

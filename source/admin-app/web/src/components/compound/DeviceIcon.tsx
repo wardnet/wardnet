@@ -57,5 +57,5 @@ interface DeviceIconProps {
 /** Icon for a device type. Renders a matching Lucide icon. */
 export function DeviceIcon({ type, size = 18, className }: DeviceIconProps) {
   const Icon = iconMap[type] ?? HelpCircle;
-  return <Icon size={size} className={cn("text-muted-foreground", className)} />;
+  return <Icon size={size} className={cn("text-ink-3", className)} />;
 }

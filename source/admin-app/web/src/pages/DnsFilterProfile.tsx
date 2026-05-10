@@ -52,7 +52,7 @@ export default function DnsFilterProfile() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-ink-3">Loading…</p>
       </div>
     );
   }
@@ -174,11 +174,11 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Name</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Name</span>
             <span className="text-sm">{name}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Type</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Type</span>
             <span className="text-sm">{builtin ? "Builtin (cannot delete)" : "Custom"}</span>
           </div>
         </CardContent>
@@ -336,7 +336,7 @@ function BlocklistForm({ mode, initial, onSubmit, onCancel, isSaving, error }: B
         <CronSchedulePicker label="Update schedule" value={schedule} onChange={setSchedule} />
         <Field label={mode === "edit" ? "Enabled" : "Enable immediately"} htmlFor="bl-enabled">
           <div className="flex h-9 items-center justify-between">
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-ink-3">
               {enabled ? "Active in this profile" : "Saved but not applied"}
             </span>
             <Toggle id="bl-enabled" checked={enabled} onCheckedChange={setEnabled} />
@@ -539,7 +539,7 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
               </Field>
               <Field label="Enable immediately" htmlFor="fr-enabled">
                 <div className="flex h-9 items-center justify-between">
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-ink-3">
                     {enabled ? "Applied to traffic" : "Saved but inactive"}
                   </span>
                   <Toggle id="fr-enabled" checked={enabled} onCheckedChange={setEnabled} />

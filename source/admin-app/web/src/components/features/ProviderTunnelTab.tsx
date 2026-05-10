@@ -39,7 +39,7 @@ function ProviderLogo({ provider }: { provider: ProviderInfo | undefined }) {
     return <img src={provider.icon_url} alt="" className="size-4 rounded-sm object-contain" />;
   }
   return (
-    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-muted-foreground">
+    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-ink-3">
       {provider.name[0]}
     </span>
   );
@@ -140,7 +140,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
       {/* Step 1: Select provider */}
       <Field label="Provider">
         {providers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No providers available.</p>
+          <p className="text-sm text-ink-3">No providers available.</p>
         ) : (
           <Select
             value={providerId}

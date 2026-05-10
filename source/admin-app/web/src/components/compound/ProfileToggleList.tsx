@@ -40,7 +40,7 @@ export function ProfileToggleList({
   }
 
   if (profiles.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+    return <p className="text-sm text-ink-3">{emptyMessage}</p>;
   }
 
   return (

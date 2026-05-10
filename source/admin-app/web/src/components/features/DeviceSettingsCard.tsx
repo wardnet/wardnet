@@ -147,7 +147,7 @@ export function DeviceSettingsCard({ device, currentRule }: DeviceSettingsCardPr
 
             <Field label="Admin lock" htmlFor="device-lock">
               <div className="flex h-9 items-center justify-between">
-                <span className="text-sm text-muted-foreground">Prevent user routing changes</span>
+                <span className="text-sm text-ink-3">Prevent user routing changes</span>
                 <Toggle id="device-lock" checked={adminLocked} onCheckedChange={setAdminLocked} />
               </div>
             </Field>
@@ -170,26 +170,22 @@ export function DeviceSettingsCard({ device, currentRule }: DeviceSettingsCardPr
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              Friendly name
-            </span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Friendly name</span>
             <span className="text-sm">{device.name ?? "—"}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Type</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Type</span>
             <span className="inline-flex items-center gap-2 text-sm">
               <DeviceIcon type={device.device_type} size={16} />
               {deviceTypeLabel(device.device_type)}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Routing</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Routing</span>
             <span className="text-sm">{routingLabel(currentRule, tunnels)}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              Admin lock
-            </span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">Admin lock</span>
             <span className="text-sm">{device.admin_locked ? "Locked" : "Unlocked"}</span>
           </div>
         </CardContent>

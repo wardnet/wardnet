@@ -63,7 +63,7 @@ export function BackupCard({
         <CardTitle>Backup &amp; restore</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Export a single encrypted bundle of the database, operator config, and WireGuard keys. Use
           it to restore a fresh install, recover from an SD-card failure, or roll back a risky
           configuration change. Bundles are encrypted with age in passphrase mode.
@@ -87,7 +87,7 @@ export function BackupCard({
         <div className="flex items-start justify-between gap-4 rounded-md bg-sunken p-4">
           <div className="min-w-0">
             <p className="text-sm font-medium">Restore from backup</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-ink-3">
               Overwrites your current database, config, and keys. Cannot be undone.
             </p>
           </div>
@@ -381,19 +381,19 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
         </div>
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        <dt className="text-muted-foreground">From version</dt>
+        <dt className="text-ink-3">From version</dt>
         <dd className="break-all font-mono">{preview.manifest.wardnet_version}</dd>
-        <dt className="text-muted-foreground">Host ID</dt>
+        <dt className="text-ink-3">Host ID</dt>
         <dd className="break-all font-mono">{preview.manifest.host_id}</dd>
-        <dt className="text-muted-foreground">Created</dt>
+        <dt className="text-ink-3">Created</dt>
         <dd>{new Date(preview.manifest.created_at).toLocaleString()}</dd>
-        <dt className="text-muted-foreground">Schema version</dt>
+        <dt className="text-ink-3">Schema version</dt>
         <dd>{preview.manifest.schema_version}</dd>
-        <dt className="text-muted-foreground">WireGuard keys</dt>
+        <dt className="text-ink-3">WireGuard keys</dt>
         <dd>{preview.manifest.key_count}</dd>
       </dl>
       <div>
-        <div className="mb-1 text-muted-foreground">Will replace:</div>
+        <div className="mb-1 text-ink-3">Will replace:</div>
         <ul className="list-inside list-disc space-y-0.5 font-mono text-xs">
           {preview.files_to_replace.map((f) => (
             <li key={f} className="break-all">
@@ -402,7 +402,7 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
           ))}
         </ul>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-3">
         A{" "}
         <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[0.7rem]">
           .bak-&lt;timestamp&gt;

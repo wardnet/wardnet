@@ -27,7 +27,7 @@ export function DashboardStatCard({
       </CardHeader>
       <CardContent>
         <p className="text-3xl font-bold">{value}</p>
-        {subtitle && <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-xs text-ink-3">{subtitle}</p>}
         {usagePercent != null && <DashboardUsageBar value={usagePercent} />}
       </CardContent>
     </Card>

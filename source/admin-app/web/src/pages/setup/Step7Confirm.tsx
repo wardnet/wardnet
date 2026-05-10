@@ -16,7 +16,7 @@ export default function Step7Confirm() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-ink">All set</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Wardnet is configured. You can manage devices, tunnels, DHCP, and DNS filtering from the
           dashboard.
         </p>

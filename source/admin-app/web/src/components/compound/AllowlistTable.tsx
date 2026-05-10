@@ -28,7 +28,7 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       header: "Reason",
       meta: { className: "hidden sm:table-cell" },
       cell: ({ row }) => (
-        <span className="block truncate text-muted-foreground" title={row.original.reason ?? ""}>
+        <span className="block truncate text-ink-3" title={row.original.reason ?? ""}>
           {row.original.reason ?? "\u2014"}
         </span>
       ),
@@ -37,9 +37,7 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       accessorKey: "created_at",
       header: "Added",
       meta: { className: "hidden w-32 md:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">{timeAgo(row.original.created_at)}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-3">{timeAgo(row.original.created_at)}</span>,
     },
     {
       id: "actions",

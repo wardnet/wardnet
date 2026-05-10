@@ -19,7 +19,7 @@ function levelColor(level: string): string {
     case "WARN":
       return "text-yellow-600 dark:text-yellow-400";
     default:
-      return "text-muted-foreground";
+      return "text-ink-3";
   }
 }
 
@@ -95,9 +95,7 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
           <span
             className={`inline-block size-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
           />
-          <span className="text-xs text-muted-foreground">
-            {connected ? "Streaming" : "Disconnected"}
-          </span>
+          <span className="text-xs text-ink-3">{connected ? "Streaming" : "Disconnected"}</span>
         </div>
         {skipped > 0 && (
           <span className="text-xs text-yellow-600 dark:text-yellow-400">
@@ -111,16 +109,14 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
         style={{ maxHeight }}
       >
         {entries.length === 0 ? (
-          <p className="p-4 text-center text-muted-foreground">
+          <p className="p-4 text-center text-ink-3">
             {connected ? "Waiting for log entries…" : "Not connected"}
           </p>
         ) : (
           <div className="divide-y divide-line/50">
             {entries.map((entry, i) => (
               <div key={i} className={`flex gap-3 px-3 py-1.5 ${levelColor(entry.level)}`}>
-                <span className="shrink-0 text-muted-foreground/60">
-                  {formatTimestamp(entry.timestamp)}
-                </span>
+                <span className="shrink-0 text-ink-3/60">{formatTimestamp(entry.timestamp)}</span>
                 <Pill variant={levelVariant(entry.level)} className="h-5 shrink-0 text-[10px]">
                   {entry.level}
                 </Pill>

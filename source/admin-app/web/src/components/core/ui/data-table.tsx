@@ -67,7 +67,7 @@ export function DataTable<TData, TValue>({
                 <TableHead
                   key={header.id}
                   className={cn(
-                    "sticky top-0 z-10 bg-sunken px-4 py-3 text-muted-foreground",
+                    "sticky top-0 z-10 bg-sunken px-4 py-3 text-ink-3",
                     header.column.columnDef.meta?.className,
                   )}
                 >
@@ -99,10 +99,7 @@ export function DataTable<TData, TValue>({
             ))
           ) : (
             <TableRow>
-              <TableCell
-                colSpan={columns.length}
-                className="h-24 text-center text-muted-foreground"
-              >
+              <TableCell colSpan={columns.length} className="h-24 text-center text-ink-3">
                 {emptyMessage}
               </TableCell>
             </TableRow>

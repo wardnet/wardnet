@@ -82,7 +82,7 @@ function YAxisTick({ x = 0, y = 0, payload, range }: YAxisTickProps) {
   const { num, unit } = splitRate(payload.value, range);
   return (
     <g transform={`translate(${x},${y})`}>
-      <text textAnchor="end" className="fill-muted-foreground text-[10px]">
+      <text textAnchor="end" className="fill-ink-3 text-[10px]">
         <tspan x={-4} dy={0}>
           {num}
         </tspan>
@@ -144,7 +144,7 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
       <CardHeader className="flex flex-col gap-3 @md/card-header:flex-row @md/card-header:items-center @md/card-header:justify-between">
         <div>
           <CardTitle>Throughput</CardTitle>
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-[10px] text-ink-3">
             Window total: ↓ {formatBytes(totals.rx)} · ↑ {formatBytes(totals.tx)}
           </p>
         </div>
@@ -160,15 +160,13 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
       </CardHeader>
       <CardContent>
         {isError ? (
-          <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
             Failed to load throughput history.
           </div>
         ) : isLoading ? (
-          <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-            Loading…
-          </div>
+          <div className="flex h-64 items-center justify-center text-sm text-ink-3">Loading…</div>
         ) : points.length === 0 ? (
-          <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
             No throughput history yet — bring this tunnel up to start collecting samples.
           </div>
         ) : (

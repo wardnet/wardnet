@@ -25,9 +25,7 @@ export function TunnelGrid({
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-muted-foreground">
-          Loading tunnels...
-        </CardContent>
+        <CardContent className="py-10 text-center text-ink-3">Loading tunnels...</CardContent>
       </Card>
     );
   }

@@ -31,7 +31,7 @@ export function DnsFilterSettingsCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {!ready ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-ink-3">Loading…</p>
         ) : (
           <>
             <Field
@@ -50,7 +50,7 @@ export function DnsFilterSettingsCard() {
 
             {config.enabled && (
               <Field label="Default profiles" labelId={DEFAULT_PROFILES_LABEL_ID}>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-ink-3">
                   Applied to devices that have no explicit profile assignment. Multiple profiles
                   stack — a domain blocked in any one of them is blocked. Leave empty to leave
                   unassigned devices unfiltered.

@@ -38,7 +38,7 @@ function createColumns(
         const icon = device ? (
           <DeviceIcon type={device.device_type} />
         ) : (
-          <Clock size={18} className={cn("text-muted-foreground")} />
+          <Clock size={18} className={cn("text-ink-3")} />
         );
         return <HostCell primary={primary} secondary={secondary} icon={icon} />;
       },
@@ -61,9 +61,7 @@ function createColumns(
       accessorKey: "lease_end",
       header: "Expires",
       meta: { className: "hidden lg:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-muted-foreground">{timeAgo(row.original.lease_end)}</span>
-      ),
+      cell: ({ row }) => <span className="text-ink-3">{timeAgo(row.original.lease_end)}</span>,
     },
     {
       id: "actions",

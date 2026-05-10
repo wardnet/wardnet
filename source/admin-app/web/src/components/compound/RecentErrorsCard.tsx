@@ -23,7 +23,7 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
       </CardHeader>
       <CardContent>
         {errors.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">No recent errors</p>
+          <p className="py-4 text-center text-sm text-ink-3">No recent errors</p>
         ) : (
           <div className="flex max-h-60 flex-col gap-1 overflow-y-auto font-mono text-xs">
             {[...errors].reverse().map((err, i) => (
@@ -35,9 +35,7 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
                     : "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300"
                 }`}
               >
-                <span className="shrink-0 text-muted-foreground/60">
-                  {formatTimestamp(err.timestamp)}
-                </span>
+                <span className="shrink-0 text-ink-3/60">{formatTimestamp(err.timestamp)}</span>
                 <Pill
                   variant={err.level === "ERROR" ? "down" : "warn"}
                   className="h-5 shrink-0 text-[10px]"

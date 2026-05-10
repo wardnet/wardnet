@@ -29,7 +29,7 @@ export default function Setup() {
     // growth is far less jarring than the card shrinking step-to-step.
     <div className="min-h-[36rem] rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur-sm dark:bg-card/95">
       {isLoading || !data ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-ink-3">Loading…</p>
       ) : (
         <>
           <WizardStepper current={data.wizard_step} />

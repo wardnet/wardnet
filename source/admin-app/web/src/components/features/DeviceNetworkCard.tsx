@@ -140,11 +140,11 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
       ) : (
         <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">IP</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">IP</span>
             <span className="font-mono text-sm">{device.last_ip}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">DHCP</span>
+            <span className="text-xs uppercase tracking-wide text-ink-3">DHCP</span>
             <span className="text-sm">{statusBadge(device.dhcp_status)}</span>
           </div>
         </CardContent>

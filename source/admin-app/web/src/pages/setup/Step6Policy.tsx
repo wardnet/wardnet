@@ -49,7 +49,7 @@ export default function Step6Policy() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-ink">Default routing</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Pick how new devices route by default. You can override per-device later from the Devices
           page.
         </p>
@@ -58,7 +58,7 @@ export default function Step6Policy() {
       <div className="flex flex-col gap-2">
         <RoutingSelector value={target} onChange={setOverride} tunnels={tunnelList} isAdmin />
         {tunnelList.length === 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-ink-3">
             No tunnels configured — defaulting to direct routing. You can change this from Settings
             whenever you add a tunnel.
           </p>

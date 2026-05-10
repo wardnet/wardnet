@@ -30,7 +30,7 @@ export function HostCell({
       {icon}
       <div className="flex flex-col">
         <span className="font-medium">{primary}</span>
-        {secondary && <span className="text-xs text-muted-foreground">{secondary}</span>}
+        {secondary && <span className="text-xs text-ink-3">{secondary}</span>}
       </div>
     </div>
   );

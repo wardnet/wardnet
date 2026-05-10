@@ -31,19 +31,19 @@ export default function Step5Tunnel() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-ink">First VPN tunnel</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-3">
           Optional — connect a VPN provider so opted-in devices can route through it. You can add
           more from the Tunnels page once setup is complete.
         </p>
       </div>
 
       {hasTunnel ? (
-        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
           {tunnelCount} tunnel{tunnelCount === 1 ? "" : "s"} configured. Continue to pick a default
           routing policy.
         </div>
       ) : (
-        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
           No tunnels yet. Add one now or skip — you can change the default routing policy from
           Settings later.
         </div>

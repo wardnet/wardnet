@@ -151,9 +151,7 @@ export default function DnsLogs() {
               {dev && <DeviceIcon type={dev.device_type} size={16} />}
               <div className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{primary}</span>
-                {secondary && (
-                  <span className="truncate text-xs text-muted-foreground">{secondary}</span>
-                )}
+                {secondary && <span className="truncate text-xs text-ink-3">{secondary}</span>}
               </div>
             </div>
           );
@@ -187,9 +185,7 @@ export default function DnsLogs() {
         header: "Latency",
         meta: { className: "hidden w-24 sm:table-cell" },
         cell: ({ row }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {row.original.latency_ms.toFixed(1)} ms
-          </span>
+          <span className="tabular-nums text-ink-3">{row.original.latency_ms.toFixed(1)} ms</span>
         ),
       },
     ],
@@ -279,7 +275,7 @@ export default function DnsLogs() {
       </div>
 
       {!showLive && (
-        <div className="mt-3 flex shrink-0 items-center justify-between text-xs text-muted-foreground">
+        <div className="mt-3 flex shrink-0 items-center justify-between text-xs text-ink-3">
           <span>
             {totalRows.toLocaleString()} entries · page {page + 1}
           </span>

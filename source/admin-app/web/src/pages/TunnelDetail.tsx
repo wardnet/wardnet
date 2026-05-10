@@ -45,7 +45,7 @@ interface MetadataRowProps {
 function MetadataRow({ label, children }: MetadataRowProps) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-xs uppercase tracking-wide text-ink-3">{label}</span>
       <span className="text-sm">{children}</span>
     </div>
   );
@@ -61,7 +61,7 @@ export default function TunnelDetail() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-ink-3">Loading…</p>
       </div>
     );
   }
@@ -70,9 +70,7 @@ export default function TunnelDetail() {
     return (
       <div className="flex flex-col gap-2 p-6">
         <h1 className="text-xl font-semibold">Tunnel not found</h1>
-        <p className="text-sm text-muted-foreground">
-          The tunnel you're looking for may have been deleted.
-        </p>
+        <p className="text-sm text-ink-3">The tunnel you're looking for may have been deleted.</p>
       </div>
     );
   }

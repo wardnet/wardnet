@@ -50,7 +50,7 @@ export function DeviceSelect({
       </span>
     </span>
   ) : (
-    <span className="text-muted-foreground">{anyLabel}</span>
+    <span className="text-ink-3">{anyLabel}</span>
   );
 
   return (
@@ -68,7 +68,7 @@ export function DeviceSelect({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="any">
-          <span className="text-muted-foreground">{anyLabel}</span>
+          <span className="text-ink-3">{anyLabel}</span>
         </SelectItem>
         {devices.map((d) => {
           const primary = d.name || d.hostname || d.last_ip;
@@ -79,7 +79,7 @@ export function DeviceSelect({
                 <DeviceIcon type={d.device_type} size={16} />
                 <div className="flex flex-col">
                   <span className="font-medium">{primary}</span>
-                  {secondary && <span className="text-xs text-muted-foreground">{secondary}</span>}
+                  {secondary && <span className="text-xs text-ink-3">{secondary}</span>}
                 </div>
               </div>
             </SelectItem>

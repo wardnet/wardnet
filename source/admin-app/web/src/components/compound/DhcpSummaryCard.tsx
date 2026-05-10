@@ -28,9 +28,7 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
       </CardHeader>
       <CardContent>
         <p className="text-3xl font-bold">{status.active_lease_count}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          active leases &middot; {poolPercent}% pool used
-        </p>
+        <p className="mt-1 text-xs text-ink-3">active leases &middot; {poolPercent}% pool used</p>
         {status.pool_total > 0 && (
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
             <div

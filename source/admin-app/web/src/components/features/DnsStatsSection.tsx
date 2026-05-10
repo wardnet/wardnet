@@ -104,7 +104,7 @@ export function DnsStatsSection() {
         <CardHeader className="flex flex-col gap-3 @md/card-header:flex-row @md/card-header:items-center @md/card-header:justify-between">
           <div>
             <CardTitle>Queries over time</CardTitle>
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-[10px] text-ink-3">
               Window total: {windowTotals.total.toLocaleString()} queries ·{" "}
               {windowTotals.blocked.toLocaleString()} blocked
             </p>
@@ -193,14 +193,14 @@ function TopList({
             {items.map((item) => (
               <li key={item.domain} className="flex items-center justify-between gap-2">
                 <span className="truncate font-mono text-xs">{item.domain}</span>
-                <span className="tabular-nums text-muted-foreground">
+                <span className="tabular-nums text-ink-3">
                   {item.count.toLocaleString()} {valueLabel}
                 </span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No data yet.</p>
+          <p className="text-sm text-ink-3">No data yet.</p>
         )}
       </CardContent>
     </Card>
@@ -229,11 +229,9 @@ function TopClientsList({
                 <li key={c.client_ip} className="flex items-center justify-between gap-2">
                   <div className="flex flex-col">
                     <span className="font-medium">{primary}</span>
-                    {secondary && (
-                      <span className="text-xs text-muted-foreground">{secondary}</span>
-                    )}
+                    {secondary && <span className="text-xs text-ink-3">{secondary}</span>}
                   </div>
-                  <span className="tabular-nums text-muted-foreground">
+                  <span className="tabular-nums text-ink-3">
                     {c.count.toLocaleString()} queries
                   </span>
                 </li>
@@ -241,7 +239,7 @@ function TopClientsList({
             })}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No data yet.</p>
+          <p className="text-sm text-ink-3">No data yet.</p>
         )}
       </CardContent>
     </Card>

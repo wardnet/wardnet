@@ -34,7 +34,7 @@ export default function DeviceDetail() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-ink-3">Loading…</p>
       </div>
     );
   }
@@ -43,9 +43,7 @@ export default function DeviceDetail() {
     return (
       <div className="flex flex-col gap-2 p-6">
         <h1 className="text-xl font-semibold">Device not found</h1>
-        <p className="text-sm text-muted-foreground">
-          The device you're looking for may have been removed.
-        </p>
+        <p className="text-sm text-ink-3">The device you're looking for may have been removed.</p>
         <Link to="/devices" className="text-sm text-accent underline">
           Back to Devices
         </Link>

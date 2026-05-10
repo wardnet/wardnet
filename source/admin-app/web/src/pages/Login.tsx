@@ -61,7 +61,7 @@ export default function Login() {
           />
         </Field>
         {error && <p className="text-sm text-danger">{error}</p>}
-        <p className="text-center text-xs text-muted-foreground">
+        <p className="text-center text-xs text-ink-3">
           Credentials are set during initial daemon setup.
         </p>
         <Button

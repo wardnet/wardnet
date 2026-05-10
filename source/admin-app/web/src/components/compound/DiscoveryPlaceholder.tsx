@@ -71,7 +71,7 @@ export function DiscoveryPlaceholder({
           {Array.from({ length: cols }).map((_, i) => (
             <div
               key={`h-${i}`}
-              className="h-3 flex-1 rounded bg-muted-foreground/10"
+              className="h-3 flex-1 rounded bg-ink-3/10"
               style={{ animation: `row-breathe 3s ease-in-out ${i * 0.2}s infinite` }}
             />
           ))}
@@ -83,7 +83,7 @@ export function DiscoveryPlaceholder({
             {Array.from({ length: cols }).map((_, col) => (
               <div
                 key={`c-${row}-${col}`}
-                className="h-2.5 flex-1 rounded bg-muted-foreground/[0.04]"
+                className="h-2.5 flex-1 rounded bg-ink-3/[0.04]"
                 style={{
                   animation: `row-breathe 3s ease-in-out ${(row + col) * 0.15}s infinite`,
                   maxWidth: col === 0 ? "35%" : col === cols - 1 ? "12%" : undefined,
@@ -119,11 +119,11 @@ export function DiscoveryPlaceholder({
           <Radar className="size-12 text-accent/25 animate-pulse" />
           <div className="absolute size-12 animate-ping rounded-full bg-accent/5" />
         </div>
-        <p className="text-sm font-medium text-muted-foreground">
+        <p className="text-sm font-medium text-ink-3">
           {message}
           <span className="inline-block w-4">{dots}</span>
         </p>
-        <p className="text-xs text-muted-foreground/60">{hint}</p>
+        <p className="text-xs text-ink-3/60">{hint}</p>
       </div>
     </div>
   );

@@ -60,7 +60,7 @@ function ProviderLogo({ provider }: { provider: ProviderInfo | undefined }) {
     return <img src={provider.icon_url} alt="" className="size-4 rounded-sm object-contain" />;
   }
   return (
-    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-muted-foreground">
+    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-ink-3">
       {provider.name[0]}
     </span>
   );
@@ -114,7 +114,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
                 {flag && <span className="mr-1.5">{flag}</span>}
                 {tunnel.label}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-ink-3">
                 {tunnel.country_code && tunnel.country_code.toUpperCase()}
                 {provider && ` \u00b7 ${provider.name}`}
                 {!provider && tunnel.provider && ` \u00b7 ${tunnel.provider}`}
@@ -128,15 +128,15 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         <CardContent>
           <div className="grid grid-cols-2 gap-y-2 text-sm">
             <div>
-              <span className="text-muted-foreground">Interface</span>
+              <span className="text-ink-3">Interface</span>
               <p className="font-mono text-xs">{tunnel.interface_name}</p>
             </div>
             <div>
-              <span className="text-muted-foreground">Endpoint</span>
+              <span className="text-ink-3">Endpoint</span>
               <p className="font-mono text-xs">{tunnel.endpoint}</p>
             </div>
             <div>
-              <span className="text-muted-foreground">Traffic</span>
+              <span className="text-ink-3">Traffic</span>
               <p className="flex items-center gap-2 text-xs">
                 <span className="inline-flex items-center gap-0.5">
                   <ArrowUp className="size-3" aria-label="up" />
@@ -149,7 +149,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
               </p>
             </div>
             <div>
-              <span className="text-muted-foreground">Last handshake</span>
+              <span className="text-ink-3">Last handshake</span>
               <p className="text-xs">
                 {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "\u2014"}
               </p>
@@ -163,12 +163,12 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             <div className="flex items-center gap-2">
               <span aria-hidden>{countryFlag(testResult.country_code)}</span>
               <span className="font-medium">{testResult.country_code.toUpperCase()}</span>
-              <span className="text-muted-foreground">·</span>
+              <span className="text-ink-3">·</span>
               <span className="font-mono">{testResult.exit_ip}</span>
-              <span className="text-muted-foreground">·</span>
+              <span className="text-ink-3">·</span>
               <span>{testResult.latency_ms} ms</span>
             </div>
-            {testedAt && <p className="mt-0.5 text-muted-foreground">tested {timeAgo(testedAt)}</p>}
+            {testedAt && <p className="mt-0.5 text-ink-3">tested {timeAgo(testedAt)}</p>}
           </div>
         )}
         {testError && !testResult && (

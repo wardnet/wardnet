@@ -61,7 +61,7 @@ export default function Devices() {
             {discovered.length > 0 ? (
               <DeviceTable devices={discovered} onDeviceClick={openDevice} />
             ) : (
-              <p className="py-10 text-center text-sm text-muted-foreground">
+              <p className="py-10 text-center text-sm text-ink-3">
                 All devices have been named. New devices will appear here when detected.
               </p>
             )}

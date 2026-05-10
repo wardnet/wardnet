@@ -49,9 +49,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-ink">DHCP onboarding</h2>
-        <p className="text-sm text-muted-foreground">
-          Choose how Wardnet handles DHCP on your LAN.
-        </p>
+        <p className="text-sm text-ink-3">Choose how Wardnet handles DHCP on your LAN.</p>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -66,7 +64,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
           />
           <div className="flex flex-col gap-1">
             <span className="font-medium">Primary (recommended)</span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-ink-3">
               Wardnet runs DHCP. You'll disable DHCP on your existing router using the steps below.
             </span>
           </div>
@@ -82,7 +80,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
           />
           <div className="flex flex-col gap-1">
             <span className="font-medium">Locked router</span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-ink-3">
               Your ISP router can't disable DHCP. You'll manually point each opted-in device at
               Wardnet as its gateway and DNS.
             </span>
@@ -109,7 +107,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
           </div>
           {router && (
             <div className="flex flex-col gap-2">
-              <ol className="ml-5 list-decimal space-y-1 text-sm text-muted-foreground">
+              <ol className="ml-5 list-decimal space-y-1 text-sm text-ink-3">
                 {router.steps.map((step, i) => (
                   <li key={i}>{step}</li>
                 ))}
@@ -148,7 +146,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       )}
 
       {mode === "locked_router" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-line bg-sunken/30 p-4 text-sm text-muted-foreground">
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
           <p>
             Configure each opted-in device's network settings to use Wardnet as its gateway and DNS
             server. Other devices on the LAN keep their normal connectivity.

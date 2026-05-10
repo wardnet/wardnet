@@ -34,10 +34,7 @@ export function DetailPageHeader({
 }: DetailPageHeaderProps) {
   return (
     <header className="flex flex-col gap-2 pb-4">
-      <nav
-        aria-label="Breadcrumb"
-        className="flex items-center gap-1 text-sm text-muted-foreground"
-      >
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-ink-3">
         <Link to={parentTo} className="hover:text-ink">
           {parentLabel}
         </Link>
@@ -53,7 +50,7 @@ export function DetailPageHeader({
         <h1 className="text-2xl font-semibold tracking-tight">{itemLabel}</h1>
         {status}
       </div>
-      {meta ? <div className="text-sm text-muted-foreground">{meta}</div> : null}
+      {meta ? <div className="text-sm text-ink-3">{meta}</div> : null}
     </header>
   );
 }
