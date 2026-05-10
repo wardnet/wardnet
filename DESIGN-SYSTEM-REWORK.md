@@ -258,7 +258,7 @@ all facts; status pills via `.pill--*`.
 | DeviceDetail          | [ ]    | detail-screens.jsx — Identity / Settings / DNS / Network cards, edit-mode protocol |
 | Tunnels               | [x]    | screens.jsx §03 — `.tcard` grid via TunnelGrid + CreateTunnelInline + PageHeader (all already ported); page wrapped in `col gap-20` matching §03 mock; no shadcn / hex / inline-styles. Slice T6-α on 2026-05-10. |
 | TunnelDetail          | [ ]    | detail-screens.jsx — throughput chart + connected devices   |
-| Dhcp                  | [ ]    | screens.jsx §04 — leases + reservations                     |
+| Dhcp                  | [x]    | screens.jsx §04 — leases + reservations via DhcpStatusCard / DhcpConfigCard / DhcpLeaseTable / DhcpReservationTable / CreateReservationInline / PageHeader (all already ported); already conformant on Forge `Card`/`Tabs` + `text-ink-3` token, no shadcn / hex / inline-styles. Verified on 2026-05-10 (slice T6-α), no code changes required. |
 | Dns                   | [ ]    | screens.jsx §05 — query stats + real-time stream            |
 | DnsLogs               | [ ]    | log viewer + filters                                        |
 | DnsFilter             | [ ]    | screens.jsx §06 — `.cat` rows with toggles                  |
