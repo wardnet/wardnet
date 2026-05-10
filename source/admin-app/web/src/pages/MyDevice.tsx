@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
 import { useMyDevice, useSetMyRule } from "@/hooks/useDevices";
 import { countryFlag } from "@/lib/country";
@@ -52,7 +52,7 @@ function RoutingForm({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="col gap-4">
       <RoutingSelector value={target} onChange={setTarget} tunnels={tunnels} />
 
       {setMyRule.isError && (
@@ -66,7 +66,15 @@ function RoutingForm({
   );
 }
 
-/** Self-service page showing the caller's device info and routing controls. */
+/** Self-service per-device page: shows the caller's device identity and lets
+ *  the user pick a routing target (or shows the admin-locked read-only
+ *  state). Page wrapper is Forge `col gap-20` to match the section rhythm
+ *  used by `DeviceDetail` / `TunnelDetail`; loading and not-detected fall
+ *  back to `.h-title` / `.h-sub` per the slice T6-β precedent. Compounds
+ *  (`DeviceIcon`, `RoutingSelector`, `ApiErrorAlert`) are already ported,
+ *  Forge `Card` / `Button` are used directly. Public API unchanged —
+ *  default export, no props (consumed via `<Route element={<MyDevice />} />`
+ *  in `App.tsx`). */
 export default function MyDevice() {
   const { data, isLoading } = useMyDevice();
 
@@ -81,19 +89,15 @@ export default function MyDevice() {
       : String(currentRule?.type ?? "null");
 
   if (isLoading) {
-    return (
-      <div className="mx-auto max-w-lg pt-8">
-        <p className="text-sm text-ink-3">Loading…</p>
-      </div>
-    );
+    return <p className="text-sm text-ink-3">Loading…</p>;
   }
 
   if (!device) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4 pt-16 text-center">
+      <div className="col items-center gap-4 py-16 text-center">
         <WifiOffIcon className="size-12 text-ink-3/50" />
-        <h2 className="text-base font-medium">Device not detected</h2>
-        <p className="text-sm text-ink-3">
+        <h1 className="h-title">Device not detected</h1>
+        <p className="h-sub max-w-md">
           Your device has not been detected on the network yet. Make sure you are accessing Wardnet
           directly from the local network. Connections through SSH tunnels or proxies cannot be
           matched to your device.
@@ -103,20 +107,22 @@ export default function MyDevice() {
   }
 
   return (
-    <div className="mx-auto max-w-lg pt-8">
-      <p className="text-xs text-ink-3">My device</p>
-      <div className="mt-1 flex items-center gap-3">
-        <DeviceIcon type={device.device_type} size={28} className="text-ink/60" />
-        <h1 className="text-2xl font-medium">{device.name ?? device.hostname ?? device.mac}</h1>
+    <div className="col gap-20">
+      <div className="col gap-2">
+        <p className="text-xs text-ink-3">My device</p>
+        <div className="flex items-center gap-3">
+          <DeviceIcon type={device.device_type} size={28} className="text-ink/60" />
+          <h1 className="h-title">{device.name ?? device.hostname ?? device.mac}</h1>
+        </div>
       </div>
 
-      <Card className="mt-6">
+      <Card>
         <CardHeader>
           <CardTitle>Internet access</CardTitle>
         </CardHeader>
         <CardContent>
           {adminLocked ? (
-            <div className="flex flex-col gap-3">
+            <div className="col gap-3">
               <p className="text-sm">{routingLabel(currentRule, tunnels)}</p>
               <div className="flex items-start gap-2 text-ink-3">
                 <LockIcon className="mt-0.5 size-4 shrink-0" />
