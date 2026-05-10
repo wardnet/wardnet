@@ -42,7 +42,7 @@ export function Features() {
   return (
     <section className="px-6 py-20">
       <div className="mx-auto max-w-6xl">
-        <h2 className="mb-12 text-center text-3xl font-bold text-gray-900 dark:text-gray-100">
+        <h2 className="mb-12 text-center text-3xl font-bold tracking-tight text-ink">
           Everything you need to protect your network
         </h2>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">

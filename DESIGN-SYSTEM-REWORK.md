@@ -283,7 +283,7 @@ all facts; status pills via `.pill--*`.
 | `pages/ErrorView.tsx` / `NotFound.tsx` | [x] | full-page Forge `.empty` shell on both; `.h-title` / `.h-sub` for copy; `.btn` / `.btn--primary` for CTAs; `.kbd` for error message detail. Slice T7. |
 | `components/layouts/Navbar.tsx`   | [x]    | top nav — dropped `bg-[oklch(...)]/80 backdrop-blur-md` chrome → `bg-side` (Ward Navy); `text-side-ink-active` brand, `text-side-ink` links with `hover:text-side-ink-active`; no border/shadow below. Slice T7. |
 | `components/layouts/Hero.tsx`     | [x]    | Ward Navy chrome via `bg-side` (gradient + raw oklch dropped); display via `.h-title` (scaled `text-5xl sm:text-6xl`); body via `.h-sub` with `text-side-ink`/`text-side-ink-2` ramp; Download CTA `.btn .btn--primary`, GitHub CTA `.btn`. Slice T7. |
-| `components/layouts/HowItWorks.tsx` / `Features.tsx` / `TechStack.tsx` / `GetStarted.tsx` / `Footer.tsx` | [ ] | re-skin with Forge classes & tokens |
+| `components/layouts/HowItWorks.tsx` / `Features.tsx` / `TechStack.tsx` / `GetStarted.tsx` / `Footer.tsx` | [x] | section bgs `bg-gray-50 dark:bg-[oklch(...)]` → `bg-sunken`; headings → `text-ink tracking-tight`; eyebrows/helpers → `text-ink-3`; HRs → `border-line`; Footer copyright → `text-ink-4`. Slice T7. |
 | `components/compound/CodeBlock.tsx` | [ ]  | `.logs` family / `--bg-sunken` + `--font-mono`                                     |
 | `components/compound/ErrorBoundary.tsx` | [ ] | full-page error using `.empty` + danger pill                                     |
 | `components/compound/FeatureCard.tsx` | [ ] | `.card` + headline stat + sub line                                                |
