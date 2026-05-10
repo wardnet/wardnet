@@ -39,9 +39,9 @@ export function WizardStepper({ current }: { current: WizardStep }) {
                 className={
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold " +
                   (isCurrent
-                    ? "border-primary bg-primary text-accent-ink"
+                    ? "border-accent bg-accent text-accent-ink"
                     : isPast
-                      ? "border-primary bg-primary/15 text-primary"
+                      ? "border-accent bg-accent/15 text-accent"
                       : "border-muted-foreground/30 text-muted-foreground")
                 }
               >
@@ -50,7 +50,7 @@ export function WizardStepper({ current }: { current: WizardStep }) {
               {i < STEPS.length - 1 && (
                 <span
                   className={
-                    "mx-1 h-px flex-1 " + (isPast ? "bg-primary/40" : "bg-muted-foreground/20")
+                    "mx-1 h-px flex-1 " + (isPast ? "bg-accent/40" : "bg-muted-foreground/20")
                   }
                 />
               )}

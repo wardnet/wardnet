@@ -82,7 +82,6 @@
    * will look off until then — that's expected. Delete this block in the final
    * commit of the migration once nothing references these names.
    */
-  --color-primary: var(--accent);
   --color-muted-foreground: var(--ink-3);
 }
 

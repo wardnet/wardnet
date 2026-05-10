@@ -95,7 +95,7 @@ export function DiscoveryPlaceholder({
 
         {/* Full-height scanning bar */}
         <div
-          className="pointer-events-none absolute inset-x-0 h-12 bg-gradient-to-b from-transparent via-primary/[0.08] to-transparent"
+          className="pointer-events-none absolute inset-x-0 h-12 bg-gradient-to-b from-transparent via-accent/[0.08] to-transparent"
           style={{ animation: "scan-sweep 4s ease-in-out infinite" }}
         />
 
@@ -103,7 +103,7 @@ export function DiscoveryPlaceholder({
         {particles.map((p, i) => (
           <div
             key={i}
-            className={`absolute rounded-full bg-primary/40 ${p.size}`}
+            className={`absolute rounded-full bg-accent/40 ${p.size}`}
             style={{
               top: p.top,
               left: p.left,
@@ -116,8 +116,8 @@ export function DiscoveryPlaceholder({
       {/* Status area — always visible at the bottom */}
       <div className="flex shrink-0 flex-col items-center gap-3 border-t border-line/20 px-4 py-6">
         <div className="relative flex items-center justify-center">
-          <Radar className="size-12 text-primary/25 animate-pulse" />
-          <div className="absolute size-12 animate-ping rounded-full bg-primary/5" />
+          <Radar className="size-12 text-accent/25 animate-pulse" />
+          <div className="absolute size-12 animate-ping rounded-full bg-accent/5" />
         </div>
         <p className="text-sm font-medium text-muted-foreground">
           {message}

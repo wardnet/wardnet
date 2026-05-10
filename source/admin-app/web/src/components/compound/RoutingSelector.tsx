@@ -69,7 +69,7 @@ export function RoutingSelector({
         <p className="text-sm text-muted-foreground">
           No tunnels configured.{" "}
           {isAdmin ? (
-            <Link to="/tunnels" className="text-primary underline">
+            <Link to="/tunnels" className="text-accent underline">
               Add one
             </Link>
           ) : (

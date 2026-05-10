@@ -47,7 +47,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     <div className="flex h-full flex-col bg-side text-side-ink">
       <div className="flex items-center gap-2.5 p-4">
         <Logo size={28} />
-        <h1 className="text-lg font-bold tracking-tight text-primary">Wardnet</h1>
+        <h1 className="text-lg font-bold tracking-tight text-accent">Wardnet</h1>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-3">

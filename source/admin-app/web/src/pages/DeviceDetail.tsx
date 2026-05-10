@@ -46,7 +46,7 @@ export default function DeviceDetail() {
         <p className="text-sm text-muted-foreground">
           The device you're looking for may have been removed.
         </p>
-        <Link to="/devices" className="text-sm text-primary underline">
+        <Link to="/devices" className="text-sm text-accent underline">
           Back to Devices
         </Link>
       </div>

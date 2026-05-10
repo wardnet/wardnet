@@ -119,7 +119,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
                   href={router.kb_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-primary hover:underline"
+                  className="text-xs text-accent hover:underline"
                 >
                   {router.name} support page ↗
                 </a>

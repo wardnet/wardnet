@@ -110,7 +110,7 @@ export default function Step1Admin() {
         <Button
           type="submit"
           disabled={setup.isPending || advance.isPending}
-          className="h-12 w-full bg-[oklch(0.22_0.12_275)] text-base font-semibold tracking-wide text-white uppercase hover:bg-[oklch(0.28_0.12_275)] dark:bg-primary dark:hover:bg-primary/90"
+          className="h-12 w-full bg-[oklch(0.22_0.12_275)] text-base font-semibold tracking-wide text-white uppercase hover:bg-[oklch(0.28_0.12_275)] dark:bg-accent dark:hover:bg-accent/90"
         >
           {setup.isPending || advance.isPending ? "Creating account…" : "Create account"}
         </Button>

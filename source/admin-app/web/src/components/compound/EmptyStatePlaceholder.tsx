@@ -41,17 +41,17 @@ export function EmptyStatePlaceholder({
       <div className="relative flex items-center justify-center">
         {/* Outer ring */}
         <div
-          className="absolute size-56 rounded-full border border-primary/10 bg-primary/[0.02]"
+          className="absolute size-56 rounded-full border border-accent/10 bg-accent/[0.02]"
           style={{ animation: "ripple-3 4s ease-in-out infinite" }}
         />
         {/* Middle ring */}
         <div
-          className="absolute size-40 rounded-full border border-primary/15 bg-primary/[0.03]"
+          className="absolute size-40 rounded-full border border-accent/15 bg-accent/[0.03]"
           style={{ animation: "ripple-2 4s ease-in-out 0.3s infinite" }}
         />
         {/* Inner ring */}
         <div
-          className="absolute size-28 rounded-full border border-primary/20 bg-primary/[0.04]"
+          className="absolute size-28 rounded-full border border-accent/20 bg-accent/[0.04]"
           style={{ animation: "ripple-1 4s ease-in-out 0.6s infinite" }}
         />
 
@@ -61,14 +61,14 @@ export function EmptyStatePlaceholder({
             <>
               {/* Stacked document effect */}
               <div className="relative">
-                <FileText className="size-16 text-primary/20" strokeWidth={1.2} />
+                <FileText className="size-16 text-accent/20" strokeWidth={1.2} />
                 <FileText
-                  className="absolute -left-1.5 -top-1.5 size-16 text-primary/10"
+                  className="absolute -left-1.5 -top-1.5 size-16 text-accent/10"
                   strokeWidth={1}
                 />
               </div>
               {/* Plus badge */}
-              <PlusCircle className="-ml-4 mb-0.5 size-8 text-primary/30" strokeWidth={1.5} />
+              <PlusCircle className="-ml-4 mb-0.5 size-8 text-accent/30" strokeWidth={1.5} />
             </>
           )}
         </div>
