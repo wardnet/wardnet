@@ -253,7 +253,7 @@ all facts; status pills via `.pill--*`.
 
 | Page                  | Status | Forge ref                                                   |
 | --------------------- | ------ | ----------------------------------------------------------- |
-| Dashboard             | [ ]    | screens.jsx §01 — 9 StatTiles + DNS qchart + donut + log stream |
+| Dashboard             | [x]    | screens.jsx §01 — composes already-ported DashboardStatCard / DnsStatsSection / DashboardLogWidget / RecentErrorsCard / DhcpSummaryCard. Outer wrapper switched to Forge `col gap-20` (matches §01 mock 20px section rhythm). Donut not introduced (deferred — no consumer; row hint speculative). Slice T6-α on 2026-05-10. |
 | Devices               | [ ]    | screens.jsx §02 — `.tbl` with `.host`                       |
 | DeviceDetail          | [ ]    | detail-screens.jsx — Identity / Settings / DNS / Network cards, edit-mode protocol |
 | Tunnels               | [ ]    | screens.jsx §03 — `.tcard` grid + add modal                 |
