@@ -210,7 +210,7 @@ all facts; status pills via `.pill--*`.
 | TunnelCard                      | [ ]    | `.tcard` (flag + title + grid + throughput strip)          |
 | TunnelGrid                      | [ ]    | grid wrapper                                               |
 | UncleanShutdownBanner           | [x]    | banner, danger-soft tones — now thin wrapper over `<Banner tone='down'>` with `actions={<Button>Dismiss</Button>}` (forge-web/banner primitive added on 2026-05-10) |
-| UpdateBanner                    | [ ]    | banner, info-soft tones                                    |
+| UpdateBanner                    | [x]    | sidebar update-prompt link (NOT a banner — full-width Banner compound covers ConnectionBanner/UncleanShutdownBanner; this is a chip rendered inside the sidebar by `Sidebar.tsx`); already on Forge `accent` tokens (`bg-accent/10`, `text-accent`, `bg-accent/15` hover) — verified on 2026-05-10, no code changes required. File name kept for now; rename to `UpdatePrompt`/`UpdateChip` could land in T8 polish if churn is worth it. |
 
 ---
 
