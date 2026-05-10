@@ -8,9 +8,10 @@ interface LatestReleaseBadgeProps {
 }
 
 /**
- * Small pill showing the latest stable release version, linking to the
- * GitHub Release notes. Renders nothing when no release has been published
- * yet (fresh repo, or the manifest generator couldn't reach the API).
+ * Small Forge `.pill` showing the latest stable release version, linking to
+ * the GitHub Release notes. Renders nothing when no release has been
+ * published yet (fresh repo, or the manifest generator couldn't reach the
+ * API).
  *
  * The data comes from `src/generated/release-info.ts`, which is regenerated
  * on every site build by `scripts/generate-release-manifests.ts`.
@@ -21,22 +22,18 @@ export function LatestReleaseBadge({ variant = "light", className }: LatestRelea
     return null;
   }
 
-  const baseClasses =
-    "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors";
-  const variantClasses =
-    variant === "dark"
-      ? "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
-      : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700";
+  // The hero sits on Ward Navy chrome, where the default `.pill` surface
+  // (`--bg-sunken`) reads as light grey; `.pill--ghost` gives us a
+  // transparent surface with a subtle border that reads correctly on dark.
+  const variantClass = variant === "dark" ? "pill pill--ghost" : "pill";
 
   return (
     <a
       href={release.notes_url}
-      className={[baseClasses, variantClasses, className].filter(Boolean).join(" ")}
+      className={[variantClass, "transition-colors", className].filter(Boolean).join(" ")}
     >
-      <span className={variant === "dark" ? "text-white/50" : "text-gray-500 dark:text-gray-500"}>
-        Latest release
-      </span>
-      <span className="font-semibold">v{release.version}</span>
+      <span>Latest release</span>
+      <span className="mono font-semibold">v{release.version}</span>
     </a>
   );
 }
