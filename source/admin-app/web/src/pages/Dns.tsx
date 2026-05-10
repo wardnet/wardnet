@@ -39,7 +39,7 @@ export default function Dns() {
     status && status.cache_capacity > 0 ? (status.cache_size / status.cache_capacity) * 100 : 0;
 
   return (
-    <>
+    <div className="col gap-20">
       <PageHeader title="DNS" />
 
       {statusLoading && (
@@ -49,12 +49,12 @@ export default function Dns() {
       )}
 
       {status && config && (
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className="col gap-20">
           {/* Status & Cache cards */}
           <div className="grid gap-4 sm:grid-cols-2">
             {/* Status card */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex items-center justify-between">
                 <CardTitle className="text-sm font-medium text-ink-3">DNS server</CardTitle>
                 <StatusBadge
                   tone={status.running ? "success" : "neutral"}
@@ -91,7 +91,7 @@ export default function Dns() {
 
             {/* Cache card */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex items-center justify-between">
                 <CardTitle className="text-sm font-medium text-ink-3">Cache</CardTitle>
                 <Button
                   variant="outline"
@@ -127,7 +127,7 @@ export default function Dns() {
 
           {/* Query log card */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-ink-3">Query log</CardTitle>
               <Button asChild variant="outline" size="sm">
                 <Link to="/dns/logs">View DNS log →</Link>
@@ -196,7 +196,7 @@ export default function Dns() {
             </CardHeader>
             <CardContent>
               {config.upstream_servers.length === 0 ? (
-                <p className="text-sm text-ink-3">No upstream servers configured.</p>
+                <div className="empty">No upstream servers configured.</div>
               ) : (
                 <div className="divide-y">
                   {config.upstream_servers.map((server, i) => (
@@ -220,6 +220,6 @@ export default function Dns() {
           </Card>
         </div>
       )}
-    </>
+    </div>
   );
 }
