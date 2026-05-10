@@ -6,7 +6,6 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/core/ui/table";
 import { cn } from "@/lib/utils";
 
 declare module "@tanstack/react-table" {
@@ -35,7 +34,23 @@ interface DataTableProps<TData, TValue> {
   fixedLayout?: boolean;
 }
 
-/** Reusable data table built on TanStack Table + shadcn Table primitives. */
+/**
+ * Forge §05 data-table primitive. The `.tbl` Forge class owns the
+ * visual contract — uppercase header on --bg-elev, hairline row
+ * dividers, hover tint, sticky <th> — so this wrapper just attaches
+ * the class and renders the TanStack header/body groups onto native
+ * <thead>/<tbody>. `.host` row markup is contributed by callers via
+ * the column `cell` renderer (see HostCell in compound/) so this
+ * primitive stays unaware of row content.
+ *
+ * The outer `.tbl-wrap` mirrors `.card.card--flush` (border + shadow
+ * on --bg-card) but deliberately omits `overflow: hidden`: any
+ * non-visible overflow on an ancestor turns that ancestor into the
+ * scroll container for sticky positioning, which would prevent the
+ * <th> from pinning to the page-level scroll. We render the <table>
+ * directly under the wrapper for the same reason — no inner div
+ * with overflow.
+ */
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -49,62 +64,47 @@ export function DataTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const rows = table.getRowModel().rows;
+
   return (
-    // Note: no `overflow-*` here — any non-visible overflow on an ancestor
-    // disables `position: sticky` on the <th> below, so headers can't pin
-    // to the scroll context. We also bypass the shadcn `<Table>`
-    // primitive because it wraps `<table>` in a `<div overflow-x-auto>`
-    // that has the same clipping side-effect; rendering the `<table>`
-    // ourselves keeps sticky positioning working all the way up to the
-    // nearest scrolling ancestor (page-level main, or a per-page
-    // wrapper like the DNS log's flex column).
-    <div className="rounded-xl border border-line">
-      <table className={cn("w-full caption-bottom text-sm", fixedLayout && "table-fixed")}>
-        <TableHeader>
+    <div className="tbl-wrap">
+      <table className={cn("tbl", fixedLayout && "tbl--fixed")}>
+        <thead>
           {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id} className="bg-sunken hover:bg-sunken">
+            <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  className={cn(
-                    "sticky top-0 z-10 bg-sunken px-4 py-3 text-ink-3",
-                    header.column.columnDef.meta?.className,
-                  )}
-                >
+                <th key={header.id} className={header.column.columnDef.meta?.className}>
                   {header.isPlaceholder
                     ? null
                     : flexRender(header.column.columnDef.header, header.getContext())}
-                </TableHead>
+                </th>
               ))}
-            </TableRow>
+            </tr>
           ))}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows?.length ? (
-            table.getRowModel().rows.map((row) => (
-              <TableRow
+        </thead>
+        <tbody>
+          {rows.length ? (
+            rows.map((row) => (
+              <tr
                 key={row.id}
-                className={onRowClick ? "cursor-pointer" : undefined}
+                data-clickable={onRowClick ? "true" : undefined}
                 onClick={onRowClick ? () => onRowClick(row.original) : undefined}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={cn("px-4 py-3", cell.column.columnDef.meta?.className)}
-                  >
+                  <td key={cell.id} className={cell.column.columnDef.meta?.className}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+                  </td>
                 ))}
-              </TableRow>
+              </tr>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center text-ink-3">
+            <tr>
+              <td colSpan={columns.length} className="tbl-empty">
                 {emptyMessage}
-              </TableCell>
-            </TableRow>
+              </td>
+            </tr>
           )}
-        </TableBody>
+        </tbody>
       </table>
     </div>
   );

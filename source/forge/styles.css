@@ -398,6 +398,16 @@ button { font-family: inherit; }
 .btn--icon { padding: 6px 7px; }
 
 /* ---------- Tables ---------- */
+/* Forge §05 components inventory binds `.tbl` (+ `.host` row pattern)
+   to the data-table primitive (TanStack Table on top of native
+   <table>). Visual contract from screens.jsx (Devices) and
+   detail-screens.jsx (per-device tables): uppercase 11.5px header on
+   --bg-elev, hairline row dividers at --line, hover row tinted with
+   --bg-sunken. No zebra — the row hairline carries separation.
+   Numeric/IP/MAC cells opt into mono via the global `.mono` utility;
+   `.tbl` itself stays font-family-neutral so labels read as sans.
+   TanStack Table renders rows as native <tr>, so all selectors below
+   apply unmodified to the wrapper's output. */
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th {
   text-align: left;
@@ -409,6 +419,9 @@ button { font-family: inherit; }
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
   background: var(--bg-elev);
+  /* Sticky header pins to the nearest scrolling ancestor — see
+     `.tbl-wrap` below for the deliberately non-clipping wrapper that
+     keeps this working. */
   position: sticky; top: 0;
 }
 .tbl td {
@@ -419,6 +432,9 @@ button { font-family: inherit; }
 }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tr:hover td { background: color-mix(in oklab, var(--bg-sunken) 70%, transparent); }
+/* Row click affordance — applied at row level so the whole <tr>
+   participates (TanStack Table's row click handler lives on the <tr>). */
+.tbl tr[data-clickable="true"] { cursor: pointer; }
 .tbl .actions { text-align: right; white-space: nowrap; }
 .tbl .actions a {
   font-size: 12.5px;
@@ -428,6 +444,32 @@ button { font-family: inherit; }
 }
 .tbl .actions a:hover { color: var(--ink); }
 .tbl .actions a.danger:hover { color: var(--danger); }
+/* `.tbl--fixed` opts a table into `table-layout: fixed` so per-column
+   widths declared on <th>/<td> are honoured regardless of cell
+   content. Live-data tables (DNS log, filtered views) use this to
+   prevent column reflow as rows stream in. */
+.tbl--fixed { table-layout: fixed; }
+/* Empty-state cell rendered when TanStack reports zero rows; centred
+   muted text spanning all columns. */
+.tbl .tbl-empty {
+  height: 96px;
+  text-align: center;
+  color: var(--ink-3);
+}
+
+/* `.tbl-wrap` is the data-table primitive's outer surface. It mirrors
+   `.card.card--flush` (rounded border on --bg-card with --shadow-card)
+   but deliberately omits `overflow: hidden` because the wrapper
+   becoming the scroll container would break the sticky <th> on rows
+   above. Sticky promotes to the nearest *scrolling* ancestor; we want
+   that to remain page-level (or a per-page flex column), not this
+   wrapper. */
+.tbl-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
 
 .host {
   display: flex; align-items: center; gap: 12px;
