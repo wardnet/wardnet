@@ -22,6 +22,7 @@ pub mod system;
 pub mod device_detector;
 pub mod garp_learning;
 pub mod heartbeat;
+pub mod mdns_advertiser;
 pub mod metrics_collector;
 pub mod profiling;
 pub mod route_monitor;

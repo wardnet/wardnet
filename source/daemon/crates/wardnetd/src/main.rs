@@ -26,6 +26,7 @@ use wardnetd::firewall_nftables::NftablesFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
+use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
@@ -344,6 +345,30 @@ async fn run(
     // accurate to within the heartbeat window.
     let heartbeat_runner = HeartbeatRunner::start(services.system.clone(), &root_span);
 
+    // mDNS advertiser: publishes `<hostname>.local.` (default
+    // `wardnet.local.`) so the setup wizard is reachable without
+    // knowing the LAN IP. Failure here is non-fatal — the wizard
+    // remains reachable by IP.
+    let mdns_advertiser = if config.mdns.enabled {
+        match MdnsAdvertiser::start(
+            &config.mdns,
+            &config.network.lan_interface,
+            lan_ip,
+            config.server.port,
+            env!("WARDNET_VERSION"),
+            &root_span,
+        ) {
+            Ok(advertiser) => Some(advertiser),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to start mDNS advertiser; continuing without it: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("mDNS advertiser disabled");
+        None
+    };
+
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
@@ -587,6 +612,9 @@ async fn run(
     backup_cleanup_runner.shutdown().await;
     tunnel_metrics_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
+    if let Some(advertiser) = mdns_advertiser {
+        advertiser.shutdown().await;
+    }
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }
