@@ -11,7 +11,7 @@
  *    gratuitous-reply frames sent from the daemon's LAN-iface MAC,
  *    with the configured `sender_ip` and broadcast destination.
  * 3. **Drive passive learning**: `POST /arp/send` from `test_debian`
- *    with `sender_mac = AA:BB:CC:DD:EE:01, sender_ip = 10.91.0.5` so
+ *    with `sender_mac = aa:bb:cc:dd:ee:01, sender_ip = 10.91.0.5` so
  *    the daemon's discovery loop populates `garp_router_mac`.
  * 4. **Farewell phase**: capture ARP traffic and trigger another
  *    restart. Assert ≥2 gratuitous-reply frames whose sender MAC

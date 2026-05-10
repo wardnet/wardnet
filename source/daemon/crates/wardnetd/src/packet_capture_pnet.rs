@@ -129,10 +129,16 @@ pub async fn wait_for_interface_ipv4(
     }
 }
 
-/// Format a `pnet` `MacAddr` as uppercase colon-separated "AA:BB:CC:DD:EE:FF".
+/// Format a `pnet` `MacAddr` as lowercase colon-separated "aa:bb:cc:dd:ee:ff".
+///
+/// Lowercase is the project-wide canonical form (issue #312). Every
+/// MAC string downstream — device registry, lease events, GARP-learned
+/// router MAC — flows from this function, so emitting lowercase here
+/// keeps cross-source lookups (devices ↔ DHCP) string-equal without
+/// per-call normalisation.
 pub(crate) fn format_mac(mac: MacAddr) -> String {
     format!(
-        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac.0, mac.1, mac.2, mac.3, mac.4, mac.5
     )
 }

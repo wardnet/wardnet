@@ -53,6 +53,15 @@ struct MockDeviceRepo {
 
 impl MockDeviceRepo {
     fn with_devices(devices: Vec<Device>) -> Self {
+        // Mirror the SQLite repo: stored MAC is always canonical lowercase
+        // (#312), so seed fixtures get the same treatment.
+        let devices = devices
+            .into_iter()
+            .map(|mut d| {
+                d.mac = d.mac.to_lowercase();
+                d
+            })
+            .collect();
         Self {
             devices: Mutex::new(devices),
             inserted: Mutex::new(Vec::new()),
@@ -77,6 +86,8 @@ impl DeviceRepository for MockDeviceRepo {
     }
 
     async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
+        // Mirror the SQLite repo: MAC is stored canonical lowercase (#312).
+        let mac = mac.to_lowercase();
         let devices = self.devices.lock().unwrap();
         Ok(devices.iter().find(|d| d.mac == mac).cloned())
     }
@@ -86,10 +97,12 @@ impl DeviceRepository for MockDeviceRepo {
     }
 
     async fn insert(&self, device: &DeviceRow) -> anyhow::Result<()> {
+        // Mirror the SQLite repo: MAC stored canonical lowercase (#312).
+        let mac = device.mac.to_lowercase();
         let mut inserted = self.inserted.lock().unwrap();
         inserted.push(DeviceRow {
             id: device.id.clone(),
-            mac: device.mac.clone(),
+            mac: mac.clone(),
             hostname: device.hostname.clone(),
             manufacturer: device.manufacturer.clone(),
             device_type: device.device_type.clone(),
@@ -102,7 +115,7 @@ impl DeviceRepository for MockDeviceRepo {
         let mut devices = self.devices.lock().unwrap();
         devices.push(Device {
             id: device.id.parse().unwrap(),
-            mac: device.mac.clone(),
+            mac: mac.clone(),
             name: None,
             hostname: device.hostname.clone(),
             manufacturer: device.manufacturer.clone(),
@@ -282,9 +295,11 @@ impl MockDhcpRepository {
     }
 
     fn with_lease_hostnames(entries: Vec<(&str, Option<&str>)>) -> Self {
+        // Mirror the SQLite repo: keys are stored canonical lowercase
+        // (#312) so that a lookup with mixed-case input still hits.
         let mut leases_by_mac = HashMap::new();
         for (mac, hostname) in entries {
-            leases_by_mac.insert(mac.to_owned(), hostname.map(ToOwned::to_owned));
+            leases_by_mac.insert(mac.to_lowercase(), hostname.map(ToOwned::to_owned));
         }
         Self { leases_by_mac }
     }
@@ -299,9 +314,10 @@ impl DhcpRepository for MockDhcpRepository {
         unreachable!()
     }
     async fn find_active_lease_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpLease>> {
-        Ok(self.leases_by_mac.get(mac).map(|hostname| DhcpLease {
+        let mac = mac.to_lowercase();
+        Ok(self.leases_by_mac.get(&mac).map(|hostname| DhcpLease {
             id: Uuid::nil(),
-            mac_address: mac.to_owned(),
+            mac_address: mac.clone(),
             ip_address: Ipv4Addr::new(192, 168, 1, 10),
             hostname: hostname.clone(),
             lease_start: Utc::now(),
@@ -353,6 +369,9 @@ impl DhcpRepository for MockDhcpRepository {
         unreachable!()
     }
     async fn find_lease_logs(&self, _lease_id: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
+        unreachable!()
+    }
+    async fn find_lease_logs_by_mac(&self, _mac: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
         unreachable!()
     }
 }
@@ -439,7 +458,7 @@ fn build_harness_with_resolver_and_dhcp(
 #[tokio::test]
 async fn process_observation_new_device() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
     let result = h.svc.process_observation(&obs).await.unwrap();
     assert!(
@@ -450,7 +469,7 @@ async fn process_observation_new_device() {
     // Verify device was inserted.
     let inserted = h.repo.inserted.lock().unwrap();
     assert_eq!(inserted.len(), 1);
-    assert_eq!(inserted[0].mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(inserted[0].mac, "aa:bb:cc:dd:ee:01");
     assert_eq!(inserted[0].last_ip, "192.168.1.10");
 
     // Verify DeviceDiscovered event was emitted.
@@ -460,14 +479,14 @@ async fn process_observation_new_device() {
         &events[0],
         WardnetEvent::DeviceDiscovered {
             mac, ip, ..
-        } if mac == "AA:BB:CC:DD:EE:01" && ip == "192.168.1.10"
+        } if mac == "aa:bb:cc:dd:ee:01" && ip == "192.168.1.10"
     ));
 }
 
 #[tokio::test]
 async fn process_observation_known_device_same_ip() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
     // First observation registers the device.
     h.svc.process_observation(&obs).await.unwrap();
@@ -490,14 +509,14 @@ async fn process_observation_known_device_same_ip() {
 #[tokio::test]
 async fn process_observation_known_device_different_ip() {
     let h = build_harness();
-    let obs1 = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs1 = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     h.svc.process_observation(&obs1).await.unwrap();
 
     // Clear events.
     h.events.events.lock().unwrap().clear();
 
     // Second observation with same MAC but different IP.
-    let obs2 = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.20");
+    let obs2 = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.20");
     let result = h.svc.process_observation(&obs2).await.unwrap();
     assert!(
         matches!(
@@ -526,7 +545,7 @@ async fn process_observation_known_device_different_ip() {
 #[tokio::test]
 async fn process_observation_gone_device_returns() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
     // Register device.
     h.svc.process_observation(&obs).await.unwrap();
@@ -556,7 +575,7 @@ async fn process_observation_gone_device_returns() {
 #[tokio::test]
 async fn flush_last_seen_updates_batch() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     h.svc.process_observation(&obs).await.unwrap();
 
     let count = h.svc.flush_last_seen().await.unwrap();
@@ -569,7 +588,7 @@ async fn flush_last_seen_updates_batch() {
 #[tokio::test]
 async fn scan_departures_emits_device_gone() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     h.svc.process_observation(&obs).await.unwrap();
 
     // Clear events from registration.
@@ -587,14 +606,14 @@ async fn scan_departures_emits_device_gone() {
         &events[0],
         WardnetEvent::DeviceGone {
             mac, last_ip, ..
-        } if mac == "AA:BB:CC:DD:EE:01" && last_ip == "192.168.1.10"
+        } if mac == "aa:bb:cc:dd:ee:01" && last_ip == "192.168.1.10"
     ));
 }
 
 #[tokio::test]
 async fn scan_departures_ignores_recent() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     h.svc.process_observation(&obs).await.unwrap();
 
     // Clear events.
@@ -613,7 +632,7 @@ async fn scan_departures_ignores_recent() {
 async fn get_all_devices_as_admin() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let h = build_harness_with_devices(vec![device]);
@@ -622,29 +641,29 @@ async fn get_all_devices_as_admin() {
         .await
         .unwrap();
     assert_eq!(devices.len(), 1);
-    assert_eq!(devices[0].mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(devices[0].mac, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
 async fn get_all_devices_as_device_returns_own_only() {
     let dev_a = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let dev_b = sample_device(
         "00000000-0000-0000-0000-000000000002",
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.11",
     );
     let h = build_harness_with_devices(vec![dev_a, dev_b]);
 
     let found =
-        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:01"), h.svc.get_all_devices())
+        auth_context::with_context(device_ctx("aa:bb:cc:dd:ee:01"), h.svc.get_all_devices())
             .await
             .unwrap();
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(found[0].mac, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
@@ -678,31 +697,31 @@ async fn get_device_by_id_anonymous_forbidden() {
 async fn get_device_by_id_device_can_view_own() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
     let result =
-        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:01"), h.svc.get_device_by_id(id))
+        auth_context::with_context(device_ctx("aa:bb:cc:dd:ee:01"), h.svc.get_device_by_id(id))
             .await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(result.unwrap().mac, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
 async fn get_device_by_id_device_cannot_view_other() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
     let result =
-        auth_context::with_context(device_ctx("AA:BB:CC:DD:EE:99"), h.svc.get_device_by_id(id))
+        auth_context::with_context(device_ctx("aa:bb:cc:dd:ee:99"), h.svc.get_device_by_id(id))
             .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
@@ -711,7 +730,7 @@ async fn get_device_by_id_device_cannot_view_other() {
 async fn update_device_sets_name_and_type_as_admin() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -738,7 +757,7 @@ async fn update_device_sets_name_and_type_as_admin() {
 async fn update_device_anonymous_forbidden() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -756,14 +775,14 @@ async fn update_device_anonymous_forbidden() {
 async fn update_device_as_device_own_allowed() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
     let result = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:01"),
+        device_ctx("aa:bb:cc:dd:ee:01"),
         h.svc.update_device(id, Some("My Phone"), None),
     )
     .await;
@@ -775,14 +794,14 @@ async fn update_device_as_device_own_allowed() {
 async fn update_device_as_device_other_forbidden() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
     let h = build_harness_with_devices(vec![device]);
 
     let result = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:99"),
+        device_ctx("aa:bb:cc:dd:ee:99"),
         h.svc.update_device(id, Some("name"), None),
     )
     .await;
@@ -793,7 +812,7 @@ async fn update_device_as_device_other_forbidden() {
 async fn update_device_as_device_admin_locked_forbidden() {
     let mut device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     device.admin_locked = true;
@@ -801,7 +820,7 @@ async fn update_device_as_device_admin_locked_forbidden() {
     let h = build_harness_with_devices(vec![device]);
 
     let result = auth_context::with_context(
-        device_ctx("AA:BB:CC:DD:EE:01"),
+        device_ctx("aa:bb:cc:dd:ee:01"),
         h.svc.update_device(id, Some("name"), None),
     )
     .await;
@@ -812,7 +831,7 @@ async fn update_device_as_device_admin_locked_forbidden() {
 async fn resolve_hostname_falls_back_to_reverse_dns() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -821,7 +840,7 @@ async fn resolve_hostname_falls_back_to_reverse_dns() {
     let h = build_harness_with_resolver(vec![device], mappings);
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -835,14 +854,14 @@ async fn resolve_hostname_falls_back_to_reverse_dns() {
 async fn resolve_hostname_no_result_does_not_update_db() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     // Empty resolver and no DHCP lease: nothing to write.
     let h = build_harness_with_resolver(vec![device], HashMap::new());
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -857,7 +876,7 @@ async fn resolve_hostname_no_result_does_not_update_db() {
 async fn resolve_hostname_prefers_dhcp_over_reverse_dns() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -875,7 +894,7 @@ async fn resolve_hostname_prefers_dhcp_over_reverse_dns() {
     let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -889,7 +908,7 @@ async fn resolve_hostname_prefers_dhcp_over_reverse_dns() {
 async fn resolve_hostname_falls_back_when_dhcp_value_empty() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
 
@@ -900,7 +919,7 @@ async fn resolve_hostname_falls_back_when_dhcp_value_empty() {
     let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -913,7 +932,7 @@ async fn resolve_hostname_falls_back_when_dhcp_value_empty() {
 async fn resolve_hostname_falls_back_when_no_active_lease() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
 
@@ -924,7 +943,7 @@ async fn resolve_hostname_falls_back_when_no_active_lease() {
         build_harness_with_resolver_and_dhcp(vec![device], mappings, MockDhcpRepository::empty());
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -941,7 +960,7 @@ async fn resolve_hostname_no_op_when_device_not_registered() {
     let h = build_harness_with_resolver_and_dhcp(vec![], HashMap::new(), dhcp);
 
     h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:99", "192.168.1.99")
+        .resolve_hostname("aa:bb:cc:dd:ee:99", "192.168.1.99")
         .await
         .unwrap();
 
@@ -950,15 +969,16 @@ async fn resolve_hostname_no_op_when_device_not_registered() {
 }
 
 #[tokio::test]
-async fn resolve_hostname_normalises_mac_case_across_sources() {
-    // Reproduces the production split: packet capture stores devices with
-    // uppercase MACs, DHCP service stores leases with lowercase. The
-    // lease-event listener calls resolve_hostname with the lowercase form.
-    // Both lookups must succeed regardless. Tracked for canonicalisation
-    // in wardnet/wardnet#312.
+async fn resolve_hostname_tolerates_mixed_case_caller() {
+    // Even though MAC is canonicalised to lowercase across the data
+    // layer post-#312, callers (and historical event payloads) may
+    // arrive with mixed case. The repository layer normalises at the
+    // boundary, so a single uppercase MAC fed to `resolve_hostname`
+    // must still match the lowercase rows in both the device registry
+    // and the DHCP repository.
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -969,9 +989,9 @@ async fn resolve_hostname_normalises_mac_case_across_sources() {
     )]);
     let h = build_harness_with_resolver_and_dhcp(vec![device], HashMap::new(), dhcp);
 
-    // Listener-driven call: lowercase MAC (matches the event payload).
+    // Caller uses uppercase; both lookups must still hit.
     h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -985,7 +1005,7 @@ async fn resolve_hostname_normalises_mac_case_across_sources() {
 async fn restore_devices_populates_in_memory_state() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let h = build_harness_with_devices(vec![device]);
@@ -994,7 +1014,7 @@ async fn restore_devices_populates_in_memory_state() {
 
     // After restore, processing the same MAC should not create a new device
     // because restore marks devices as gone; re-observing should reappear them.
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     let result = h.svc.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
@@ -1018,7 +1038,7 @@ async fn restore_devices_empty_repo() {
 async fn update_device_without_device_type_preserves_existing() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -1053,7 +1073,7 @@ async fn update_device_not_found() {
 async fn get_device_by_id_success() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let id = device.id;
@@ -1063,13 +1083,13 @@ async fn get_device_by_id_success() {
         .await
         .unwrap();
     assert_eq!(result.id, id);
-    assert_eq!(result.mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(result.mac, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
 async fn flush_last_seen_with_gone_devices_skips_them() {
     let h = build_harness();
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
     h.svc.process_observation(&obs).await.unwrap();
 
     // Mark device as departed.
@@ -1086,14 +1106,14 @@ async fn process_observation_reappear_from_db_not_memory() {
     // Device exists in DB (from a previous daemon run) but not in memory.
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     );
     let h = build_harness_with_devices(vec![device]);
 
     // Do NOT call restore_devices, so the in-memory map is empty.
     // Observing should find the device in the DB and reappear it.
-    let obs = sample_observation("AA:BB:CC:DD:EE:01", "192.168.1.20");
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.20");
     let result = h.svc.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),

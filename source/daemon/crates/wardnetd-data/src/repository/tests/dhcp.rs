@@ -35,13 +35,13 @@ async fn insert_and_find_lease_by_id() {
     let repo = SqliteDhcpRepository::new(pool);
     let id = "00000000-0000-0000-0000-000000000001";
 
-    repo.insert_lease(&sample_lease_row(id, "AA:BB:CC:DD:EE:01", "192.168.1.100"))
+    repo.insert_lease(&sample_lease_row(id, "aa:bb:cc:dd:ee:01", "192.168.1.100"))
         .await
         .unwrap();
 
     let lease = repo.find_lease_by_id(id).await.unwrap().unwrap();
     assert_eq!(lease.id.to_string(), id);
-    assert_eq!(lease.mac_address, "AA:BB:CC:DD:EE:01");
+    assert_eq!(lease.mac_address, "aa:bb:cc:dd:ee:01");
     assert_eq!(lease.ip_address.to_string(), "192.168.1.100");
     assert_eq!(lease.hostname, Some("test-host".to_owned()));
     assert_eq!(lease.status, DhcpLeaseStatus::Active);
@@ -67,6 +67,39 @@ async fn find_active_lease_by_mac() {
 
     repo.insert_lease(&sample_lease_row(
         "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.100",
+    ))
+    .await
+    .unwrap();
+
+    let lease = repo
+        .find_active_lease_by_mac("aa:bb:cc:dd:ee:01")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.mac_address, "aa:bb:cc:dd:ee:01");
+
+    // Non-existent MAC returns None.
+    let missing = repo
+        .find_active_lease_by_mac("ff:ff:ff:ff:ff:ff")
+        .await
+        .unwrap();
+    assert!(missing.is_none());
+}
+
+/// Cross-case equality acceptance test for issue #312: an uppercase MAC
+/// inserted into a lease must be findable with a lowercase argument and
+/// vice versa, with the canonical (lowercase) form coming back from the
+/// row. Pinning this contract is what lets `DhcpService` and
+/// `DeviceDiscoveryService` stop normalising MAC casing per call.
+#[tokio::test]
+async fn lease_uppercase_mac_is_findable_by_lowercase() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    repo.insert_lease(&sample_lease_row(
+        "00000000-0000-0000-0000-000000000001",
         "AA:BB:CC:DD:EE:01",
         "192.168.1.100",
     ))
@@ -74,18 +107,39 @@ async fn find_active_lease_by_mac() {
     .unwrap();
 
     let lease = repo
+        .find_active_lease_by_mac("aa:bb:cc:dd:ee:01")
+        .await
+        .unwrap()
+        .expect("lowercase lookup must hit the lease inserted with uppercase MAC");
+    assert_eq!(lease.mac_address, "aa:bb:cc:dd:ee:01");
+
+    let again = repo
         .find_active_lease_by_mac("AA:BB:CC:DD:EE:01")
         .await
         .unwrap()
-        .unwrap();
-    assert_eq!(lease.mac_address, "AA:BB:CC:DD:EE:01");
+        .expect("uppercase lookup must hit the same canonical lease");
+    assert_eq!(again.id, lease.id);
+}
 
-    // Non-existent MAC returns None.
-    let missing = repo
-        .find_active_lease_by_mac("FF:FF:FF:FF:FF:FF")
+#[tokio::test]
+async fn reservation_uppercase_mac_is_findable_by_lowercase() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    repo.insert_reservation(&sample_reservation_row(
+        "00000000-0000-0000-0000-000000000001",
+        "AA:BB:CC:DD:EE:01",
+        "192.168.1.50",
+    ))
+    .await
+    .unwrap();
+
+    let res = repo
+        .find_reservation_by_mac("aa:bb:cc:dd:ee:01")
         .await
-        .unwrap();
-    assert!(missing.is_none());
+        .unwrap()
+        .expect("lowercase lookup must hit the reservation inserted with uppercase MAC");
+    assert_eq!(res.mac_address, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
@@ -95,7 +149,7 @@ async fn find_active_lease_by_ip() {
 
     repo.insert_lease(&sample_lease_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.100",
     ))
     .await
@@ -120,14 +174,14 @@ async fn list_active_leases() {
 
     repo.insert_lease(&sample_lease_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.100",
     ))
     .await
     .unwrap();
     repo.insert_lease(&sample_lease_row(
         "00000000-0000-0000-0000-000000000002",
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.101",
     ))
     .await
@@ -140,7 +194,7 @@ async fn list_active_leases() {
 
     let active = repo.list_active_leases().await.unwrap();
     assert_eq!(active.len(), 1);
-    assert_eq!(active[0].mac_address, "AA:BB:CC:DD:EE:01");
+    assert_eq!(active[0].mac_address, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
@@ -149,7 +203,7 @@ async fn update_lease_status() {
     let repo = SqliteDhcpRepository::new(pool);
     let id = "00000000-0000-0000-0000-000000000001";
 
-    repo.insert_lease(&sample_lease_row(id, "AA:BB:CC:DD:EE:01", "192.168.1.100"))
+    repo.insert_lease(&sample_lease_row(id, "aa:bb:cc:dd:ee:01", "192.168.1.100"))
         .await
         .unwrap();
     repo.update_lease_status(id, "released").await.unwrap();
@@ -164,7 +218,7 @@ async fn renew_lease() {
     let repo = SqliteDhcpRepository::new(pool);
     let id = "00000000-0000-0000-0000-000000000001";
 
-    repo.insert_lease(&sample_lease_row(id, "AA:BB:CC:DD:EE:01", "192.168.1.100"))
+    repo.insert_lease(&sample_lease_row(id, "aa:bb:cc:dd:ee:01", "192.168.1.100"))
         .await
         .unwrap();
 
@@ -209,7 +263,7 @@ async fn expire_stale_leases() {
     // Insert a lease that already expired (lease_end in the past).
     let mut stale = sample_lease_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.100",
     );
     stale.lease_end = "2020-01-01T00:00:00Z".to_owned();
@@ -217,7 +271,7 @@ async fn expire_stale_leases() {
     // Insert a lease that is still active (lease_end far in the future).
     let fresh = sample_lease_row(
         "00000000-0000-0000-0000-000000000002",
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.101",
     );
 
@@ -251,14 +305,14 @@ async fn insert_and_list_reservations() {
 
     repo.insert_reservation(&sample_reservation_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.50",
     ))
     .await
     .unwrap();
     repo.insert_reservation(&sample_reservation_row(
         "00000000-0000-0000-0000-000000000002",
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.51",
     ))
     .await
@@ -276,7 +330,7 @@ async fn delete_reservation() {
 
     repo.insert_reservation(&sample_reservation_row(
         id,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.50",
     ))
     .await
@@ -294,25 +348,25 @@ async fn find_reservation_by_mac() {
 
     repo.insert_reservation(&sample_reservation_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.50",
     ))
     .await
     .unwrap();
 
     let res = repo
-        .find_reservation_by_mac("AA:BB:CC:DD:EE:01")
+        .find_reservation_by_mac("aa:bb:cc:dd:ee:01")
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(res.mac_address, "AA:BB:CC:DD:EE:01");
+    assert_eq!(res.mac_address, "aa:bb:cc:dd:ee:01");
     assert_eq!(res.ip_address.to_string(), "192.168.1.50");
     assert_eq!(res.hostname, Some("reserved-host".to_owned()));
     assert_eq!(res.description, Some("Test reservation".to_owned()));
 
     // Non-existent MAC returns None.
     let missing = repo
-        .find_reservation_by_mac("FF:FF:FF:FF:FF:FF")
+        .find_reservation_by_mac("ff:ff:ff:ff:ff:ff")
         .await
         .unwrap();
     assert!(missing.is_none());
@@ -325,7 +379,7 @@ async fn find_reservation_by_ip() {
 
     repo.insert_reservation(&sample_reservation_row(
         "00000000-0000-0000-0000-000000000001",
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.50",
     ))
     .await
@@ -337,7 +391,7 @@ async fn find_reservation_by_ip() {
         .unwrap()
         .unwrap();
     assert_eq!(res.ip_address.to_string(), "192.168.1.50");
-    assert_eq!(res.mac_address, "AA:BB:CC:DD:EE:01");
+    assert_eq!(res.mac_address, "aa:bb:cc:dd:ee:01");
 
     // Non-existent IP returns None.
     let missing = repo.find_reservation_by_ip("10.0.0.1").await.unwrap();
@@ -353,7 +407,7 @@ async fn insert_and_find_lease_logs() {
     // Insert a lease first (the log references it by ID).
     repo.insert_lease(&sample_lease_row(
         lease_id,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.100",
     ))
     .await
@@ -361,6 +415,7 @@ async fn insert_and_find_lease_logs() {
 
     repo.insert_lease_log(&DhcpLeaseLogRow {
         lease_id: lease_id.to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         event_type: "assigned".to_owned(),
         details: Some("Initial assignment".to_owned()),
     })
@@ -369,6 +424,7 @@ async fn insert_and_find_lease_logs() {
 
     repo.insert_lease_log(&DhcpLeaseLogRow {
         lease_id: lease_id.to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         event_type: "renewed".to_owned(),
         details: None,
     })
@@ -377,10 +433,69 @@ async fn insert_and_find_lease_logs() {
 
     let logs = repo.find_lease_logs(lease_id).await.unwrap();
     assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].mac_address, "aa:bb:cc:dd:ee:01");
     assert_eq!(logs[0].event_type, DhcpLeaseEventType::Assigned);
     assert_eq!(logs[0].details, Some("Initial assignment".to_owned()));
     assert_eq!(logs[1].event_type, DhcpLeaseEventType::Renewed);
     assert!(logs[1].details.is_none());
+}
+
+/// MAC-keyed lookup for the audit log: events for a given MAC remain
+/// queryable independently of the parent lease row, so a released or
+/// expired lease can be deleted without losing the per-device history
+/// (issue #312). Also pins the case-insensitivity contract.
+#[tokio::test]
+async fn find_lease_logs_by_mac_returns_all_events_for_mac() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool);
+
+    repo.insert_lease(&sample_lease_row(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.100",
+    ))
+    .await
+    .unwrap();
+
+    // Two events for the target MAC, plus one for an unrelated MAC.
+    repo.insert_lease_log(&DhcpLeaseLogRow {
+        lease_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        event_type: "assigned".to_owned(),
+        details: None,
+    })
+    .await
+    .unwrap();
+    repo.insert_lease_log(&DhcpLeaseLogRow {
+        lease_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
+        event_type: "renewed".to_owned(),
+        details: None,
+    })
+    .await
+    .unwrap();
+    repo.insert_lease_log(&DhcpLeaseLogRow {
+        lease_id: "00000000-0000-0000-0000-000000000002".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:99".to_owned(),
+        event_type: "assigned".to_owned(),
+        details: None,
+    })
+    .await
+    .unwrap();
+
+    let logs = repo
+        .find_lease_logs_by_mac("aa:bb:cc:dd:ee:01")
+        .await
+        .unwrap();
+    assert_eq!(logs.len(), 2);
+    assert!(logs.iter().all(|l| l.mac_address == "aa:bb:cc:dd:ee:01"));
+
+    // Uppercase argument hits the same canonical rows.
+    let logs_upper = repo
+        .find_lease_logs_by_mac("AA:BB:CC:DD:EE:01")
+        .await
+        .unwrap();
+    assert_eq!(logs_upper.len(), 2);
 }
 
 #[tokio::test]
@@ -389,7 +504,7 @@ async fn find_lease_by_id_released_status() {
     let repo = SqliteDhcpRepository::new(pool);
     let id = "00000000-0000-0000-0000-000000000003";
 
-    let mut row = sample_lease_row(id, "AA:BB:CC:DD:EE:03", "192.168.1.103");
+    let mut row = sample_lease_row(id, "aa:bb:cc:dd:ee:03", "192.168.1.103");
     row.status = "released".to_owned();
     repo.insert_lease(&row).await.unwrap();
 
@@ -403,7 +518,7 @@ async fn find_lease_by_id_expired_status() {
     let repo = SqliteDhcpRepository::new(pool);
     let id = "00000000-0000-0000-0000-000000000004";
 
-    let mut row = sample_lease_row(id, "AA:BB:CC:DD:EE:04", "192.168.1.104");
+    let mut row = sample_lease_row(id, "aa:bb:cc:dd:ee:04", "192.168.1.104");
     row.status = "expired".to_owned();
     repo.insert_lease(&row).await.unwrap();
 
@@ -419,7 +534,7 @@ async fn insert_and_find_lease_log_all_event_types() {
 
     repo.insert_lease(&sample_lease_row(
         lease_id,
-        "AA:BB:CC:DD:EE:10",
+        "aa:bb:cc:dd:ee:10",
         "192.168.1.110",
     ))
     .await
@@ -429,6 +544,7 @@ async fn insert_and_find_lease_log_all_event_types() {
     for event_type in &["assigned", "renewed", "released", "expired", "conflict"] {
         repo.insert_lease_log(&DhcpLeaseLogRow {
             lease_id: lease_id.to_owned(),
+            mac_address: "aa:bb:cc:dd:ee:10".to_owned(),
             event_type: (*event_type).to_owned(),
             details: Some(format!("test {event_type}")),
         })
@@ -465,7 +581,7 @@ async fn expire_stale_leases_none_to_expire() {
     // Insert only a fresh lease.
     repo.insert_lease(&sample_lease_row(
         "00000000-0000-0000-0000-000000000005",
-        "AA:BB:CC:DD:EE:05",
+        "aa:bb:cc:dd:ee:05",
         "192.168.1.105",
     ))
     .await
@@ -497,7 +613,7 @@ async fn reservation_without_optional_fields() {
 
     let row = DhcpReservationRow {
         id: id.to_owned(),
-        mac_address: "AA:BB:CC:DD:EE:06".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:06".to_owned(),
         ip_address: "192.168.1.60".to_owned(),
         hostname: None,
         description: None,
@@ -505,7 +621,7 @@ async fn reservation_without_optional_fields() {
     repo.insert_reservation(&row).await.unwrap();
 
     let res = repo
-        .find_reservation_by_mac("AA:BB:CC:DD:EE:06")
+        .find_reservation_by_mac("aa:bb:cc:dd:ee:06")
         .await
         .unwrap()
         .unwrap();

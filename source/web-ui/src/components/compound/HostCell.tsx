@@ -2,12 +2,12 @@ import type { Device } from "@wardnet/js";
 
 /**
  * MAC-keyed lookup map for matching DHCP/lease records to known devices.
- * Lower-cases on insert because MAC casing currently varies across the
- * stack (see wardnet/wardnet#312).
+ * MAC casing is canonical (lowercase) on the server (issue #312), so no
+ * per-key normalisation is needed.
  */
 export function buildDeviceIndex(devices: Device[]): Map<string, Device> {
   const map = new Map<string, Device>();
-  for (const d of devices) map.set(d.mac.toLowerCase(), d);
+  for (const d of devices) map.set(d.mac, d);
   return map;
 }
 

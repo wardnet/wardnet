@@ -14,8 +14,9 @@ use crate::error::AppError;
 use crate::system::{NetworkInspector, NetworkProbe, SystemPowerOps};
 use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 
-/// Loose colon-separated 6-octet MAC validator (e.g. `AA:BB:CC:DD:EE:FF`).
-/// Accepts upper or lower case; canonicalises to upper for storage.
+/// Loose colon-separated 6-octet MAC validator (e.g. `aa:bb:cc:dd:ee:ff`).
+/// Accepts upper or lower case; canonicalises to lowercase for storage
+/// per the project-wide MAC convention (issue #312).
 fn normalise_mac(input: &str) -> Option<String> {
     let trimmed = input.trim();
     let bytes: Vec<&str> = trimmed.split(':').collect();
@@ -30,7 +31,7 @@ fn normalise_mac(input: &str) -> Option<String> {
         if i > 0 {
             out.push(':');
         }
-        out.push_str(&byte.to_uppercase());
+        out.push_str(&byte.to_lowercase());
     }
     Some(out)
 }

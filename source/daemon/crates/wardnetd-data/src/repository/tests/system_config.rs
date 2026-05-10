@@ -68,7 +68,7 @@ async fn device_count_with_data() {
              VALUES (?, ?, ?, 'unknown', ?, ?)",
         )
         .bind(format!("00000000-0000-0000-0000-00000000000{i}"))
-        .bind(format!("AA:BB:CC:DD:EE:{i:02X}"))
+        .bind(format!("aa:bb:cc:dd:ee:{i:02x}"))
         .bind(format!("192.168.1.{}", 10 + i))
         .bind(now)
         .bind(now)
@@ -363,9 +363,9 @@ async fn router_mac_round_trip() {
 
     assert!(repo.get_router_mac().await.unwrap().is_none());
 
-    repo.set_router_mac("AA:BB:CC:DD:EE:FF").await.unwrap();
+    repo.set_router_mac("aa:bb:cc:dd:ee:ff").await.unwrap();
     assert_eq!(
         repo.get_router_mac().await.unwrap().as_deref(),
-        Some("AA:BB:CC:DD:EE:FF")
+        Some("aa:bb:cc:dd:ee:ff")
     );
 }

@@ -70,10 +70,15 @@ pub struct DhcpReservation {
 }
 
 /// A DHCP lease audit log entry.
+///
+/// `mac_address` is denormalised onto every row (issue #312) so the
+/// audit trail stays queryable without a JOIN to `dhcp_leases` — the
+/// table is the long-lived source of truth, leases come and go.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DhcpLeaseLog {
     pub id: i64,
     pub lease_id: Uuid,
+    pub mac_address: String,
     pub event_type: DhcpLeaseEventType,
     pub details: Option<String>,
     pub created_at: DateTime<Utc>,

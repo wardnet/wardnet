@@ -29,7 +29,7 @@ function createColumns(
       header: "Host",
       cell: ({ row }) => {
         const lease = row.original;
-        const device = deviceIndex.get(lease.mac_address.toLowerCase());
+        const device = deviceIndex.get(lease.mac_address);
         const primary = device?.name ?? lease.hostname ?? device?.hostname ?? lease.mac_address;
         const secondary = primary === lease.mac_address ? null : lease.mac_address;
         // Known devices reuse the device-table icon for visual consistency;

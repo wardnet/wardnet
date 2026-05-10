@@ -135,6 +135,7 @@ fn dhcp_lease_log_round_trip() {
     let log = DhcpLeaseLog {
         id: 1,
         lease_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         event_type: DhcpLeaseEventType::Assigned,
         details: Some("Initial assignment".to_owned()),
         created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
@@ -143,5 +144,6 @@ fn dhcp_lease_log_round_trip() {
     let back: DhcpLeaseLog = serde_json::from_str(&json).unwrap();
     assert_eq!(log.id, back.id);
     assert_eq!(log.lease_id, back.lease_id);
+    assert_eq!(log.mac_address, back.mac_address);
     assert_eq!(log.event_type, back.event_type);
 }
