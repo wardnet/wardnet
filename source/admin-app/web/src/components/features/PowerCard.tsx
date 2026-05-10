@@ -14,18 +14,18 @@ import {
 } from "@wardnet/forge-web/alert-modal";
 
 interface Props {
-  /** Confirm dialog → fires `POST /api/system/reboot`. Primary action. */
+  /** Confirm dialog → fires `POST /api/system/reboot`. Non-destructive lifecycle. */
   onReboot: () => void;
-  /** Confirm dialog → fires `POST /api/system/shutdown`. Destructive action. */
+  /** Confirm dialog → fires `POST /api/system/shutdown`. Destructive — lives outside the card. */
   onShutdown: () => void;
-  /** Confirm dialog → fires `POST /api/system/restart`. Advanced/secondary. */
+  /** Confirm dialog → fires `POST /api/system/restart`. Advanced/secondary lifecycle. */
   onRestartDaemon: () => void;
-  /** Disable all three buttons while any of the lifecycles is mid-flight. */
+  /** Disable every trigger (in-card and outside-card) while any lifecycle is mid-flight. */
   busy: boolean;
 }
 
 /**
- * Power controls card on the Settings page.
+ * Power controls block on the Settings page.
  *
  * Pure presentation: receives three callbacks and a `busy` flag, has
  * no idea TanStack Query or the SDK exist. Confirmation dialogs are
@@ -33,86 +33,87 @@ interface Props {
  * don't speculatively extract a generic compound until a second feature
  * needs the same shape).
  *
- * Visual hierarchy: all three are secondary actions — none is a
- * happy-path CTA, so they all use the `outline` variant. Shutdown
- * keeps the destructive (red) styling because it's the only one
- * that leaves the network without internet until the operator
- * physically powers the Pi back on.
+ * Layout follows the "danger-toned actions outside card" rule from the
+ * design-system §detail skill — non-destructive lifecycles (Reboot,
+ * Restart daemon) live inside the `Power` card; the destructive
+ * Shutdown sits outside the card in a danger-toned row below it.
  */
 export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props) {
-  // The two confirmation dialogs live as local state so we can keep
-  // the open/close logic right next to the corresponding button.
+  // Local open-state for each confirmation dialog so the open/close logic
+  // stays right next to the button that triggers it.
   const [rebootOpen, setRebootOpen] = useState(false);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Power</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {/* Safe Reboot — primary, default variant. */}
-        <div className="flex items-center justify-between border-b pb-3">
-          <div>
-            <div className="text-sm font-medium">Safe Reboot</div>
-            <div className="text-xs text-ink-3">
-              Reboot the Pi. Wardnet will be unavailable for ~30–60 seconds while it comes back up;
-              managed devices fall back to the upstream router during that gap.
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Power</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {/* Safe Reboot — non-destructive lifecycle, outline variant. */}
+          <div className="flex items-center justify-between border-b pb-3">
+            <div>
+              <div className="text-sm font-medium">Safe Reboot</div>
+              <div className="text-xs text-ink-3">
+                Reboot the Pi. Wardnet will be unavailable for ~30–60 seconds while it comes back
+                up; managed devices fall back to the upstream router during that gap.
+              </div>
             </div>
+            <Button
+              variant="outline"
+              onClick={() => setRebootOpen(true)}
+              disabled={busy}
+              aria-label="Safe Reboot"
+            >
+              <RotateCcwIcon />
+              Reboot
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setRebootOpen(true)}
-            disabled={busy}
-            aria-label="Safe Reboot"
-          >
-            <RotateCcwIcon />
-            Reboot
-          </Button>
-        </div>
 
-        {/* Safe Shutdown — destructive variant. */}
-        <div className="flex items-center justify-between border-b pb-3">
-          <div>
-            <div className="text-sm font-medium">Safe Shutdown</div>
-            <div className="text-xs text-ink-3">
-              Power the Pi off. Internet for managed devices will go through your home router until
-              you turn the Pi back on manually.
+          {/* Restart daemon — advanced, secondary, outline variant. */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Restart daemon (advanced)</div>
+              <div className="text-xs text-ink-3">
+                Restart only the wardnetd process. The Pi keeps running. Use this if support has
+                asked you to.
+              </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRestartOpen(true)}
+              disabled={busy}
+              aria-label="Restart daemon"
+            >
+              <RefreshCwIcon />
+              Restart daemon
+            </Button>
           </div>
-          <Button
-            variant="destructive"
-            onClick={() => setShutdownOpen(true)}
-            disabled={busy}
-            aria-label="Safe Shutdown"
-          >
-            <PowerIcon />
-            Shut down
-          </Button>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Restart daemon — small / secondary, advanced. */}
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium">Restart daemon (advanced)</div>
-            <div className="text-xs text-ink-3">
-              Restart only the wardnetd process. The Pi keeps running. Use this if support has asked
-              you to.
-            </div>
+      {/* Safe Shutdown — destructive action, outside the card per skill §detail. */}
+      <div className="flex items-center justify-between gap-4 rounded-md border border-danger-soft bg-danger-soft px-4 py-3">
+        <div>
+          <div className="text-sm font-medium text-danger-soft-ink">Safe Shutdown</div>
+          <div className="text-xs text-ink-3">
+            Power the Pi off. Internet for managed devices will go through your home router until
+            you turn the Pi back on manually.
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRestartOpen(true)}
-            disabled={busy}
-            aria-label="Restart daemon"
-          >
-            <RefreshCwIcon />
-            Restart daemon
-          </Button>
         </div>
-      </CardContent>
+        <Button
+          variant="destructive"
+          onClick={() => setShutdownOpen(true)}
+          disabled={busy}
+          aria-label="Safe Shutdown"
+        >
+          <PowerIcon />
+          Shut down
+        </Button>
+      </div>
 
       <AlertModal open={rebootOpen} onOpenChange={setRebootOpen}>
         <AlertModalContent>
@@ -196,6 +197,6 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
           </AlertModalFooter>
         </AlertModalContent>
       </AlertModal>
-    </Card>
+    </div>
   );
 }
