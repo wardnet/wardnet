@@ -285,7 +285,7 @@ all facts; status pills via `.pill--*`.
 | `components/layouts/Hero.tsx`     | [x]    | Ward Navy chrome via `bg-side` (gradient + raw oklch dropped); display via `.h-title` (scaled `text-5xl sm:text-6xl`); body via `.h-sub` with `text-side-ink`/`text-side-ink-2` ramp; Download CTA `.btn .btn--primary`, GitHub CTA `.btn`. Slice T7. |
 | `components/layouts/HowItWorks.tsx` / `Features.tsx` / `TechStack.tsx` / `GetStarted.tsx` / `Footer.tsx` | [x] | section bgs `bg-gray-50 dark:bg-[oklch(...)]` → `bg-sunken`; headings → `text-ink tracking-tight`; eyebrows/helpers → `text-ink-3`; HRs → `border-line`; Footer copyright → `text-ink-4`. Slice T7. |
 | `components/compound/CodeBlock.tsx` | [x]  | replaced `bg-[oklch(...)]` + raw `text-gray-200` with `bg-sunken` + `border-line` + `text-ink-2` + `font-mono`. Used token utilities (not full `.logs`/`.logrow`) since CodeBlock is a generic copy-paste snippet, not a timestamped log row. Slice T7. |
-| `components/compound/ErrorBoundary.tsx` | [ ] | full-page error using `.empty` + danger pill                                     |
+| `components/compound/ErrorBoundary.tsx` | [x] | inline full-page error: Forge `.empty` block + `.pill .pill--down` danger tag, `.h-title`/`.h-sub` copy, `.btn`/`.btn--primary` actions, `.kbd` for raw error message; replaces ErrorView delegation. Slice T7. |
 | `components/compound/FeatureCard.tsx` | [ ] | `.card` + headline stat + sub line                                                |
 | `components/compound/LatestReleaseBadge.tsx` | [ ] | `.pill` + mono version                                                       |
 | `components/compound/Logo.tsx`    | [ ]    | shield + signal mark — share with admin Logo if shape allows                       |

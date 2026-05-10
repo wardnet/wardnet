@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { ErrorView } from "@/pages/ErrorView";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -12,7 +12,8 @@ interface ErrorBoundaryState {
 /**
  * Root-level React error boundary. Catches exceptions thrown during render,
  * lifecycle, or event handlers of any descendant component and swaps the
- * subtree for a styled [`ErrorView`].
+ * subtree for a full-page Forge `.empty` block with a `.pill--down` danger
+ * tag.
  *
  * Class component because React still only supports error boundaries as
  * classes (`getDerivedStateFromError` + `componentDidCatch`). No hook
@@ -33,14 +34,40 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   handleRetry = () => {
-    // Clear the error so the subtree re-renders. Callers that want a full
-    // reload can pass their own handler via the <ErrorView> they render.
+    // Clear the error so the subtree re-renders. If clearing isn't enough
+    // (e.g. the failure is in a module-level singleton), the user can fall
+    // back to the browser refresh.
     this.setState({ error: null });
   };
 
   render() {
     if (this.state.error) {
-      return <ErrorView message={this.state.error.message} onRetry={this.handleRetry} />;
+      const message = this.state.error.message;
+      return (
+        <main className="col items-center justify-center min-h-screen p-6">
+          <div className="empty col items-center gap-12 max-w-xl">
+            <span className="pill pill--down">
+              <AlertTriangle size={12} aria-hidden="true" />
+              Unexpected error
+            </span>
+            <h1 className="h-title">Something broke on our end</h1>
+            <p className="h-sub">
+              The page hit an error while rendering. Try again — if it keeps happening, file an
+              issue and include what you were doing.
+            </p>
+            {message ? <pre className="kbd">{message}</pre> : null}
+            <div className="row gap-12 wrap">
+              <button type="button" className="btn btn--primary" onClick={this.handleRetry}>
+                <RefreshCw size={14} aria-hidden="true" />
+                Try again
+              </button>
+              <a className="btn" href="https://github.com/wardnet/wardnet/issues/new">
+                Report issue
+              </a>
+            </div>
+          </div>
+        </main>
+      );
     }
     return this.props.children;
   }
