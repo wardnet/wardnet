@@ -129,7 +129,10 @@ interface CronSchedulePickerProps {
   label?: string;
 }
 
-/** Popover-based schedule builder. Shows a human-readable label as the trigger. */
+/** Popover-based schedule builder. Shows a human-readable label as the
+ *  trigger; the popover body is a vertical cluster of `<Field>` rows whose
+ *  `.field` styling owns the label / control / gap rhythm — no ad-hoc
+ *  `flex flex-col gap-1.5` + `<p>` label re-implementations. */
 export function CronSchedulePicker({ value, onChange, label }: CronSchedulePickerProps) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<ScheduleState>(() => parseCron(value));
@@ -160,8 +163,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
         <PopoverContent className="w-80" align="start">
           <div className="flex flex-col gap-4 p-1">
             {/* Frequency */}
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-medium text-ink-3">Repeat</p>
+            <Field label="Repeat">
               <Select
                 value={state.frequency}
                 onValueChange={(v) => update({ frequency: v as Frequency })}
@@ -177,12 +179,11 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
                   <SelectItem value="monthly">Monthly</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
 
             {/* Interval — every N hours */}
             {state.frequency === "every-n-hours" && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-ink-3">Interval</p>
+              <Field label="Interval">
                 <Select
                   value={state.intervalHours}
                   onValueChange={(v) => update({ intervalHours: v })}
@@ -198,15 +199,14 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </Field>
             )}
 
             {/* Days of week — weekly (multi-select toggle row) */}
             {state.frequency === "weekly" && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-ink-3">Days</p>
+              <Field label="Days">
                 <div className="flex gap-1">
-                  {DOW_SHORT.map((label, i) => {
+                  {DOW_SHORT.map((dayLabel, i) => {
                     const active = state.daysOfWeek.includes(i);
                     return (
                       <Button
@@ -226,18 +226,17 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
                           update({ daysOfWeek: next });
                         }}
                       >
-                        {label}
+                        {dayLabel}
                       </Button>
                     );
                   })}
                 </div>
-              </div>
+              </Field>
             )}
 
             {/* Day of month — monthly */}
             {state.frequency === "monthly" && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-ink-3">Day of month</p>
+              <Field label="Day of month">
                 <Select value={state.dayOfMonth} onValueChange={(v) => update({ dayOfMonth: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -250,15 +249,14 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </Field>
             )}
 
             {/* Time — daily / weekly / monthly */}
             {(state.frequency === "daily" ||
               state.frequency === "weekly" ||
               state.frequency === "monthly") && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-ink-3">At</p>
+              <Field label="At">
                 <Select value={state.hour} onValueChange={(v) => update({ hour: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -271,7 +269,7 @@ export function CronSchedulePicker({ value, onChange, label }: CronSchedulePicke
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </Field>
             )}
 
             {/* Human-readable summary */}
