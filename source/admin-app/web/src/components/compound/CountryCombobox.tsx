@@ -21,7 +21,7 @@ export function CountryCombobox({
   const selected = countries.find((c) => c.code === value);
 
   const trigger = selected ? (
-    <span className="flex items-center gap-2">
+    <span className="row gap-8">
       <span>{countryFlag(selected.code)}</span>
       {selected.name}
     </span>
