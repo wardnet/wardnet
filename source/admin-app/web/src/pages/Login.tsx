@@ -6,7 +6,13 @@ import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { useAuth } from "@/hooks/useAuth";
 
-/** Admin login page — rendered inside AuthLayout's branded hero. */
+/**
+ * Admin login page — rendered inside AuthLayout's branded hero.
+ *
+ * AuthLayout already hosts a Forge `<Card>`, so this page renders only the
+ * form contents (no wrapper div, no inner card). Adding one here would
+ * produce a double-card stack on `--bg`.
+ */
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -35,43 +41,35 @@ export default function Login() {
   }
 
   return (
-    <div className="rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur-sm dark:bg-card/95">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <Field label="Username" htmlFor="username">
-          <Input
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            placeholder="admin"
-            required
-            className="h-12"
-          />
-        </Field>
-        <Field label="Password" htmlFor="password">
-          <Input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            placeholder="••••••••"
-            required
-            className="h-12"
-          />
-        </Field>
-        {error && <p className="text-sm text-danger">{error}</p>}
-        <p className="text-center text-xs text-ink-3">
-          Credentials are set during initial daemon setup.
-        </p>
-        <Button
-          type="submit"
-          disabled={loading}
-          className="h-12 w-full bg-[oklch(0.22_0.12_275)] text-base font-semibold tracking-wide text-white uppercase hover:bg-[oklch(0.28_0.12_275)] dark:bg-accent dark:hover:bg-accent/90"
-        >
-          {loading ? "Signing in…" : "Log in"}
-        </Button>
-      </form>
-    </div>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <Field label="Username" htmlFor="username">
+        <Input
+          id="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          placeholder="admin"
+          required
+        />
+      </Field>
+      <Field label="Password" htmlFor="password">
+        <Input
+          id="password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          placeholder="••••••••"
+          required
+        />
+      </Field>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      <p className="text-center text-xs text-ink-3">
+        Credentials are set during initial daemon setup.
+      </p>
+      <Button type="submit" disabled={loading} className="w-full">
+        {loading ? "Signing in…" : "Log in"}
+      </Button>
+    </form>
   );
 }
