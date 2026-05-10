@@ -28,9 +28,9 @@ function createColumns(
       // space; long URLs truncate via the inner spans (see fixedLayout
       // note on the DataTable below).
       cell: ({ row }) => (
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="col min-w-0 gap-0.5">
           <span className="truncate font-medium">{row.original.name}</span>
-          <span className="truncate font-mono text-xs text-ink-3" title={row.original.url}>
+          <span className="mono truncate text-xs text-ink-3" title={row.original.url}>
             {row.original.url}
           </span>
           {row.original.last_error && (
@@ -45,9 +45,7 @@ function createColumns(
       accessorKey: "entry_count",
       header: "Entries",
       meta: { className: "hidden w-24 sm:table-cell" },
-      cell: ({ row }) => (
-        <span className="tabular-nums">{row.original.entry_count.toLocaleString()}</span>
-      ),
+      cell: ({ row }) => <span className="mono">{row.original.entry_count.toLocaleString()}</span>,
     },
     {
       accessorKey: "last_updated",
@@ -77,7 +75,7 @@ function createColumns(
         const blocklist = row.original;
         const isRefreshing = refreshingId === blocklist.id;
         return (
-          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <div className="row justify-end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${blocklist.name}`}>
@@ -139,8 +137,8 @@ export function BlocklistTable({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+    <div className="col gap-16">
+      <div className="row justify-end">
         <Button variant="outline" onClick={onAdd}>
           Add blocklist
         </Button>

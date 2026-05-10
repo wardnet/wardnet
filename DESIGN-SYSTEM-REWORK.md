@@ -176,7 +176,7 @@ all facts; status pills via `.pill--*`.
 | ------------------------------- | ------ | ---------------------------------------------------------- |
 | AllowlistTable                  | [x]    | `.tbl` via DataTable (slice 1b primitive) — domain cell stays mono fact, reason + added cells use `text-ink-3`, `fixedLayout` keeps the 12rem actions column pinned; dropped shadcn `text-sm` so `.tbl`'s 13px owns the row font-size; public API (`entries` / `onDelete` / `onAdd`) preserved on 2026-05-10 |
 | ApiErrorAlert                   | [ ]    | `.pill--down` style or full-card error                     |
-| BlocklistTable                  | [ ]    | `.tbl`                                                     |
+| BlocklistTable                  | [x]    | `.tbl` via DataTable (slice 1b primitive) — name cell stack uses `.col` with `min-w-0`, URL + entry-count cells use `.mono` per styles.css §05 contract, outer wrapper on `.col gap-16` + `.row justify-end`, `fixedLayout` pins auxiliary column widths; public API (`blocklists` / `onRefresh` / `onToggle` / `onEdit` / `onDelete` / `refreshingId` / `onAdd`) preserved on 2026-05-10 |
 | ConfirmDialog                   | [ ]    | AlertDialog-backed                                         |
 | ConnectionBanner                | [ ]    | thin top banner, mono ws status                            |
 | ConnectionStatus                | [ ]    | `.pill--ok|warn|down`                                      |
