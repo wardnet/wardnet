@@ -27,15 +27,13 @@ const topics = docsContent.topics as TopicEntry[];
  */
 export function Docs() {
   return (
-    <div className="min-h-screen bg-white dark:bg-[oklch(0.13_0.02_270)]">
+    <div className="min-h-screen bg-bg">
       <Navbar showBack />
 
       <main className="px-6 py-16">
         <div className="mx-auto max-w-4xl">
-          <h1 className="mb-3 text-4xl font-bold text-gray-900 dark:text-gray-100">
-            Documentation
-          </h1>
-          <p className="mb-12 text-lg text-gray-500 dark:text-gray-400">
+          <h1 className="mb-3 text-4xl font-bold tracking-tight text-ink">Documentation</h1>
+          <p className="mb-12 text-lg text-ink-3">
             Guides and references for setting up and managing your Wardnet gateway. Documentation is
             being written — check back soon.
           </p>
@@ -52,7 +50,7 @@ export function Docs() {
                   <Link
                     key={entry.slug}
                     to={`/docs/${entry.slug}`}
-                    className="block rounded-lg border border-accent/20 bg-accent/5 p-5 transition-colors hover:bg-accent/10"
+                    className="block rounded-lg border border-accent/20 bg-accent-soft p-5 transition-colors hover:bg-accent/10"
                   >
                     <div className="mb-2 flex items-center gap-3">
                       {Icon && (
@@ -60,13 +58,9 @@ export function Docs() {
                           <Icon size={20} />
                         </span>
                       )}
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                        {entry.title}
-                      </h3>
+                      <h3 className="font-semibold text-ink">{entry.title}</h3>
                     </div>
-                    <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                      {entry.excerpt}
-                    </p>
+                    <p className="text-sm leading-relaxed text-ink-3">{entry.excerpt}</p>
                   </Link>
                 );
               })}
@@ -74,7 +68,7 @@ export function Docs() {
           </div>
 
           <div>
-            <h2 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">All topics</h2>
+            <h2 className="mb-6 text-2xl font-bold tracking-tight text-ink">All topics</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {topics.map((topic) => {
                 const Icon = resolveIcon(topic.icon);
@@ -82,7 +76,7 @@ export function Docs() {
                   <Link
                     key={topic.slug}
                     to={`/docs/${topic.slug}`}
-                    className="block rounded-lg border border-gray-200 p-5 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:hover:border-gray-700 dark:hover:bg-[oklch(0.15_0.02_270)]"
+                    className="block rounded-lg border border-line bg-card p-5 transition-colors hover:border-line-strong hover:bg-elev"
                   >
                     <div className="mb-2 flex items-center gap-3">
                       {Icon && (
@@ -90,13 +84,9 @@ export function Docs() {
                           <Icon size={20} />
                         </span>
                       )}
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                        {topic.title}
-                      </h3>
+                      <h3 className="font-semibold text-ink">{topic.title}</h3>
                     </div>
-                    <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                      {topic.description}
-                    </p>
+                    <p className="text-sm leading-relaxed text-ink-3">{topic.description}</p>
                   </Link>
                 );
               })}
