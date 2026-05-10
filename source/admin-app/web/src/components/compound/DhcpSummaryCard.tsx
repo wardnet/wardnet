@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { StatTile } from "@wardnet/forge-web/stat-tile";
 import { StatusBadge } from "./StatusBadge";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
@@ -16,29 +16,19 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
   const poolPercent =
     status.pool_total > 0 ? Math.round((status.pool_used / status.pool_total) * 100) : 0;
 
-  const card = (
-    <Card className={to ? "transition-colors hover:bg-accent/50" : undefined}>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between text-sm font-semibold">
-          DHCP
-          <StatusBadge tone={status.running ? "success" : "neutral"} withIcon={status.running}>
-            {status.running ? "Running" : "Stopped"}
-          </StatusBadge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-3xl font-bold">{status.active_lease_count}</p>
-        <p className="mt-1 text-xs text-ink-3">active leases &middot; {poolPercent}% pool used</p>
-        {status.pool_total > 0 && (
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
-            <div
-              className={`h-full rounded-full ${poolPercent > 80 ? "bg-danger" : poolPercent > 50 ? "bg-yellow-500" : "bg-accent"}`}
-              style={{ width: `${Math.min(100, poolPercent)}%` }}
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+  const tile = (
+    <StatTile
+      label="DHCP"
+      value={status.active_lease_count}
+      sub={`active leases · ${poolPercent}% pool used`}
+      bar={status.pool_total > 0 ? Math.min(100, poolPercent) : undefined}
+      pill={
+        <StatusBadge tone={status.running ? "success" : "neutral"} withIcon={status.running}>
+          {status.running ? "Running" : "Stopped"}
+        </StatusBadge>
+      }
+      className={to ? "transition-colors hover:bg-accent/50" : undefined}
+    />
   );
 
   if (to) {
@@ -47,9 +37,9 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
         to={to}
         className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
       >
-        {card}
+        {tile}
       </Link>
     );
   }
-  return card;
+  return tile;
 }
