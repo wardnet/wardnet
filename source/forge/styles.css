@@ -1277,6 +1277,17 @@ button { font-family: inherit; }
   line-height: 1.5;
 }
 
+/* ---------- Icons ---------- */
+/* Forge convention: 1.7 stroke instead of lucide-react's default 2.
+   Lucide always emits an inline `stroke-width` SVG attribute, and per the
+   CSS cascade an unscoped `svg.lucide` rule would override per-instance
+   props too — so we narrow the selector to `[stroke-width="2"]` and only
+   rewrite the lucide default. Consumers that pass `strokeWidth={1.2}` etc.
+   emit a different attribute value, fall outside this selector, and keep
+   their explicit intent. Forge's `<Icon>` set in `primitives.jsx` stays
+   reference-only — this rule adopts only the 1.7 stroke convention. */
+svg.lucide[stroke-width="2"] { stroke-width: 1.7; }
+
 /* ---------- Misc ---------- */
 .divider { height: 1px; background: var(--line); margin: 12px 0; }
 .kbd { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--bg-sunken); border: 1px solid var(--line); color: var(--ink-3); }
