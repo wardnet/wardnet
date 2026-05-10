@@ -690,6 +690,42 @@ button { font-family: inherit; }
 }
 .qchart-axis span:not(:first-child) { text-align: right; }
 
+/* ---------- Sparkline ---------- */
+/* Forge §10 — "Is it trending?" → Sparkline. No axes, no labels.
+   Lives inside `.stat__spark` (its primary host) or freely sized in any
+   container; the SVG fills the parent box and the path is stretched by
+   `preserveAspectRatio="none"`. Stroke colour is driven by the
+   `--spark-color` CSS-var hook so consumers can theme per-instance via
+   `style={{ "--spark-color": "var(--info)" }}` without a class
+   explosion. Default is `--accent` per §10 rule 01.
+   TODO: T0-d will mirror --spark-color in tokens.ts. */
+.sparkline {
+  --spark-color: var(--accent);
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 1.5px hairline matches the §10 throughput precedent (1.6–1.8 stroke
+   on full charts; sparklines stay one notch lighter so they read as a
+   trend hint, not a primary line). vector-effect keeps the stroke at
+   1.5 device-px even when preserveAspectRatio="none" non-uniformly
+   scales the path. */
+.sparkline__line {
+  fill: none;
+  stroke: var(--spark-color);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+/* Soft fill below the curve — same 0.12 wash as `.chart .recharts-area-area`
+   so a Sparkline reads as a mini area chart by default (§13 anatomy C). */
+.sparkline__area {
+  fill: var(--spark-color);
+  fill-opacity: 0.12;
+  stroke: none;
+}
+
 /* ---------- Chart (Recharts wrapper) ---------- */
 /* Forge §10 — line/area time-series. Two series max, accent + info.
    `.chart` styles the Recharts SVG primitives so the wrapper can stay

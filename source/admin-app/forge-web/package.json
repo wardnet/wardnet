@@ -72,6 +72,10 @@
     "./stat-tile": {
       "import": "./src/primitives/stat-tile.tsx",
       "types": "./src/primitives/stat-tile.tsx"
+    },
+    "./sparkline": {
+      "import": "./src/primitives/sparkline.tsx",
+      "types": "./src/primitives/sparkline.tsx"
     }
   },
   "files": [

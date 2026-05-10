@@ -159,7 +159,7 @@ Radix primitive needed (pure visual or HTML element).
 | Primitive   | Source                              | Status |
 | ----------- | ----------------------------------- | ------ |
 | StatTile    | `design-system/primitives.jsx` — added `StatTile` primitive in `forge-web/src/primitives/stat-tile.tsx` (slot-based: `label` / `value` / `unit` / `sub` / `bar` / `spark` / `pill`); studio's BEM `.stat` block was already in `styles.css` so this slice only consumes it — `spark` accepts a `ReactNode` to keep StatTile decoupled from the Sparkline primitive (slice 2b); per-primitive `@wardnet/forge-web/stat-tile` export wired in `package.json` on 2026-05-10 | [x]    |
-| Sparkline   | `design-system/primitives.jsx`      | [ ]    |
+| Sparkline   | `design-system/primitives.jsx` — added `Sparkline` primitive in `forge-web/src/primitives/sparkline.tsx` (Option A inline-SVG: single `<polyline>` over a 100×40 viewBox + optional 0.12-opacity area wash, `preserveAspectRatio="none"` so the host box owns aspect); `--spark-color` CSS-var hook in `.sparkline` defaults to `--accent` and is per-instance themable via `style={{ "--spark-color": "var(--info)" }}`; new `.sparkline` / `.sparkline__line` / `.sparkline__area` rules in `styles.css` mirror §10 throughput (1.5 hairline, `non-scaling-stroke`) and §13 area-wash precedent; per-primitive `@wardnet/forge-web/sparkline` export wired in `package.json` on 2026-05-10 | [x]    |
 | Donut       | `design-system/primitives.jsx`      | [ ]    |
 | Icon set    | `design-system/primitives.jsx` (Forge ships hand-tuned 1.7-stroke icons) — see Open Questions | [ ] |
 | Field       | composition (Label + control + help + edit/read swap) on top of `.field` — added with the form-row slice | [x] |
