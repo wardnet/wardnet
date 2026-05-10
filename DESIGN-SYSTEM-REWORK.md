@@ -1798,7 +1798,7 @@ first, then into the apps.
 | Decide on import strategy: vendor `styles.css` into each app, or import from `design-system/` via Vite alias (preferred — single source) | [x] |
 | Document Radix-binding patterns in `design-system.html` §05 (e.g. how Switch ties to `.toggle`, how Dialog ties to `.modal`) | [ ] |
 | Add Tailwind 4 `@theme inline` reference snippet in `README.md` so future apps know how to consume Forge tokens | [x] |
-| Drop `tailwind.config.js` once Tailwind 4 reference is in README, OR keep as a Tailwind-3-compat reference (decide on first use) | [ ] |
+| Drop `tailwind.config.js` once Tailwind 4 reference is in README, OR keep as a Tailwind-3-compat reference (decide on first use) — decided drop on 2026-05-10 (no build consumes it; TW4 `@theme inline` reference already in `source/forge/docs/README.md` and `source/admin-app/web/src/index.css`) | [x] |
 | Add any new primitives we introduce in the apps back into `primitives.jsx` (StatTile already there; new ones go here too) | [ ] |
 | Update `design-system.html` §05 Components when we add new components in code | [ ]    |
 | Bootstrap `source/forge/` workspace package (first primitive slice — see "Where Forge lives" below) | [x] |
