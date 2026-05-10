@@ -1,23 +1,47 @@
+import { useMemo } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/core/ui/table";
+import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { HostCell } from "@/components/compound/HostCell";
 import { useTunnelDevices } from "@/hooks/useTunnels";
+import type { Device } from "@wardnet/js";
 
 interface Props {
   tunnelId: string;
 }
 
+function buildColumns(): ColumnDef<Device>[] {
+  return [
+    {
+      accessorKey: "name",
+      header: "Device",
+      cell: ({ row }) => {
+        const device = row.original;
+        const primary = device.name ?? device.hostname ?? device.mac;
+        const secondary = primary === device.mac ? null : device.mac;
+        return (
+          <HostCell
+            primary={primary}
+            secondary={secondary}
+            icon={<DeviceIcon type={device.device_type} />}
+          />
+        );
+      },
+    },
+    {
+      accessorKey: "last_ip",
+      header: "IP",
+      meta: { className: "hidden md:table-cell" },
+      cell: ({ row }) => <span className="text-ink-3">{row.original.last_ip}</span>,
+    },
+  ];
+}
+
 export function TunnelDevicesTable({ tunnelId }: Props) {
   const { data, isLoading, isError } = useTunnelDevices(tunnelId);
   const devices = data?.devices ?? [];
+  const columns = useMemo(() => buildColumns(), []);
 
   return (
     <Card>
@@ -32,37 +56,12 @@ export function TunnelDevicesTable({ tunnelId }: Props) {
           <p className="text-sm text-ink-3">Failed to load devices for this tunnel.</p>
         ) : isLoading ? (
           <p className="text-sm text-ink-3">Loading…</p>
-        ) : devices.length === 0 ? (
-          <p className="text-sm text-ink-3">No devices are currently routed through this tunnel.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Device</TableHead>
-                <TableHead className="hidden md:table-cell">IP</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {devices.map((d) => {
-                const primary = d.name ?? d.hostname ?? d.mac;
-                const secondary = primary === d.mac ? null : d.mac;
-                return (
-                  <TableRow key={d.id}>
-                    <TableCell>
-                      <HostCell
-                        primary={primary}
-                        secondary={secondary}
-                        icon={<DeviceIcon type={d.device_type} />}
-                      />
-                    </TableCell>
-                    <TableCell className="hidden font-mono text-xs text-ink-3 md:table-cell">
-                      {d.last_ip}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={columns}
+            data={devices}
+            emptyMessage="No devices are currently routed through this tunnel."
+          />
         )}
       </CardContent>
     </Card>
