@@ -1,11 +1,11 @@
 /** Horizontal usage bar with color thresholds (green → yellow → red). */
 export function DashboardUsageBar({ value }: { value: number }) {
   const clamped = Math.min(100, Math.max(0, value));
-  const color = clamped > 80 ? "bg-danger" : clamped > 50 ? "bg-yellow-500" : "bg-accent";
+  const fill = clamped > 80 ? "var(--danger)" : clamped > 50 ? "var(--warn)" : "var(--accent)";
 
   return (
-    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
-      <div className={`h-full rounded-full ${color}`} style={{ width: `${clamped}%` }} />
+    <div className="bar mt-2">
+      <span style={{ width: `${clamped}%`, background: fill }} />
     </div>
   );
 }

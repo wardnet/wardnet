@@ -183,7 +183,7 @@ all facts; status pills via `.pill--*`.
 | CountryCombobox                 | [ ]    | cmdk-backed, country flag prefix                           |
 | CronSchedulePicker              | [ ]    | field cluster                                              |
 | DashboardStatCard               | [x]    | -> StatTile primitive                                      |
-| DashboardUsageBar               | [ ]    | `.bar`                                                     |
+| DashboardUsageBar               | [x]    | `.bar` — `<div class="bar"><span style="width:N%; background:var(--accent\|warn\|danger)"/></div>`; thresholds `>80% danger`, `>50% warn`, else `accent`; replaced shadcn `bg-sunken/bg-accent/bg-danger` and stray `bg-yellow-500` with Forge `.bar` + CSS-var fill on 2026-05-10 |
 | DetailPageHeader                | [ ]    | H1 + status pill + breadcrumb (per skill §detail page)     |
 | DeviceIcon                      | [ ]    | use Forge Icon set or stay on lucide (open Q)              |
 | DeviceSelect                    | [ ]    | Radix Select wrapper                                       |
