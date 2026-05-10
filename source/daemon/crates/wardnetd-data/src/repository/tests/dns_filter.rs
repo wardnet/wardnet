@@ -25,7 +25,7 @@ async fn insert_device(pool: &sqlx::SqlitePool, id: &str, ip: &str) {
     )
     .bind(id)
     .bind(format!(
-        "AA:BB:CC:DD:EE:{:02x}",
+        "aa:bb:cc:dd:ee:{:02x}",
         u32::from(id.as_bytes()[35]) & 0xff
     ))
     .bind(ip)

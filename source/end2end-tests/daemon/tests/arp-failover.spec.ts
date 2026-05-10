@@ -11,7 +11,7 @@
  *    gratuitous-reply frames sent from the daemon's LAN-iface MAC,
  *    with the configured `sender_ip` and broadcast destination.
  * 3. **Drive passive learning**: `POST /arp/send` from `test_debian`
- *    with `sender_mac = AA:BB:CC:DD:EE:01, sender_ip = 10.91.0.5` so
+ *    with `sender_mac = aa:bb:cc:dd:ee:01, sender_ip = 10.91.0.5` so
  *    the daemon's discovery loop populates `garp_router_mac`.
  * 4. **Farewell phase**: capture ARP traffic and trigger another
  *    restart. Assert ≥2 gratuitous-reply frames whose sender MAC
@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import {
   DhcpService,
+  NetworkService,
   SystemService,
   WardnetClient,
 } from "@wardnet/js";
@@ -147,18 +148,26 @@ async function configureRouterIp(authed: AuthedClient): Promise<void> {
   });
 }
 
-/** Pulls the daemon's wardnet_lan MAC out of `ip link show eth0`. */
-async function getDaemonLanMac(): Promise<string> {
-  const res = await fetch(`${DAEMON_AGENT}/link/eth0`);
+/** Resolves the daemon's wardnet_lan MAC.
+ *
+ * Asks the daemon which interface holds the LAN IP (Docker doesn't
+ * guarantee a stable eth0/eth1/eth2 mapping when the container
+ * attaches to multiple networks — the compose entrypoint already
+ * pins the daemon's `lan_interface` to whichever NIC carries
+ * 10.91.0.1; this lookup mirrors that), then pulls the MAC for
+ * that interface from the daemon's test-agent. */
+async function getDaemonLanMac(authed: AuthedClient): Promise<string> {
+  const status = await new NetworkService(authed).getStatus();
+  const res = await fetch(`${DAEMON_AGENT}/link/${status.interface}`);
   if (!res.ok) {
     throw new Error(
-      `failed to fetch daemon link state: ${res.status} ${await res.text()}`,
+      `failed to fetch daemon link state for ${status.interface}: ${res.status} ${await res.text()}`,
     );
   }
   const link = (await res.json()) as LinkShowResponse;
   if (!link.mac) {
     throw new Error(
-      `daemon eth0 has no MAC in /link/eth0 response: ${JSON.stringify(link)}`,
+      `daemon ${status.interface} has no MAC in /link response: ${JSON.stringify(link)}`,
     );
   }
   return link.mac.toLowerCase();
@@ -173,7 +182,7 @@ describe("GARP failover (issue #213)", () => {
     await waitForReady(client);
     admin = await ensureAdminAndLogin(client);
     await configureRouterIp(admin);
-    daemonMac = await getDaemonLanMac();
+    daemonMac = await getDaemonLanMac(admin);
   }, 120_000);
 
   it("broadcasts the claim GARP on startup with the daemon's LAN MAC", async () => {

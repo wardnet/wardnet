@@ -247,7 +247,7 @@ struct StaticNetworkProbe {
 impl Default for StaticNetworkProbe {
     fn default() -> Self {
         Self {
-            response: Some("AA:BB:CC:DD:EE:FF".to_owned()),
+            response: Some("aa:bb:cc:dd:ee:ff".to_owned()),
             targets: Mutex::new(Vec::new()),
             dhcp_responders: Vec::new(),
         }
@@ -580,15 +580,15 @@ async fn discover_gateway_mac_manual_path_persists_normalised_mac() {
     )
     .await
     .unwrap();
-    // Normalised to upper-case for storage.
-    assert_eq!(resp.mac, "AA:BB:CC:DD:EE:FF");
+    // Normalised to lowercase for storage (issue #312).
+    assert_eq!(resp.mac, "aa:bb:cc:dd:ee:ff");
     assert_eq!(resp.source, wardnet_common::api::RouterMacSource::Manual);
     // No ARP probe should have been issued on the manual path.
     assert!(fx.probe.arp_targets.lock().unwrap().is_empty());
     // Persisted under `router_mac`.
     assert_eq!(
         fx.system_config.get("router_mac").await.unwrap().as_deref(),
-        Some("AA:BB:CC:DD:EE:FF")
+        Some("aa:bb:cc:dd:ee:ff")
     );
 }
 

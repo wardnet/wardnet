@@ -113,6 +113,9 @@ pub async fn set_my_rule(
 ///
 /// Reservations take precedence: if a MAC has both a reservation and an
 /// active lease the status is [`DhcpStatus::Reservation`].
+///
+/// MAC casing is canonical (lowercase) across the data layer (issue #312),
+/// so map keys and lookups don't need per-call normalisation.
 async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpStatus>, AppError> {
     let leases = state.dhcp_service().list_leases().await?;
     let reservations = state.dhcp_service().list_reservations().await?;
@@ -120,12 +123,12 @@ async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpS
     let mut map = HashMap::new();
 
     for lease in &leases.leases {
-        map.insert(lease.mac_address.to_lowercase(), DhcpStatus::Lease);
+        map.insert(lease.mac_address.clone(), DhcpStatus::Lease);
     }
 
     // Reservations override leases.
     for res in &reservations.reservations {
-        map.insert(res.mac_address.to_lowercase(), DhcpStatus::Reservation);
+        map.insert(res.mac_address.clone(), DhcpStatus::Reservation);
     }
 
     Ok(map)
@@ -137,7 +140,7 @@ fn enrich_device(
     dhcp_map: &HashMap<String, DhcpStatus>,
 ) -> DeviceWithStatus {
     let status = dhcp_map
-        .get(&device.mac.to_lowercase())
+        .get(&device.mac)
         .copied()
         .unwrap_or(DhcpStatus::External);
     DeviceWithStatus {

@@ -26,21 +26,20 @@ fn format_mac_all_zeros() {
 fn format_mac_all_ff() {
     assert_eq!(
         format_mac(MacAddr::new(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)),
-        "FF:FF:FF:FF:FF:FF"
+        "ff:ff:ff:ff:ff:ff"
     );
 }
 
 #[test]
 fn format_mac_typical() {
     let mac = MacAddr::new(0xAA, 0xBB, 0xCC, 0x01, 0x02, 0x03);
-    assert_eq!(format_mac(mac), "AA:BB:CC:01:02:03");
+    assert_eq!(format_mac(mac), "aa:bb:cc:01:02:03");
 }
 
 #[test]
-fn format_mac_lowercase_hex_digits_uppercased() {
-    // Ensure digits a-f come out uppercase.
+fn format_mac_emits_lowercase_hex_digits() {
     let mac = MacAddr::new(0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
-    assert_eq!(format_mac(mac), "0A:0B:0C:0D:0E:0F");
+    assert_eq!(format_mac(mac), "0a:0b:0c:0d:0e:0f");
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +226,7 @@ fn parse_frame_arp_valid() {
     let frame = make_arp_frame(sender_mac, sender_ip);
     let obs = parse_frame(&frame, own_mac).expect("should parse ARP frame");
 
-    assert_eq!(obs.mac, "AA:BB:CC:11:22:33");
+    assert_eq!(obs.mac, "aa:bb:cc:11:22:33");
     assert_eq!(obs.ip, "192.168.1.50");
     assert_eq!(obs.source, PacketSource::Arp);
 }
@@ -268,7 +267,7 @@ fn parse_frame_ipv4_valid() {
     let frame = make_ipv4_frame(src_mac, src_ip);
     let obs = parse_frame(&frame, own_mac).expect("should parse IPv4 frame");
 
-    assert_eq!(obs.mac, "00:1A:2B:3C:4D:5E");
+    assert_eq!(obs.mac, "00:1a:2b:3c:4d:5e");
     assert_eq!(obs.ip, "10.0.0.42");
     assert_eq!(obs.source, PacketSource::Ip);
 }

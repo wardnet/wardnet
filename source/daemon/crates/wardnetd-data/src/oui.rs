@@ -18,7 +18,8 @@ pub(crate) static OUI_MAP: LazyLock<HashMap<[u8; 3], &'static str>> = LazyLock::
 
 /// Look up the manufacturer for a MAC address by its OUI prefix (first 3 bytes).
 ///
-/// MAC must be in normalized format "AA:BB:CC:DD:EE:FF".
+/// MAC must be in normalised format "aa:bb:cc:dd:ee:ff" (issue #312).
+/// Casing of the input is irrelevant — `from_str_radix` is case-insensitive.
 /// Returns the manufacturer name if the OUI prefix is known.
 ///
 /// If the MAC has the locally-administered bit set (bit 1 of the first byte),

@@ -96,6 +96,7 @@ impl DbReservationRow {
 struct DbLeaseLogRow {
     id: i64,
     lease_id: String,
+    mac_address: String,
     event_type: String,
     details: Option<String>,
     created_at: String,
@@ -116,6 +117,7 @@ impl DbLeaseLogRow {
         Ok(DhcpLeaseLog {
             id: self.id,
             lease_id: self.lease_id.parse()?,
+            mac_address: self.mac_address,
             event_type,
             details: self.details,
             created_at: self.created_at.parse()?,
@@ -136,7 +138,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
-        .bind(&row.mac_address)
+        .bind(row.mac_address.to_lowercase())
         .bind(&row.ip_address)
         .bind(&row.hostname)
         .bind(&row.lease_start)
@@ -162,12 +164,14 @@ impl DhcpRepository for SqliteDhcpRepository {
     }
 
     async fn find_active_lease_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpLease>> {
+        // MAC is stored lowercase (issue #312); normalise inputs defensively
+        // so an uppercase caller still hits the canonical row.
         let row = sqlx::query_as::<_, DbLeaseRow>(
             "SELECT id, mac_address, ip_address, hostname, lease_start, lease_end, \
              status, device_id, created_at, updated_at \
              FROM dhcp_leases WHERE mac_address = ? AND status = 'active'",
         )
-        .bind(mac)
+        .bind(mac.to_lowercase())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -254,7 +258,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
-        .bind(&row.mac_address)
+        .bind(row.mac_address.to_lowercase())
         .bind(&row.ip_address)
         .bind(&row.hostname)
         .bind(&row.description)
@@ -285,11 +289,12 @@ impl DhcpRepository for SqliteDhcpRepository {
     }
 
     async fn find_reservation_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpReservation>> {
+        // MAC is stored lowercase (issue #312); normalise inputs defensively.
         let row = sqlx::query_as::<_, DbReservationRow>(
             "SELECT id, mac_address, ip_address, hostname, description, created_at, updated_at \
              FROM dhcp_reservations WHERE mac_address = ?",
         )
-        .bind(mac)
+        .bind(mac.to_lowercase())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -311,11 +316,13 @@ impl DhcpRepository for SqliteDhcpRepository {
     // ── Lease log ───────────────────────────────────────────────────
 
     async fn insert_lease_log(&self, row: &DhcpLeaseLogRow) -> anyhow::Result<()> {
+        // MAC stored canonical lowercase (issue #312).
         sqlx::query(
-            "INSERT INTO dhcp_lease_log (lease_id, event_type, details) \
-             VALUES (?, ?, ?)",
+            "INSERT INTO dhcp_lease_log (lease_id, mac_address, event_type, details) \
+             VALUES (?, ?, ?, ?)",
         )
         .bind(&row.lease_id)
+        .bind(row.mac_address.to_lowercase())
         .bind(&row.event_type)
         .bind(&row.details)
         .execute(&self.pool)
@@ -325,10 +332,22 @@ impl DhcpRepository for SqliteDhcpRepository {
 
     async fn find_lease_logs(&self, lease_id: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
         let rows = sqlx::query_as::<_, DbLeaseLogRow>(
-            "SELECT id, lease_id, event_type, details, created_at \
+            "SELECT id, lease_id, mac_address, event_type, details, created_at \
              FROM dhcp_lease_log WHERE lease_id = ? ORDER BY created_at",
         )
         .bind(lease_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(DbLeaseLogRow::into_log).collect()
+    }
+
+    async fn find_lease_logs_by_mac(&self, mac: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
+        let rows = sqlx::query_as::<_, DbLeaseLogRow>(
+            "SELECT id, lease_id, mac_address, event_type, details, created_at \
+             FROM dhcp_lease_log WHERE mac_address = ? ORDER BY created_at",
+        )
+        .bind(mac.to_lowercase())
         .fetch_all(&self.pool)
         .await?;
 

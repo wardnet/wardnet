@@ -438,22 +438,17 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
-        // MAC casing is currently inconsistent across the codebase: the
-        // device registry stores uppercase (set by `format_mac` in the
-        // packet-capture layer), the DHCP service stores lowercase
-        // (`mac.to_lowercase()` before insert/lookup). Until #312
-        // canonicalises this we normalise per-repo here so cross-source
-        // lookups succeed regardless of the caller's casing.
-        let mac_for_devices = mac.to_uppercase();
-        let mac_for_dhcp = mac.to_lowercase();
-
         // The MAC may belong to a device the registry hasn't seen yet (e.g.
         // a lease event arriving before packet capture observes the device).
         // Treat that as a no-op rather than an error; the next observation
         // will trigger another resolution attempt.
+        //
+        // Casing is canonicalised at the repository boundary (issue #312),
+        // so a single MAC string is fed to both repos regardless of the
+        // caller's source.
         let Some(device) = self
             .devices
-            .find_by_mac(&mac_for_devices)
+            .find_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
         else {
@@ -465,7 +460,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         // says it's the primary source. Fall back to reverse DNS otherwise.
         let dhcp_hostname = self
             .dhcp
-            .find_active_lease_by_mac(&mac_for_dhcp)
+            .find_active_lease_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
             .and_then(|l| l.hostname)

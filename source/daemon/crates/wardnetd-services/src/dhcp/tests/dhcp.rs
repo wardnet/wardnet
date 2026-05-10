@@ -44,7 +44,10 @@ impl MockDhcpRepository {
 #[async_trait]
 impl DhcpRepository for MockDhcpRepository {
     async fn insert_lease(&self, row: &DhcpLeaseRow) -> anyhow::Result<()> {
-        self.leases.lock().unwrap().push(row.clone());
+        // Mirror the SQLite repo: MAC stored canonical lowercase (#312).
+        let mut row = row.clone();
+        row.mac_address = row.mac_address.to_lowercase();
+        self.leases.lock().unwrap().push(row);
         Ok(())
     }
 
@@ -55,6 +58,7 @@ impl DhcpRepository for MockDhcpRepository {
     }
 
     async fn find_active_lease_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpLease>> {
+        let mac = mac.to_lowercase();
         let rows = self.leases.lock().unwrap();
         let row = rows
             .iter()
@@ -119,7 +123,10 @@ impl DhcpRepository for MockDhcpRepository {
     }
 
     async fn insert_reservation(&self, row: &DhcpReservationRow) -> anyhow::Result<()> {
-        self.reservations.lock().unwrap().push(row.clone());
+        // Mirror the SQLite repo: MAC stored canonical lowercase (#312).
+        let mut row = row.clone();
+        row.mac_address = row.mac_address.to_lowercase();
+        self.reservations.lock().unwrap().push(row);
         Ok(())
     }
 
@@ -134,6 +141,7 @@ impl DhcpRepository for MockDhcpRepository {
     }
 
     async fn find_reservation_by_mac(&self, mac: &str) -> anyhow::Result<Option<DhcpReservation>> {
+        let mac = mac.to_lowercase();
         let rows = self.reservations.lock().unwrap();
         let row = rows.iter().find(|r| r.mac_address == mac);
         Ok(row.map(row_to_reservation).transpose()?)
@@ -146,7 +154,10 @@ impl DhcpRepository for MockDhcpRepository {
     }
 
     async fn insert_lease_log(&self, row: &DhcpLeaseLogRow) -> anyhow::Result<()> {
-        self.logs.lock().unwrap().push(row.clone());
+        // Mirror the SQLite repo: MAC stored canonical lowercase (#312).
+        let mut row = row.clone();
+        row.mac_address = row.mac_address.to_lowercase();
+        self.logs.lock().unwrap().push(row);
         Ok(())
     }
 
@@ -155,20 +166,35 @@ impl DhcpRepository for MockDhcpRepository {
         Ok(rows
             .iter()
             .filter(|r| r.lease_id == lease_id)
-            .map(|r| DhcpLeaseLog {
-                id: 0,
-                lease_id: r.lease_id.parse().unwrap(),
-                event_type: match r.event_type.as_str() {
-                    "assigned" => wardnet_common::dhcp::DhcpLeaseEventType::Assigned,
-                    "renewed" => wardnet_common::dhcp::DhcpLeaseEventType::Renewed,
-                    "released" => wardnet_common::dhcp::DhcpLeaseEventType::Released,
-                    "expired" => wardnet_common::dhcp::DhcpLeaseEventType::Expired,
-                    _ => wardnet_common::dhcp::DhcpLeaseEventType::Conflict,
-                },
-                details: r.details.clone(),
-                created_at: Utc::now(),
-            })
+            .map(row_to_log)
             .collect())
+    }
+
+    async fn find_lease_logs_by_mac(&self, mac: &str) -> anyhow::Result<Vec<DhcpLeaseLog>> {
+        let mac = mac.to_lowercase();
+        let rows = self.logs.lock().unwrap();
+        Ok(rows
+            .iter()
+            .filter(|r| r.mac_address == mac)
+            .map(row_to_log)
+            .collect())
+    }
+}
+
+fn row_to_log(r: &DhcpLeaseLogRow) -> DhcpLeaseLog {
+    DhcpLeaseLog {
+        id: 0,
+        lease_id: r.lease_id.parse().unwrap(),
+        mac_address: r.mac_address.clone(),
+        event_type: match r.event_type.as_str() {
+            "assigned" => wardnet_common::dhcp::DhcpLeaseEventType::Assigned,
+            "renewed" => wardnet_common::dhcp::DhcpLeaseEventType::Renewed,
+            "released" => wardnet_common::dhcp::DhcpLeaseEventType::Released,
+            "expired" => wardnet_common::dhcp::DhcpLeaseEventType::Expired,
+            _ => wardnet_common::dhcp::DhcpLeaseEventType::Conflict,
+        },
+        details: r.details.clone(),
+        created_at: Utc::now(),
     }
 }
 

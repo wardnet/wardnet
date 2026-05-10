@@ -34,8 +34,9 @@ function findReservation(
   reservations: DhcpReservation[] | undefined,
   mac: string,
 ): DhcpReservation | undefined {
-  const target = mac.toLowerCase();
-  return reservations?.find((r) => r.mac_address.toLowerCase() === target);
+  // MAC is canonical lowercase server-side (issue #312); both sides are
+  // already in the same form.
+  return reservations?.find((r) => r.mac_address === mac);
 }
 
 /** Editable network card: current IP, DHCP status, reservation create/update/remove. */

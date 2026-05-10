@@ -42,6 +42,9 @@ pub struct DhcpReservationRow {
 pub struct DhcpLeaseLogRow {
     /// The lease this event belongs to.
     pub lease_id: String,
+    /// Client MAC address — denormalised so the audit trail survives
+    /// the lease row being rotated or deleted (issue #312).
+    pub mac_address: String,
     /// Event type string (`"assigned"`, `"renewed"`, `"released"`, `"expired"`, `"conflict"`).
     pub event_type: String,
     /// Optional free-form details about the event.
@@ -109,4 +112,11 @@ pub trait DhcpRepository: Send + Sync {
 
     /// Return all log entries for a given lease, ordered by creation time.
     async fn find_lease_logs(&self, lease_id: &str) -> anyhow::Result<Vec<DhcpLeaseLog>>;
+
+    /// Return all log entries for a MAC address, ordered by creation time.
+    ///
+    /// MAC-keyed access lets the audit trail outlive any individual
+    /// lease record — released or expired leases can be deleted while
+    /// the per-device history stays intact (issue #312).
+    async fn find_lease_logs_by_mac(&self, mac: &str) -> anyhow::Result<Vec<DhcpLeaseLog>>;
 }

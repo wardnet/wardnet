@@ -19,7 +19,7 @@ function createColumns(
       header: "Host",
       cell: ({ row }) => {
         const reservation = row.original;
-        const device = deviceIndex.get(reservation.mac_address.toLowerCase());
+        const device = deviceIndex.get(reservation.mac_address);
         // Reservation hostname (admin-set, pushed to the client) is used as
         // the primary identifier when no device record or description is
         // available — better than falling all the way through to MAC.

@@ -84,9 +84,13 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
+        // Defensive lowercase: MAC is stored lowercase across the codebase
+        // (issue #312). Inputs from older callers or external probes may
+        // arrive uppercase — normalise here so the WHERE-clause hits the
+        // canonical row regardless.
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE mac = ?");
         let row = sqlx::query_as::<_, DeviceRow>(&query)
-            .bind(mac)
+            .bind(mac.to_lowercase())
             .fetch_optional(&self.pool)
             .await?;
         row.map(DeviceRow::into_device).transpose()
@@ -106,7 +110,7 @@ impl DeviceRepository for SqliteDeviceRepository {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&device.id)
-        .bind(&device.mac)
+        .bind(device.mac.to_lowercase())
         .bind(&device.hostname)
         .bind(&device.manufacturer)
         .bind(&device.device_type)
