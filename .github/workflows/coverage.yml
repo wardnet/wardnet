@@ -70,7 +70,7 @@ jobs:
             --workspace \
             --profile ci \
             --lcov --output-path ../../coverage/daemon-lcov.info \
-            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)'
+            --ignore-filename-regex '(main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)'
           cp target/nextest/ci/junit.xml ../../coverage/daemon-junit.xml
 
       - name: Upload daemon coverage artifact
