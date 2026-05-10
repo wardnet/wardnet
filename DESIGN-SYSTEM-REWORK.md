@@ -198,7 +198,7 @@ all facts; status pills via `.pill--*`.
 | FilterRuleTable                 | [x]    | `.tbl` (already conformant — verified post-slice-1b on 2026-05-10; no code changes required) |
 | HostCell                        | [x]    | `.host` markup — wraps `icon` in `.avatar`, primary in `.name`, secondary in `.mac.mono`; preserves `{ primary, secondary, icon }` API (slice T3-δ on 2026-05-10) |
 | JobProgressDescription          | [x]    | mono job state                                             |
-| Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
+| Logo                            | [x]    | inline SVG shield + signal mark; tinted from `--accent` (signal-green fill), `--side-bg` (signal arcs + ping), `--ink` (marketing-size hairline outline); single `viewBox="0 0 32 32"` path set with a 40px size threshold flipping chrome → marketing variant (extra outer arc + shield outline) so 24-28px Sidebar/AppLayout chrome and 60-80px AuthLayout marketing share one component; preserved `{size?, className?}` API; dropped `logo.png` import (slice T3-δ on 2026-05-10) |
 | LogViewer                       | [x]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) — uses `.t`/`.l`/`.m` slot triplet from screens.jsx mock; connection dot uses `bg-accent`/`bg-danger` Forge tokens (was raw `bg-green-500`/`bg-red-500`); empty state rendered as a single `.logrow.is-info` for shell consistency on 2026-05-10 |
 | MobileMenu                      | [x]    | hamburger → `<Drawer side="left">` hosting the existing `<Sidebar />` — slice 16 |
 | PageHeader                      | [ ]    | `.h-title` + `.h-sub` + right-aligned actions              |
