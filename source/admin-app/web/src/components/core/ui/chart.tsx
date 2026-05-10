@@ -3,15 +3,6 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Minimal port of the shadcn `<ChartContainer>` wrapper.
- *
- * We deliberately keep this small: it provides a themed container that
- * sets CSS custom properties for each series colour, plus a thin
- * `ResponsiveContainer` so children fill the parent. Tooltips and
- * legends are rendered with recharts primitives directly — recharts'
- * built-ins look fine in our theme without an extra wrapper layer.
- */
 export type ChartConfig = Record<
   string,
   {
@@ -36,6 +27,12 @@ export interface ChartContainerProps extends React.ComponentProps<"div"> {
 }
 
 export function ChartContainer({ config, className, children, ...props }: ChartContainerProps) {
+  // Recharts SVG props (stroke/fill) take string values, so we expose
+  // each series colour as a per-instance CSS custom property
+  // (`--color-<key>`) on the wrapper. Consumers reference those via
+  // `var(--color-<key>)` on `<Line stroke=...>` and friends. These vars
+  // are scoped to this container — they are *not* the legacy shadcn
+  // `--color-*` aliases.
   const cssVars = React.useMemo(() => {
     const out: Record<string, string> = {};
     for (const [key, entry] of Object.entries(config)) {
