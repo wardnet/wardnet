@@ -218,7 +218,7 @@ all facts; status pills via `.pill--*`.
 
 | Component                | Status | Notes                                            |
 | ------------------------ | ------ | ------------------------------------------------ |
-| BackupCard               | [ ]    | edit-mode card                                   |
+| BackupCard               | [x]    | edit-mode card protocol — folded ExportDialog/RestoreDialog Modals into the card's `mode: view\|export\|restore` body, Cancel/primary in `CardFooter`, triggers in `CardHeader`'s `CardAction` per the DhcpConfigCard precedent; preview's incompatible callout swapped from `border-danger/50 bg-danger/10` to `bg-danger-soft` + `text-danger-soft-ink` Forge tokens |
 | CreateReservationInline  | [x]    | inline create card mirroring CreateTunnelInline; rendered above DhcpReservationTable (renamed from CreateReservationSheet, sheet dropped) |
 | CreateTunnelInline       | [ ]    | inline form + WireGuard config paste             |
 | DashboardLogWidget       | [ ]    | `.logs`                                          |
