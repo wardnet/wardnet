@@ -18,7 +18,7 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       accessorKey: "domain",
       header: "Domain",
       cell: ({ row }) => (
-        <span className="block truncate font-mono text-sm" title={row.original.domain}>
+        <span className="block truncate font-mono" title={row.original.domain}>
           {row.original.domain}
         </span>
       ),

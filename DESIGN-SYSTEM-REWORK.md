@@ -174,7 +174,7 @@ all facts; status pills via `.pill--*`.
 
 | Component                       | Status | Notes                                                      |
 | ------------------------------- | ------ | ---------------------------------------------------------- |
-| AllowlistTable                  | [ ]    | `.tbl`                                                     |
+| AllowlistTable                  | [x]    | `.tbl` via DataTable (slice 1b primitive) — domain cell stays mono fact, reason + added cells use `text-ink-3`, `fixedLayout` keeps the 12rem actions column pinned; dropped shadcn `text-sm` so `.tbl`'s 13px owns the row font-size; public API (`entries` / `onDelete` / `onAdd`) preserved on 2026-05-10 |
 | ApiErrorAlert                   | [ ]    | `.pill--down` style or full-card error                     |
 | BlocklistTable                  | [ ]    | `.tbl`                                                     |
 | ConfirmDialog                   | [ ]    | AlertDialog-backed                                         |
