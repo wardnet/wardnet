@@ -26,7 +26,9 @@ interface DeviceDnsFilterCardProps {
 
 const PROFILES_LABEL_ID = "device-dns-filter-profiles-label";
 
-/** Editable DNS filter settings card for the device detail page. */
+/** Editable DNS filter settings card for the device detail page —
+ *  edit-mode card protocol per DhcpConfigCard / DeviceSettingsCard
+ *  (folded edit form, hook-coupled via `useUpdateDeviceFilterSettings`). */
 export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
   const { data: settingsData, isLoading: settingsLoading } = useDeviceFilterSettings(device.id);
   const { data: profilesData, isLoading: profilesLoading } = useDnsFilterProfiles();
@@ -82,7 +84,6 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
   }
 
   const defaultProfiles = profiles.filter((p) => config.default_profile_ids.includes(p.id));
-
   const assignedProfiles = profiles.filter((p) => settings.profile_ids.includes(p.id));
 
   return (
@@ -141,23 +142,25 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
           </CardFooter>
         </>
       ) : (
-        <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-ink-3">Status</span>
-            <span className="text-sm">{settings.enabled ? "Filtering on" : "Filtering off"}</span>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-ink-3">Profiles</span>
-            <span className="text-sm">
-              {!settings.enabled
-                ? "—"
-                : assignedProfiles.length === 0
-                  ? defaultProfiles.length > 0
-                    ? `${defaultProfiles.map((p) => p.name).join(", ")} (default)`
-                    : "None (no default profile set)"
-                  : assignedProfiles.map((p) => p.name).join(", ")}
-            </span>
-          </div>
+        <CardContent>
+          <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-3">Status</dt>
+              <dd>{settings.enabled ? "Filtering on" : "Filtering off"}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-3">Profiles</dt>
+              <dd>
+                {!settings.enabled
+                  ? "—"
+                  : assignedProfiles.length === 0
+                    ? defaultProfiles.length > 0
+                      ? `${defaultProfiles.map((p) => p.name).join(", ")} (default)`
+                      : "None (no default profile set)"
+                    : assignedProfiles.map((p) => p.name).join(", ")}
+              </dd>
+            </div>
+          </dl>
         </CardContent>
       )}
     </Card>

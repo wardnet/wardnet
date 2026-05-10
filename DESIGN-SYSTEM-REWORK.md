@@ -222,7 +222,7 @@ all facts; status pills via `.pill--*`.
 | CreateReservationInline  | [x]    | inline create card mirroring CreateTunnelInline; rendered above DhcpReservationTable (renamed from CreateReservationSheet, sheet dropped) |
 | CreateTunnelInline       | [ ]    | inline form + WireGuard config paste             |
 | DashboardLogWidget       | [ ]    | `.logs`                                          |
-| DeviceDnsFilterCard      | [ ]    | edit-mode card                                   |
+| DeviceDnsFilterCard      | [x]    | edit-mode card protocol per DhcpConfigCard / DeviceSettingsCard precedent — Card/CardHeader/CardAction (Edit) → CardContent/CardFooter (Cancel + Save) on `editing`, hook-coupled (`useUpdateDeviceFilterSettings`); read-mode reshaped to `<dl>`/`<dt>`/`<dd>` grid (Status / Profiles); loading branch keeps `Card` chrome with `text-ink-3` Loading line; uses Forge `Button`/`Card`/`Field`/`Toggle` primitives + `text-ink-3` / `text-ink` tokens; no shadcn, no hex, no inline styles. Public API (`device`) preserved on 2026-05-10 (slice T4-α). |
 | DeviceIdentityCard       | [ ]    | always read-only (per skill §detail)             |
 | DeviceNetworkCard        | [ ]    | edit-mode card                                   |
 | DeviceSettingsCard       | [ ]    | edit-mode card                                   |
