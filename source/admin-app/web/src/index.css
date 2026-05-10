@@ -85,20 +85,15 @@
   --color-background: var(--bg);
   --color-foreground: var(--ink);
   --color-primary: var(--accent);
-  --color-primary-foreground: var(--accent-ink);
   --color-muted: var(--bg-sunken);
   --color-muted-foreground: var(--ink-3);
   --color-destructive: var(--danger);
-  --color-success-foreground: var(--accent-ink);
   --color-warning: var(--warn);
   --color-warning-foreground: var(--warn-soft-ink);
   --color-border: var(--line);
-  --color-input: var(--line);
   --color-ring: var(--accent);
   --color-sidebar: var(--side-bg);
   --color-sidebar-foreground: var(--side-ink);
-  --color-sidebar-accent: var(--side-active-bg);
-  --color-sidebar-accent-foreground: var(--side-ink-active);
   --color-sidebar-border: var(--side-line);
 }
 

@@ -316,7 +316,7 @@ function RestoreDialog({
                     const file = e.target.files?.[0] ?? null;
                     setBundle(file);
                   }}
-                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
                 />
               </Field>
               <Field label="Passphrase" htmlFor="restore-passphrase">

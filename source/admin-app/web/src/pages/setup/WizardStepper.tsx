@@ -39,7 +39,7 @@ export function WizardStepper({ current }: { current: WizardStep }) {
                 className={
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold " +
                   (isCurrent
-                    ? "border-primary bg-primary text-primary-foreground"
+                    ? "border-primary bg-primary text-accent-ink"
                     : isPast
                       ? "border-primary bg-primary/15 text-primary"
                       : "border-muted-foreground/30 text-muted-foreground")
