@@ -26,11 +26,11 @@ export function HostCell({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      {icon}
-      <div className="flex flex-col">
-        <span className="font-medium">{primary}</span>
-        {secondary && <span className="text-xs text-ink-3">{secondary}</span>}
+    <div className="host">
+      <div className="avatar">{icon}</div>
+      <div className="col">
+        <div className="name">{primary}</div>
+        {secondary && <div className="mac mono">{secondary}</div>}
       </div>
     </div>
   );

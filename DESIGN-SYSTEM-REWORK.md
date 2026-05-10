@@ -196,7 +196,7 @@ all facts; status pills via `.pill--*`.
 | DiscoveryPlaceholder            | [x]    | `.empty` outer frame (dashed border + lg radius via Forge tokens); rich scan-bar / particles / breathing-rows animations preserved inside; `!p-0` overrides the class's 40px padding so the skeleton goes full-bleed |
 | EmptyStatePlaceholder           | [x]    | `.empty` outer frame (dashed border + `--radius-lg`); concentric ripple rings + stacked-document + plus-badge preserved as the component's signature, retinted onto `--accent`/`--ink-3` via `color-mix` so no raw Tailwind palette refs remain (slice T3-γ on 2026-05-10) |
 | FilterRuleTable                 | [x]    | `.tbl` (already conformant — verified post-slice-1b on 2026-05-10; no code changes required) |
-| HostCell                        | [ ]    | `.host` markup                                             |
+| HostCell                        | [x]    | `.host` markup — wraps `icon` in `.avatar`, primary in `.name`, secondary in `.mac.mono`; preserves `{ primary, secondary, icon }` API (slice T3-δ on 2026-05-10) |
 | JobProgressDescription          | [x]    | mono job state                                             |
 | Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
 | LogViewer                       | [x]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) — uses `.t`/`.l`/`.m` slot triplet from screens.jsx mock; connection dot uses `bg-accent`/`bg-danger` Forge tokens (was raw `bg-green-500`/`bg-red-500`); empty state rendered as a single `.logrow.is-info` for shell consistency on 2026-05-10 |
