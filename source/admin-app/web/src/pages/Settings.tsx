@@ -24,7 +24,13 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { formatBytes, formatUptime } from "@/lib/utils";
 
-/** Settings page for system configuration (admin only). */
+/** Settings page for system configuration (admin only).
+ *  Composes the ported `PageHeader`, `BackupCard`, `PowerCard`,
+ *  `UpdateCard`, `DnsFilterSettingsCard`, `RestartProgressDialog`, and
+ *  `ShutdownProgressDialog` (all already on Forge tokens) inside a
+ *  `col gap-20` page wrapper that matches `forge/docs/screens.jsx` §07.
+ *  Public API unchanged — default-exported, no props (consumed via
+ *  `<Route element={<Settings />} />` in `App.tsx`). */
 export default function Settings() {
   const { data: status, isLoading } = useSystemStatus();
   const { data: updateStatus, isLoading: updateLoading } = useUpdateStatus();
@@ -73,8 +79,9 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" />
-      <div className="flex flex-col gap-4">
+      <div className="col gap-20">
+        <PageHeader title="Settings" />
+
         <Card>
           <CardHeader>
             <CardTitle>System information</CardTitle>
