@@ -182,7 +182,7 @@ all facts; status pills via `.pill--*`.
 | ConnectionStatus                | [x]    | sidebar dot+label indicator — replaced raw `bg-emerald/yellow/red-400` with Forge `bg-accent/warn/danger` tokens on 2026-05-10; pill shape was the wrong fit (sidebar footer is dot+text, not a chip), kept the dot+label visual |
 | CountryCombobox                 | [ ]    | cmdk-backed, country flag prefix                           |
 | CronSchedulePicker              | [ ]    | field cluster                                              |
-| DashboardStatCard               | [ ]    | -> StatTile primitive                                      |
+| DashboardStatCard               | [x]    | -> StatTile primitive                                      |
 | DashboardUsageBar               | [ ]    | `.bar`                                                     |
 | DetailPageHeader                | [ ]    | H1 + status pill + breadcrumb (per skill §detail page)     |
 | DeviceIcon                      | [ ]    | use Forge Icon set or stay on lucide (open Q)              |

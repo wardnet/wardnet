@@ -1,6 +1,5 @@
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { DashboardUsageBar } from "./DashboardUsageBar";
+import { StatTile } from "@wardnet/forge-web/stat-tile";
 
 interface DashboardStatCardProps {
   title: string;
@@ -20,17 +19,14 @@ export function DashboardStatCard({
   usagePercent,
   to,
 }: DashboardStatCardProps) {
-  const card = (
-    <Card className={to ? "transition-colors hover:bg-accent/50" : undefined}>
-      <CardHeader>
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-3xl font-bold">{value}</p>
-        {subtitle && <p className="mt-1 text-xs text-ink-3">{subtitle}</p>}
-        {usagePercent != null && <DashboardUsageBar value={usagePercent} />}
-      </CardContent>
-    </Card>
+  const tile = (
+    <StatTile
+      label={title}
+      value={value}
+      sub={subtitle}
+      bar={usagePercent}
+      className={to ? "transition-colors hover:bg-accent/50" : undefined}
+    />
   );
 
   if (to) {
@@ -39,9 +35,9 @@ export function DashboardStatCard({
         to={to}
         className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
       >
-        {card}
+        {tile}
       </Link>
     );
   }
-  return card;
+  return tile;
 }
