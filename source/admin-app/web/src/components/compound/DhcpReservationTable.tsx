@@ -6,7 +6,6 @@ import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { HostCell, buildDeviceIndex } from "@/components/compound/HostCell";
-import { cn } from "@/lib/utils";
 import type { Device, DhcpReservation } from "@wardnet/js";
 
 function createColumns(
@@ -35,7 +34,7 @@ function createColumns(
         const icon = device ? (
           <DeviceIcon type={device.device_type} />
         ) : (
-          <Bookmark size={18} className={cn("text-ink-3")} />
+          <Bookmark size={18} className="text-ink-3" />
         );
         return <HostCell primary={primary} secondary={secondary} icon={icon} />;
       },

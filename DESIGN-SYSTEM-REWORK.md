@@ -190,7 +190,7 @@ all facts; status pills via `.pill--*`.
 | DeviceTable                     | [x]    | `.tbl` + `.host` row                                       |
 | DhcpConfigCard                  | [x]    | edit-mode card protocol — folded `EditDhcpConfigSheet` into the card's edit mode, hook-coupled (`useUpdateDhcpConfig`) per the DeviceSettingsCard precedent |
 | DhcpLeaseTable                  | [x]    | `.tbl`                                                     |
-| DhcpReservationTable            | [ ]    | `.tbl`                                                     |
+| DhcpReservationTable            | [x]    | `.tbl`                                                     |
 | DhcpStatusCard                  | [ ]    | first-card pattern (status pill + headline number)         |
 | DhcpSummaryCard                 | [ ]    | StatTile-derived                                           |
 | DiscoveryPlaceholder            | [ ]    | `.empty`                                                   |
