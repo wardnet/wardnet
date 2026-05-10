@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import type { WizardStep } from "@wardnet/js";
 
 const STEPS: { id: WizardStep; label: string }[] = [
@@ -36,19 +37,17 @@ export function WizardStepper({ current }: { current: WizardStep }) {
               <span
                 aria-label={step.label}
                 aria-current={isCurrent ? "step" : undefined}
-                className={
-                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold " +
-                  (isCurrent
-                    ? "border-accent bg-accent text-accent-ink"
-                    : isPast
-                      ? "border-accent bg-accent/15 text-accent"
-                      : "border-ink-3/30 text-ink-3")
-                }
+                className={clsx(
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold",
+                  isCurrent && "border-accent bg-accent text-accent-ink",
+                  !isCurrent && isPast && "border-accent bg-accent/15 text-accent",
+                  !isCurrent && !isPast && "border-line text-ink-3",
+                )}
               >
                 {i + 1}
               </span>
               {i < STEPS.length - 1 && (
-                <span className={"mx-1 h-px flex-1 " + (isPast ? "bg-accent/40" : "bg-ink-3/20")} />
+                <span className={clsx("mx-1 h-px flex-1", isPast ? "bg-accent/40" : "bg-line")} />
               )}
             </li>
           );

@@ -48,8 +48,8 @@ export default function Step6Policy() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-ink">Default routing</h2>
-        <p className="text-sm text-ink-3">
+        <h2 className="h-title">Default routing</h2>
+        <p className="h-sub">
           Pick how new devices route by default. You can override per-device later from the Devices
           page.
         </p>
@@ -68,7 +68,7 @@ export default function Step6Policy() {
       <Button
         onClick={handleContinue}
         disabled={setDefault.isPending || advance.isPending}
-        className="h-12 w-full"
+        className="w-full"
       >
         {setDefault.isPending || advance.isPending ? "Saving…" : "Continue"}
       </Button>

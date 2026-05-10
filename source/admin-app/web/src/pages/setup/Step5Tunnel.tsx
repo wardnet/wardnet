@@ -30,33 +30,33 @@ export default function Step5Tunnel() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-ink">First VPN tunnel</h2>
-        <p className="text-sm text-ink-3">
+        <h2 className="h-title">First VPN tunnel</h2>
+        <p className="h-sub">
           Optional — connect a VPN provider so opted-in devices can route through it. You can add
           more from the Tunnels page once setup is complete.
         </p>
       </div>
 
       {hasTunnel ? (
-        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
+        <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
           {tunnelCount} tunnel{tunnelCount === 1 ? "" : "s"} configured. Continue to pick a default
           routing policy.
         </div>
       ) : (
-        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
+        <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
           No tunnels yet. Add one now or skip — you can change the default routing policy from
           Settings later.
         </div>
       )}
 
       <div className="flex flex-col gap-2">
-        <Button variant="outline" onClick={() => setAdding(true)} className="h-12 w-full">
+        <Button variant="outline" onClick={() => setAdding(true)} className="w-full">
           {hasTunnel ? "Add another tunnel" : "Add tunnel"}
         </Button>
         <Button
           onClick={() => advance.mutate({ to_step: "policy" })}
           disabled={advance.isPending}
-          className="h-12 w-full"
+          className="w-full"
         >
           {advance.isPending ? "Saving…" : hasTunnel ? "Continue" : "Skip for now"}
         </Button>

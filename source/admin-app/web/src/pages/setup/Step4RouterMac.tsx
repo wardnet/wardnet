@@ -44,8 +44,8 @@ export default function Step4RouterMac() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-ink">Router MAC</h2>
-        <p className="text-sm text-ink-3">
+        <h2 className="h-title">Router MAC</h2>
+        <p className="h-sub">
           Wardnet uses the upstream router's MAC address for diagnostics and packet-capture
           filtering.
         </p>
@@ -56,11 +56,11 @@ export default function Step4RouterMac() {
       )}
 
       {probedMac && (
-        <div className="rounded-lg border border-line bg-sunken/30 p-4 text-sm">
+        <div className="rounded-md border border-line bg-sunken p-4 text-sm">
           <p className="font-medium text-ink">
             {probedSource === "arp" ? "Discovered via ARP" : "Recorded"}
           </p>
-          <p className="mt-1 font-mono">{probedMac}</p>
+          <p className="mono mt-1">{probedMac}</p>
         </div>
       )}
 
@@ -72,18 +72,18 @@ export default function Step4RouterMac() {
               value={manualMac}
               onChange={(e) => setManualMac(e.target.value)}
               placeholder="00:11:22:AA:BB:CC"
-              className="h-12 font-mono"
+              className="font-mono"
             />
           </Field>
           <div className="flex justify-end">
-            <Button type="submit" variant="secondary" disabled={!manualMac}>
+            <Button type="submit" variant="outline" disabled={!manualMac}>
               Save MAC
             </Button>
           </div>
         </form>
       )}
 
-      <Button onClick={handleContinue} disabled={advance.isPending} className="h-12 w-full">
+      <Button onClick={handleContinue} disabled={advance.isPending} className="w-full">
         {advance.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
       </Button>
     </div>

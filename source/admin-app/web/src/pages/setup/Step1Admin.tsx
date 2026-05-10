@@ -65,8 +65,8 @@ export default function Step1Admin() {
   return (
     <div>
       <div className="mb-5 flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-ink">Create admin account</h2>
-        <p className="text-sm text-ink-3">
+        <h2 className="h-title">Create admin account</h2>
+        <p className="h-sub">
           Set up your administrator credentials. You'll use these to sign in to Wardnet.
         </p>
       </div>
@@ -79,7 +79,6 @@ export default function Step1Admin() {
             autoComplete="username"
             placeholder="admin"
             required
-            className="h-12"
           />
         </Field>
         <Field label="Password" htmlFor="password">
@@ -91,7 +90,6 @@ export default function Step1Admin() {
             autoComplete="new-password"
             placeholder="At least 8 characters"
             required
-            className="h-12"
           />
         </Field>
         <Field label="Confirm password" htmlFor="confirm-password">
@@ -103,15 +101,10 @@ export default function Step1Admin() {
             autoComplete="new-password"
             placeholder="Re-enter password"
             required
-            className="h-12"
           />
         </Field>
         {error && <p className="text-sm text-danger">{error}</p>}
-        <Button
-          type="submit"
-          disabled={setup.isPending || advance.isPending}
-          className="h-12 w-full bg-[oklch(0.22_0.12_275)] text-base font-semibold tracking-wide text-white uppercase hover:bg-[oklch(0.28_0.12_275)] dark:bg-accent dark:hover:bg-accent/90"
-        >
+        <Button type="submit" disabled={setup.isPending || advance.isPending} className="w-full">
           {setup.isPending || advance.isPending ? "Creating account…" : "Create account"}
         </Button>
       </form>

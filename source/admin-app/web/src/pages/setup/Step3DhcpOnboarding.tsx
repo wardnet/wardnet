@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { WizardMode } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import {
   Select,
   SelectContent,
@@ -48,38 +49,38 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-ink">DHCP onboarding</h2>
-        <p className="text-sm text-ink-3">Choose how Wardnet handles DHCP on your LAN.</p>
+        <h2 className="h-title">DHCP onboarding</h2>
+        <p className="h-sub">Choose how Wardnet handles DHCP on your LAN.</p>
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
           <input
             type="radio"
             name="dhcp-mode"
             value="primary"
             checked={mode === "primary"}
             onChange={() => setMode("primary")}
-            className="mt-1"
+            className="mt-1 accent-accent"
           />
           <div className="flex flex-col gap-1">
-            <span className="font-medium">Primary (recommended)</span>
+            <span className="text-sm font-medium text-ink">Primary (recommended)</span>
             <span className="text-sm text-ink-3">
               Wardnet runs DHCP. You'll disable DHCP on your existing router using the steps below.
             </span>
           </div>
         </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
           <input
             type="radio"
             name="dhcp-mode"
             value="locked_router"
             checked={mode === "locked_router"}
             onChange={() => setMode("locked_router")}
-            className="mt-1"
+            className="mt-1 accent-accent"
           />
           <div className="flex flex-col gap-1">
-            <span className="font-medium">Locked router</span>
+            <span className="text-sm font-medium text-ink">Locked router</span>
             <span className="text-sm text-ink-3">
               Your ISP router can't disable DHCP. You'll manually point each opted-in device at
               Wardnet as its gateway and DNS.
@@ -89,11 +90,10 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       </div>
 
       {mode === "primary" && (
-        <div className="flex flex-col gap-3 rounded-lg border border-line bg-sunken/30 p-4">
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium">Pick your router</span>
+        <div className="flex flex-col gap-3 rounded-md border border-line bg-sunken p-4">
+          <Field label="Pick your router" htmlFor="router-pick">
             <Select value={routerId} onValueChange={setRouterId}>
-              <SelectTrigger>
+              <SelectTrigger id="router-pick">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -104,7 +104,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Field>
           {router && (
             <div className="flex flex-col gap-2">
               <ol className="ml-5 list-decimal space-y-1 text-sm text-ink-3">
@@ -138,7 +138,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
             {probeClean && (
               <p className="flex-1 text-sm text-ink">Only Wardnet responded — good.</p>
             )}
-            <Button variant="secondary" onClick={() => probe.mutate()} disabled={probe.isPending}>
+            <Button variant="outline" onClick={() => probe.mutate()} disabled={probe.isPending}>
               {probe.isPending ? "Probing…" : probeResult ? "Probe again" : "Probe LAN"}
             </Button>
           </div>
@@ -146,7 +146,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       )}
 
       {mode === "locked_router" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-line bg-sunken/30 p-4 text-sm text-ink-3">
+        <div className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
           <p>
             Configure each opted-in device's network settings to use Wardnet as its gateway and DNS
             server. Other devices on the LAN keep their normal connectivity.
@@ -161,7 +161,7 @@ export default function Step3DhcpOnboarding({ initialMode }: { initialMode: Wiza
       <Button
         onClick={handleContinue}
         disabled={advance.isPending || (mode === "primary" && !probeClean)}
-        className="h-12 w-full"
+        className="w-full"
       >
         {advance.isPending
           ? "Saving…"
