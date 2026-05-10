@@ -37,7 +37,7 @@ export function DashboardStatCard({
     return (
       <Link
         to={to}
-        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
       >
         {card}
       </Link>

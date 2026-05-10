@@ -88,10 +88,7 @@
   --color-muted: var(--bg-sunken);
   --color-muted-foreground: var(--ink-3);
   --color-destructive: var(--danger);
-  --color-warning: var(--warn);
-  --color-warning-foreground: var(--warn-soft-ink);
   --color-border: var(--line);
-  --color-ring: var(--accent);
 }
 
 @layer base {

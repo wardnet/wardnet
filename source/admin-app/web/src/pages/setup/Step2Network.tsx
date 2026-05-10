@@ -48,7 +48,7 @@ export default function Step2Network() {
       </dl>
 
       {data?.dhcp_source !== "static" && (
-        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+        <div className="rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
           <p className="font-medium text-foreground">Your IP isn't pinned</p>
           <p className="mt-1 text-muted-foreground">
             The router is currently leasing this address — it may change on the next reboot. Re-run{" "}

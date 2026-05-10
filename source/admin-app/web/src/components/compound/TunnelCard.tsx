@@ -104,7 +104,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
     <Card className="transition-colors hover:bg-accent/30">
       <Link
         to={`/tunnels/${tunnel.id}`}
-        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
         <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-3">

@@ -69,10 +69,7 @@ export function BackupCard({
           configuration change. Bundles are encrypted with age in passphrase mode.
         </p>
 
-        <div
-          role="alert"
-          className="flex gap-2 rounded-md bg-warning p-3 text-sm text-warning-foreground"
-        >
+        <div role="alert" className="flex gap-2 rounded-md bg-warn p-3 text-sm text-warn-soft-ink">
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
           <span>Keep the passphrase somewhere safe. We can&apos;t recover it for you.</span>
         </div>

@@ -24,7 +24,7 @@ import type { ProviderCredentials, ProviderInfo, ServerInfo } from "@wardnet/js"
 /** Visual load indicator with a colored dot and percentage. */
 function LoadIndicator({ load }: { load: number }) {
   const color =
-    load < 30 ? "text-accent-ink" : load < 70 ? "text-warning-foreground" : "text-destructive";
+    load < 30 ? "text-accent-ink" : load < 70 ? "text-warn-soft-ink" : "text-destructive";
   return (
     <span className={`flex items-center gap-1 text-xs ${color}`}>
       <span className="inline-block size-2 rounded-full bg-current" />
