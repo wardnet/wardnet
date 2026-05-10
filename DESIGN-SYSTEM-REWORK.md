@@ -236,7 +236,7 @@ all facts; status pills via `.pill--*`.
 | ShutdownProgressDialog   | [ ]    | dialog                                           |
 | TunnelDevicesTable       | [ ]    | `.tbl` + `.host`                                 |
 | TunnelThroughputChart    | [ ]    | line chart §10 (Download = `--accent`, Upload = `--info`) |
-| UpdateCard               | [ ]    | card                                             |
+| UpdateCard               | [x]    | already on Forge primitives (Card / Field / Button / Toggle / Select); StatusBadge for "Up to date"; danger alert on `failed` phase reuses sibling pattern; tokens (`text-ink-3`, `text-danger`, `bg-danger/10`, `border-danger/50`) are Forge `@theme` colors. Verified on 2026-05-10 (slice T4-α), no code changes required. |
 
 ---
 
