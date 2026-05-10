@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
+import { Field } from "@wardnet/forge-web/field";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
 import { useTunnel, useDeleteTunnel } from "@/hooks/useTunnels";
-import { useNavigate } from "react-router";
 import { countryFlag } from "@/lib/country";
 import { timeAgo } from "@/lib/utils";
 import type { TunnelMetricsRange, TunnelStatus } from "@wardnet/js";
@@ -37,20 +37,15 @@ function statusLabel(status: TunnelStatus): string {
   }
 }
 
-interface MetadataRowProps {
-  label: string;
-  children: React.ReactNode;
-}
-
-function MetadataRow({ label, children }: MetadataRowProps) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs uppercase tracking-wide text-ink-3">{label}</span>
-      <span className="text-sm">{children}</span>
-    </div>
-  );
-}
-
+/** Tunnel detail page: breadcrumb header + Configuration card + ported
+ *  TunnelThroughputChart (Forge §10 chart) + TunnelDevicesTable (`.tbl`
+ *  + `.host`) per `forge/docs/detail-screens.jsx`. The page wrapper is
+ *  Forge `col gap-20` (matches the 20 px section rhythm of the studio
+ *  mock); the Configuration grid swaps the bespoke `MetadataRow` for the
+ *  ported Forge `Field` primitive (read-only mode), keeping label /
+ *  value rhythm consistent with `DeviceIdentityCard`. Public API
+ *  unchanged — default-exported, no props (consumed via
+ *  `<Route element={<TunnelDetail />} />` in `App.tsx`). */
 export default function TunnelDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const [range, setRange] = useState<TunnelMetricsRange>("24h");
@@ -59,18 +54,14 @@ export default function TunnelDetail() {
   const deleteTunnel = useDeleteTunnel();
 
   if (isLoading) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-ink-3">Loading…</p>
-      </div>
-    );
+    return <p className="text-sm text-ink-3">Loading…</p>;
   }
 
   if (isError || !data) {
     return (
-      <div className="flex flex-col gap-2 p-6">
-        <h1 className="text-xl font-semibold">Tunnel not found</h1>
-        <p className="text-sm text-ink-3">The tunnel you're looking for may have been deleted.</p>
+      <div className="col gap-8">
+        <h1 className="h-title">Tunnel not found</h1>
+        <p className="h-sub">The tunnel you're looking for may have been deleted.</p>
       </div>
     );
   }
@@ -79,7 +70,7 @@ export default function TunnelDetail() {
   const flag = tunnel.country_code ? countryFlag(tunnel.country_code) : "";
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="col gap-20">
       <DetailPageHeader
         parentLabel="Tunnels"
         parentTo="/tunnels"
@@ -98,18 +89,23 @@ export default function TunnelDetail() {
         <CardHeader>
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
-          <MetadataRow label="Provider">{tunnel.provider ?? "—"}</MetadataRow>
-          <MetadataRow label="Country">
-            {flag ? `${flag} ` : ""}
-            {tunnel.country_code?.toUpperCase() ?? "—"}
-          </MetadataRow>
-          <MetadataRow label="Endpoint">
-            <span className="font-mono text-xs">{tunnel.endpoint}</span>
-          </MetadataRow>
-          <MetadataRow label="Interface">
-            <span className="font-mono text-xs">{tunnel.interface_name}</span>
-          </MetadataRow>
+        <CardContent className="grid grid-cols-2 gap-x-6 md:grid-cols-4">
+          <Field label="Provider" editing={false} value={tunnel.provider ?? "—"} />
+          <Field
+            label="Country"
+            editing={false}
+            value={`${flag ? `${flag} ` : ""}${tunnel.country_code?.toUpperCase() ?? "—"}`}
+          />
+          <Field
+            label="Endpoint"
+            editing={false}
+            value={<span className="mono">{tunnel.endpoint}</span>}
+          />
+          <Field
+            label="Interface"
+            editing={false}
+            value={<span className="mono">{tunnel.interface_name}</span>}
+          />
         </CardContent>
       </Card>
 
@@ -117,7 +113,7 @@ export default function TunnelDetail() {
 
       <TunnelDevicesTable tunnelId={tunnel.id} />
 
-      <div className="flex justify-end">
+      <div className="row justify-end">
         <Button
           variant="destructive"
           onClick={() => {
