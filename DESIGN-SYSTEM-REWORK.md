@@ -277,7 +277,7 @@ all facts; status pills via `.pill--*`.
 | File / area                       | Status | Notes                                                                             |
 | --------------------------------- | ------ | --------------------------------------------------------------------------------- |
 | `src/index.css`                   | [x]    | brand-* aliases dropped + Forge tokens (slice 7a, commit eaa1e5e); fonts (Inter Tight + JetBrains Mono) confirmed already imported. |
-| `pages/Home.tsx`                  | [ ]    | Hero on `--bg-elev` w/ Ward Navy accent block; principle: numbers earn the room    |
+| `pages/Home.tsx`                  | [x]    | Hero on `--bg-elev` — replaced bespoke `bg-white dark:bg-[oklch(...)]` shell with Forge `bg-elev` token utility (slice T7). |
 | `pages/Docs.tsx`                  | [ ]    | sidebar + body, mono code, Forge `.kbd` style                                      |
 | `pages/DocsArticle.tsx`           | [ ]    | typography pass — Inter Tight body, JBM for `<code>`                               |
 | `pages/ErrorView.tsx` / `NotFound.tsx` | [ ] | `.empty` pattern                                                                   |

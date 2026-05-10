@@ -19,7 +19,7 @@ export function Home() {
 
   if (!showHero) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[oklch(0.13_0.02_270)]">
+      <div className="min-h-screen bg-elev">
         <Navbar onLogoClick={() => setShowHero(true)} />
         <Features />
         <HowItWorks />
