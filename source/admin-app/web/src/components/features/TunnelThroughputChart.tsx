@@ -76,13 +76,18 @@ interface YAxisTickProps {
   range: TunnelMetricsRange;
 }
 
-/** Two-line Y-axis tick: number on top, unit below. */
+/**
+ * Two-line Y-axis tick: number on top, unit below. Forge §10 owns
+ * the typography (mono numerics, --ink-3) via `.chart .recharts-yAxis
+ * .recharts-cartesian-axis-tick text` — Recharts wraps custom-rendered
+ * ticks in that selector path, so we don't restate fill/font here.
+ */
 function YAxisTick({ x = 0, y = 0, payload, range }: YAxisTickProps) {
   if (!payload) return null;
   const { num, unit } = splitRate(payload.value, range);
   return (
     <g transform={`translate(${x},${y})`}>
-      <text textAnchor="end" className="fill-ink-3 text-[10px]">
+      <text textAnchor="end">
         <tspan x={-4} dy={0}>
           {num}
         </tspan>
@@ -172,7 +177,11 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
         ) : (
           <ChartContainer config={chartConfig} className="h-64 w-full">
             <LineChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
+              {/* Forge §10 owns the grid contract: horizontal hairlines
+                  only (2 4 dash, 1px / --line) and vertical lines hidden.
+                  We still render <CartesianGrid> so Recharts emits the
+                  selector targets — no props needed; CSS wins. */}
+              <CartesianGrid />
               <XAxis
                 dataKey="ts"
                 type="number"
@@ -181,7 +190,6 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
                 minTickGap={48}
                 tickMargin={10}
                 height={36}
-                tick={{ fontSize: 10 }}
               />
               <YAxis width={48} tick={(props) => <YAxisTick {...props} range={range} />} />
               <Tooltip
@@ -192,11 +200,14 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
                 ]}
               />
               <Legend formatter={(name) => (name === "rxRate" ? "Download" : "Upload")} />
+              {/* Forge §10 stroke weight is 1.6–1.8 px — heavier than a
+                  Sparkline (1.5) so the primary chart reads as a real
+                  series, lighter than the default Recharts 2 px. */}
               <Line
                 type="monotone"
                 dataKey="rxRate"
                 stroke="var(--color-rx)"
-                strokeWidth={2}
+                strokeWidth={1.75}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -204,7 +215,7 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
                 type="monotone"
                 dataKey="txRate"
                 stroke="var(--color-tx)"
-                strokeWidth={2}
+                strokeWidth={1.75}
                 dot={false}
                 isAnimationActive={false}
               />
