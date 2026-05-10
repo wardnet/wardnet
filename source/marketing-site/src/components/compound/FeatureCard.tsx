@@ -12,19 +12,16 @@ interface FeatureCardProps {
 }
 
 /**
- * Displays a feature with an icon, title, and description inside a bordered card.
+ * Displays a feature with an icon, title, and description inside a Forge
+ * `.card`. The title acts as the headline stat and the description as the
+ * sub line beneath it.
  */
 export function FeatureCard({ icon, title, description, className }: FeatureCardProps) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-[oklch(0.18_0.02_270)]",
-        className,
-      )}
-    >
+    <div className={cn("card", className)}>
       <div className="mb-4 text-accent">{icon}</div>
-      <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
-      <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400">{description}</p>
+      <h3 className="mb-2 text-lg font-semibold text-ink">{title}</h3>
+      <p className="text-sm leading-relaxed text-ink-3">{description}</p>
     </div>
   );
 }
