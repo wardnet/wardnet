@@ -121,10 +121,13 @@ services:
         # config before systemd boots wardnetd so GARP, DHCP, the
         # mDNS advertiser, and packet capture all bind to the same
         # bridge `test_debian` is on.
-        LAN_IFACE=$(ip -o -4 addr show | awk '/inet 10\.91\.0\.1\//{print $2; exit}')
-        if [ -n "$LAN_IFACE" ]; then
-          sed -i "s|^lan_interface = .*|lan_interface = \"$LAN_IFACE\"|" /etc/wardnet/wardnet.toml
-          echo "wardnetd e2e fixture: pinned lan_interface=$LAN_IFACE in /etc/wardnet/wardnet.toml" >&2
+        # `$$` escapes the literal `$` so compose passes the variable
+        # through to the bash heredoc instead of substituting it at
+        # parse time. Same with `$$2` inside the awk script.
+        LAN_IFACE=$$(ip -o -4 addr show | awk '/inet 10\.91\.0\.1\//{print $$2; exit}')
+        if [ -n "$$LAN_IFACE" ]; then
+          sed -i "s|^lan_interface = .*|lan_interface = \"$$LAN_IFACE\"|" /etc/wardnet/wardnet.toml
+          echo "wardnetd e2e fixture: pinned lan_interface=$$LAN_IFACE in /etc/wardnet/wardnet.toml" >&2
         else
           echo "wardnetd e2e fixture: WARNING no NIC holds 10.91.0.1; leaving lan_interface as-is" >&2
         fi
