@@ -245,7 +245,7 @@ all facts; status pills via `.pill--*`.
 | File         | Status | Notes                                                              |
 | ------------ | ------ | ------------------------------------------------------------------ |
 | AppLayout    | [ ]    | floating sidebar default; topbar with breadcrumbs + search + ⌘K kbd |
-| AuthLayout   | [ ]    | centered card on `--bg` (no chrome)                                |
+| AuthLayout   | [x]    | centered card on `--bg` (no chrome) — dropped indigo gradient + hex stops; Forge `<Card>` wraps `<Outlet />`, marketing-size `<Logo size={64}/>` above, brand title + sub on `text-ink`/`text-ink-3` (slice T5-5b on 2026-05-10) |
 
 ---
 
