@@ -30,7 +30,7 @@ export function EmptyStatePlaceholder({
   icon,
 }: EmptyStatePlaceholderProps) {
   return (
-    <div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-xl border border-border bg-background">
+    <div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-xl border border-border bg-bg">
       <style>{`
         @keyframes ripple-1 { 0%, 100% { opacity: 0.08; transform: scale(1); } 50% { opacity: 0.15; transform: scale(1.05); } }
         @keyframes ripple-2 { 0%, 100% { opacity: 0.05; transform: scale(1); } 50% { opacity: 0.1; transform: scale(1.03); } }

@@ -45,7 +45,7 @@ export function DiscoveryPlaceholder({
   );
 
   return (
-    <div className="relative flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background">
+    <div className="relative flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
       <style>{`
         @keyframes scan-sweep {
           0% { top: -3rem; opacity: 0; }

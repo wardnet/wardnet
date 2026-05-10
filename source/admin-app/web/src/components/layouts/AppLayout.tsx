@@ -16,7 +16,7 @@ export function AppLayout() {
   const { isAdmin } = useAuth();
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-bg text-foreground">
       {/* Desktop sidebar — only for admins */}
       {isAdmin && (
         <aside className="hidden w-56 shrink-0 border-r border-side-line bg-side md:block">
@@ -27,7 +27,7 @@ export function AppLayout() {
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Mobile header */}
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm md:hidden">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-bg/80 px-4 backdrop-blur-sm md:hidden">
           {isAdmin && <MobileMenu />}
           <Logo size={24} />
           <span className="text-lg font-bold tracking-tight text-primary">Wardnet</span>
