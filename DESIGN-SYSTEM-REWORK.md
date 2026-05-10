@@ -206,7 +206,7 @@ all facts; status pills via `.pill--*`.
 | RecentErrorsCard                | [ ]    | log-style list                                             |
 | RoutingSelector                 | [ ]    | radio-group field                                          |
 | Sidebar                         | [ ]    | `.side` + floating variant + nav items + brand mark + foot |
-| StatusBadge                     | [ ]    | `.pill--*`                                                 |
+| StatusBadge                     | [x]    | `.pill--*` via the `Pill` primitive — already conformant: tone vocabulary (`success`/`neutral`/`danger`) maps to Pill variants (`ok`/`ghost`/`down`); verified post-slice-1c on 2026-05-10, no code changes required |
 | TunnelCard                      | [ ]    | `.tcard` (flag + title + grid + throughput strip)          |
 | TunnelGrid                      | [ ]    | grid wrapper                                               |
 | UncleanShutdownBanner           | [x]    | banner, danger-soft tones — now thin wrapper over `<Banner tone='down'>` with `actions={<Button>Dismiss</Button>}` (forge-web/banner primitive added on 2026-05-10) |
