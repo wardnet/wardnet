@@ -68,6 +68,10 @@
     "./combobox": {
       "import": "./src/primitives/combobox.tsx",
       "types": "./src/primitives/combobox.tsx"
+    },
+    "./stat-tile": {
+      "import": "./src/primitives/stat-tile.tsx",
+      "types": "./src/primitives/stat-tile.tsx"
     }
   },
   "files": [

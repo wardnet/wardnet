@@ -158,7 +158,7 @@ Radix primitive needed (pure visual or HTML element).
 
 | Primitive   | Source                              | Status |
 | ----------- | ----------------------------------- | ------ |
-| StatTile    | `design-system/primitives.jsx`      | [ ]    |
+| StatTile    | `design-system/primitives.jsx` — added `StatTile` primitive in `forge-web/src/primitives/stat-tile.tsx` (slot-based: `label` / `value` / `unit` / `sub` / `bar` / `spark` / `pill`); studio's BEM `.stat` block was already in `styles.css` so this slice only consumes it — `spark` accepts a `ReactNode` to keep StatTile decoupled from the Sparkline primitive (slice 2b); per-primitive `@wardnet/forge-web/stat-tile` export wired in `package.json` on 2026-05-10 | [x]    |
 | Sparkline   | `design-system/primitives.jsx`      | [ ]    |
 | Donut       | `design-system/primitives.jsx`      | [ ]    |
 | Icon set    | `design-system/primitives.jsx` (Forge ships hand-tuned 1.7-stroke icons) — see Open Questions | [ ] |
