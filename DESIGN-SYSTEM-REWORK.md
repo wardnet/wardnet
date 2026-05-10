@@ -194,7 +194,7 @@ all facts; status pills via `.pill--*`.
 | DhcpStatusCard                  | [x]    | first-card pattern (status pill + headline number) — replaced shadcn `Field`+Toggle body row with `CardAction` toggle, swapped `StatusBadge`+`DashboardUsageBar` for raw `Pill`+`.bar` and `stat__label`/`stat__value` headline numbers per the studio mock; kept `{ status, onToggle, isPending }` API on 2026-05-10 |
 | DhcpSummaryCard                 | [x]    | StatTile-derived                                           |
 | DiscoveryPlaceholder            | [x]    | `.empty` outer frame (dashed border + lg radius via Forge tokens); rich scan-bar / particles / breathing-rows animations preserved inside; `!p-0` overrides the class's 40px padding so the skeleton goes full-bleed |
-| EmptyStatePlaceholder           | [ ]    | `.empty`                                                   |
+| EmptyStatePlaceholder           | [x]    | `.empty` outer frame (dashed border + `--radius-lg`); concentric ripple rings + stacked-document + plus-badge preserved as the component's signature, retinted onto `--accent`/`--ink-3` via `color-mix` so no raw Tailwind palette refs remain (slice T3-γ on 2026-05-10) |
 | FilterRuleTable                 | [x]    | `.tbl` (already conformant — verified post-slice-1b on 2026-05-10; no code changes required) |
 | HostCell                        | [ ]    | `.host` markup                                             |
 | JobProgressDescription          | [ ]    | mono job state                                             |
