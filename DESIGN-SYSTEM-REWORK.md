@@ -1807,7 +1807,7 @@ first, then into the apps.
 | **Reserve `source/admin-app/forge-native/` and `source/admin-app/mobile/`** for the future React Native primitives + mobile bundle. No code in this branch — placeholder rule that the names are taken. | [ ] |
 | Complete `tokens.ts` extraction — initial slice covered brand / status / radius / density / font; surfaces (`--bg`, `--bg-elev`, …), ink (`--ink`, `--ink-2`, …), sidebar (`--side-*`), shadows, and soft-variant pairs still need transcribing. Until then `styles.css` is authoritative for web rendering. | [ ] |
 | Convert `source/forge/docs/` to docs-only (mocks + studio HTML rendered against the real package builds long-term). | [ ] |
-| Delete legacy shadcn-token alias block in `source/admin-app/web/src/index.css` once no component references the old utilities (`bg-background`, `text-foreground`, `bg-primary`, `border-border`, `border-input`, `ring-ring`, `bg-sidebar*`, `bg-destructive`, `bg-muted`, `bg-success`, `bg-warning`, `bg-popover`, `bg-secondary`, `text-muted-foreground`, etc.) | [ ] |
+| Delete legacy shadcn-token alias block in `source/admin-app/web/src/index.css` once no component references the old utilities (`bg-background`, `text-foreground`, `bg-primary`, `border-border`, `border-input`, `ring-ring`, `bg-sidebar*`, `bg-destructive`, `bg-muted`, `bg-success`, `bg-warning`, `bg-popover`, `bg-secondary`, `text-muted-foreground`, etc.) | [x] |
 | Delete legacy `--brand-indigo` / `--brand-slate` / `--brand-green` / `--brand-green-hover` aliases in `source/marketing-site/src/index.css` once site components consume Forge tokens (`var(--accent)`, `bg-accent`, etc.) | [ ] |
 
 ---
