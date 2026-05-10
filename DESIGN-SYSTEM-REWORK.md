@@ -199,7 +199,7 @@ all facts; status pills via `.pill--*`.
 | HostCell                        | [ ]    | `.host` markup                                             |
 | JobProgressDescription          | [x]    | mono job state                                             |
 | Logo                            | [ ]    | shield + signal mark, 26px chrome / 60px+ marketing        |
-| LogViewer                       | [ ]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) |
+| LogViewer                       | [x]    | `.logs` / `.logrow` + level filter (`is-warn`/`is-err`/`is-info`) — uses `.t`/`.l`/`.m` slot triplet from screens.jsx mock; connection dot uses `bg-accent`/`bg-danger` Forge tokens (was raw `bg-green-500`/`bg-red-500`); empty state rendered as a single `.logrow.is-info` for shell consistency on 2026-05-10 |
 | MobileMenu                      | [x]    | hamburger → `<Drawer side="left">` hosting the existing `<Sidebar />` — slice 16 |
 | PageHeader                      | [ ]    | `.h-title` + `.h-sub` + right-aligned actions              |
 | ProfileToggleList               | [ ]    | toggle-row list (added on main 2026-05-09 in #343)         |

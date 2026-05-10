@@ -1,25 +1,14 @@
-import { Pill } from "@wardnet/forge-web/pill";
 import type { LogEntry } from "@wardnet/js";
 
-function levelVariant(level: string) {
+/** Map a LogEntry level to the `.logrow` CSS modifier suffix. */
+function levelModifier(level: string): "err" | "warn" | "info" {
   switch (level.toUpperCase()) {
     case "ERROR":
-      return "down" as const;
+      return "err";
     case "WARN":
-      return "warn" as const;
+      return "warn";
     default:
-      return "ghost" as const;
-  }
-}
-
-function levelColor(level: string): string {
-  switch (level.toUpperCase()) {
-    case "ERROR":
-      return "text-red-600 dark:text-red-400";
-    case "WARN":
-      return "text-yellow-600 dark:text-yellow-400";
-    default:
-      return "text-ink-3";
+      return "info";
   }
 }
 
@@ -93,37 +82,28 @@ export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className={`inline-block size-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
+            className={`inline-block size-2 rounded-full ${connected ? "bg-accent" : "bg-danger"}`}
           />
           <span className="text-xs text-ink-3">{connected ? "Streaming" : "Disconnected"}</span>
         </div>
         {skipped > 0 && (
-          <span className="text-xs text-yellow-600 dark:text-yellow-400">
-            {skipped} entries skipped (buffer lag)
-          </span>
+          <span className="text-warn-soft-ink text-xs">{skipped} entries skipped (buffer lag)</span>
         )}
       </div>
 
-      <div
-        className="overflow-y-auto rounded-lg border border-line bg-sunken/30 font-mono text-xs"
-        style={{ maxHeight }}
-      >
+      <div className="logs" style={{ maxHeight }}>
         {entries.length === 0 ? (
-          <p className="p-4 text-center text-ink-3">
-            {connected ? "Waiting for log entries…" : "Not connected"}
+          <p className="logrow is-info">
+            <span className="m">{connected ? "Waiting for log entries…" : "Not connected"}</span>
           </p>
         ) : (
-          <div className="divide-y divide-line/50">
-            {entries.map((entry, i) => (
-              <div key={i} className={`flex gap-3 px-3 py-1.5 ${levelColor(entry.level)}`}>
-                <span className="shrink-0 text-ink-3/60">{formatTimestamp(entry.timestamp)}</span>
-                <Pill variant={levelVariant(entry.level)} className="h-5 shrink-0 text-[10px]">
-                  {entry.level}
-                </Pill>
-                <span className="min-w-0 break-all">{formatMessage(entry)}</span>
-              </div>
-            ))}
-          </div>
+          entries.map((entry, i) => (
+            <div key={i} className={`logrow is-${levelModifier(entry.level)}`}>
+              <div className="t">{formatTimestamp(entry.timestamp)}</div>
+              <div className="l">{entry.level.toUpperCase()}</div>
+              <div className="m">{formatMessage(entry)}</div>
+            </div>
+          ))
         )}
       </div>
     </div>
