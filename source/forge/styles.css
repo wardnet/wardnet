@@ -782,9 +782,19 @@ button { font-family: inherit; }
 .chart .recharts-tooltip-item-value { color: var(--ink) !important; font-weight: 600; }
 
 /* ---------- Toaster ---------- */
+/* §14 — auto-save and validation patterns. Toasts confirm a commit
+   ("Device settings saved", "Channel set to Beta") at the bottom-right of
+   the viewport, auto-dismiss in 4s for confirmations and 6s for danger
+   ones with a Retry action. Visual contract is the same card surface as
+   §10's tooltip: --bg-card + 1px --line + --radius + --shadow-pop, mono
+   numerics where the body carries one. The `.toast` standalone class is
+   the CSS-only mock; Sonner's runtime emits `[data-sonner-toaster]` and
+   `[data-sonner-toast]` and we restyle those in-place so consumers don't
+   wire per-toast classNames. */
 .toast {
   position: fixed; bottom: 22px; right: 22px;
   background: var(--bg-card);
+  color: var(--ink);
   border: 1px solid var(--line);
   padding: 12px 14px;
   border-radius: var(--radius);
@@ -794,6 +804,74 @@ button { font-family: inherit; }
   z-index: 50;
   animation: pop 200ms ease;
 }
+.toast .mono,
+.toast [data-mono] { font-family: var(--font-mono); }
+.toast--ok    { border-color: color-mix(in oklab, var(--accent) 35%, var(--line)); }
+.toast--ok    [data-icon] { color: var(--accent); }
+.toast--warn  { border-color: color-mix(in oklab, var(--warn) 40%, var(--line)); }
+.toast--warn  [data-icon] { color: var(--warn); }
+.toast--down  { border-color: color-mix(in oklab, var(--danger) 40%, var(--line)); }
+.toast--down  [data-icon] { color: var(--danger); }
+.toast--info  { border-color: color-mix(in oklab, var(--info) 40%, var(--line)); }
+.toast--info  [data-icon] { color: var(--info); }
+
+/* Sonner runtime bridge — the `.toast` mock above is for CSS-only
+   consumers; this block restyles Sonner's actual DOM. data-type is
+   emitted by Sonner per toast (success / info / warning / error /
+   default / loading); we map those to Forge tones the same way `.pill--*`
+   maps state to color (§05). Variant classes are also forwarded via
+   `toastOptions.classNames` in `toaster.tsx` so JSX-level overrides
+   land on the same selectors. */
+[data-sonner-toaster] {
+  --normal-bg: var(--bg-card);
+  --normal-text: var(--ink);
+  --normal-border: var(--line);
+  --border-radius: var(--radius);
+  font-family: var(--font-sans);
+}
+[data-sonner-toast] {
+  box-shadow: var(--shadow-pop) !important;
+  font-size: 13px !important;
+}
+[data-sonner-toast] [data-title] { color: var(--ink); }
+[data-sonner-toast] [data-description] { color: var(--ink-3); }
+[data-sonner-toast][data-type="success"] {
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--line)) !important;
+}
+[data-sonner-toast][data-type="success"] [data-icon] { color: var(--accent); }
+[data-sonner-toast][data-type="warning"] {
+  border-color: color-mix(in oklab, var(--warn) 40%, var(--line)) !important;
+}
+[data-sonner-toast][data-type="warning"] [data-icon] { color: var(--warn); }
+[data-sonner-toast][data-type="error"] {
+  border-color: color-mix(in oklab, var(--danger) 40%, var(--line)) !important;
+}
+[data-sonner-toast][data-type="error"] [data-icon] { color: var(--danger); }
+[data-sonner-toast][data-type="info"] {
+  border-color: color-mix(in oklab, var(--info) 40%, var(--line)) !important;
+}
+[data-sonner-toast][data-type="info"] [data-icon] { color: var(--info); }
+[data-sonner-toast] [data-button] {
+  background: var(--ink) !important;
+  color: var(--bg-card) !important;
+  border-radius: var(--radius-sm) !important;
+  font-weight: 500;
+}
+[data-sonner-toast] [data-cancel] {
+  background: var(--bg-sunken) !important;
+  color: var(--ink-2) !important;
+  border-radius: var(--radius-sm) !important;
+}
+[data-sonner-toast] [data-close-button] {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink-3) !important;
+}
+[data-sonner-toast] [data-close-button]:hover {
+  color: var(--ink) !important;
+  border-color: var(--line-strong) !important;
+}
+
 @keyframes pop {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

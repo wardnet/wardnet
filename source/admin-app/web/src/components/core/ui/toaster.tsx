@@ -7,6 +7,21 @@ import {
   Loader2Icon,
 } from "lucide-react";
 
+/**
+ * Forge §14 — toast surface for auto-save / validation feedback.
+ *
+ * Sonner emits `[data-sonner-toaster]` + `[data-sonner-toast][data-type]`
+ * at runtime; the visual contract (card surface, --line border tinted by
+ * tone, --shadow-pop, --radius corners) lives in `forge/styles.css` next
+ * to the `.toast` mock so CSS-only consumers and the Sonner runtime
+ * land on the same look. We forward `.toast` / `.toast--ok` / etc. via
+ * `toastOptions.classNames` so the same selectors fire whether a
+ * stylesheet author targets the Forge class or Sonner's data attribute.
+ *
+ * Theme is left as `system`; the @theme bridge in `index.css` and Forge's
+ * own `[data-theme="dark"]` block flip card / line / ink tokens together,
+ * so per-toast theming is unnecessary.
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
@@ -19,21 +34,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
         error: <OctagonXIcon className="size-4" />,
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
-        } as React.CSSProperties
-      }
       toastOptions={{
         classNames: {
-          toast: "cn-toast",
-          success:
-            "!bg-green-100 !text-green-800 !border-green-200 dark:!bg-green-950 dark:!text-green-200 dark:!border-green-800",
-          error:
-            "!bg-red-100 !text-red-800 !border-red-200 dark:!bg-red-950 dark:!text-red-200 dark:!border-red-800",
+          toast: "toast",
+          success: "toast--ok",
+          info: "toast--info",
+          warning: "toast--warn",
+          error: "toast--down",
         },
       }}
       {...props}
