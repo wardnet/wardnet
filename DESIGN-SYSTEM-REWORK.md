@@ -185,7 +185,7 @@ all facts; status pills via `.pill--*`.
 | DashboardStatCard               | [x]    | -> StatTile primitive                                      |
 | DashboardUsageBar               | [x]    | `.bar` — `<div class="bar"><span style="width:N%; background:var(--accent\|warn\|danger)"/></div>`; thresholds `>80% danger`, `>50% warn`, else `accent`; replaced shadcn `bg-sunken/bg-accent/bg-danger` and stray `bg-yellow-500` with Forge `.bar` + CSS-var fill on 2026-05-10 |
 | DetailPageHeader                | [x]    | H1 + status pill + breadcrumb — title now uses `.h-title`, meta uses `.h-sub`, layout via `.row`/`.col` helpers; breadcrumb mirrors `.topbar__crumbs` ink-3 trail + ink current segment with lucide `ChevronRight` separator; replaced inline `text-2xl font-semibold tracking-tight` and `text-ink/70` with Forge tokens (T3-δ, 2026-05-10) |
-| DeviceIcon                      | [ ]    | use Forge Icon set or stay on lucide (open Q)              |
+| DeviceIcon                      | [x]    | lucide stays per locked decision; slice 2d sets 1.7 stroke as default — tagged inline `SetTopBox` SVG with `lucide` class so the global `svg.lucide[stroke-width="2"]` selector applies; `text-ink-3` token preserved; API unchanged |
 | DeviceSelect                    | [ ]    | Radix Select wrapper                                       |
 | DeviceTable                     | [x]    | `.tbl` + `.host` row                                       |
 | DhcpConfigCard                  | [x]    | edit-mode card protocol — folded `EditDhcpConfigSheet` into the card's edit mode, hook-coupled (`useUpdateDhcpConfig`) per the DeviceSettingsCard precedent |

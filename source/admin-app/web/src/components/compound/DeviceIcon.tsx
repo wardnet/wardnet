@@ -14,6 +14,9 @@ import type { DeviceType } from "@wardnet/js";
 import { cn } from "@/lib/utils";
 
 function SetTopBox({ size = 24, className }: { size?: number; className?: string }) {
+  // Inline lucide-shaped icon (no SetTopBox exists in lucide-react). Tagged with the
+  // `lucide` class + `strokeWidth={2}` so the slice 2d global selector
+  // (`svg.lucide[stroke-width="2"] { stroke-width: 1.7 }`) applies the Forge default.
   return (
     <svg
       width={size}
@@ -24,7 +27,7 @@ function SetTopBox({ size = 24, className }: { size?: number; className?: string
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
+      className={cn("lucide", className)}
     >
       <rect x="2" y="8" width="20" height="10" rx="2" />
       <path d="M6.01 13H6" />
