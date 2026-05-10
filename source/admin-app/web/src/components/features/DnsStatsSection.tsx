@@ -130,7 +130,7 @@ export function DnsStatsSection() {
               <Line
                 type="monotone"
                 dataKey="total"
-                stroke={chartConfig.total.color}
+                stroke="var(--color-total)"
                 strokeWidth={2}
                 dot={false}
                 name="Total"
@@ -138,7 +138,7 @@ export function DnsStatsSection() {
               <Line
                 type="monotone"
                 dataKey="blocked"
-                stroke={chartConfig.blocked.color}
+                stroke="var(--color-blocked)"
                 strokeWidth={2}
                 dot={false}
                 name="Blocked"
@@ -147,7 +147,7 @@ export function DnsStatsSection() {
                 dataKey="bucket"
                 height={24}
                 travellerWidth={8}
-                stroke={chartConfig.total.color}
+                stroke="var(--color-total)"
                 tickFormatter={() => ""}
                 onChange={(r) => {
                   if (typeof r?.startIndex === "number" && typeof r?.endIndex === "number") {
