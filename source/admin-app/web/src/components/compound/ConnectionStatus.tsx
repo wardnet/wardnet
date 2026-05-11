@@ -1,6 +1,8 @@
 import { useDaemonStatus } from "@/hooks/useDaemonStatus";
 
-/** Traffic-light status indicator + daemon version shown in the sidebar footer. */
+/** Traffic-light status indicator shown in the sidebar footer. The
+ *  daemon version is rendered separately under the brand mark (see
+ *  Sidebar), so this row stays a single line. */
 export function ConnectionStatus() {
   const { data, isLoading } = useDaemonStatus();
 
@@ -11,10 +13,7 @@ export function ConnectionStatus() {
   return (
     <div className="flex items-center gap-2">
       <span className={`inline-block size-2 rounded-full ${color}`} />
-      <div className="flex flex-col">
-        <span className="text-xs text-side-ink/70">{label}</span>
-        {data?.version && <span className="text-[10px] text-side-ink/40">v{data.version}</span>}
-      </div>
+      <span className="text-xs text-side-ink/70">{label}</span>
     </div>
   );
 }

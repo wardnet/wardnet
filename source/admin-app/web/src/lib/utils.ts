@@ -44,6 +44,55 @@ export function apiRequestId(error: unknown): string | undefined {
   return undefined;
 }
 
+/** Pad a number to two digits with a leading zero. */
+function pad(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
+/** Parse a value into a Date; returns `null` if invalid or pre-2000
+ *  (which the backend may emit as a stand-in for "never"). */
+function parseDate(value: Date | string | number | null | undefined): Date | null {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  const ts = d.getTime();
+  if (!Number.isFinite(ts) || ts < 946684800000) return null;
+  return d;
+}
+
+/** YYYY-MM-DD (local time). Used everywhere a date column needs to
+ *  read identically across locales — single source of truth for the
+ *  date half of the app's date/time format. */
+export function formatDate(value: Date | string | number | null | undefined): string {
+  const d = parseDate(value);
+  if (!d) return "—";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** HH:MM:SS in 24-hour clock (local time). */
+export function formatTime(value: Date | string | number | null | undefined): string {
+  const d = parseDate(value);
+  if (!d) return "—";
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** HH:MM in 24-hour clock (local time) — the compact form used in
+ *  toolbars and chart axis ticks where seconds add noise. */
+export function formatTimeShort(value: Date | string | number | null | undefined): string {
+  const d = parseDate(value);
+  if (!d) return "—";
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** YYYY-MM-DD HH:MM:SS (local time, 24-hour). The default for any
+ *  "show me when this happened" cell — keeps every row the same
+ *  width and avoids the AM/PM that broke the UpdateCard layout on
+ *  iPhone widths. */
+export function formatDateTime(value: Date | string | number | null | undefined): string {
+  const d = parseDate(value);
+  if (!d) return "—";
+  return `${formatDate(d)} ${formatTime(d)}`;
+}
+
 /** Format an ISO timestamp to a relative "time ago" string. */
 export function timeAgo(iso: string): string {
   const ts = new Date(iso).getTime();

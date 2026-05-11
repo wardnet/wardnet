@@ -30,7 +30,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader title="Dashboard" />
+      <PageHeader title="Dashboard" description="Live overview" />
 
       <div className="col gap-20">
         {/* Stat cards */}
@@ -79,7 +79,7 @@ export default function Dashboard() {
             to="/dns/logs"
           />
           <DashboardStatCard
-            title="Blocked (24h)"
+            title="Blocked traffic (24hrs)"
             value={dnsStats ? `${dnsStats.totals.blocked_percent.toFixed(1)}%` : "—"}
             subtitle={
               dnsStats
@@ -87,7 +87,7 @@ export default function Dashboard() {
                 : undefined
             }
             usagePercent={dnsStats?.totals.blocked_percent}
-            to="/ad-blocking"
+            to="/dns/filter"
           />
         </div>
 

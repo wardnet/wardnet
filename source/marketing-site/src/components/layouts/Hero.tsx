@@ -18,8 +18,19 @@ interface HeroProps {
 export function Hero({ onExplore }: HeroProps) {
   return (
     <section className="bg-side relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
-      <Logo size={128} className="mb-8" />
-      <h1 className="h-title text-side-ink-active mb-3 text-5xl sm:text-6xl">Wardnet</h1>
+      <div className="mb-8 flex items-center gap-6">
+        <Logo size={112} />
+        {/* Inline color overrides Forge's unlayered `.h-title { color:
+            var(--ink) }` which would otherwise win against Tailwind's
+            `text-side-ink-active` utility and render Ward in the dark
+            ink instead of white on the navy hero. */}
+        <h1
+          className="text-6xl font-semibold tracking-tight sm:text-7xl"
+          style={{ color: "var(--side-ink-active)" }}
+        >
+          Ward<span style={{ color: "var(--accent)" }}>net</span>
+        </h1>
+      </div>
       <p className="h-sub text-side-ink mb-2 text-xl sm:text-2xl">Your network. Your rules.</p>
       <p className="h-sub text-side-ink-2 mb-6 max-w-xl text-base leading-relaxed">
         A self-hosted privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or

@@ -1,18 +1,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontalIcon } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
-import { DataTable } from "@/components/core/ui/data-table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@wardnet/forge-web/dropdown-menu";
+import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { timeAgo } from "@/lib/utils";
 import type { AllowlistEntry } from "@wardnet/js";
 
-function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry>[] {
+function createColumns(): ColumnDef<AllowlistEntry>[] {
   return [
     {
       accessorKey: "domain",
@@ -29,7 +21,7 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       meta: { className: "hidden sm:table-cell" },
       cell: ({ row }) => (
         <span className="block truncate text-ink-3" title={row.original.reason ?? ""}>
-          {row.original.reason ?? "\u2014"}
+          {row.original.reason ?? "—"}
         </span>
       ),
     },
@@ -38,31 +30,6 @@ function createColumns(onDelete: (id: string) => void): ColumnDef<AllowlistEntry
       header: "Added",
       meta: { className: "hidden w-32 md:table-cell" },
       cell: ({ row }) => <span className="text-ink-3">{timeAgo(row.original.created_at)}</span>,
-    },
-    {
-      id: "actions",
-      header: "",
-      meta: { className: "w-12 text-right" },
-      cell: ({ row }) => (
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Actions for ${row.original.domain}`}
-              >
-                <MoreHorizontalIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(row.original.id)}>
-                Remove
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ),
     },
   ];
 }
@@ -73,9 +40,10 @@ interface AllowlistTableProps {
   onAdd: () => void;
 }
 
-/** Table listing allowlist entries with remove action. */
+/** Table listing allowlist entries. Per-row remove via the overflow
+ *  menu; an outline-sm CTA in the toolbar opens the add panel. */
 export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps) {
-  const columns = createColumns(onDelete);
+  const columns = createColumns();
 
   if (entries.length === 0) {
     return (
@@ -89,14 +57,17 @@ export function AllowlistTable({ entries, onDelete, onAdd }: AllowlistTableProps
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={onAdd}>
-          Add domain
-        </Button>
-      </div>
-
-      <DataTable columns={columns} data={entries} fixedLayout />
-    </div>
+    <DataTable
+      columns={columns}
+      data={entries}
+      fixedLayout
+      addLabel="Add domain"
+      onAdd={onAdd}
+      rowActions={(entry) => (
+        <RowAction onSelect={() => onDelete(entry.id)} destructive>
+          Remove
+        </RowAction>
+      )}
+    />
   );
 }

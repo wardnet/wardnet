@@ -47,6 +47,15 @@ export function useUpdateHistory(limit = 20) {
   });
 }
 
+// Stable toast IDs per action — rapid back-to-back triggers (e.g.
+// switching channel then immediately hitting Check now) collapse
+// into the same slot instead of producing a second toast that
+// sometimes flashes empty before settling.
+const TOAST_CHECK = "update-check";
+const TOAST_INSTALL = "update-install";
+const TOAST_ROLLBACK = "update-rollback";
+const TOAST_CONFIG = "update-config";
+
 export function useCheckForUpdates() {
   const qc = useQueryClient();
   return useMutation({
@@ -54,12 +63,12 @@ export function useCheckForUpdates() {
     onSuccess: (data) => {
       qc.setQueryData(STATUS_KEY, data);
       if (data.status.update_available) {
-        toast.success(`Update available: v${data.status.latest_version}`);
+        toast.success(`Update available: v${data.status.latest_version}`, { id: TOAST_CHECK });
       } else {
-        toast.success("Wardnet is up to date");
+        toast.success("Wardnet is up to date", { id: TOAST_CHECK });
       }
     },
-    onError: (err) => toast.error(errorMessage(err, "Update check failed")),
+    onError: (err) => toast.error(errorMessage(err, "Update check failed"), { id: TOAST_CHECK }),
   });
 }
 
@@ -68,10 +77,10 @@ export function useInstallUpdate() {
   return useMutation({
     mutationFn: (body: InstallUpdateRequest = {}) => updateService.install(body),
     onSuccess: (data) => {
-      toast.success(`Installing v${data.handle.target_version}...`);
+      toast.success(`Installing v${data.handle.target_version}...`, { id: TOAST_INSTALL });
       qc.invalidateQueries({ queryKey: STATUS_KEY });
     },
-    onError: (err) => toast.error(errorMessage(err, "Install failed")),
+    onError: (err) => toast.error(errorMessage(err, "Install failed"), { id: TOAST_INSTALL }),
   });
 }
 
@@ -80,10 +89,10 @@ export function useRollbackUpdate() {
   return useMutation({
     mutationFn: () => updateService.rollback(),
     onSuccess: () => {
-      toast.success("Rollback staged — daemon will restart");
+      toast.success("Rollback staged — daemon will restart", { id: TOAST_ROLLBACK });
       qc.invalidateQueries({ queryKey: STATUS_KEY });
     },
-    onError: (err) => toast.error(errorMessage(err, "Rollback failed")),
+    onError: (err) => toast.error(errorMessage(err, "Rollback failed"), { id: TOAST_ROLLBACK }),
   });
 }
 
@@ -93,8 +102,9 @@ export function useUpdateConfig() {
     mutationFn: (body: UpdateConfigRequest) => updateService.updateConfig(body),
     onSuccess: (data) => {
       qc.setQueryData(STATUS_KEY, { status: data.status });
-      toast.success("Update settings saved");
+      toast.success("Update settings saved", { id: TOAST_CONFIG });
     },
-    onError: (err) => toast.error(errorMessage(err, "Failed to save update settings")),
+    onError: (err) =>
+      toast.error(errorMessage(err, "Failed to save update settings"), { id: TOAST_CONFIG }),
   });
 }

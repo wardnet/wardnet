@@ -3,9 +3,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { WardnetApiError } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
+import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
 import { useSetup, useAdvanceWizard } from "@/hooks/useSetup";
 import { useAuth } from "@/hooks/useAuth";
+
+interface AdminFormValues extends Record<string, unknown> {
+  username: string;
+  password: string;
+  confirmPassword: string;
+}
 
 /** Step 1 — create the first admin account. Unauthenticated. */
 export default function Step1Admin() {
@@ -16,25 +23,14 @@ export default function Step1Admin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-
+  async function handleSubmit(values: AdminFormValues) {
+    setFormError(null);
     try {
-      await setup.mutateAsync({ username, password });
+      await setup.mutateAsync({ username: values.username, password: values.password });
       // Auto-login so the rest of the wizard runs as an authenticated admin.
-      await login(username, password);
+      await login(values.username, values.password);
       // The daemon's setup_admin already advances wizard_step to "network"
       // atomically, but we re-issue advance here to be defensive against
       // server versions that don't yet ship that change.
@@ -47,17 +43,17 @@ export default function Step1Admin() {
         // are right, the wizard's status query will pick up the
         // already-advanced state on refetch.
         try {
-          await login(username, password);
+          await login(values.username, values.password);
           await queryClient.refetchQueries({ queryKey: ["setup", "status"] });
         } catch {
-          setError(
+          setFormError(
             "An admin already exists for this Wardnet, but those credentials don't match. Sign in from /login instead.",
           );
         }
       } else if (err instanceof WardnetApiError) {
-        setError(err.body.error);
+        setFormError(err.body.error);
       } else {
-        setError("Unable to connect to daemon. Is it running?");
+        setFormError("Unable to connect to daemon. Is it running?");
       }
     }
   }
@@ -70,18 +66,23 @@ export default function Step1Admin() {
           Set up your administrator credentials. You'll use these to sign in to Wardnet.
         </p>
       </div>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <Field label="Username" htmlFor="username">
+      <Form
+        values={{ username, password, confirmPassword }}
+        onSubmit={handleSubmit}
+        className="flex flex-col gap-5"
+      >
+        <Field label="Username" htmlFor="username" name="username">
           <Input
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
             placeholder="admin"
-            required
           />
         </Field>
-        <Field label="Password" htmlFor="password">
+        <Validator name="username" rule="required" message="Username is required." />
+
+        <Field label="Password" htmlFor="password" name="password">
           <Input
             id="password"
             type="password"
@@ -89,10 +90,19 @@ export default function Step1Admin() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             placeholder="At least 8 characters"
-            required
           />
         </Field>
-        <Field label="Confirm password" htmlFor="confirm-password">
+        <Validator name="password" rule="required" message="Password is required." />
+        <Validator
+          name="password"
+          validate={(v) =>
+            typeof v === "string" && v.length > 0 && v.length < 8
+              ? "Password must be at least 8 characters."
+              : null
+          }
+        />
+
+        <Field label="Confirm password" htmlFor="confirm-password" name="confirmPassword">
           <Input
             id="confirm-password"
             type="password"
@@ -100,14 +110,19 @@ export default function Step1Admin() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             placeholder="Re-enter password"
-            required
           />
         </Field>
-        {error && <p className="text-sm text-danger">{error}</p>}
+        <Validator name="confirmPassword" rule="required" message="Please confirm your password." />
+        <Validator
+          name="confirmPassword"
+          validate={(v) => (v !== password ? "Passwords do not match." : null)}
+        />
+
+        {formError && <p className="text-sm text-danger">{formError}</p>}
         <Button type="submit" disabled={setup.isPending || advance.isPending} className="w-full">
           {setup.isPending || advance.isPending ? "Creating account…" : "Create account"}
         </Button>
-      </form>
+      </Form>
     </div>
   );
 }

@@ -3,9 +3,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
-import { Card, CardContent } from "@wardnet/forge-web/card";
-import { Field } from "@wardnet/forge-web/field";
-import { Input } from "@wardnet/forge-web/input";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { Button } from "@wardnet/forge-web/button";
 import { Pill } from "@wardnet/forge-web/pill";
@@ -21,6 +18,7 @@ import { DeviceSelect } from "@/components/compound/DeviceSelect";
 import { useDevices } from "@/hooks/useDevices";
 import { useDnsQueryLog } from "@/hooks/useDnsLogs";
 import { useDnsLogStore } from "@/stores/dnsLogStore";
+import { formatTime } from "@/lib/utils";
 import type { DnsQueryLogEntry, QueryLogEvent } from "@wardnet/js";
 
 interface RowShape {
@@ -51,11 +49,11 @@ const RESULT_LABEL: Record<string, string> = {
 };
 
 function fmtTime(ts: string): string {
-  // The persisted entries arrive as ISO `YYYY-MM-DDTHH:MM:SSZ`. Live
-  // events use the same wire format.
-  const d = new Date(ts.endsWith("Z") ? ts : `${ts}Z`);
-  if (Number.isNaN(d.getTime())) return ts;
-  return d.toLocaleTimeString();
+  // Persisted entries arrive as ISO `YYYY-MM-DDTHH:MM:SSZ`; live
+  // events use the same wire format. Delegated to the shared
+  // 24-hour formatter so log timestamps render identically across
+  // every page that displays them.
+  return formatTime(ts.endsWith("Z") ? ts : `${ts}Z`);
 }
 
 const PAGE_SIZE = 50;
@@ -129,10 +127,6 @@ export default function DnsLogs() {
       {
         accessorKey: "timestamp",
         header: "Time",
-        // Fixed widths via per-column className keep the layout stable
-        // when rows change — without this, `<table>`'s default auto
-        // layout re-fits column widths to content on every filter
-        // change, which makes the table flicker.
         meta: { className: "w-24" },
         cell: ({ row }) => (
           <span className="font-mono text-xs">{fmtTime(row.original.timestamp)}</span>
@@ -160,7 +154,6 @@ export default function DnsLogs() {
       {
         accessorKey: "domain",
         header: "Domain",
-        // Domain takes the remaining space and truncates long names.
         cell: ({ row }) => (
           <span className="block truncate font-mono text-xs">{row.original.domain}</span>
         ),
@@ -192,90 +185,78 @@ export default function DnsLogs() {
     [devicesData],
   );
 
+  // Toolbar filters — sit before the search input. Device + Result
+  // dropdowns use the medium select variant so they match the search
+  // height (34px). The search input itself is the Domain filter.
+  const filters = (
+    <>
+      <DeviceSelect
+        id="device-filter"
+        devices={filterableDevices}
+        value={clientIp}
+        onChange={(ip) => {
+          setClientIp(ip);
+          setPage(0);
+        }}
+        triggerClassName="select-trigger--md w-48"
+      />
+      <Select
+        value={result}
+        onValueChange={(v) => {
+          setResult(v);
+          setPage(0);
+        }}
+      >
+        <SelectTrigger className="select-trigger--md w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="any">Any result</SelectItem>
+          <SelectItem value="forwarded">Forwarded</SelectItem>
+          <SelectItem value="blocked">Blocked</SelectItem>
+          <SelectItem value="blocked_skipped">Blocked (skipped)</SelectItem>
+          <SelectItem value="cache_hit">Cache hit</SelectItem>
+          <SelectItem value="rewritten">Rewritten</SelectItem>
+          <SelectItem value="upstream_error">Upstream error</SelectItem>
+        </SelectContent>
+      </Select>
+    </>
+  );
+
+  // Live tail moves to the PageHeader: it's a viewing-mode choice
+  // ("what shows up?"), not a query filter applied to results.
+  const liveTailAction = (
+    <label className="flex items-center gap-2 text-sm text-ink-3">
+      <span>Live tail{liveConnected ? "" : " (offline)"}</span>
+      <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
+    </label>
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader title="DNS query log" />
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <PageHeader
+        title="DNS query log"
+        description="Every DNS query passing through Wardnet, live or historical. Filter by device, result, or domain."
+        actions={liveTailAction}
+      />
 
-      <Card className="mb-4 shrink-0">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:gap-4">
-          {/* Filters share a flex group with a max-width so on wide
-              screens they don't stretch across the row — leaving the
-              live tail toggle space to sit at the right edge with a
-              comfortable gap. Inside the group each input gets its
-              own flex weight: device is wider since it packs icon +
-              two-line label; domain and result are equal. */}
-          <div className="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:items-end sm:gap-3 sm:max-w-3xl">
-            <Field label="Domain" className="flex-1">
-              <Input
-                placeholder="example.com"
-                value={domain}
-                onChange={(e) => {
-                  setDomain(e.target.value);
-                  setPage(0);
-                  userScrolledRef.current = false;
-                }}
-              />
-            </Field>
-            <Field label="Device" htmlFor="device-filter" className="flex-[2]">
-              <DeviceSelect
-                id="device-filter"
-                devices={filterableDevices}
-                value={clientIp}
-                onChange={(ip) => {
-                  setClientIp(ip);
-                  setPage(0);
-                }}
-              />
-            </Field>
-            <Field label="Result" className="flex-1">
-              <Select
-                value={result}
-                onValueChange={(v) => {
-                  setResult(v);
-                  setPage(0);
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any result</SelectItem>
-                  <SelectItem value="forwarded">Forwarded</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                  <SelectItem value="blocked_skipped">Blocked (skipped)</SelectItem>
-                  <SelectItem value="cache_hit">Cache hit</SelectItem>
-                  <SelectItem value="rewritten">Rewritten</SelectItem>
-                  <SelectItem value="upstream_error">Upstream error</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-          <Field
-            direction="row"
-            label={`Live tail${liveConnected ? "" : " (offline)"}`}
-            htmlFor="live-tail"
-            className="sm:ml-auto"
-          >
-            <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
-          </Field>
-        </CardContent>
-      </Card>
-
-      {/* Inner scroll container — gives the table its own scroll context
-          so the filter card above stays pinned at the top. The shared
-          DataTable's <th> sticky-positioning pins to the top of THIS
-          container (the nearest non-`visible` overflow ancestor). */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <DataTable
-          columns={columns}
-          data={rows}
-          emptyMessage={isLoading ? "Loading…" : "No DNS queries match this filter yet."}
-          fixedLayout
-        />
-      </div>
+      <DataTable
+        columns={columns}
+        data={rows}
+        emptyMessage={isLoading ? "Loading…" : "No DNS queries match this filter yet."}
+        fixedLayout
+        searchValue={domain}
+        onSearchChange={(v) => {
+          setDomain(v);
+          setPage(0);
+          userScrolledRef.current = false;
+        }}
+        searchPlaceholder="Search domain…"
+        filters={filters}
+      />
 
       {!showLive && (
-        <div className="mt-3 flex shrink-0 items-center justify-between text-xs text-ink-3">
+        <div className="flex shrink-0 items-center justify-between text-xs text-ink-3">
           <span>
             {totalRows.toLocaleString()} entries · page {page + 1}
           </span>

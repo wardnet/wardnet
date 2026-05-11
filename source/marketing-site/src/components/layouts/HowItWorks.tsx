@@ -26,7 +26,10 @@ export function HowItWorks() {
   return (
     <section className="bg-sunken px-6 py-20">
       <div className="mx-auto max-w-6xl">
-        <h2 className="mb-12 text-center text-3xl font-bold tracking-tight text-ink">
+        <h2
+          className="mb-12 text-center text-3xl font-bold tracking-tight"
+          style={{ color: "var(--accent)" }}
+        >
           Up and running in minutes
         </h2>
         <div className="grid grid-cols-1 gap-10 md:grid-cols-3">

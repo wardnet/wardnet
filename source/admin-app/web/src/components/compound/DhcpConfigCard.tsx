@@ -13,6 +13,7 @@ import { Input } from "@wardnet/forge-web/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { useUpdateDhcpConfig } from "@/hooks/useDhcp";
+import { useDnsConfig } from "@/hooks/useDns";
 import type { DhcpConfig } from "@wardnet/js";
 
 function formatDuration(secs: number): string {
@@ -25,9 +26,15 @@ interface DhcpConfigCardProps {
   config: DhcpConfig;
 }
 
-/** Card displaying the DHCP pool configuration with inline edit-mode. */
+/** Card displaying the DHCP pool configuration with inline edit-mode.
+ *  When the Wardnet DNS server is enabled, the upstream-DNS field
+ *  collapses: the daemon will advertise Wardnet's own IP to clients
+ *  regardless of what's saved here, so we hide the field in edit mode
+ *  and show "Wardnet DNS" in the read view to match reality. */
 export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   const updateConfig = useUpdateDhcpConfig();
+  const { data: dnsConfigData } = useDnsConfig();
+  const dnsEnabled = dnsConfigData?.config.enabled ?? false;
 
   const [editing, setEditing] = useState(false);
   const [poolStart, setPoolStart] = useState(config.pool_start);
@@ -112,41 +119,46 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               />
             </Field>
 
-            <Field label="Lease duration (seconds)" htmlFor="dhcp-lease">
-              <Input
-                id="dhcp-lease"
-                type="number"
-                value={leaseDuration}
-                onChange={(e) => setLeaseDuration(e.target.value)}
-                placeholder="86400"
-              />
-            </Field>
+            <div className="flex gap-3">
+              <Field label="Lease duration (seconds)" htmlFor="dhcp-lease" className="flex-1">
+                <Input
+                  id="dhcp-lease"
+                  type="number"
+                  value={leaseDuration}
+                  onChange={(e) => setLeaseDuration(e.target.value)}
+                  placeholder="86400"
+                />
+              </Field>
 
-            <Field
-              label="Fallback router"
-              htmlFor="dhcp-router"
-              help="Your real router's IP. Included as secondary gateway in DHCP so devices fall back if the wardnet server is unavailable."
-            >
-              <Ipv4Input
-                id="dhcp-router"
-                value={routerIp}
-                onChange={setRouterIp}
-                placeholder="10.232.1.1"
-              />
-            </Field>
+              <Field
+                label="Fallback router"
+                htmlFor="dhcp-router"
+                help="Your real router's IP. Used as a secondary gateway so devices fall back if Wardnet is unavailable."
+                className="flex-1"
+              >
+                <Ipv4Input
+                  id="dhcp-router"
+                  value={routerIp}
+                  onChange={setRouterIp}
+                  placeholder="10.232.1.1"
+                />
+              </Field>
+            </div>
 
-            <Field
-              label="Upstream DNS (comma-separated)"
-              htmlFor="dhcp-dns"
-              help="DNS servers advertised to clients. Will be replaced by Wardnet's built-in DNS once enabled."
-            >
-              <Input
-                id="dhcp-dns"
-                value={upstreamDns}
-                onChange={(e) => setUpstreamDns(e.target.value)}
-                placeholder="1.1.1.1, 8.8.8.8"
-              />
-            </Field>
+            {!dnsEnabled && (
+              <Field
+                label="Upstream DNS (comma-separated)"
+                htmlFor="dhcp-dns"
+                help="DNS servers advertised to clients."
+              >
+                <Input
+                  id="dhcp-dns"
+                  value={upstreamDns}
+                  onChange={(e) => setUpstreamDns(e.target.value)}
+                  placeholder="1.1.1.1, 8.8.8.8"
+                />
+              </Field>
+            )}
 
             {updateConfig.isError && (
               <ApiErrorAlert error={updateConfig.error} fallback="Failed to update configuration" />
@@ -188,7 +200,9 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             </div>
             <div>
               <dt className="text-ink-3">Upstream DNS</dt>
-              <dd className="font-mono text-xs">{config.upstream_dns.join(", ") || "—"}</dd>
+              <dd className={dnsEnabled ? "font-medium" : "font-mono text-xs"}>
+                {dnsEnabled ? "Wardnet DNS" : config.upstream_dns.join(", ") || "—"}
+              </dd>
             </div>
           </dl>
         </CardContent>

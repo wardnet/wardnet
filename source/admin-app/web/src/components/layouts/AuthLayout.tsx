@@ -1,4 +1,4 @@
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { Card } from "@wardnet/forge-web/card";
 import { Logo } from "@/components/compound/Logo";
 
@@ -11,12 +11,21 @@ import { Logo } from "@/components/compound/Logo";
  * matching the launch-screen treatment defined in the design system.
  */
 export function AuthLayout() {
+  const { pathname } = useLocation();
+  const tagline = pathname.startsWith("/setup")
+    ? "Let's get your network ready"
+    : "Sign in to manage your network";
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-bg px-4 py-10 text-ink">
       <div className="flex flex-col items-center gap-3">
-        <Logo size={64} />
-        <h1 className="text-2xl font-bold tracking-wider uppercase">Wardnet</h1>
-        <p className="text-sm text-ink-3">Sign in to manage your network</p>
+        <div className="flex items-center gap-3">
+          <Logo size={48} />
+          <h1 className="text-2xl font-bold tracking-wider uppercase">
+            Ward<span style={{ color: "var(--accent)" }}>net</span>
+          </h1>
+        </div>
+        <p className="text-sm text-ink-3">{tagline}</p>
       </div>
 
       <Card className="w-full max-w-sm">

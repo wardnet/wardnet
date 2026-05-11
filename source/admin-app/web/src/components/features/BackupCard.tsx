@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { RestorePreviewResponse } from "@wardnet/js";
+import { WardnetApiError, type RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@wardnet/forge-web/button";
 import {
   Card,
@@ -10,8 +10,11 @@ import {
   CardTitle,
 } from "@wardnet/forge-web/card";
 import { Field } from "@wardnet/forge-web/field";
+import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
-import { DownloadIcon, UploadIcon, AlertTriangleIcon } from "lucide-react";
+import { AlertTriangleIcon, DownloadIcon, Loader2, UploadIcon } from "lucide-react";
+import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { formatDateTime } from "@/lib/utils";
 
 /** Server-enforced minimum, mirrors `wardnet_common::backup::MIN_PASSPHRASE_LEN`. */
 const MIN_PASSPHRASE_LEN = 12;
@@ -21,284 +24,361 @@ interface Props {
   isPreviewing: boolean;
   isApplying: boolean;
   preview: RestorePreviewResponse | null;
+  /** Most recent error from each mutation. When present the matching
+   *  form stays open with an inline ApiErrorAlert so the user can
+   *  see what failed and retry without losing context. */
+  exportError?: unknown;
+  previewError?: unknown;
+  applyError?: unknown;
   onExport: (passphrase: string) => void;
   onPreview: (args: { bundle: Blob; passphrase: string }) => void;
   onApply: (previewToken: string) => void;
   onDismissPreview: () => void;
 }
 
-type Mode = "view" | "export" | "restore";
+/** Friendly copy for the most common restore failure (wrong
+ *  passphrase / corrupted bundle). The backend surfaces this as a
+ *  multipart parse / decrypt error in `WardnetApiError.body.detail`. */
+function restoreErrorMessage(err: unknown): string {
+  if (err instanceof WardnetApiError) {
+    const detail = err.body.detail ?? "";
+    if (
+      detail.includes("bundle read failed") ||
+      detail.toLowerCase().includes("decrypt") ||
+      detail.toLowerCase().includes("multipart")
+    ) {
+      return "Couldn't open the bundle. The passphrase might be wrong, or the file isn't a valid Wardnet backup.";
+    }
+  }
+  return "Couldn't open the bundle.";
+}
 
 /**
- * Pure-presentation card with the two admin actions (Download, Restore).
- * All data + callbacks flow from props; the Settings page owns the
- * TanStack Query state via [`useBackup`] hooks.
+ * Backup & restore controls — two sibling cards.
  *
- * Follows the edit-mode card protocol from DhcpConfigCard /
- * DeviceSettingsCard: the card swaps body + footer between view, export
- * and restore modes rather than spawning modal dialogs.
+ *  - Backup (top): export the current state as an encrypted bundle.
+ *  - Restore (bottom, danger-tinted): overwrite current state from
+ *    a bundle. Two-step flow — preview, then apply.
  *
- * The restore flow is deliberately two-step:
- *
- * 1. Pick a file + enter passphrase → `onPreview` decrypts server-side
- *    and returns a `RestorePreviewResponse` with a 5-min preview token
- *    plus a summary of what will be replaced.
- * 2. Show the preview + an explicit "Apply" confirmation →
- *    `onApply(previewToken)` commits the swap. A daemon restart is
- *    required afterwards for the live DB pool to pick up the new file.
+ *  Each card stays in its form/preview state while the mutation is
+ *  in-flight; the action button shows a Loader2 spinner and inputs
+ *  are disabled. We only flip back to the collapsed view after a
+ *  successful settlement (tracked via `wasExporting`/`wasApplying`
+ *  refs against the corresponding error props).
  */
 export function BackupCard({
   isExporting,
   isPreviewing,
   isApplying,
   preview,
+  exportError,
+  previewError,
+  applyError,
   onExport,
   onPreview,
   onApply,
   onDismissPreview,
 }: Props) {
-  const [mode, setMode] = useState<Mode>("view");
+  // Two independent expand/collapse states — one per card.
+  const [exporting, setExporting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   // Export-mode local state.
   const [exportPassphrase, setExportPassphrase] = useState("");
   const [exportConfirm, setExportConfirm] = useState("");
-  const tooShort = exportPassphrase.length > 0 && exportPassphrase.length < MIN_PASSPHRASE_LEN;
-  const mismatch = exportConfirm.length > 0 && exportConfirm !== exportPassphrase;
-  const canExport =
-    exportPassphrase.length >= MIN_PASSPHRASE_LEN &&
-    exportPassphrase === exportConfirm &&
-    !isExporting;
 
   // Restore-mode local state.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [bundle, setBundle] = useState<File | null>(null);
   const [restorePassphrase, setRestorePassphrase] = useState("");
-  const canPreview =
-    bundle !== null && restorePassphrase.length >= MIN_PASSPHRASE_LEN && !isPreviewing;
 
-  // One-shot mount-style effect: clear file/passphrase whenever we (re)enter
-  // restore mode, so a stale selection from a previous attempt does not
-  // linger. Tracked via a ref so the lint rule against setState-in-effect
-  // doesn't fire on every render.
-  const mountedRef = useRef(false);
+  // After an export settles, collapse the form on success — keep
+  // it open with the inline error on failure.
+  const wasExporting = useRef(false);
   useEffect(() => {
-    if (mode === "restore" && !mountedRef.current) {
+    if (wasExporting.current && !isExporting && exporting && !exportError) {
+      setExporting(false);
+      setExportPassphrase("");
+      setExportConfirm("");
+    }
+    wasExporting.current = isExporting;
+  }, [isExporting, exporting, exportError]);
+
+  // After an apply settles, collapse the restore form and clear it.
+  const wasApplying = useRef(false);
+  useEffect(() => {
+    if (wasApplying.current && !isApplying && restoring && !applyError) {
+      setRestoring(false);
       setBundle(null);
       setRestorePassphrase("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      mountedRef.current = true;
-    } else if (mode !== "restore") {
-      mountedRef.current = false;
     }
-  }, [mode]);
+    wasApplying.current = isApplying;
+  }, [isApplying, restoring, applyError]);
 
   function enterExport() {
     setExportPassphrase("");
     setExportConfirm("");
-    setMode("export");
+    setExporting(true);
+  }
+  function exitExport() {
+    setExporting(false);
   }
 
   function enterRestore() {
-    setMode("restore");
+    setBundle(null);
+    setRestorePassphrase("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    onDismissPreview();
+    setRestoring(true);
   }
-
-  function exitToView() {
-    setMode("view");
+  function exitRestore() {
+    setRestoring(false);
     onDismissPreview();
   }
 
-  function handleExportSubmit() {
-    onExport(exportPassphrase);
-    setMode("view");
-    setExportPassphrase("");
-    setExportConfirm("");
+  function handleExportSubmit(values: { passphrase: string; confirm: string }) {
+    onExport(values.passphrase);
   }
-
+  function handleRestoreSubmit(values: { bundle: File | null; passphrase: string }) {
+    if (values.bundle) onPreview({ bundle: values.bundle, passphrase: values.passphrase });
+  }
   function handleApply() {
     if (!preview) return;
     onApply(preview.preview_token);
-    setMode("view");
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Backup &amp; restore</CardTitle>
-        {mode === "view" && (
-          <CardAction className="flex gap-2">
-            <Button variant="outline" onClick={enterExport} disabled={isExporting}>
-              <DownloadIcon />
-              {isExporting ? "Exporting…" : "Download backup"}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={enterRestore}
-              disabled={isPreviewing || isApplying}
-            >
-              <UploadIcon />
-              Restore…
-            </Button>
-          </CardAction>
-        )}
-      </CardHeader>
+    <div className="flex flex-col gap-4">
+      {/* ──────────────── Backup card ──────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Backup</CardTitle>
+          {!exporting && (
+            <CardAction>
+              <Button variant="outline" onClick={enterExport} disabled={isExporting}>
+                <DownloadIcon />
+                Download backup
+              </Button>
+            </CardAction>
+          )}
+        </CardHeader>
 
-      {mode === "view" && (
-        <CardContent className="space-y-4">
-          <p className="text-sm text-ink-3">
-            Export a single encrypted bundle of the database, operator config, and WireGuard keys.
-            Use it to restore a fresh install, recover from an SD-card failure, or roll back a risky
-            configuration change. Bundles are encrypted with age in passphrase mode.
-          </p>
-
-          <div
-            role="alert"
-            className="flex gap-2 rounded-md bg-warn p-3 text-sm text-warn-soft-ink"
-          >
-            <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-            <span>Keep the passphrase somewhere safe. We can&apos;t recover it for you.</span>
-          </div>
-
-          {/* Danger zone — Restore overwrites state, sequestered into a
-              subtle inset block so it never sits next to the safe Download
-              CTA (WEBUI-DESIGN-GUIDELINES §4.5). */}
-          <div className="rounded-md bg-sunken p-4">
-            <p className="text-sm font-medium">Restore from backup</p>
-            <p className="mt-0.5 text-xs text-ink-3">
-              Overwrites your current database, config, and keys. Cannot be undone.
-            </p>
-          </div>
-        </CardContent>
-      )}
-
-      {mode === "export" && (
-        <>
-          <CardContent className="space-y-4">
+        {!exporting ? (
+          <CardContent>
             <p className="text-sm text-ink-3">
-              Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters. The passphrase is
-              required to restore this bundle; we can&apos;t recover it if you lose it.
+              Export an encrypted bundle of the database, operator config, and WireGuard keys. Use
+              it to restore a fresh install, recover from disk failure, or roll back a risky
+              configuration change.
             </p>
+            <div className="mt-3 flex gap-2 rounded-md bg-warn p-3 text-sm text-warn-soft-ink">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <span>Keep the passphrase somewhere safe. We can&apos;t recover it for you.</span>
+            </div>
+          </CardContent>
+        ) : (
+          <Form
+            values={{ passphrase: exportPassphrase, confirm: exportConfirm }}
+            onSubmit={handleExportSubmit}
+          >
+            <CardContent className="flex flex-col gap-4">
+              <p className="text-sm text-ink-3">
+                Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters. The passphrase is
+                required to restore this bundle — we can&apos;t recover it if you lose it.
+              </p>
 
-            <div className="flex flex-col gap-3">
-              <Field
-                label="Passphrase"
-                htmlFor="backup-passphrase"
-                help={
-                  tooShort ? (
-                    <span className="text-danger">
-                      At least {MIN_PASSPHRASE_LEN} characters required.
-                    </span>
-                  ) : undefined
-                }
-              >
+              <Field label="Passphrase" htmlFor="backup-passphrase" name="passphrase">
                 <Input
                   id="backup-passphrase"
                   type="password"
                   autoComplete="new-password"
                   value={exportPassphrase}
                   onChange={(e) => setExportPassphrase(e.target.value)}
+                  disabled={isExporting}
                 />
               </Field>
-              <Field
-                label="Confirm passphrase"
-                htmlFor="backup-passphrase-confirm"
-                help={
-                  mismatch ? (
-                    <span className="text-danger">Passphrases do not match.</span>
-                  ) : undefined
+              <Validator name="passphrase" rule="required" message="Passphrase is required." />
+              <Validator
+                name="passphrase"
+                validate={(v) =>
+                  typeof v === "string" && v.length > 0 && v.length < MIN_PASSPHRASE_LEN
+                    ? `At least ${MIN_PASSPHRASE_LEN} characters required.`
+                    : null
                 }
-              >
+              />
+
+              <Field label="Confirm passphrase" htmlFor="backup-passphrase-confirm" name="confirm">
                 <Input
                   id="backup-passphrase-confirm"
                   type="password"
                   autoComplete="new-password"
                   value={exportConfirm}
                   onChange={(e) => setExportConfirm(e.target.value)}
+                  disabled={isExporting}
                 />
               </Field>
-            </div>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button variant="ghost" onClick={exitToView} disabled={isExporting}>
-              Cancel
-            </Button>
-            <Button onClick={handleExportSubmit} disabled={!canExport}>
-              {isExporting ? "Exporting…" : "Download"}
-            </Button>
-          </CardFooter>
-        </>
-      )}
+              <Validator name="confirm" rule="required" message="Please confirm the passphrase." />
+              <Validator
+                name="confirm"
+                validate={(v) => (v !== exportPassphrase ? "Passphrases do not match." : null)}
+              />
 
-      {mode === "restore" && (
-        <>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-ink-3">
-              {preview
-                ? "Review what will be replaced, then confirm the restore."
-                : "Pick a .wardnet.age file and enter its passphrase."}
-            </p>
-
-            {!preview ? (
-              <div className="flex flex-col gap-3">
-                <Field label="Bundle file" htmlFor="backup-bundle">
-                  <input
-                    id="backup-bundle"
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".age,.wardnet,.wardnet.age"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      setBundle(file);
-                    }}
-                    className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-sunken file:px-3 file:py-1.5 file:text-sm file:font-medium"
-                  />
-                </Field>
-                <Field label="Passphrase" htmlFor="restore-passphrase">
-                  <Input
-                    id="restore-passphrase"
-                    type="password"
-                    // `off` + `new-password` together suppress every popular
-                    // browser's autofill for this field — this is a bundle
-                    // passphrase, not a login credential, and we don't want
-                    // it remembered or pre-filled from the site's saved
-                    // passwords.
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-1p-ignore="true"
-                    value={restorePassphrase}
-                    onChange={(e) => setRestorePassphrase(e.target.value)}
-                  />
-                </Field>
-              </div>
-            ) : (
-              <RestorePreviewDetails preview={preview} />
-            )}
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button variant="ghost" onClick={exitToView} disabled={isApplying}>
-              Cancel
-            </Button>
-            {!preview ? (
-              <Button
-                onClick={() => {
-                  if (bundle) onPreview({ bundle, passphrase: restorePassphrase });
-                }}
-                disabled={!canPreview}
-              >
-                {isPreviewing ? "Decrypting…" : "Preview"}
+              {exportError != null && (
+                <ApiErrorAlert error={exportError} fallback="Couldn't export the backup." />
+              )}
+            </CardContent>
+            <CardFooter className="justify-end gap-2">
+              <Button variant="ghost" type="button" onClick={exitExport} disabled={isExporting}>
+                Cancel
               </Button>
-            ) : (
+              <Button type="submit" disabled={isExporting}>
+                {isExporting ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Exporting…
+                  </>
+                ) : (
+                  "Download"
+                )}
+              </Button>
+            </CardFooter>
+          </Form>
+        )}
+      </Card>
+
+      {/* ──────────────── Restore card ────────────────
+          Danger-soft background only in the collapsed "warning"
+          state. Once the user clicks Restore… and the form opens we
+          revert to the standard card surface so the white input
+          fields don't clash with a red wash. */}
+      <Card style={!restoring ? { background: "var(--danger-soft)" } : undefined}>
+        <CardHeader>
+          <CardTitle>Restore</CardTitle>
+          {!restoring && (
+            <CardAction>
+              <Button
+                variant="destructive"
+                onClick={enterRestore}
+                disabled={isPreviewing || isApplying}
+              >
+                <UploadIcon />
+                Restore…
+              </Button>
+            </CardAction>
+          )}
+        </CardHeader>
+
+        {!restoring ? (
+          <CardContent>
+            <p className="text-sm text-danger-soft-ink">
+              Overwrite the current database, config, and WireGuard keys from a previously exported
+              bundle. The daemon restarts at the end of a restore and the action cannot be undone.
+            </p>
+          </CardContent>
+        ) : !preview ? (
+          <Form values={{ bundle, passphrase: restorePassphrase }} onSubmit={handleRestoreSubmit}>
+            <CardContent className="flex flex-col gap-4">
+              <p className="text-sm text-ink-3">
+                Pick a .wardnet.age file and enter its passphrase.
+              </p>
+
+              <Field label="Bundle file" htmlFor="backup-bundle" name="bundle">
+                <input
+                  id="backup-bundle"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".age,.wardnet,.wardnet.age"
+                  disabled={isPreviewing}
+                  onChange={(e) => setBundle(e.target.files?.[0] ?? null)}
+                  className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-sunken file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                />
+              </Field>
+              <Validator
+                name="bundle"
+                validate={(v) => (v ? null : "Select a backup bundle to restore.")}
+              />
+
+              <Field label="Passphrase" htmlFor="restore-passphrase" name="passphrase">
+                <Input
+                  id="restore-passphrase"
+                  type="password"
+                  // `off` + `new-password` together suppress every popular
+                  // browser's autofill for this field — this is a bundle
+                  // passphrase, not a login credential, and we don't want
+                  // it remembered or pre-filled from the site's saved
+                  // passwords.
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  value={restorePassphrase}
+                  onChange={(e) => setRestorePassphrase(e.target.value)}
+                  disabled={isPreviewing}
+                />
+              </Field>
+              <Validator name="passphrase" rule="required" message="Passphrase is required." />
+              <Validator
+                name="passphrase"
+                validate={(v) =>
+                  typeof v === "string" && v.length > 0 && v.length < MIN_PASSPHRASE_LEN
+                    ? `At least ${MIN_PASSPHRASE_LEN} characters required.`
+                    : null
+                }
+              />
+
+              {previewError != null && (
+                <ApiErrorAlert error={previewError} fallback={restoreErrorMessage(previewError)} />
+              )}
+            </CardContent>
+            <CardFooter className="justify-end gap-2">
+              <Button variant="ghost" type="button" onClick={exitRestore} disabled={isPreviewing}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPreviewing}>
+                {isPreviewing ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Decrypting…
+                  </>
+                ) : (
+                  "Preview"
+                )}
+              </Button>
+            </CardFooter>
+          </Form>
+        ) : (
+          <>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-ink-3">
+                Review what will be replaced, then confirm the restore.
+              </p>
+              <RestorePreviewDetails preview={preview} />
+              {applyError != null && (
+                <ApiErrorAlert error={applyError} fallback="Couldn't apply the restore." />
+              )}
+            </CardContent>
+            <CardFooter className="justify-end gap-2">
+              <Button variant="ghost" onClick={exitRestore} disabled={isApplying}>
+                Cancel
+              </Button>
               <Button
                 variant="destructive"
                 onClick={handleApply}
                 disabled={!preview.compatible || isApplying}
               >
-                {isApplying ? "Restoring…" : "Restore"}
+                {isApplying ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Restoring…
+                  </>
+                ) : (
+                  "Restore"
+                )}
               </Button>
-            )}
-          </CardFooter>
-        </>
-      )}
-    </Card>
+            </CardFooter>
+          </>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -322,7 +402,7 @@ function RestorePreviewDetails({ preview }: { preview: RestorePreviewResponse })
         <dt className="text-ink-3">Host ID</dt>
         <dd className="break-all font-mono">{preview.manifest.host_id}</dd>
         <dt className="text-ink-3">Created</dt>
-        <dd>{new Date(preview.manifest.created_at).toLocaleString()}</dd>
+        <dd>{formatDateTime(preview.manifest.created_at)}</dd>
         <dt className="text-ink-3">Schema version</dt>
         <dd>{preview.manifest.schema_version}</dd>
         <dt className="text-ink-3">WireGuard keys</dt>

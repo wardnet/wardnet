@@ -99,7 +99,11 @@ export default function TunnelDetail() {
           <Field
             label="Endpoint"
             editing={false}
-            value={<span className="mono">{tunnel.endpoint}</span>}
+            value={
+              <span className="mono block truncate" title={tunnel.endpoint}>
+                {tunnel.endpoint}
+              </span>
+            }
           />
           <Field
             label="Interface"

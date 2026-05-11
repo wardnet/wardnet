@@ -23,10 +23,19 @@ export function GetStarted() {
           <LatestReleaseBadge />
         </div>
 
-        <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">
-          Run with Docker
-        </p>
-        <CodeBlock code={DOCKER_RUN} className="text-left" />
+        {/* Each install method is a Forge `.card` so it sits on
+            its own white surface against the section's cream
+            `bg-sunken`. The `.card__head` provides the small
+            uppercase label; the `data-slot="card-content"` slot
+            picks up the card's body padding from Forge. */}
+        <div className="card text-left">
+          <div className="card__head">
+            <h3>Run with Docker</h3>
+          </div>
+          <div data-slot="card-content">
+            <CodeBlock code={DOCKER_RUN} />
+          </div>
+        </div>
 
         <div className="my-6 flex items-center gap-3">
           <hr className="flex-1 border-line" />
@@ -34,13 +43,14 @@ export function GetStarted() {
           <hr className="flex-1 border-line" />
         </div>
 
-        <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">
-          Bare-metal install
-        </p>
-        <CodeBlock
-          code="curl -sSL https://wardnet.network/install.sh | sudo bash"
-          className="text-left"
-        />
+        <div className="card text-left">
+          <div className="card__head">
+            <h3>Bare-metal install</h3>
+          </div>
+          <div data-slot="card-content">
+            <CodeBlock code="curl -sSL https://wardnet.network/install.sh | sudo bash" />
+          </div>
+        </div>
 
         <p className="mt-6 text-sm text-ink-3">
           See the{" "}

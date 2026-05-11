@@ -75,37 +75,36 @@ interface LogViewerProps {
   maxHeight?: string;
 }
 
-/** Scrollable log viewer displaying structured log entries. */
+/** Scrollable log viewer displaying structured log entries.
+ *
+ * Renders the `.logs` element directly so a parent CardContent's
+ * `:has(> .logs)` flush rule applies — matching the Recent errors
+ * card. A buffer-lag warning (if any) is rendered as a sticky
+ * `.logrow` at the top of the scroll area so it doesn't push the
+ * card out of its flush layout. */
 export function LogViewer({ entries, connected, skipped, maxHeight = "24rem" }: LogViewerProps) {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className={`inline-block size-2 rounded-full ${connected ? "bg-accent" : "bg-danger"}`}
-          />
-          <span className="text-xs text-ink-3">{connected ? "Streaming" : "Disconnected"}</span>
+    <div className="logs" style={{ maxHeight }}>
+      {skipped > 0 && (
+        <div className="logrow is-warn">
+          <div className="t">—</div>
+          <div className="l">SKIP</div>
+          <div className="m">{skipped} entries skipped (buffer lag)</div>
         </div>
-        {skipped > 0 && (
-          <span className="text-warn-soft-ink text-xs">{skipped} entries skipped (buffer lag)</span>
-        )}
-      </div>
-
-      <div className="logs" style={{ maxHeight }}>
-        {entries.length === 0 ? (
-          <p className="logrow is-info">
-            <span className="m">{connected ? "Waiting for log entries…" : "Not connected"}</span>
-          </p>
-        ) : (
-          entries.map((entry, i) => (
-            <div key={i} className={`logrow is-${levelModifier(entry.level)}`}>
-              <div className="t">{formatTimestamp(entry.timestamp)}</div>
-              <div className="l">{entry.level.toUpperCase()}</div>
-              <div className="m">{formatMessage(entry)}</div>
-            </div>
-          ))
-        )}
-      </div>
+      )}
+      {entries.length === 0 ? (
+        <p className="logrow is-info">
+          <span className="m">{connected ? "Waiting for log entries…" : "Not connected"}</span>
+        </p>
+      ) : (
+        entries.map((entry, i) => (
+          <div key={i} className={`logrow is-${levelModifier(entry.level)}`}>
+            <div className="t">{formatTimestamp(entry.timestamp)}</div>
+            <div className="l">{entry.level.toUpperCase()}</div>
+            <div className="m">{formatMessage(entry)}</div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

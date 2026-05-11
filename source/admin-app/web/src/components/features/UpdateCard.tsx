@@ -2,8 +2,9 @@ import type { InstallPhase, UpdateChannel, UpdateStatus } from "@wardnet/js";
 import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Field } from "@wardnet/forge-web/field";
+import { Pill } from "@wardnet/forge-web/pill";
 import { Toggle } from "@wardnet/forge-web/toggle";
+import { formatDateTime } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -11,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/forge-web/select";
-import { StatusBadge } from "@/components/compound/StatusBadge";
 
 /**
  * Whether a given install phase represents work in progress — i.e. a check/
@@ -74,8 +74,11 @@ interface Props {
 
 /**
  * Pure-presentation card showing version / channel / install state and
- * the admin action buttons. All data + callbacks flow from props; the card
- * itself does no API calls (that is the Settings page's job via hooks).
+ * the admin action buttons. Follows the DhcpStatusCard / DnsServer
+ * chrome: title + pill + Toggle in CardAction. The release-channel
+ * select and the "Check now" button sit in the same CardAction row
+ * because they're peers of the toggle (all three are top-level
+ * controls for how/when updates are pulled).
  */
 export function UpdateCard({
   status,
@@ -89,54 +92,76 @@ export function UpdateCard({
   onToggleAutoUpdate,
   onChangeChannel,
 }: Props) {
-  // The install button must consider *both* the in-flight mutation and the
-  // server-reported phase — without the latter, clicking Install would kick
-  // off a second mutation after the first returns while the daemon is still
-  // downloading in the background.
   const phaseActive = status ? isPhaseActive(status.install_phase) : false;
   const installInProgress = isInstalling || phaseActive;
-
-  // The card head's right slot is a state-as-button transformation
-  // (WEBUI-DESIGN-GUIDELINES §4.4): a non-interactive "Up to date" badge
-  // when there's nothing to do, a primary "Install update" button when
-  // an update is available, and a disabled in-progress button while the
-  // install is running. The action row below carries only Check + Rollback.
-  const renderStateSlot = () => {
-    if (!status) return null;
-    if (installInProgress) {
-      return (
-        <Button disabled>
-          <Loader2Icon className="animate-spin" />
-          {describePhase(status.install_phase)}…
-        </Button>
-      );
-    }
-    if (status.update_available) {
-      return (
-        <Button onClick={onInstall}>
-          <DownloadIcon />
-          Install update
-        </Button>
-      );
-    }
-    return (
-      <StatusBadge tone="success" withIcon>
-        Up to date
-      </StatusBadge>
-    );
-  };
+  const autoEnabled = status?.auto_update_enabled ?? false;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Auto-update</CardTitle>
-        <CardAction>{renderStateSlot()}</CardAction>
+        <Pill variant={autoEnabled ? "ok" : "ghost"}>
+          <span className="dot" />
+          {autoEnabled ? "Enabled" : "Disabled"}
+        </Pill>
+        {/* Header layout:
+            - Below 890px (default): Toggle pinned right on row 1
+              next to title+pill (`ml-auto`); the Channel + Check
+              group wraps to its own full-width row 2 below (via
+              `w-full`) with channel-left / check-right.
+            - At ≥890px: classes get reset — Toggle drops `ml-auto`,
+              the group reclaims content width and uses `order-2`
+              to sit between the pill and the toggle. CardAction's
+              `margin-left: auto` (from `.right`) then pushes the
+              group + toggle to the right edge as a single cluster.
+              The breakpoint is `min-[890px]:` rather than `md:`
+              because the controls don't actually fit on a single
+              row until ~890px; widening Tailwind's global `md`
+              token would ripple across the whole app. */}
+        <Toggle
+          id="auto-update-toggle"
+          aria-label="Enable automatic updates"
+          className="ml-auto min-[890px]:order-last min-[890px]:ml-0"
+          checked={autoEnabled}
+          disabled={!status || phaseActive}
+          onCheckedChange={onToggleAutoUpdate}
+        />
+        <CardAction className="w-full justify-between min-[890px]:order-2 min-[890px]:w-auto min-[890px]:justify-end">
+          <Select
+            value={status?.channel}
+            onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
+            disabled={!status || phaseActive}
+          >
+            <SelectTrigger className="select-trigger--md w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="stable">Stable channel</SelectItem>
+              <SelectItem value="beta">Beta channel</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            onClick={onCheck}
+            disabled={isChecking || phaseActive}
+            aria-label="Check for updates"
+          >
+            <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
+            {isChecking ? "Checking…" : "Check now"}
+          </Button>
+        </CardAction>
       </CardHeader>
+
       <CardContent className="flex flex-col gap-4">
         {isLoading || !status ? (
           <p className="text-sm text-ink-3">Loading…</p>
         ) : (
           <>
+            <p className="text-sm text-ink-3">
+              When enabled, Wardnet checks for updates hourly and installs them automatically as
+              they land on the selected channel.
+            </p>
+
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
               <div>
                 <dt className="text-ink-3">Current version</dt>
@@ -149,7 +174,7 @@ export function UpdateCard({
               <div>
                 <dt className="text-ink-3">Last checked</dt>
                 <dd className="font-medium">
-                  {status.last_check_at ? new Date(status.last_check_at).toLocaleString() : "never"}
+                  {status.last_check_at ? formatDateTime(status.last_check_at) : "never"}
                 </dd>
               </div>
               <div>
@@ -174,42 +199,7 @@ export function UpdateCard({
               </div>
             )}
 
-            {/* Channel + auto-install share one row: the channel is the
-                admin's primary choice, the toggle controls whether updates
-                land automatically once a new release matches it. */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <Field direction="row" label="Channel" htmlFor="update-channel">
-                <Select
-                  value={status.channel}
-                  onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
-                  disabled={phaseActive}
-                >
-                  <SelectTrigger id="update-channel" className="w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stable">Stable</SelectItem>
-                    <SelectItem value="beta">Beta</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field
-                direction="row"
-                label="Automatically install when available"
-                htmlFor="auto-update-toggle"
-              >
-                <Toggle
-                  id="auto-update-toggle"
-                  checked={status.auto_update_enabled}
-                  onCheckedChange={onToggleAutoUpdate}
-                />
-              </Field>
-            </div>
-
-            {/* Footer action row: helper context on the left, utility
-                actions on the right (per WEBUI-DESIGN-GUIDELINES §3.6). */}
-            <div className="flex items-center justify-between gap-2 border-t pt-4">
-              <p className="text-sm text-ink-3">Updates are checked hourly.</p>
+            {(status.update_available || installInProgress || status.rollback_available) && (
               <div className="flex flex-wrap justify-end gap-2">
                 {status.rollback_available && (
                   <Button
@@ -220,12 +210,19 @@ export function UpdateCard({
                     {isRollingBack ? "Rolling back…" : "Rollback to previous"}
                   </Button>
                 )}
-                <Button variant="outline" onClick={onCheck} disabled={isChecking || phaseActive}>
-                  <RefreshCwIcon className={isChecking ? "animate-spin" : undefined} />
-                  {isChecking ? "Checking…" : "Check now"}
-                </Button>
+                {installInProgress ? (
+                  <Button disabled>
+                    <Loader2Icon className="animate-spin" />
+                    {describePhase(status.install_phase)}…
+                  </Button>
+                ) : status.update_available ? (
+                  <Button onClick={onInstall}>
+                    <DownloadIcon />
+                    Install update
+                  </Button>
+                ) : null}
               </div>
-            </div>
+            )}
           </>
         )}
       </CardContent>

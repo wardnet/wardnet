@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
+import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
 import { useAdvanceWizard } from "@/hooks/useSetup";
 import { useDiscoverGatewayMac } from "@/hooks/useNetwork";
+
+const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
 
 /**
  * Step 4 — discover the upstream router MAC.
@@ -32,9 +35,8 @@ export default function Step4RouterMac() {
   const probedSource = probe.data?.source;
   const probeFailed = probe.isError;
 
-  async function handleManualSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    await probe.mutateAsync({ mac: manualMac });
+  async function handleManualSubmit(values: { mac: string }) {
+    await probe.mutateAsync({ mac: values.mac });
   }
 
   async function handleContinue() {
@@ -65,8 +67,16 @@ export default function Step4RouterMac() {
       )}
 
       {!probe.isPending && !probedMac && probeFailed && (
-        <form onSubmit={handleManualSubmit} className="flex flex-col gap-3">
-          <Field label="ARP probe failed — enter the router MAC manually" htmlFor="router-mac">
+        <Form
+          values={{ mac: manualMac }}
+          onSubmit={handleManualSubmit}
+          className="flex flex-col gap-3"
+        >
+          <Field
+            label="ARP probe failed — enter the router MAC manually"
+            htmlFor="router-mac"
+            name="mac"
+          >
             <Input
               id="router-mac"
               value={manualMac}
@@ -75,12 +85,21 @@ export default function Step4RouterMac() {
               className="font-mono"
             />
           </Field>
+          <Validator name="mac" rule="required" message="MAC address is required." />
+          <Validator
+            name="mac"
+            validate={(v) =>
+              typeof v === "string" && v.length > 0 && !MAC_RE.test(v)
+                ? "Must be a valid MAC address (e.g. 00:11:22:AA:BB:CC)."
+                : null
+            }
+          />
           <div className="flex justify-end">
-            <Button type="submit" variant="outline" disabled={!manualMac}>
+            <Button type="submit" variant="outline">
               Save MAC
             </Button>
           </div>
-        </form>
+        </Form>
       )}
 
       <Button onClick={handleContinue} disabled={advance.isPending} className="w-full">

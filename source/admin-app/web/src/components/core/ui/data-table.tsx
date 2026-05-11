@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import {
   type ColumnDef,
   type RowData,
@@ -5,7 +6,22 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { MoreHorizontal, Plus, Search } from "lucide-react";
 
+import { Button } from "@wardnet/forge-web/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@wardnet/forge-web/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@wardnet/forge-web/select";
 import { cn } from "@/lib/utils";
 
 declare module "@tanstack/react-table" {
@@ -13,6 +29,38 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     className?: string;
   }
+}
+
+export interface DataTableGroup {
+  id: string;
+  label: string;
+  count?: number;
+}
+
+export interface RowActionProps {
+  /** Fires when the user clicks (or keyboard-activates) the row action. */
+  onSelect?: () => void;
+  /** Renders the item in the danger tone (red text) so destructive
+   *  actions like "Delete" are visually distinguishable from
+   *  routine ones inside the same overflow menu. */
+  destructive?: boolean;
+  /** Optional leading icon (rendered before the label). */
+  icon?: ReactNode;
+  children: ReactNode;
+}
+
+/** Single entry inside a row's overflow (`…`) menu.
+ *
+ *  Pass one or more of these from `DataTable`'s `rowActions` render
+ *  prop. The DataTable handles the trigger button and the dropdown
+ *  container so consumers only describe what each action does. */
+export function RowAction({ onSelect, destructive, icon, children }: RowActionProps) {
+  return (
+    <DropdownMenuItem onSelect={onSelect} variant={destructive ? "destructive" : "default"}>
+      {icon}
+      <span>{children}</span>
+    </DropdownMenuItem>
+  );
 }
 
 interface DataTableProps<TData, TValue> {
@@ -32,24 +80,52 @@ interface DataTableProps<TData, TValue> {
    * that rely on auto-fit aren't disrupted.
    */
   fixedLayout?: boolean;
+  /**
+   * Optional segmented group selector rendered on the left of the
+   * toolbar. Provide `groups` plus `activeGroup` / `onGroupChange` to
+   * render a `.tabs` pill control with optional count badges.
+   */
+  groups?: DataTableGroup[];
+  activeGroup?: string;
+  onGroupChange?: (id: string) => void;
+  /** Controlled search input rendered after the group control. */
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  /** Optional filter controls (e.g. Select dropdowns) rendered
+   *  between the group control and the search input. */
+  filters?: ReactNode;
+  /** Standard "add new entry" CTA — when both are set, the DataTable
+   *  renders an outline button on the far right of the toolbar. This
+   *  is the preferred way to attach an Add action to a table; it
+   *  encapsulates the agreed variant + height so consumers don't
+   *  reimplement it. */
+  addLabel?: string;
+  onAdd?: () => void;
+  /** Free-form action slot — escape hatch for non-standard toolbar
+   *  controls (multiple buttons, a custom widget). Prefer `addLabel`
+   *  + `onAdd` for the common "Add X" case. */
+  action?: ReactNode;
+  /** Per-row overflow menu. Return one or more `<RowAction>` elements
+   *  for each row; the DataTable renders a `…` trigger on the right
+   *  edge of every row and opens a dropdown menu when activated.
+   *  The trigger swallows the row-click handler so opening the menu
+   *  doesn't trigger navigation. */
+  rowActions?: (row: TData) => ReactNode;
 }
 
 /**
  * Forge §05 data-table primitive. The `.tbl` Forge class owns the
- * visual contract — uppercase header on --bg-elev, hairline row
- * dividers, hover tint, sticky <th> — so this wrapper just attaches
- * the class and renders the TanStack header/body groups onto native
- * <thead>/<tbody>. `.host` row markup is contributed by callers via
- * the column `cell` renderer (see HostCell in compound/) so this
- * primitive stays unaware of row content.
+ * visual contract; this wrapper renders the TanStack header/body
+ * groups onto native <thead>/<tbody>. An optional `.tbl-toolbar` row
+ * is rendered above the table when any of `groups` / `onSearchChange`
+ * / `action` is provided.
  *
  * The outer `.tbl-wrap` mirrors `.card.card--flush` (border + shadow
  * on --bg-card) but deliberately omits `overflow: hidden`: any
  * non-visible overflow on an ancestor turns that ancestor into the
  * scroll container for sticky positioning, which would prevent the
- * <th> from pinning to the page-level scroll. We render the <table>
- * directly under the wrapper for the same reason — no inner div
- * with overflow.
+ * <th> from pinning to the page-level scroll.
  */
 export function DataTable<TData, TValue>({
   columns,
@@ -57,6 +133,17 @@ export function DataTable<TData, TValue>({
   emptyMessage = "No results.",
   onRowClick,
   fixedLayout = false,
+  groups,
+  activeGroup,
+  onGroupChange,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder = "Search…",
+  filters,
+  addLabel,
+  onAdd,
+  action,
+  rowActions,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -65,47 +152,132 @@ export function DataTable<TData, TValue>({
   });
 
   const rows = table.getRowModel().rows;
+  const hasAddCta = !!addLabel && !!onAdd;
+  const showToolbar =
+    !!groups || onSearchChange !== undefined || !!filters || hasAddCta || !!action;
 
   return (
-    <div className="tbl-wrap">
-      <table className={cn("tbl", fixedLayout && "tbl--fixed")}>
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th key={header.id} className={header.column.columnDef.meta?.className}>
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {rows.length ? (
-            rows.map((row) => (
-              <tr
-                key={row.id}
-                data-clickable={onRowClick ? "true" : undefined}
-                onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className={cell.column.columnDef.meta?.className}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))
-          ) : (
-            <tr>
-              <td colSpan={columns.length} className="tbl-empty">
-                {emptyMessage}
-              </td>
-            </tr>
+    <div className="tbl-frame">
+      {showToolbar && (
+        <div className="tbl-toolbar">
+          {groups && groups.length > 0 && (
+            <>
+              {/* Desktop wrapper — segmented pill control. Wrapped in
+                  a plain div because Forge's unlayered `.tabs {
+                  display: inline-flex }` would otherwise beat
+                  Tailwind's layered `.hidden { display: none }`. */}
+              <div className="hidden md:block">
+                <div className="tabs" role="tablist">
+                  {groups.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={g.id === activeGroup}
+                      data-state={g.id === activeGroup ? "active" : "inactive"}
+                      onClick={() => onGroupChange?.(g.id)}
+                    >
+                      {g.label}
+                      {g.count !== undefined && <span className="count">{g.count}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Mobile wrapper — same data as a Select that collapses
+                  long group lists to a single 34px trigger. Same
+                  wrapping trick as above to win against Forge's
+                  unlayered `.select-trigger` display rule. */}
+              <div className="md:hidden">
+                <Select value={activeGroup} onValueChange={(v) => onGroupChange?.(v)}>
+                  <SelectTrigger className="select-trigger--md w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.label}
+                        {g.count !== undefined ? ` · ${g.count}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
           )}
-        </tbody>
-      </table>
+          {filters}
+          {onSearchChange && (
+            <label className="tbl-toolbar__search">
+              <Search aria-hidden="true" />
+              <input
+                type="search"
+                value={searchValue ?? ""}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder={searchPlaceholder}
+              />
+            </label>
+          )}
+          {hasAddCta && (
+            <Button variant="outline" onClick={onAdd}>
+              <Plus aria-hidden />
+              {addLabel}
+            </Button>
+          )}
+          {action}
+        </div>
+      )}
+      <div className="tbl-wrap">
+        <table className={cn("tbl", fixedLayout && "tbl--fixed")}>
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} className={header.column.columnDef.meta?.className}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                ))}
+                {rowActions && <th className="tbl__row-actions-head" aria-label="Row actions" />}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {rows.length ? (
+              rows.map((row) => (
+                <tr
+                  key={row.id}
+                  data-clickable={onRowClick ? "true" : undefined}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className={cell.column.columnDef.meta?.className}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                  {rowActions && (
+                    <td className="tbl__row-actions-cell" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon-sm" aria-label="Row actions">
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>{rowActions(row.original)}</DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  )}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={columns.length + (rowActions ? 1 : 0)} className="tbl-empty">
+                  {emptyMessage}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

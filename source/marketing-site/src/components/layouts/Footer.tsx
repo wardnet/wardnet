@@ -22,7 +22,9 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6">
         <div className="flex items-center gap-2">
           <Logo size={32} />
-          <span className="text-lg font-semibold text-ink">Wardnet</span>
+          <span className="text-lg font-semibold text-ink">
+            Ward<span style={{ color: "var(--accent)" }}>net</span>
+          </span>
         </div>
         <nav className="flex gap-6">
           <Link to="/docs" className="text-sm text-ink-3 transition-colors hover:text-ink">

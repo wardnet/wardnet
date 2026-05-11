@@ -19,6 +19,9 @@ interface DeviceSelectProps {
   anyLabel?: string;
   /** Override the input id (for `<label htmlFor>`). */
   id?: string;
+  /** Extra classes to apply to the underlying SelectTrigger — useful
+   *  for sizing variants (`.select-trigger--md` / `--sm`) or width. */
+  triggerClassName?: string;
 }
 
 /**
@@ -37,6 +40,7 @@ export function DeviceSelect({
   onChange,
   anyLabel = "Any device",
   id,
+  triggerClassName,
 }: DeviceSelectProps) {
   const selected = devices.find((d) => d.last_ip === value);
   // Trigger label collapses to a single line (icon + name) so it fits
@@ -58,7 +62,7 @@ export function DeviceSelect({
       {/* `w-full` overrides the SelectTrigger default of `w-fit` so the
           trigger fills its parent column instead of shrinking to the
           width of the longest device label. */}
-      <SelectTrigger id={id} className="w-full">
+      <SelectTrigger id={id} className={triggerClassName ?? "w-full"}>
         {/* `asChild` lets us bypass the SelectValue's default rendering
             (which mirrors the chosen SelectItem's children, IP and all)
             and supply our own compact label instead. */}

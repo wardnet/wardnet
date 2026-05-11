@@ -119,6 +119,19 @@ button { font-family: inherit; }
   background: var(--bg-sunken);
 }
 
+/* Below `md` (Tailwind's 768px), the sidebar collapses into the
+   `.topbar` hamburger trigger — the same Sidebar component is
+   re-hosted inside a Drawer (see MobileMenu). The grid drops to a
+   single column so `.main` can take the full width. */
+@media (max-width: 767.98px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .app > .side {
+    display: none;
+  }
+}
+
 /* ---------- Sidebar ---------- */
 .side {
   background: var(--side-bg);
@@ -223,10 +236,13 @@ button { font-family: inherit; }
 .side__links a:hover { color: var(--side-ink); }
 
 /* ---------- Main ---------- */
+/* The page surface: canvas (--bg) with rounded border. Cards
+   (`.card` → --bg-card) float as white tiles on top. Only the
+   `.topbar` bookmark stays --bg-elev. */
 .main {
   display: flex; flex-direction: column;
   min-width: 0;
-  background: var(--bg-elev);
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -237,6 +253,15 @@ button { font-family: inherit; }
   padding: 14px 24px;
   border-bottom: 1px solid var(--line);
   background: var(--bg-elev);
+}
+/* Hamburger that opens the sidebar drawer below `md`. Hidden at
+   desktop widths because the floating sidebar is already visible.
+   Selector is `.topbar .topbar__menu` (specificity 0,2,0) so it
+   beats the unlayered `.btn` (0,1,0) which sits later in the file
+   and would otherwise win on source order. */
+.topbar .topbar__menu { display: inline-flex; }
+@media (min-width: 768px) {
+  .topbar .topbar__menu { display: none; }
 }
 .topbar__crumbs {
   display: flex; align-items: center; gap: 8px;
@@ -265,6 +290,10 @@ button { font-family: inherit; }
 .scroll {
   flex: 1; overflow: auto;
   padding: 22px 24px 40px;
+  /* Flex column so page content can flex-1 a section to full height
+     (used by empty states / placeholders on Devices, DNS filter, etc). */
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- Cards ---------- */
@@ -280,25 +309,59 @@ button { font-family: inherit; }
    construction — those parts own their padding and the parent must not
    double up. `.card--flush` stays as an explicit escape hatch for cases
    without head/foot (image-only, table-only) and CSS-only consumers. */
-.card:has(> .card__head),
-.card:has(> .card__foot) { padding: 0; }
+/* Descendant — not direct-child — so the `:has` still matches when a
+   consumer wraps body slots in a `<form>` (the Form primitive does
+   this). Direct-child `>` broke nested-Form cards because CardContent
+   and CardFooter end up inside the form, not as direct .card children. */
+.card:has(.card__head),
+.card:has(.card__foot) { padding: 0; }
+/* Card head + content padding model when a card has both header and
+   body: `.card` itself has padding:0 (see `:has(.card__head)` rule
+   above), then the header pads top + sides and the content slot
+   picks up the bottom + sides. A flush inner widget (e.g. `.logs`)
+   opts out so its tinted surface fills the card edges. */
 .card__head {
   display: flex; align-items: center; gap: 10px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
+  /* Wrap so dense headers (CardTitle + Pill + CardAction with
+     multiple controls) drop onto a second line on narrow viewports
+     instead of overflowing the card. */
+  flex-wrap: wrap;
+  padding: var(--pad) var(--pad) 12px;
 }
+/* Card title voice matches the dashboard convention (`.stat__label`,
+   `.tbl th`): small uppercase, tracked, ink-3. Single across-the-app
+   style so a section title reads the same whether it's on a KPI tile,
+   a table header, or a card heading. */
 .card__head h3 {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-2);
-  letter-spacing: -0.005em;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.card:has(.card__head) [data-slot="card-content"] {
+  padding: 0 var(--pad) var(--pad);
+}
+.card:has(.card__head) [data-slot="card-content"]:has(> .logs) {
+  padding: 0;
 }
 .card__head .sub { font-size: 12px; color: var(--ink-3); margin-left: 6px; }
-.card__head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.card__head .right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  /* Action clusters with multiple controls (UpdateCard's Channel
+     + Check now + Toggle) wrap onto a second sub-line on narrow
+     viewports instead of pushing past the card edge. Consumers
+     control justify-content via className when a full-width
+     CardAction needs to split its children left/right. */
+  flex-wrap: wrap;
+}
 .card__foot {
   display: flex; align-items: center; gap: 8px;
-  padding: 12px 18px;
+  padding: 14px var(--pad);
   border-top: 1px solid var(--line);
   background: var(--bg-sunken);
 }
@@ -314,8 +377,13 @@ button { font-family: inherit; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   overflow: hidden;
-  min-height: 124px;
+  /* Fixed KPI height so cards align across rows regardless of which
+     optional slots (sub, bar, spark) they fill. */
+  height: 144px;
 }
+/* Bar slot pins to the bottom of the tile so cards with a bar and
+   cards without it share the same value-line position. */
+.stat > .bar { margin-top: auto; }
 .stat__label {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--ink-3);
@@ -408,17 +476,29 @@ button { font-family: inherit; }
 }
 
 /* ---------- Buttons ---------- */
+/* Explicit heights are the anchor for control alignment across the
+   site: 34px for the default, 28px for `--sm` (toolbar / inline).
+   Icons are capped so an icon-bearing button always lands at the
+   same height as a text-only sibling — they used to inflate the
+   button when the SVG was taller than the text line-height. */
 .btn {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px;
   font-size: 13px; font-weight: 500;
-  padding: 6px 12px;
+  padding: 0 12px;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--bg-elev);
   color: var(--ink);
   cursor: pointer;
   transition: background 120ms, border-color 120ms, transform 80ms;
+  /* Button labels never wrap to a second line — a CTA in a narrow
+     header (e.g. "Add profile" at the right of a PageHeader on a
+     small viewport) keeps its single-row shape and the surrounding
+     row layout adapts to the button's content width. */
+  white-space: nowrap;
 }
+.btn > svg { width: 16px; height: 16px; }
 .btn:hover { background: var(--bg-sunken); }
 .btn:active { transform: translateY(1px); }
 .btn--primary {
@@ -432,8 +512,9 @@ button { font-family: inherit; }
 .btn--ghost { background: transparent; }
 .btn--danger { color: var(--danger); border-color: var(--line); background: transparent; }
 .btn--danger:hover { background: var(--danger-soft); border-color: var(--danger-soft); color: var(--danger-soft-ink); }
-.btn--sm { padding: 4px 9px; font-size: 12px; }
-.btn--icon { padding: 6px 7px; }
+.btn--sm { height: 28px; padding: 0 9px; font-size: 12px; }
+.btn--sm > svg { width: 14px; height: 14px; }
+.btn--icon { padding: 0 7px; }
 
 /* ---------- Tables ---------- */
 /* Forge §05 components inventory binds `.tbl` (+ `.host` row pattern)
@@ -461,6 +542,26 @@ button { font-family: inherit; }
      `.tbl-wrap` below for the deliberately non-clipping wrapper that
      keeps this working. */
   position: sticky; top: 0;
+}
+/* `.tbl-wrap` can't use `overflow: hidden` (that would steal the
+   sticky scroll context from the page), so the first/last <th> end
+   up covering the wrapper's rounded corners with their own white
+   background — reading as a missing border. Match the outer radius
+   on the corner <th>s so the curve is preserved. */
+.tbl thead tr:first-child th:first-child { border-top-left-radius: var(--radius-lg); }
+.tbl thead tr:first-child th:last-child { border-top-right-radius: var(--radius-lg); }
+/* Row overflow-menu column — narrow, right-aligned, no header label.
+   Selector chained with `.tbl` to win specificity against `.tbl td`
+   and `.tbl th` (which set `padding: 12px 18px` site-wide). Without
+   that, this column's `width` and `padding-right` lose, so on
+   fixed-layout tables the `…` trigger sits flush against the right
+   edge of the table. */
+.tbl .tbl__row-actions-head,
+.tbl .tbl__row-actions-cell {
+  width: 56px;
+  text-align: right;
+  padding-left: 6px;
+  padding-right: 18px;
 }
 .tbl td {
   padding: 12px 18px;
@@ -497,16 +598,34 @@ button { font-family: inherit; }
 
 /* `.tbl-wrap` is the data-table primitive's outer surface. It mirrors
    `.card.card--flush` (rounded border on --bg-card with --shadow-card)
-   but deliberately omits `overflow: hidden` because the wrapper
-   becoming the scroll container would break the sticky <th> on rows
-   above. Sticky promotes to the nearest *scrolling* ancestor; we want
-   that to remain page-level (or a per-page flex column), not this
-   wrapper. */
+   and is itself the scroll container — sticky <th> pins to the top
+   of THIS element when the page sits inside a flex-column ancestor
+   with constrained height (the default page layout). When the parent
+   doesn't constrain height, `overflow-y: auto` has no effect and the
+   wrapper grows naturally with content. */
 .tbl-wrap {
   background: var(--bg-card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
+  overflow-y: auto;
+  /* Guarantee enough vertical space to show a few rows + the
+     header, even when the page above the table is tall (DHCP
+     status + config cards on mobile). When the viewport can't
+     accommodate this minimum, the page-level `.scroll` ancestor
+     scrolls instead so the table never collapses into a useless
+     header-only sliver. */
+  min-height: 320px;
+  flex: 1;
+}
+/* `.tbl-frame` wraps the toolbar + wrap so the toolbar stays pinned
+   at the top of the available space and the wrap consumes the rest.
+   Applied automatically by the data-table primitive. */
+.tbl-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
 }
 
 .host {
@@ -540,6 +659,10 @@ button { font-family: inherit; }
   color: var(--ink-3);
   border-radius: 6px;
   cursor: pointer;
+  /* Segment labels never wrap to a second line — a long label
+     stays on one row even if the control has to grow. Truncation or
+     a shorter label is the right answer at the consumer level. */
+  white-space: nowrap;
 }
 .tabs button.is-active,
 .tabs button[data-state="active"] {
@@ -547,6 +670,71 @@ button { font-family: inherit; }
   color: var(--ink);
   box-shadow: var(--shadow-card);
 }
+/* Optional count badge inside a `.tabs` segmented button. */
+.tabs button .count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.tabs button.is-active .count,
+.tabs button[data-state="active"] .count {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+/* ---------- Table toolbar ---------- */
+/* Optional row above `.tbl-wrap` hosting (left → right): a `.tabs`
+   segmented group control, a search field that flexes to fill, and
+   an optional CTA action slot on the far right. All slots are
+   independently optional — the data-table primitive only renders
+   this row when one or more toolbar props are provided. */
+.tbl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.tbl-toolbar__search {
+  flex: 1;
+  /* Shrinks small enough that the search field + a typical CTA
+     ("Add reservation", "Add server") still fit on one toolbar row
+     at mobile widths. Below this min the toolbar wraps. */
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink-3);
+}
+/* When the toolbar wraps onto a second line (CTA falls below the
+   search field on narrow widths), the CTA should hug the right
+   edge instead of stacking on the left under the search input.
+   `margin-left: auto` pushes it past the search's flex-grow on a
+   single line *and* past the wrap break on a second line. */
+.tbl-toolbar > :last-child:not(.tabs):not(.tbl-toolbar__search) {
+  margin-left: auto;
+}
+.tbl-toolbar__search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+.tbl-toolbar__search input {
+  all: unset;
+  flex: 1;
+  color: var(--ink);
+  font-size: 13px;
+}
+.tbl-toolbar__search input::placeholder { color: var(--ink-3); }
+.tbl-toolbar__search > svg { width: 16px; height: 16px; flex-shrink: 0; }
 
 /* ---------- Logs ---------- */
 .logs {
@@ -558,6 +746,16 @@ button { font-family: inherit; }
   max-height: 360px;
   overflow: auto;
   border: 1px solid var(--line);
+}
+/* When `.logs` lives inside a card body, the parent card already
+   carries a border + border-radius, and the `.card__head` above
+   provides the top hairline — so the inner widget drops its own
+   frame to avoid the doubled borders / mismatched radii that read
+   as "card inside a card". Bottom radius matches the parent so the
+   scroll content sits flush in the card's curve. */
+.card .logs {
+  border: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 .logrow {
   display: grid;
@@ -612,8 +810,29 @@ button { font-family: inherit; }
   box-shadow: var(--shadow-card);
   position: relative;
 }
-.tcard__head { display: flex; align-items: flex-start; gap: 12px; }
+/* Card head is two stacked rows so titles never compete with the
+   chips+badge for horizontal space:
+   - row 1 (.tcard__chips): provider chip · flag · spacer · status pill
+   - row 2 (.tcard__text):  title + sub, full card width
+   Stacking is unconditional — at wide-enough widths the chip row
+   reads as a header strip above the label, which still works visually
+   and avoids the responsive layout flicker we'd get from a media
+   query at the half-card break. */
+.tcard__head {
+  display: flex; flex-direction: column;
+  gap: 12px;
+}
+.tcard__chips {
+  display: flex; align-items: center; gap: 10px;
+}
+.tcard__chips .spacer { flex: 1; }
+.tcard__text { display: flex; flex-direction: column; min-width: 0; }
+/* Provider chip — rendered before the flag. Hosts an `<img>` from
+   ProviderInfo.icon_url or a lucide "custom" icon when the tunnel
+   has no provider attached. */
+.tcard__provider,
 .tcard__flag {
+  flex-shrink: 0;
   width: 38px; height: 38px;
   display: grid; place-items: center;
   border-radius: 10px;
@@ -621,15 +840,25 @@ button { font-family: inherit; }
   border: 1px solid var(--line);
   font-size: 18px;
 }
+.tcard__provider img { width: 22px; height: 22px; }
+.tcard__provider svg { width: 18px; height: 18px; color: var(--ink-3); }
 .tcard__title {
   font-size: 15px; font-weight: 600; color: var(--ink);
   letter-spacing: -0.01em;
 }
 .tcard__sub { font-size: 12px; color: var(--ink-3); }
 .tcard__grid {
-  display: grid; grid-template-columns: repeat(2, 1fr);
+  display: grid;
+  /* `auto-fit` with a min track of 200px means the grid drops to a
+     single column when the card is too narrow for both labels to
+     fit side-by-side. The 200px threshold is tuned to give the
+     Endpoint column enough width to read past `lab.example.…`
+     before truncating; below that the rows stack vertically so the
+     endpoint and last-handshake each get the full card width. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   row-gap: 14px; column-gap: 18px;
 }
+.tcard__grid > div { min-width: 0; }
 .tcard__grid dt {
   font-size: 11px;
   text-transform: uppercase;
@@ -641,16 +870,33 @@ button { font-family: inherit; }
   margin: 0;
   font-family: var(--font-mono); font-size: 12px;
   color: var(--ink);
+  /* Single-line truncation so the endpoint URL doesn't blow the card
+     out horizontally. Consumers pair this with `title={value}` for a
+     native browser tooltip on hover. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* Section label sharing the look of `.tcard__grid dt` — used above
+   the throughput row so it reads with the same rhythm as the rest of
+   the card. */
+.tcard__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+/* Throughput row — text labels with up/down arrows, not a bar chart. */
 .tcard__throughput {
-  display: flex; align-items: flex-end; gap: 1.5px;
-  height: 36px; margin-top: 4px;
+  display: flex; align-items: center; gap: 16px;
+  font-size: 12px;
+  color: var(--ink-2);
 }
-.tcard__throughput span {
-  flex: 1; min-width: 0;
-  background: color-mix(in oklab, var(--accent) 30%, var(--bg-sunken));
-  border-radius: 1px 1px 0 0;
+.tcard__throughput > span {
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.tcard__throughput svg { width: 12px; height: 12px; color: var(--ink-3); }
 
 /* ---------- Layout helpers ---------- */
 .row { display: flex; align-items: center; gap: 10px; }
@@ -813,6 +1059,19 @@ button { font-family: inherit; }
    consumer. */
 .chart .recharts-brush rect.recharts-brush-slide { fill: var(--accent-soft); fill-opacity: 0.6; }
 .chart .recharts-brush rect.recharts-brush-texts { display: none; }
+/* Suppress the browser-native focus ring + drag-state styling that
+   Recharts' brush handles pick up while being dragged. The handle
+   stays purely defined by its stroke/fill from the consumer — no
+   blue outline, no selection rectangle. */
+.chart .recharts-brush-traveller,
+.chart .recharts-brush-traveller * {
+  outline: none;
+}
+.chart .recharts-brush-traveller:focus,
+.chart .recharts-brush-traveller:focus-visible,
+.chart .recharts-brush-traveller:active {
+  outline: none;
+}
 /* Legend (§10 rule 07): mono 11px, --ink-3. Dot color comes from the
    series stroke, which Recharts paints inline — no override needed. */
 .chart .recharts-default-legend {
@@ -1210,6 +1469,20 @@ button { font-family: inherit; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
 }
+/* Toolbar-sized variants matching the button heights:
+   - `--md` (34px) pairs with the default Button and search input.
+   - `--sm` (28px) pairs with `.btn--sm`. */
+.select-trigger--md {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.select-trigger--sm {
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+.select-trigger--sm::after { width: 12px; height: 12px; }
 .select-trigger[data-disabled] { opacity: 0.5; cursor: not-allowed; }
 .select-trigger[data-placeholder] { color: var(--ink-3); }
 .select-trigger::after {
@@ -1233,7 +1506,15 @@ button { font-family: inherit; }
   transform-origin: var(--radix-select-content-transform-origin, center);
 }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field {
+  display: flex; flex-direction: column; gap: 6px;
+  /* Allow `.field` to shrink below its content's intrinsic width
+     when it's used as a grid item — otherwise a long mono value
+     (e.g. a tunnel endpoint URL) keeps the cell wide and overflows
+     into the next grid column. Consumers opt their value into
+     truncation via `truncate` on the inner span. */
+  min-width: 0;
+}
 .field[data-direction="row"] {
   flex-direction: row;
   align-items: center;
@@ -1308,7 +1589,70 @@ button { font-family: inherit; }
   line-height: 1.4;
   margin: 0;
 }
+
+/* Password reveal — wraps a password `.input` and exposes a small
+   eye toggle on the right. The toggle is purely presentational; the
+   underlying input keeps its name/value/onChange so validators and
+   form context don't care about the reveal state. */
+.input-wrap {
+  position: relative;
+  display: block;
+}
+.input--with-reveal {
+  padding-right: 36px;
+}
+.input-reveal {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.input-reveal:hover { color: var(--ink); }
+.input-reveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.input-reveal svg { width: 16px; height: 16px; }
+/* Inline validation. Consumers pass an `error` prop to <Field> which
+   adds `data-invalid="true"` on the wrapper and renders a
+   `.field-error` line under the control. The danger border replaces
+   the focus ring so the field reads as faulted at a glance. */
+.field-error {
+  font-size: 12px;
+  color: var(--danger);
+  line-height: 1.4;
+  margin: 0;
+}
+.field[data-invalid="true"] input,
+.field[data-invalid="true"] select,
+.field[data-invalid="true"] textarea,
+.field[data-invalid="true"] .input {
+  border-color: var(--danger);
+}
+.field[data-invalid="true"] input:focus,
+.field[data-invalid="true"] select:focus,
+.field[data-invalid="true"] textarea:focus,
+.field[data-invalid="true"] .input:focus,
+.field[data-invalid="true"] .input:focus-within {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+}
 .field-value {
+  /* Block, not inline — so a child with `truncate` (overflow:hidden +
+     text-overflow:ellipsis + white-space:nowrap) inherits a
+     constrained width and actually ellipsizes instead of overflowing
+     into the next grid cell. */
+  display: block;
   font-size: 13px;
   color: var(--ink);
   padding: 8px 0;

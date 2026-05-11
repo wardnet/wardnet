@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PowerIcon, RotateCcwIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import {
   AlertModal,
   AlertModalAction,
@@ -16,27 +16,24 @@ import {
 interface Props {
   /** Confirm dialog → fires `POST /api/system/reboot`. Non-destructive lifecycle. */
   onReboot: () => void;
-  /** Confirm dialog → fires `POST /api/system/shutdown`. Destructive — lives outside the card. */
+  /** Confirm dialog → fires `POST /api/system/shutdown`. Destructive action — tinted card. */
   onShutdown: () => void;
   /** Confirm dialog → fires `POST /api/system/restart`. Advanced/secondary lifecycle. */
   onRestartDaemon: () => void;
-  /** Disable every trigger (in-card and outside-card) while any lifecycle is mid-flight. */
+  /** Disable every trigger while any lifecycle is mid-flight. */
   busy: boolean;
 }
 
 /**
- * Power controls block on the Settings page.
+ * Power controls on the /power page. Renders three sibling cards —
+ * one per lifecycle (Reboot, Restart daemon, Shutdown) — so each
+ * action has its own surface. The Shutdown card keeps the standard
+ * hairline border but uses a danger-soft background tint to signal
+ * the destructive nature of the action.
  *
- * Pure presentation: receives three callbacks and a `busy` flag, has
- * no idea TanStack Query or the SDK exist. Confirmation dialogs are
- * inlined here using `@wardnet/forge-web/alert-modal` (per Decision 5 —
- * don't speculatively extract a generic compound until a second feature
- * needs the same shape).
- *
- * Layout follows the "danger-toned actions outside card" rule from the
- * design-system §detail skill — non-destructive lifecycles (Reboot,
- * Restart daemon) live inside the `Power` card; the destructive
- * Shutdown sits outside the card in a danger-toned row below it.
+ * Copy is host-agnostic: Wardnet may run on a Pi, a Docker container,
+ * or a Linux server — we say "Wardnet" / "the system" rather than
+ * "the Pi".
  */
 export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props) {
   // Local open-state for each confirmation dialog so the open/close logic
@@ -47,43 +44,37 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Reboot — non-destructive lifecycle, outline action. */}
       <Card>
         <CardHeader>
-          <CardTitle>Power</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {/* Safe Reboot — non-destructive lifecycle, outline variant. */}
-          <div className="flex items-center justify-between border-b pb-3">
-            <div>
-              <div className="text-sm font-medium">Safe Reboot</div>
-              <div className="text-xs text-ink-3">
-                Reboot the Pi. Wardnet will be unavailable for ~30–60 seconds while it comes back
-                up; managed devices fall back to the upstream router during that gap.
-              </div>
-            </div>
+          <CardTitle>Reboot</CardTitle>
+          <CardAction>
             <Button
               variant="outline"
               onClick={() => setRebootOpen(true)}
               disabled={busy}
-              aria-label="Safe Reboot"
+              aria-label="Reboot"
             >
               <RotateCcwIcon />
               Reboot
             </Button>
-          </div>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-ink-3">
+            Reboot the system. Wardnet will be unavailable for ~30–60 seconds while it comes back
+            up; managed devices fall back to the upstream router during that gap.
+          </p>
+        </CardContent>
+      </Card>
 
-          {/* Restart daemon — advanced, secondary, outline variant. */}
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Restart daemon (advanced)</div>
-              <div className="text-xs text-ink-3">
-                Restart only the wardnetd process. The Pi keeps running. Use this if support has
-                asked you to.
-              </div>
-            </div>
+      {/* Restart daemon — advanced; restarts only the wardnetd process. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Restart daemon</CardTitle>
+          <CardAction>
             <Button
               variant="outline"
-              size="sm"
               onClick={() => setRestartOpen(true)}
               disabled={busy}
               aria-label="Restart daemon"
@@ -91,29 +82,43 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
               <RefreshCwIcon />
               Restart daemon
             </Button>
-          </div>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-ink-3">
+            Restart only the wardnetd process. The host keeps running. Use this if support has asked
+            you to.
+          </p>
         </CardContent>
       </Card>
 
-      {/* Safe Shutdown — destructive action, outside the card per skill §detail. */}
-      <div className="flex items-center justify-between gap-4 rounded-md border border-danger-soft bg-danger-soft px-4 py-3">
-        <div>
-          <div className="text-sm font-medium text-danger-soft-ink">Safe Shutdown</div>
-          <div className="text-xs text-ink-3">
-            Power the Pi off. Internet for managed devices will go through your home router until
-            you turn the Pi back on manually.
-          </div>
-        </div>
-        <Button
-          variant="destructive"
-          onClick={() => setShutdownOpen(true)}
-          disabled={busy}
-          aria-label="Safe Shutdown"
-        >
-          <PowerIcon />
-          Shut down
-        </Button>
-      </div>
+      {/* Shutdown — destructive lifecycle. Same hairline border as
+          the other cards; only the background tint shifts to mark
+          the danger zone. Override via inline style because Tailwind
+          utilities sit in @layer utilities and lose to unlayered
+          `.card { background: var(--bg-card) }`. */}
+      <Card style={{ background: "var(--danger-soft)" }}>
+        <CardHeader>
+          <CardTitle>Shutdown</CardTitle>
+          <CardAction>
+            <Button
+              variant="destructive"
+              onClick={() => setShutdownOpen(true)}
+              disabled={busy}
+              aria-label="Shutdown"
+            >
+              <PowerIcon />
+              Shut down
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-danger-soft-ink">
+            Power Wardnet off. Internet for managed devices will go through your upstream router
+            until you turn the system back on manually.
+          </p>
+        </CardContent>
+      </Card>
 
       <AlertModal open={rebootOpen} onOpenChange={setRebootOpen}>
         <AlertModalContent>
@@ -147,7 +152,7 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
           <AlertModalHeader>
             <AlertModalTitle>Shut Wardnet down?</AlertModalTitle>
             <AlertModalDescription>
-              Wardnet will power off. Internet will be unavailable until you turn the Pi back on
+              Wardnet will power off. Internet will be unavailable until you turn the system back on
               manually.
             </AlertModalDescription>
           </AlertModalHeader>
@@ -175,7 +180,7 @@ export function PowerCard({ onReboot, onShutdown, onRestartDaemon, busy }: Props
           <AlertModalHeader>
             <AlertModalTitle>Restart daemon?</AlertModalTitle>
             <AlertModalDescription>
-              The wardnetd process will exit and the supervisor will bring it back up. The Pi itself
+              The wardnetd process will exit and the supervisor will bring it back up. The host
               keeps running; the network stays online except for a few seconds while the daemon
               comes back.
             </AlertModalDescription>

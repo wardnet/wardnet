@@ -1,25 +1,11 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontalIcon } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
-import { DataTable } from "@/components/core/ui/data-table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@wardnet/forge-web/dropdown-menu";
+import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { timeAgo } from "@/lib/utils";
 import type { Blocklist } from "@wardnet/js";
 
-function createColumns(
-  onRefresh: (id: string) => void,
-  onToggle: (blocklist: Blocklist) => void,
-  onDelete: (id: string) => void,
-  refreshingId: string | null,
-): ColumnDef<Blocklist>[] {
+function createColumns(): ColumnDef<Blocklist>[] {
   return [
     {
       accessorKey: "name",
@@ -49,7 +35,7 @@ function createColumns(
     },
     {
       accessorKey: "last_updated",
-      header: "Last updated",
+      header: "Updated at",
       meta: { className: "hidden w-32 md:table-cell" },
       cell: ({ row }) => (
         <span className="text-ink-3">
@@ -67,38 +53,6 @@ function createColumns(
         </StatusBadge>
       ),
     },
-    {
-      id: "actions",
-      header: "",
-      meta: { className: "w-12 text-right" },
-      cell: ({ row }) => {
-        const blocklist = row.original;
-        const isRefreshing = refreshingId === blocklist.id;
-        return (
-          <div className="row justify-end" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${blocklist.name}`}>
-                  <MoreHorizontalIcon />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => onToggle(blocklist)}>
-                  {blocklist.enabled ? "Disable" : "Enable"}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={isRefreshing} onSelect={() => onRefresh(blocklist.id)}>
-                  {isRefreshing ? "Updating…" : "Update now"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(blocklist.id)}>
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
   ];
 }
 
@@ -112,8 +66,8 @@ interface BlocklistTableProps {
   onAdd: () => void;
 }
 
-/** Table listing blocklists. Row click opens the edit sheet; actions column
- *  provides inline toggle, refresh, and delete. */
+/** Table listing blocklists. Row click opens the edit sheet; the
+ *  overflow `…` menu hosts toggle, refresh, and delete actions. */
 export function BlocklistTable({
   blocklists,
   onRefresh,
@@ -123,7 +77,7 @@ export function BlocklistTable({
   refreshingId = null,
   onAdd,
 }: BlocklistTableProps) {
-  const columns = createColumns(onRefresh, onToggle, onDelete, refreshingId);
+  const columns = createColumns();
 
   if (blocklists.length === 0) {
     return (
@@ -137,18 +91,26 @@ export function BlocklistTable({
   }
 
   return (
-    <div className="col gap-16">
-      <div className="row justify-end">
-        <Button variant="outline" onClick={onAdd}>
-          Add blocklist
-        </Button>
-      </div>
-
-      {/* fixedLayout pins the auxiliary column widths (`w-24` / `w-32` /
-          `w-28` / `w-12`) so the Name column absorbs all remaining width.
-          Long URLs in the Name cell truncate (see inner spans) instead
-          of forcing the table wider than its container. */}
-      <DataTable columns={columns} data={blocklists} onRowClick={onEdit} fixedLayout />
-    </div>
+    // fixedLayout pins the auxiliary column widths so the Name column
+    // absorbs all remaining width; long URLs truncate inside it.
+    <DataTable
+      columns={columns}
+      data={blocklists}
+      onRowClick={onEdit}
+      fixedLayout
+      addLabel="Add blocklist"
+      onAdd={onAdd}
+      rowActions={(b) => (
+        <>
+          <RowAction onSelect={() => onToggle(b)}>{b.enabled ? "Disable" : "Enable"}</RowAction>
+          <RowAction onSelect={() => onRefresh(b.id)}>
+            {refreshingId === b.id ? "Updating…" : "Update now"}
+          </RowAction>
+          <RowAction onSelect={() => onDelete(b.id)} destructive>
+            Delete
+          </RowAction>
+        </>
+      )}
+    />
   );
 }

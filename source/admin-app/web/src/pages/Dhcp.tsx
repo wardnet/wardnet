@@ -1,11 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Card, CardContent } from "@wardnet/forge-web/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DhcpStatusCard } from "@/components/compound/DhcpStatusCard";
 import { DhcpConfigCard } from "@/components/compound/DhcpConfigCard";
-import { DhcpLeaseTable } from "@/components/compound/DhcpLeaseTable";
-import { DhcpReservationTable } from "@/components/compound/DhcpReservationTable";
+import { DhcpEntryTable, type DhcpGroupId } from "@/components/compound/DhcpEntryTable";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import type { ReservationDefaults } from "@/components/features/CreateReservationInline";
 import { CreateReservationInline } from "@/components/features/CreateReservationInline";
@@ -22,6 +21,7 @@ import { useDevices } from "@/hooks/useDevices";
 
 /** DHCP management page (admin only). */
 export default function Dhcp() {
+  const navigate = useNavigate();
   const { data: statusData, isLoading: statusLoading } = useDhcpStatus();
   const { data: configData } = useDhcpConfig();
   const { data: leaseData } = useDhcpLeases();
@@ -32,7 +32,8 @@ export default function Dhcp() {
   const revokeLease = useRevokeLease();
   const deleteReservation = useDeleteReservation();
 
-  const [tab, setTab] = useState("leases");
+  const [group, setGroup] = useState<DhcpGroupId>("all");
+  const [query, setQuery] = useState("");
   const [reservationCreate, setReservationCreate] = useState<{
     open: boolean;
     defaults?: ReservationDefaults;
@@ -49,14 +50,24 @@ export default function Dhcp() {
   const leaseToRevoke = leases.find((l) => l.id === revokeLeaseId);
   const reservationToDelete = reservations.find((r) => r.id === deleteReservationId);
 
-  function openReservationCreate(defaults?: ReservationDefaults) {
-    setTab("reservations");
+  // Pre-fill the create form from a lease (Make static) — does NOT
+  // change the active group. We only switch to "reservations" after
+  // the user confirms and the daemon creates the reservation, via
+  // CreateReservationInline.onSuccess below.
+  function openReservationFromLease(defaults: ReservationDefaults) {
     setReservationCreate({ open: true, defaults });
+  }
+
+  function openReservationCreate() {
+    setReservationCreate({ open: true });
   }
 
   return (
     <>
-      <PageHeader title="DHCP" />
+      <PageHeader
+        title="DHCP"
+        description="Hand out addresses on the local network. Manage active leases and reserve a permanent IP for a device."
+      />
 
       {statusLoading && (
         <Card>
@@ -75,44 +86,37 @@ export default function Dhcp() {
             <DhcpConfigCard config={config} />
           </div>
 
-          <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-            <TabsList>
-              <TabsTrigger value="leases">Leases</TabsTrigger>
-              <TabsTrigger value="reservations">Reservations</TabsTrigger>
-            </TabsList>
-            <TabsContent value="leases" className="mt-4 flex min-h-0 flex-1 flex-col">
-              <DhcpLeaseTable
-                leases={leases}
-                devices={devices}
-                onRevoke={setRevokeLeaseId}
-                onMakeStatic={(lease) =>
-                  openReservationCreate({
-                    mac: lease.mac_address,
-                    ip: lease.ip_address,
-                    hostname: lease.hostname ?? undefined,
-                  })
-                }
-              />
-            </TabsContent>
-            <TabsContent value="reservations" className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
-              {reservationCreate.open && (
-                <CreateReservationInline
-                  // Keyed on defaults identity so the form remounts with fresh
-                  // initial state whenever it's reopened — same trick the
-                  // sheet used, just without the wrapper.
-                  key={JSON.stringify(reservationCreate.defaults ?? {})}
-                  defaults={reservationCreate.defaults}
-                  onClose={() => setReservationCreate({ open: false })}
-                />
-              )}
-              <DhcpReservationTable
-                reservations={reservations}
-                devices={devices}
-                onDelete={setDeleteReservationId}
-                onAdd={reservationCreate.open ? undefined : () => openReservationCreate()}
-              />
-            </TabsContent>
-          </Tabs>
+          {reservationCreate.open && (
+            <CreateReservationInline
+              // Keyed on defaults identity so the form remounts with fresh
+              // initial state whenever it's reopened with new defaults.
+              key={JSON.stringify(reservationCreate.defaults ?? {})}
+              defaults={reservationCreate.defaults}
+              onClose={() => setReservationCreate({ open: false })}
+              onSuccess={() => setGroup("reservations")}
+            />
+          )}
+
+          <DhcpEntryTable
+            leases={leases}
+            reservations={reservations}
+            devices={devices}
+            activeGroup={group}
+            onGroupChange={setGroup}
+            searchValue={query}
+            onSearchChange={setQuery}
+            onMakeStatic={(lease) =>
+              openReservationFromLease({
+                mac: lease.mac_address,
+                ip: lease.ip_address,
+                hostname: lease.hostname ?? undefined,
+              })
+            }
+            onRevokeLease={setRevokeLeaseId}
+            onDeleteReservation={setDeleteReservationId}
+            onAddReservation={openReservationCreate}
+            onDeviceClick={(deviceId) => void navigate(`/devices/${deviceId}`)}
+          />
         </div>
       )}
 

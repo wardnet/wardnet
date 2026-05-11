@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useNavigate } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { DataTable } from "@/components/core/ui/data-table";
@@ -39,6 +40,7 @@ function buildColumns(): ColumnDef<Device>[] {
 }
 
 export function TunnelDevicesTable({ tunnelId }: Props) {
+  const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnelDevices(tunnelId);
   const devices = data?.devices ?? [];
   const columns = useMemo(() => buildColumns(), []);
@@ -60,6 +62,7 @@ export function TunnelDevicesTable({ tunnelId }: Props) {
           <DataTable
             columns={columns}
             data={devices}
+            onRowClick={(device) => void navigate(`/devices/${device.id}`)}
             emptyMessage="No devices are currently routed through this tunnel."
           />
         )}

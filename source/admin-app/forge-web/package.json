@@ -69,6 +69,10 @@
       "import": "./src/primitives/field.tsx",
       "types": "./src/primitives/field.tsx"
     },
+    "./form": {
+      "import": "./src/primitives/form.tsx",
+      "types": "./src/primitives/form.tsx"
+    },
     "./combobox": {
       "import": "./src/primitives/combobox.tsx",
       "types": "./src/primitives/combobox.tsx"

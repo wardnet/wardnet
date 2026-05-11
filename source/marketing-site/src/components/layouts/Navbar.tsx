@@ -26,7 +26,9 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
     <>
       {showBack && <ArrowLeft size={16} className="text-side-ink-2" />}
       <Logo size={28} />
-      <span className="text-sm font-semibold text-side-ink-active">Wardnet</span>
+      <span className="text-sm font-semibold text-side-ink-active">
+        Ward<span style={{ color: "var(--accent)" }}>net</span>
+      </span>
     </>
   );
 

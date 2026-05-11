@@ -1,22 +1,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontalIcon } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
-import { DataTable } from "@/components/core/ui/data-table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@wardnet/forge-web/dropdown-menu";
+import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import type { CustomFilterRule } from "@wardnet/js";
 
-function createColumns(
-  onToggle: (id: string, enabled: boolean) => void,
-  onDelete: (id: string) => void,
-): ColumnDef<CustomFilterRule>[] {
+function createColumns(): ColumnDef<CustomFilterRule>[] {
   return [
     {
       accessorKey: "rule_text",
@@ -46,34 +34,6 @@ function createColumns(
         </StatusBadge>
       ),
     },
-    {
-      id: "actions",
-      header: "",
-      meta: { className: "w-12 text-right" },
-      cell: ({ row }) => {
-        const rule = row.original;
-        return (
-          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${rule.rule_text}`}>
-                  <MoreHorizontalIcon />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => onToggle(rule.id, !rule.enabled)}>
-                  {rule.enabled ? "Disable" : "Enable"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(rule.id)}>
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
   ];
 }
 
@@ -84,9 +44,11 @@ interface FilterRuleTableProps {
   onAdd: () => void;
 }
 
-/** Table listing custom AdGuard-syntax filter rules. */
+/** Table listing custom AdGuard-syntax filter rules. Per-row enable
+ *  toggle + delete via the overflow menu; outline-sm "Add rule" in
+ *  the toolbar. */
 export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRuleTableProps) {
-  const columns = createColumns(onToggle, onDelete);
+  const columns = createColumns();
 
   if (rules.length === 0) {
     return (
@@ -100,14 +62,22 @@ export function FilterRuleTable({ rules, onToggle, onDelete, onAdd }: FilterRule
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={onAdd}>
-          Add rule
-        </Button>
-      </div>
-
-      <DataTable columns={columns} data={rules} fixedLayout />
-    </div>
+    <DataTable
+      columns={columns}
+      data={rules}
+      fixedLayout
+      addLabel="Add rule"
+      onAdd={onAdd}
+      rowActions={(rule) => (
+        <>
+          <RowAction onSelect={() => onToggle(rule.id, !rule.enabled)}>
+            {rule.enabled ? "Disable" : "Enable"}
+          </RowAction>
+          <RowAction onSelect={() => onDelete(rule.id)} destructive>
+            Delete
+          </RowAction>
+        </>
+      )}
+    />
   );
 }

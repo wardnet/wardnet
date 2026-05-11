@@ -29,6 +29,7 @@ export default function Tunnels() {
     <div className="col gap-20">
       <PageHeader
         title="Tunnels"
+        description="WireGuard tunnels you can route device traffic through, e.g. to a VPN provider or your own server."
         actions={
           hasTunnels && !creating ? (
             <Button onClick={() => setCreating(true)}>Add tunnel</Button>

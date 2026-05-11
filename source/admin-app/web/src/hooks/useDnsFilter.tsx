@@ -347,9 +347,16 @@ export function useUpdateDnsFilterConfig() {
   return useMutation({
     mutationFn: (body: UpdateDnsFilterConfigRequest) => dnsFilterService.updateConfig(body),
     onSuccess: () => {
-      toast.success("DNS filter configuration updated");
+      // Stable `id` collapses rapid successive calls (e.g. clicking
+      // a default-profile toggle on and off quickly) into a single
+      // toast slot. Without it sonner sometimes renders the second
+      // toast with an empty body for a frame.
+      toast.success("DNS filter configuration updated", { id: "dns-filter-config-update" });
       qc.invalidateQueries({ queryKey: ["dns-filter", "config"] });
     },
-    onError: () => toast.error("Failed to update DNS filter configuration"),
+    onError: () =>
+      toast.error("Failed to update DNS filter configuration", {
+        id: "dns-filter-config-update",
+      }),
   });
 }

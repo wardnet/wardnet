@@ -77,12 +77,18 @@ export default function DnsFilterProfile() {
         status={profile.builtin ? <Pill variant="ghost">Builtin</Pill> : undefined}
       />
 
-      <ProfileIdentityCard
-        profileId={profile.id}
-        name={profile.name}
-        builtin={profile.builtin}
-        onDeleted={() => void navigate("/dns/filter")}
-      />
+      {/* Builtin profiles have nothing to edit on the identity card
+          (name is fixed, deletion is forbidden), so we skip the card
+          entirely — the Builtin pill in the DetailPageHeader already
+          conveys the type. */}
+      {!profile.builtin && (
+        <ProfileIdentityCard
+          profileId={profile.id}
+          name={profile.name}
+          builtin={profile.builtin}
+          onDeleted={() => void navigate("/dns/filter")}
+        />
+      )}
 
       <BlocklistsCard profileId={profile.id} />
       <AllowlistCard profileId={profile.id} />

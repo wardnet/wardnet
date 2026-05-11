@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@wardnet/forge-web/card";
 import { Pill } from "@wardnet/forge-web/pill";
 import { Toggle } from "@wardnet/forge-web/toggle";
 import { Field } from "@wardnet/forge-web/field";
@@ -8,7 +15,7 @@ import { Input } from "@wardnet/forge-web/input";
 import { Button } from "@wardnet/forge-web/button";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
-import { StatusBadge } from "@/components/compound/StatusBadge";
+import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
 import {
   useDnsStatus,
   useDnsConfig,
@@ -29,18 +36,33 @@ export default function Dns() {
   const status = statusData;
   const config = configData?.config;
 
-  // Local "draft" for the retention input. Falls back to the persisted
-  // value while the user hasn't typed anything, so the field always
-  // reflects the latest server state without an effect-driven sync.
-  const [retentionDraft, setRetentionDraft] = useState<number | null>(null);
-  const retentionDays = retentionDraft ?? config?.query_log_retention_days ?? 7;
+  // Retention edit-mode state — follows DhcpConfigCard pattern. The
+  // draft is reset when leaving edit mode so subsequent edits start
+  // from the latest server value.
+  const [editingRetention, setEditingRetention] = useState(false);
+  const [retentionDraft, setRetentionDraft] = useState<number>(7);
+
+  function startRetentionEdit() {
+    setRetentionDraft(config?.query_log_retention_days ?? 7);
+    setEditingRetention(true);
+  }
+  function cancelRetentionEdit() {
+    setEditingRetention(false);
+  }
+  function saveRetention() {
+    updateConfig.mutate({ query_log_retention_days: retentionDraft });
+    setEditingRetention(false);
+  }
 
   const cacheUsagePercent =
     status && status.cache_capacity > 0 ? (status.cache_size / status.cache_capacity) * 100 : 0;
 
   return (
     <div className="col gap-20">
-      <PageHeader title="DNS" />
+      <PageHeader
+        title="DNS"
+        description="Wardnet's local resolver: cache, upstream forwarders, and the query log."
+      />
 
       {statusLoading && (
         <Card>
@@ -52,37 +74,35 @@ export default function Dns() {
         <div className="col gap-20">
           {/* Status & Cache cards */}
           <div className="grid gap-4 sm:grid-cols-2">
-            {/* Status card */}
+            {/* DNS server status — matches DhcpStatusCard chrome:
+                title · pill · toggle in CardAction. */}
             <Card>
-              <CardHeader className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-ink-3">DNS server</CardTitle>
-                <StatusBadge
-                  tone={status.running ? "success" : "neutral"}
-                  withIcon={status.running}
-                >
+              <CardHeader>
+                <CardTitle>DNS server</CardTitle>
+                <Pill variant={status.running ? "ok" : "ghost"}>
+                  <span className="dot" />
                   {status.running ? "Running" : "Stopped"}
-                </StatusBadge>
+                </Pill>
+                <CardAction>
+                  <Toggle
+                    id="dns-toggle"
+                    aria-label="Enable DNS"
+                    checked={status.enabled}
+                    onCheckedChange={(enabled) => toggleDns.mutate(enabled)}
+                    disabled={toggleDns.isPending}
+                  />
+                </CardAction>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col gap-4">
-                  <Field direction="row" label="Enable DNS" htmlFor="dns-toggle">
-                    <Toggle
-                      id="dns-toggle"
-                      checked={status.enabled}
-                      onCheckedChange={(enabled) => toggleDns.mutate(enabled)}
-                      disabled={toggleDns.isPending}
-                    />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-ink-3">Resolution mode</p>
-                      <p className="text-lg font-semibold capitalize">{config.resolution_mode}</p>
-                    </div>
-                    <div>
-                      <p className="text-ink-3">DNSSEC</p>
-                      <p className="text-lg font-semibold">
-                        {config.dnssec_enabled ? "Enabled" : "Disabled"}
-                      </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="stat__label">Resolution mode</div>
+                    <div className="text-lg font-semibold capitalize">{config.resolution_mode}</div>
+                  </div>
+                  <div>
+                    <div className="stat__label">DNSSEC</div>
+                    <div className="text-lg font-semibold">
+                      {config.dnssec_enabled ? "Enabled" : "Disabled"}
                     </div>
                   </div>
                 </div>
@@ -91,27 +111,29 @@ export default function Dns() {
 
             {/* Cache card */}
             <Card>
-              <CardHeader className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-ink-3">Cache</CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => flushCache.mutate()}
-                  disabled={flushCache.isPending}
-                >
-                  {flushCache.isPending ? "Flushing…" : "Flush cache"}
-                </Button>
+              <CardHeader>
+                <CardTitle>Cache</CardTitle>
+                <CardAction>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => flushCache.mutate()}
+                    disabled={flushCache.isPending}
+                  >
+                    {flushCache.isPending ? "Flushing…" : "Flush cache"}
+                  </Button>
+                </CardAction>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-ink-3">Entries</p>
-                      <p className="text-2xl font-bold">{status.cache_size}</p>
+                      <div className="stat__label">Entries</div>
+                      <div className="text-2xl font-bold">{status.cache_size}</div>
                     </div>
                     <div>
-                      <p className="text-ink-3">Hit rate</p>
-                      <p className="text-2xl font-bold">{status.cache_hit_rate.toFixed(1)}%</p>
+                      <div className="stat__label">Hit rate</div>
+                      <div className="text-2xl font-bold">{status.cache_hit_rate.toFixed(1)}%</div>
                     </div>
                   </div>
                   <div>
@@ -125,99 +147,101 @@ export default function Dns() {
             </Card>
           </div>
 
-          {/* Query log card */}
+          {/* Query log card — Pill + Toggle in header (matches DHCP
+              status card); retention follows the Edit/Save pattern
+              from DhcpConfigCard. */}
           <Card>
-            <CardHeader className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-ink-3">Query log</CardTitle>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/dns/logs">View DNS log →</Link>
-              </Button>
+            <CardHeader>
+              <CardTitle>Query log</CardTitle>
+              <Pill variant={config.query_log_enabled ? "ok" : "ghost"}>
+                <span className="dot" />
+                {config.query_log_enabled ? "Enabled" : "Disabled"}
+              </Pill>
+              <CardAction className="flex gap-2">
+                {!editingRetention && config.query_log_enabled && (
+                  <>
+                    <Button asChild variant="outline" size="sm">
+                      <Link to="/dns/logs">View DNS log</Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={startRetentionEdit}
+                      disabled={updateConfig.isPending}
+                    >
+                      Edit
+                    </Button>
+                  </>
+                )}
+                <Toggle
+                  id="query-log-toggle"
+                  aria-label="Enable query log retention"
+                  checked={config.query_log_enabled}
+                  onCheckedChange={(enabled) => updateConfig.mutate({ query_log_enabled: enabled })}
+                  disabled={updateConfig.isPending}
+                />
+              </CardAction>
             </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-4">
-                <Field
-                  direction="row"
-                  label="Retain DNS query log"
-                  htmlFor="query-log-toggle"
-                  help="Live stream remains available regardless."
-                >
-                  <Toggle
-                    id="query-log-toggle"
-                    checked={config.query_log_enabled}
-                    onCheckedChange={(enabled) =>
-                      updateConfig.mutate({ query_log_enabled: enabled })
-                    }
-                    disabled={updateConfig.isPending}
-                  />
-                </Field>
-                <Field
-                  label="Retention (days)"
-                  htmlFor="retention-days"
-                  help="Approx. disk at 5 qps household traffic: 1d ≈ 50 MB, 7d ≈ 350 MB, 30d ≈ 1.5 GB."
-                >
-                  <div className="flex items-end gap-2">
+
+            {editingRetention ? (
+              <>
+                <CardContent>
+                  <Field
+                    label="Retention (days)"
+                    htmlFor="retention-days"
+                    help="Approx. disk at 5 qps household traffic: 1d ≈ 50 MB, 7d ≈ 350 MB, 30d ≈ 1.5 GB."
+                  >
                     <Input
                       id="retention-days"
                       type="number"
                       min={1}
                       max={30}
-                      value={retentionDays}
+                      value={retentionDraft}
                       onChange={(e) => setRetentionDraft(Number(e.target.value))}
                       className="w-28"
-                      disabled={!config.query_log_enabled}
                     />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        updateConfig.isPending ||
-                        !config.query_log_enabled ||
-                        retentionDays === config.query_log_retention_days ||
-                        retentionDays < 1 ||
-                        retentionDays > 30
-                      }
-                      onClick={() => {
-                        updateConfig.mutate({ query_log_retention_days: retentionDays });
-                        setRetentionDraft(null);
-                      }}
-                    >
-                      Save
-                    </Button>
+                  </Field>
+                </CardContent>
+                <CardFooter className="justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={cancelRetentionEdit}
+                    disabled={updateConfig.isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={saveRetention}
+                    disabled={
+                      updateConfig.isPending ||
+                      retentionDraft === config.query_log_retention_days ||
+                      retentionDraft < 1 ||
+                      retentionDraft > 30
+                    }
+                  >
+                    {updateConfig.isPending ? "Saving…" : "Save"}
+                  </Button>
+                </CardFooter>
+              </>
+            ) : (
+              <CardContent>
+                <div>
+                  <div className="stat__label">Retention</div>
+                  <div className="text-lg font-semibold">
+                    {config.query_log_enabled ? `${config.query_log_retention_days} days` : "—"}
                   </div>
-                </Field>
-              </div>
-            </CardContent>
+                </div>
+              </CardContent>
+            )}
           </Card>
 
-          {/* Upstream servers card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium text-ink-3">Upstream servers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {config.upstream_servers.length === 0 ? (
-                <div className="empty">No upstream servers configured.</div>
-              ) : (
-                <div className="divide-y">
-                  {config.upstream_servers.map((server, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        <p className="text-sm font-medium">{server.name}</p>
-                        <p className="text-xs text-ink-3">
-                          {server.address}
-                          {server.port ? `:${server.port}` : ""}
-                        </p>
-                      </div>
-                      <Pill variant="ghost">{server.protocol.toUpperCase()}</Pill>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Upstream servers — own card with data-table + row actions
+              + inline add form. */}
+          <UpstreamServersCard
+            servers={config.upstream_servers}
+            isSaving={updateConfig.isPending}
+            onUpdate={(servers) => updateConfig.mutate({ upstream_servers: servers })}
+          />
         </div>
       )}
     </div>

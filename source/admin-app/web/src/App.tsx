@@ -11,6 +11,8 @@ import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
+import Power from "@/pages/Power";
+import Backups from "@/pages/Backups";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
 import DnsLogs from "@/pages/DnsLogs";
@@ -170,6 +172,22 @@ export default function App() {
           element={
             <AdminRoute>
               <Settings />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="power"
+          element={
+            <AdminRoute>
+              <Power />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="backups"
+          element={
+            <AdminRoute>
+              <Backups />
             </AdminRoute>
           }
         />

@@ -1,8 +1,18 @@
 import { useMemo, useState } from "react";
-import { Brush, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  Brush,
+  CartesianGrid,
+  Legend,
+  ReferenceLine,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { useTunnelMetrics } from "@/hooks/useTunnels";
 import { formatBytes } from "@/lib/utils";
@@ -23,8 +33,12 @@ const chartConfig: ChartConfig = {
 
 interface ChartPoint {
   ts: number;
-  /** Bytes per second (for intraday) or per day (for the 12mo range). */
+  /** Upload, stored as a NEGATIVE rate so the area renders below the
+   *  zero line in the mirrored throughput layout (pfSense/MRTG
+   *  convention). Y-axis ticks + tooltips apply `Math.abs` so the
+   *  user sees positive values. */
   txRate: number;
+  /** Download, positive — renders above the zero line. */
   rxRate: number;
 }
 
@@ -63,7 +77,9 @@ function splitRate(
   num: string;
   unit: string;
 } {
-  const formatted = formatRate(rate, range);
+  // Mirror layout stores upload as a negative rate — Y-axis ticks
+  // should still display positive values, so absorb the sign here.
+  const formatted = formatRate(Math.abs(rate), range);
   const ix = formatted.indexOf(" ");
   if (ix === -1) return { num: formatted, unit: "" };
   return { num: formatted.slice(0, ix), unit: formatted.slice(ix + 1) };
@@ -113,7 +129,8 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
     const interval = data.interval_secs || 300;
     return data.points.map((p) => ({
       ts: new Date(p.ts).getTime(),
-      txRate: p.bytes_tx / interval,
+      // Upload is negated so the area renders below the zero line.
+      txRate: -(p.bytes_tx / interval),
       rxRate: p.bytes_rx / interval,
     }));
   }, [data]);
@@ -146,22 +163,24 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-3 @md/card-header:flex-row @md/card-header:items-center @md/card-header:justify-between">
+      <CardHeader>
         <div>
           <CardTitle>Throughput</CardTitle>
           <p className="mt-1 text-[10px] text-ink-3">
             Window total: ↓ {formatBytes(totals.rx)} · ↑ {formatBytes(totals.tx)}
           </p>
         </div>
-        <Tabs value={range} onValueChange={(v) => onRangeChange(v as TunnelMetricsRange)}>
-          <TabsList>
-            {RANGES.map((r) => (
-              <TabsTrigger key={r.value} value={r.value}>
-                {r.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <CardAction>
+          <Tabs value={range} onValueChange={(v) => onRangeChange(v as TunnelMetricsRange)}>
+            <TabsList>
+              {RANGES.map((r) => (
+                <TabsTrigger key={r.value} value={r.value}>
+                  {r.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {isError ? (
@@ -176,7 +195,7 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
           </div>
         ) : (
           <ChartContainer config={chartConfig} className="h-64 w-full">
-            <LineChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <AreaChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
               {/* Forge §10 owns the grid contract: horizontal hairlines
                   only (2 4 dash, 1px / --line) and vertical lines hidden.
                   We still render <CartesianGrid> so Recharts emits the
@@ -192,30 +211,37 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
                 height={36}
               />
               <YAxis width={48} tick={(props) => <YAxisTick {...props} range={range} />} />
+              {/* Visible zero line — separates download (above) from
+                  upload (below) in the mirrored throughput layout. */}
+              <ReferenceLine y={0} stroke="var(--line-strong)" strokeWidth={1} />
               <Tooltip
                 labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
                 formatter={(value, name) => [
-                  formatRate(typeof value === "number" ? value : 0, range),
+                  formatRate(Math.abs(typeof value === "number" ? value : 0), range),
                   name === "rxRate" ? "Download" : "Upload",
                 ]}
               />
               <Legend formatter={(name) => (name === "rxRate" ? "Download" : "Upload")} />
-              {/* Forge §10 stroke weight is 1.6–1.8 px — heavier than a
-                  Sparkline (1.5) so the primary chart reads as a real
-                  series, lighter than the default Recharts 2 px. */}
-              <Line
+              {/* Filled areas with a gentle fill opacity — Forge §10
+                  stroke weight 1.6-1.8 px so the band reads as a chart
+                  series rather than a backdrop. */}
+              <Area
                 type="monotone"
                 dataKey="rxRate"
                 stroke="var(--color-rx)"
                 strokeWidth={1.75}
+                fill="var(--color-rx)"
+                fillOpacity={0.18}
                 dot={false}
                 isAnimationActive={false}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="txRate"
                 stroke="var(--color-tx)"
                 strokeWidth={1.75}
+                fill="var(--color-tx)"
+                fillOpacity={0.18}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -245,7 +271,7 @@ export function TunnelThroughputChart({ tunnelId, range, onRangeChange }: Props)
                   }
                 }}
               />
-            </LineChart>
+            </AreaChart>
           </ChartContainer>
         )}
       </CardContent>

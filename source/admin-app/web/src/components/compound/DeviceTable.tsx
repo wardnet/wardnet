@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pill } from "@wardnet/forge-web/pill";
-import { DataTable } from "@/components/core/ui/data-table";
+import { DataTable, type DataTableGroup } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { HostCell } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
@@ -101,10 +101,32 @@ function buildColumns(
 interface DeviceTableProps {
   devices: Device[];
   onDeviceClick: (deviceId: string) => void;
+  /** Optional segmented group control rendered above the table. */
+  groups?: DataTableGroup[];
+  activeGroup?: string;
+  onGroupChange?: (id: string) => void;
+  /** Optional controlled search input rendered above the table. */
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  /** Optional CTA rendered after the search field. */
+  action?: ReactNode;
+  emptyMessage?: string;
 }
 
 /** Table listing network devices. Receives pre-filtered, pre-sorted data. */
-export function DeviceTable({ devices, onDeviceClick }: DeviceTableProps) {
+export function DeviceTable({
+  devices,
+  onDeviceClick,
+  groups,
+  activeGroup,
+  onGroupChange,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  action,
+  emptyMessage,
+}: DeviceTableProps) {
   const { data: settingsData } = useDeviceFilterSettingsList();
   const { data: profilesData } = useDnsFilterProfiles();
 
@@ -126,6 +148,18 @@ export function DeviceTable({ devices, onDeviceClick }: DeviceTableProps) {
   );
 
   return (
-    <DataTable columns={columns} data={devices} onRowClick={(device) => onDeviceClick(device.id)} />
+    <DataTable
+      columns={columns}
+      data={devices}
+      onRowClick={(device) => onDeviceClick(device.id)}
+      groups={groups}
+      activeGroup={activeGroup}
+      onGroupChange={onGroupChange}
+      searchValue={searchValue}
+      onSearchChange={onSearchChange}
+      searchPlaceholder={searchPlaceholder}
+      action={action}
+      emptyMessage={emptyMessage}
+    />
   );
 }

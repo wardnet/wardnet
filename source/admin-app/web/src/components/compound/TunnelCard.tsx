@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@wardnet/forge-web/button";
@@ -101,26 +101,40 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         className="col gap-16 rounded-[var(--radius-lg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <div className="tcard__head">
-          <div className="tcard__flag" aria-hidden>
-            {flag || (provider?.name?.[0] ?? "?")}
+          {/* Row 1 — chips on the left, status pill on the right. */}
+          <div className="tcard__chips">
+            <div className="tcard__provider" aria-hidden>
+              {provider?.icon_url ? (
+                <img src={provider.icon_url} alt="" />
+              ) : (
+                <SlidersHorizontal aria-label="Custom configuration" />
+              )}
+            </div>
+            {flag && (
+              <div className="tcard__flag" aria-hidden>
+                {flag}
+              </div>
+            )}
+            <div className="spacer" />
+            <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
+              <span className="dot" />
+              {statusLabel(tunnel.status)}
+            </StatusBadge>
           </div>
-          <div className="col" style={{ flex: 1 }}>
+          {/* Row 2 — full-width title + sub. */}
+          <div className="tcard__text">
             <div className="tcard__title">{tunnel.label}</div>
             <div className="tcard__sub">
               {subParts.length > 0 && <>{subParts.join(" · ")} · </>}
               <span className="mono">{tunnel.interface_name}</span>
             </div>
           </div>
-          <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
-            <span className="dot" />
-            {statusLabel(tunnel.status)}
-          </StatusBadge>
         </div>
 
         <dl className="tcard__grid">
           <div>
             <dt>Endpoint</dt>
-            <dd>{tunnel.endpoint}</dd>
+            <dd title={tunnel.endpoint}>{tunnel.endpoint}</dd>
           </div>
           <div>
             <dt>Last handshake</dt>
@@ -128,15 +142,18 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           </div>
         </dl>
 
-        <div className="tcard__throughput" aria-label="Tunnel throughput">
-          <span className="row gap-8" style={{ flex: 0, alignSelf: "center" }}>
-            <ArrowUp className="size-3" aria-label="up" />
-            <span className="mono">{formatBytes(tunnel.bytes_tx)}</span>
-          </span>
-          <span className="row gap-8" style={{ flex: 0, alignSelf: "center" }}>
-            <ArrowDown className="size-3" aria-label="down" />
-            <span className="mono">{formatBytes(tunnel.bytes_rx)}</span>
-          </span>
+        <div>
+          <div className="tcard__label">Data transfer</div>
+          <div className="tcard__throughput" aria-label="Tunnel throughput">
+            <span>
+              <ArrowUp aria-label="up" />
+              <span className="mono">{formatBytes(tunnel.bytes_tx)}</span>
+            </span>
+            <span>
+              <ArrowDown aria-label="down" />
+              <span className="mono">{formatBytes(tunnel.bytes_rx)}</span>
+            </span>
+          </div>
         </div>
       </Link>
 
