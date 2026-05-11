@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { ErrorBoundary } from "@/components/compound/ErrorBoundary";
 
-function Boom({ message = "kaboom" }: { message?: string }) {
+function Boom({ message = "kaboom" }: { message?: string }): never {
   throw new Error(message);
 }
 
