@@ -36,6 +36,8 @@ describe("Footer", () => {
 
   it("renders the Wardnet name", () => {
     renderFooter();
-    expect(screen.getByText("Wardnet")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "Wardnet"),
+    ).toBeInTheDocument();
   });
 });

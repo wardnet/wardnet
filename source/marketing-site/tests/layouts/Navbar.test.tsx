@@ -11,8 +11,10 @@ describe("Navbar", () => {
         <Navbar />
       </MemoryRouter>,
     );
-    expect(screen.getByText("Wardnet")).toBeInTheDocument();
-    expect(screen.getByAltText("Wardnet logo")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "Wardnet"),
+    ).toBeInTheDocument();
+    expect(screen.getByAltText("Wardnet")).toBeInTheDocument();
   });
 
   it("renders the Documentation link", () => {
