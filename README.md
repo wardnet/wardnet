@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="artwork/logo-256x256.png" alt="Wardnet logo" width="160" />
+<img src="artwork/logo-192x192.png" alt="Wardnet logo" width="192" />
 
 # Wardnet
 
