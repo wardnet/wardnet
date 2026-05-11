@@ -1,7 +1,7 @@
 //! Prints the generated `OpenAPI` spec to stdout as pretty JSON.
 //!
 //! Driven by the `make openapi` target so the static spec under
-//! `source/site/public/openapi.json` stays in sync with the daemon's
+//! `source/marketing-site/public/openapi.json` stays in sync with the daemon's
 //! `#[utoipa::path]` annotations. CI gates on `git diff --exit-code` over
 //! that file.
 //!

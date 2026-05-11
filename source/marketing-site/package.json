@@ -1,0 +1,57 @@
+{
+  "name": "@wardnet/site",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "yarn copy:install-script && vite",
+    "build": "yarn generate:release-manifests && yarn copy:install-script && tsc -b && vite build && cp dist/index.html dist/404.html",
+    "preview": "vite preview",
+    "type-check": "yarn generate:release-manifests && tsc -b",
+    "test": "yarn generate:release-manifests && vitest run",
+    "test:watch": "yarn generate:release-manifests && vitest",
+    "test:coverage": "yarn generate:release-manifests && vitest run --coverage",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\"",
+    "generate:release-manifests": "tsx scripts/generate-release-manifests.ts",
+    "copy:install-script": "mkdir -p public && cp ../../deploy/install.sh public/install.sh"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@wardnet/forge": "portal:../forge",
+    "lucide-react": "1.14.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "react-markdown": "10.1.0",
+    "react-router": "7.14.2",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@modyfi/vite-plugin-yaml": "1.1.1",
+    "@octokit/rest": "22.0.1",
+    "@tailwindcss/vite": "4.2.4",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "25.6.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/semver": "7.7.1",
+    "@vitejs/plugin-react": "6.0.1",
+    "@vitest/coverage-v8": "4.1.5",
+    "jsdom": "29.1.1",
+    "prettier": "3.8.3",
+    "semver": "7.7.4",
+    "tailwindcss": "4.2.4",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.10",
+    "vitest": "4.1.5"
+  },
+  "packageManager": "yarn@4.13.0",
+  "resolutions": {
+    "js-yaml": "4.1.1"
+  }
+}

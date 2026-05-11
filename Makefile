@@ -9,8 +9,10 @@ SHELL := /bin/bash
 
 DAEMON_DIR   := source/daemon
 SDK_DIR      := source/sdk/wardnet-js
-WEBUI_DIR    := source/web-ui
-SITE_DIR     := source/site
+ADMIN_DIR    := source/admin-app
+WEBUI_DIR    := source/admin-app/web
+FORGE_DIR    := source/forge
+SITE_DIR     := source/marketing-site
 
 # Container runtime: prefer podman, fall back to docker.
 CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
@@ -145,7 +147,8 @@ init:
 	@command -v node >/dev/null || { echo "Error: node not found. Install Node.js 25+"; exit 1; }
 	@command -v yarn >/dev/null || { echo "Error: yarn not found. Run: corepack enable"; exit 1; }
 	cd $(SDK_DIR) && yarn install
-	cd $(WEBUI_DIR) && yarn install
+	cd $(FORGE_DIR) && yarn install
+	cd $(ADMIN_DIR) && yarn install
 	cd $(SITE_DIR) && yarn install
 	@echo ""
 	@echo "Dev environment ready. Run 'make help' to see available targets."
@@ -160,10 +163,11 @@ check-sdk:
 # ---------- Web UI ----------
 
 build-web: check-sdk
-	cd $(WEBUI_DIR) && yarn install --immutable && yarn build
+	cd $(ADMIN_DIR) && yarn install --immutable
+	cd $(WEBUI_DIR) && yarn build
 
 check-web: check-sdk
-	cd $(WEBUI_DIR) && yarn install --immutable
+	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn type-check
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
@@ -387,7 +391,7 @@ image-multiarch:
 # No dependency on `make image` — the prod and test images share an
 # OS layer (wardnet-base) but not a build chain.
 #
-# Depends on `build-web` so source/web-ui/dist/ exists; wardnetd's
+# Depends on `build-web` so source/admin-app/web/dist/ exists; wardnetd's
 # rust-embed annotation pulls those static assets into the daemon
 # binary at compile time.
 image-test: build-web

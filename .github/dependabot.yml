@@ -14,7 +14,7 @@ updates:
       default-days: 3
 
   - package-ecosystem: "npm"
-    directory: "/source/web-ui"
+    directory: "/source/admin-app/web"
     schedule:
       interval: "weekly"
     commit-message:
@@ -23,7 +23,7 @@ updates:
       default-days: 3
 
   - package-ecosystem: "npm"
-    directory: "/source/site"
+    directory: "/source/marketing-site"
     schedule:
       interval: "weekly"
     commit-message:

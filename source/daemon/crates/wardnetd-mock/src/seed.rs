@@ -182,6 +182,20 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "10.2.0.5/32",
             "10.2.0.1",
         ),
+        // Custom-config tunnel — no provider, no country. Surfaces the
+        // "custom configuration" fallback icon in the TunnelCard head
+        // (no flag, generic sliders glyph in the provider chip).
+        (
+            "Home lab",
+            "",
+            None,
+            "wg_ward2",
+            "lab.example.internal:51820",
+            "up",
+            "Jq8oCzXwM5b3GZpYf4uTzr6IhDvKnAQsNzL2Mo5xPwY=",
+            "10.9.0.2/32",
+            "10.9.0.1",
+        ),
     ];
 
     let mut tunnel_ids = Vec::with_capacity(tunnels.len());
@@ -229,12 +243,13 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     }
 
     // ------------------------------------------------------------------
-    // Tunnel metrics history — only for the seeded "up" tunnel so the
-    // detail page chart looks alive in `make run-dev`. The "down"
-    // tunnel is left empty to validate the empty-state UI.
+    // Tunnel metrics history — generated for every seeded tunnel so the
+    // detail-page chart has data to render on each one. The down /
+    // custom tunnels reuse the same generator with their own tunnel_id
+    // as the RNG seed so each chart looks distinct.
     // ------------------------------------------------------------------
-    if let Some(tunnel_id) = up_tunnel_id {
-        let (intraday, daily) = generate_metrics_history(tunnel_id, now);
+    for tunnel_id in &tunnel_ids {
+        let (intraday, daily) = generate_metrics_history(*tunnel_id, now);
         tunnel_metrics_repo.insert_intraday_batch(&intraday).await?;
         tunnel_metrics_repo.insert_daily_batch(&daily).await?;
         tracing::debug!(

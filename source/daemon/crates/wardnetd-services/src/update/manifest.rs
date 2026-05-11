@@ -11,7 +11,7 @@ use crate::update::release_source::ReleaseSource;
 
 /// Shape of `<channel>.json` emitted by the marketing site's build step.
 ///
-/// Mirrors [`source/site/scripts/generate-release-manifests.ts`]. Only the
+/// Mirrors [`source/marketing-site/scripts/generate-release-manifests.ts`]. Only the
 /// fields the runner actually consumes are modelled — the rest are ignored.
 #[derive(Debug, Deserialize)]
 struct ManifestJson {

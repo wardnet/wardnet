@@ -1,0 +1,28 @@
+{
+  "name": "@wardnet/forge",
+  "version": "0.1.0",
+  "description": "Wardnet Forge — platform-neutral design language (tokens, types, voice, CSS)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./styles.css": "./styles.css",
+    "./tokens": {
+      "import": "./src/tokens.ts",
+      "types": "./src/tokens.ts"
+    }
+  },
+  "files": [
+    "src",
+    "styles.css"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\""
+  },
+  "devDependencies": {
+    "prettier": "3.8.3",
+    "typescript": "6.0.3"
+  },
+  "packageManager": "yarn@4.13.0"
+}

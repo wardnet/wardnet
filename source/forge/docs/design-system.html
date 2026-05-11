@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wardnet · Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { background: var(--bg-sunken); }
+  .ds {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 56px 40px 96px;
+  }
+  .ds-hero {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 32px;
+    padding: 40px;
+    background: linear-gradient(135deg, #0c1230 0%, #1a2148 100%);
+    color: #fff;
+    border-radius: 24px;
+    margin-bottom: 48px;
+    align-items: center;
+  }
+  .ds-hero h1 { margin: 0 0 12px; font-size: 48px; font-weight: 600; letter-spacing: -0.03em; }
+  .ds-hero h1 em { font-style: normal; color: var(--accent); }
+  .ds-hero p { margin: 0; font-size: 16px; line-height: 1.6; color: rgba(255,255,255,0.72); max-width: 52ch; }
+  .ds-hero-meta { display: flex; flex-direction: column; gap: 14px; font-size: 13px; }
+  .ds-hero-meta dt { color: rgba(255,255,255,0.5); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; margin: 0; }
+  .ds-hero-meta dd { margin: 2px 0 0; font-size: 14px; color: #fff; font-family: var(--font-mono); }
+
+  .ds-section { margin-bottom: 56px; }
+  .ds-section-h {
+    display: flex; align-items: baseline; gap: 16px;
+    margin-bottom: 20px; padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ds-section-h h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+  .ds-section-h .num { font-family: var(--font-mono); color: var(--ink-3); font-size: 13px; }
+  .ds-section-h p { margin: 0 0 0 auto; color: var(--ink-3); font-size: 13px; max-width: 50ch; text-align: right; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 800px) { .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } .grid-2 { grid-template-columns: 1fr; } }
+
+  .swatch {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .swatch .chip { height: 88px; }
+  .swatch .meta { padding: 12px 14px; }
+  .swatch .name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .swatch .token { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+  .swatch .hex { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); margin-top: 6px; }
+
+  .type-spec {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .type-spec .label {
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .type-spec .sample { color: var(--ink); }
+  .type-spec .meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+
+  .token-grid {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 8px 0;
+  }
+  .token-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 90px;
+    gap: 16px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    align-items: center;
+    font-size: 13px;
+  }
+  .token-row:last-child { border-bottom: none; }
+  .token-row .key { font-family: var(--font-mono); color: var(--ink-2); font-size: 12px; }
+  .token-row .val { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; }
+  .token-row .demo { display: flex; align-items: center; justify-content: flex-end; }
+
+  .stack-row {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .principle {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+  }
+  .principle .num { font-family: var(--font-mono); color: var(--accent-soft-ink); font-size: 12px; }
+  .principle h3 { margin: 6px 0 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+  .principle p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+  [data-theme="dark"] .principle .num { color: var(--accent); }
+
+  .scale-stack { display: flex; align-items: end; gap: 12px; padding: 30px 24px; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+  .scale-stack .step { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .scale-stack .block { width: 36px; background: var(--accent-soft); border: 1px solid color-mix(in oklab, var(--accent) 50%, transparent); border-radius: 4px; }
+  .scale-stack .lab { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+
+  .radius-stack { display: flex; gap: 16px; padding: 24px; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius-lg); align-items: center; }
+  .radius-stack .demo {
+    width: 88px; height: 88px;
+    background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 30%, var(--bg-card)), var(--bg-card));
+    border: 1px solid var(--line);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
+  }
+
+  .shadow-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .shadow-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 30px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .shell-preview {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    height: 360px;
+    position: relative;
+  }
+  .shell-preview iframe {
+    width: 1440px; height: 900px;
+    transform: scale(0.42);
+    transform-origin: top left;
+    border: none;
+  }
+  @media (min-width: 900px) {
+    .shell-preview { height: 420px; }
+  }
+
+  .pf-stack { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .pf-stack .label { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 8px; text-align: center; }
+
+  .voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .voice-grid { grid-template-columns: 1fr; } }
+  .voice-card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+  }
+  .voice-card.do { border-left: 3px solid var(--accent); }
+  .voice-card.dont { border-left: 3px solid var(--danger); opacity: 0.95; }
+  .voice-card .lab { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .voice-card.do .lab { color: var(--accent-soft-ink); }
+  [data-theme="dark"] .voice-card.do .lab { color: var(--accent); }
+  .voice-card.dont .lab { color: var(--danger-soft-ink); }
+  .voice-card p { margin: 8px 0 0; font-size: 14px; line-height: 1.55; }
+  .voice-card p + p { margin-top: 4px; color: var(--ink-3); font-size: 13px; font-style: italic; }
+</style>
+</head>
+<body data-theme="light">
+
+<div class="ds">
+  <div class="ds-hero">
+    <div>
+      <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"4px 10px",background:"rgba(255,255,255,0.08)",borderRadius:999,fontSize:12,marginBottom:18,fontFamily:"var(--font-mono)",color:"rgba(255,255,255,0.7)"}}>v1.0 · 2026.05</div>
+      <h1>Wardnet <em>Forge</em></h1>
+      <p>The design system behind Wardnet — a quiet, dependable network OS for technical homes. Built around dark navy, signal-green status, and the assumption that the people who run their own network deserve software that respects their attention.</p>
+    </div>
+    <dl class="ds-hero-meta">
+      <div><dt>Surfaces</dt><dd>Web admin · Mobile · Embedded HUD</dd></div>
+      <div><dt>Type</dt><dd>Inter Tight · JetBrains Mono</dd></div>
+      <div><dt>Brand color</dt><dd>#1ED68A · oklch(0.83 0.18 158)</dd></div>
+      <div><dt>Themes</dt><dd>Light, Dark · auto</dd></div>
+    </dl>
+  </div>
+
+  <!-- 01 PRINCIPLES -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">01</span><h2>Principles</h2>
+      <p>The five rules every screen has to pass before shipping.</p>
+    </div>
+    <div class="grid grid-3">
+      <div class="principle"><div class="num">01</div><h3>Numbers earn the room</h3><p>Stats are the loudest thing on a page. Tabular figures, large weight, no decoration. If a number isn't there, no chart fills the space.</p></div>
+      <div class="principle"><div class="num">02</div><h3>Status before chrome</h3><p>Every surface answers "is it healthy?" within 200ms of load. Green chip, red chip, or absence — never "checking…".</p></div>
+      <div class="principle"><div class="num">03</div><h3>Mono for facts</h3><p>IPs, MACs, ports, hashes, durations — all monospaced. Sans is for people; mono is for machines.</p></div>
+      <div class="principle"><div class="num">04</div><h3>Surfaces, not pages</h3><p>The shell never moves. Content swaps inside the canvas; the sidebar is the only navigation. No tab graveyards, no breadcrumb soup.</p></div>
+      <div class="principle"><div class="num">05</div><h3>Dense without crowded</h3><p>Comfortable density by default, compact for power users. Both modes use the same components — nothing collapses, everything just tightens.</p></div>
+      <div class="principle"><div class="num">06</div><h3>Action lives on the right</h3><p>Reading flows left → right; commits land at the end. Cancel left, primary right. Delete is always red, always last.</p></div>
+    </div>
+  </section>
+
+  <!-- 02 COLOR -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">02</span><h2>Color</h2>
+      <p>Two themes, one palette. Surfaces dim; signal stays put.</p>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Brand</h3>
+    <div class="grid grid-4" style="margin-bottom:32px">
+      <div class="swatch"><div class="chip" style="background:#0c1230"></div><div class="meta"><div class="name">Ward Navy</div><div class="token">--side-bg</div><div class="hex">#0C1230</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#1a2148"></div><div class="meta"><div class="name">Navy 600</div><div class="token">--side-active-bg</div><div class="hex">#1A2148</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#1ed68a"></div><div class="meta"><div class="name">Signal Green</div><div class="token">--accent</div><div class="hex">#1ED68A</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#042619"></div><div class="meta"><div class="name">Forest Ink</div><div class="token">--accent-ink</div><div class="hex">#042619</div></div></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Surfaces · Light</h3>
+    <div class="grid grid-4" style="margin-bottom:32px">
+      <div class="swatch"><div class="chip" style="background:#f5f5f1"></div><div class="meta"><div class="name">Canvas</div><div class="token">--bg</div><div class="hex">#F5F5F1</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#ffffff;border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Card</div><div class="token">--bg-card</div><div class="hex">#FFFFFF</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#ecebe5"></div><div class="meta"><div class="name">Sunken</div><div class="token">--bg-sunken</div><div class="hex">#ECEBE5</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#e3e1d8"></div><div class="meta"><div class="name">Hairline</div><div class="token">--line</div><div class="hex">#E3E1D8</div></div></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Surfaces · Dark</h3>
+    <div class="grid grid-4" style="margin-bottom:32px">
+      <div class="swatch"><div class="chip" style="background:#0a0e1a"></div><div class="meta"><div class="name">Canvas</div><div class="token">--bg</div><div class="hex">#0A0E1A</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#11162a"></div><div class="meta"><div class="name">Card</div><div class="token">--bg-card</div><div class="hex">#11162A</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#070a14"></div><div class="meta"><div class="name">Sunken</div><div class="token">--bg-sunken</div><div class="hex">#070A14</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#1d2440"></div><div class="meta"><div class="name">Hairline</div><div class="token">--line</div><div class="hex">#1D2440</div></div></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Status</h3>
+    <div class="grid grid-4">
+      <div class="swatch"><div class="chip" style="background:#1ed68a"></div><div class="meta"><div class="name">OK · Green</div><div class="token">--accent</div><div class="hex">Active · Online · Healthy</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#f1b13b"></div><div class="meta"><div class="name">Warn · Amber</div><div class="token">--warn</div><div class="hex">Throttle · Stale · Drift</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#e5484d"></div><div class="meta"><div class="name">Danger · Red</div><div class="token">--danger</div><div class="hex">Down · Error · Revoke</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#4d8df6"></div><div class="meta"><div class="name">Info · Blue</div><div class="token">--info</div><div class="hex">Pending · Syncing</div></div></div>
+    </div>
+  </section>
+
+  <!-- 03 TYPE -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">03</span><h2>Typography</h2>
+      <p>Inter Tight for prose; JetBrains Mono for facts. Tight tracking, generous weight.</p>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1fr; gap: 12px;">
+      <div class="type-spec">
+        <span class="label">Display · 48 / 56 / -3%</span>
+        <div class="sample" style="font-size:48px;font-weight:600;letter-spacing:-0.03em;line-height:1.1;">Built for the people who build their own network.</div>
+        <span class="meta">Inter Tight 600 · marketing only</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Heading 1 · 28 / 36 / -2.5%</span>
+        <div class="sample" style="font-size:28px;font-weight:600;letter-spacing:-0.025em;">Tunnels</div>
+        <span class="meta">Inter Tight 600 · page titles</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Heading 2 · 18 / 24 / -1.5%</span>
+        <div class="sample" style="font-size:18px;font-weight:600;letter-spacing:-0.015em;">Devices using this tunnel</div>
+        <span class="meta">Inter Tight 600 · card titles</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Stat · 32 / 36 / -2.5% · tabular</span>
+        <div class="sample" style="font-size:32px;font-weight:600;letter-spacing:-0.025em;font-variant-numeric:tabular-nums;">1,252,914</div>
+        <span class="meta">Inter Tight 600 + tabular-nums · numbers in tiles</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Body · 14 / 22 / -0.5%</span>
+        <div class="sample" style="font-size:14px;line-height:1.55;max-width:60ch;">Wardnet keeps an eye on every device, tunnel, and lookup so you don't have to. Configure once, leave it running, glance at it on Tuesday.</div>
+        <span class="meta">Inter Tight 400 · paragraph text</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Label · 11 / 14 / +6% · uppercase</span>
+        <div class="sample" style="font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);">Last handshake</div>
+        <span class="meta">Inter Tight 500 uppercase · field labels</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Mono Body · 12 / 18 / 0</span>
+        <div class="sample mono" style="font-size:12px;line-height:1.55;color:var(--ink-2);">192.168.100.55 · BA:D3:47:CA:D4:73 · pt131.nordvpn.com:51820</div>
+        <span class="meta">JetBrains Mono 400 · IPs, MACs, endpoints</span>
+      </div>
+      <div class="type-spec">
+        <span class="label">Mono Log · 12 / 16 · zero variant</span>
+        <div class="sample mono" style="font-size:12px;line-height:1.4;color:var(--ink-2);font-feature-settings:'zero';">12:27:41.820 WARN  netlink-packet-route: expecting 288, got 304</div>
+        <span class="meta">JetBrains Mono 400 · log streams</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 SPACING & RADIUS -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">04</span><h2>Spacing &amp; radius</h2>
+      <p>4-step modular scale — most surfaces use 12, 16, 24.</p>
+    </div>
+
+    <div class="grid grid-2">
+      <div>
+        <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Spacing</h3>
+        <div class="scale-stack">
+          <div class="step"><div class="block" style="height:4px"></div><span class="lab">4 · xs</span></div>
+          <div class="step"><div class="block" style="height:8px"></div><span class="lab">8 · sm</span></div>
+          <div class="step"><div class="block" style="height:12px"></div><span class="lab">12</span></div>
+          <div class="step"><div class="block" style="height:16px"></div><span class="lab">16 · md</span></div>
+          <div class="step"><div class="block" style="height:24px"></div><span class="lab">24 · lg</span></div>
+          <div class="step"><div class="block" style="height:32px"></div><span class="lab">32</span></div>
+          <div class="step"><div class="block" style="height:48px"></div><span class="lab">48 · xl</span></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Radius</h3>
+        <div class="radius-stack">
+          <div class="demo" style="border-radius:6px">6 · sm</div>
+          <div class="demo" style="border-radius:10px">10 · md</div>
+          <div class="demo" style="border-radius:14px">14 · lg</div>
+          <div class="demo" style="border-radius:20px">20 · xl</div>
+          <div class="demo" style="border-radius:999px">∞ · pill</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:24px">
+      <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Elevation</h3>
+      <div class="shadow-row">
+        <div class="shadow-card" style="box-shadow: var(--shadow-card)">card · 0 1px 2px / 4%</div>
+        <div class="shadow-card" style="box-shadow: var(--shadow-pop)">popover · 0 16px 40px / 18%</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 COMPONENTS PREVIEW -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">05</span><h2>Components</h2>
+      <p>Live previews from the prototype. Open <a href="index.html" style="color:var(--accent-soft-ink);font-weight:500">desktop</a> or <a href="mobile.html" style="color:var(--accent-soft-ink);font-weight:500">mobile</a> to interact.</p>
+    </div>
+
+    <div id="components-preview"></div>
+
+    <div style="margin-top:32px">
+      <h3 style="margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Radix bindings</h3>
+      <p style="margin:0 0 14px;font-size:13px;color:var(--ink-2);line-height:1.55;max-width:78ch">
+        Forge component classes are <em>Radix-shaped</em>: Radix primitives emit
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-state</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-side</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-orientation</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-disabled</code>,
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-highlighted</code>,
+        and <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-placeholder</code> attributes;
+        Forge CSS selectors in <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">styles.css</code>
+        key off those exact attributes. The React wrappers in
+        <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">source/admin-app/forge-web/src/primitives/</code>
+        are thin: they import a Radix part, attach the matching Forge class,
+        and let the CSS take it from there. To port a new component: pick the
+        Radix primitive whose <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">data-*</code> contract matches the visual states you need, attach the Forge class on the same node, and don't reimplement state in JS.
+      </p>
+
+      <div class="card" style="margin-bottom:20px;padding:0">
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead>
+              <tr style="text-align:left;color:var(--ink-3);border-bottom:1px solid var(--line)">
+                <th style="padding:10px 14px;font-weight:500">Forge class</th>
+                <th style="padding:10px 14px;font-weight:500">Radix primitive</th>
+                <th style="padding:10px 14px;font-weight:500">State / attribute hooks</th>
+                <th style="padding:10px 14px;font-weight:500">Wrapper</th>
+              </tr>
+            </thead>
+            <tbody style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink-2)">
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.toggle</span></td>
+                <td style="padding:10px 14px">Switch.Root</td>
+                <td style="padding:10px 14px">[data-state="checked" | "unchecked"], [data-disabled]</td>
+                <td style="padding:10px 14px">primitives/toggle.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.modal</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">Dialog.Root → Portal → Overlay + Content</td>
+                <td style="padding:10px 14px">[data-state="open" | "closed"] on both nodes</td>
+                <td style="padding:10px 14px">primitives/modal.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.modal</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">AlertDialog.Root → Portal → Overlay + Content</td>
+                <td style="padding:10px 14px">[data-state="open" | "closed"]</td>
+                <td style="padding:10px 14px">primitives/alert-modal.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.drawer</span> + <span style="color:var(--accent-soft-ink)">.scrim</span></td>
+                <td style="padding:10px 14px">Dialog.Root (slide variant) with side="left" | "right"</td>
+                <td style="padding:10px 14px">[data-state], [data-side="left" | "right"] (Forge sets data-side itself)</td>
+                <td style="padding:10px 14px">primitives/drawer.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.popover</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span> + <span style="color:var(--accent-soft-ink)">.menu-separator</span></td>
+                <td style="padding:10px 14px">DropdownMenu.Root → Portal → Content / Item / Separator</td>
+                <td style="padding:10px 14px">[data-state], [data-side], [data-highlighted], [data-disabled], [data-variant="destructive"]</td>
+                <td style="padding:10px 14px">primitives/dropdown-menu.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.popover</span></td>
+                <td style="padding:10px 14px">Popover.Root → Portal → Content</td>
+                <td style="padding:10px 14px">[data-state], [data-side]; uses --radix-popover-content-transform-origin</td>
+                <td style="padding:10px 14px">primitives/popover.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.select-trigger</span> + <span style="color:var(--accent-soft-ink)">.popover.select-content</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span></td>
+                <td style="padding:10px 14px">Select.Root → Trigger / Portal → Content / Item</td>
+                <td style="padding:10px 14px">trigger: [data-state="open" | "closed"], [data-placeholder], [data-disabled]; item: [data-state="checked" | "unchecked"], [data-highlighted]; content width: --radix-select-trigger-width</td>
+                <td style="padding:10px 14px">primitives/select.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.tabs</span></td>
+                <td style="padding:10px 14px">Tabs.Root → List / Trigger / Content</td>
+                <td style="padding:10px 14px">trigger: [data-state="active" | "inactive"], [data-orientation], [data-disabled]</td>
+                <td style="padding:10px 14px">primitives/tabs.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.combobox-trigger</span> + <span style="color:var(--accent-soft-ink)">.popover.combobox-content</span> + <span style="color:var(--accent-soft-ink)">.menu-item</span></td>
+                <td style="padding:10px 14px">cmdk Command.* inside Popover.Root (not a Radix primitive on its own)</td>
+                <td style="padding:10px 14px">popover hooks (above) for the surface; cmdk handles list filter / selection internally</td>
+                <td style="padding:10px 14px">primitives/combobox.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.label</span></td>
+                <td style="padding:10px 14px">Label.Root</td>
+                <td style="padding:10px 14px">no state hooks — pure semantic htmlFor pairing</td>
+                <td style="padding:10px 14px">primitives/label.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.btn</span> (+ <span style="color:var(--accent-soft-ink)">.btn--primary</span> / <span style="color:var(--accent-soft-ink)">.btn--ghost</span> / <span style="color:var(--accent-soft-ink)">.btn--danger</span> / <span style="color:var(--accent-soft-ink)">.btn--sm</span> / <span style="color:var(--accent-soft-ink)">.btn--icon</span>)</td>
+                <td style="padding:10px 14px">native &lt;button&gt; or Slot.Root (asChild) — no Radix primitive</td>
+                <td style="padding:10px 14px">native :hover / :active / :focus-visible / :disabled</td>
+                <td style="padding:10px 14px">primitives/button.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.pill</span> (+ <span style="color:var(--accent-soft-ink)">--ok</span> / <span style="color:var(--accent-soft-ink)">--warn</span> / <span style="color:var(--accent-soft-ink)">--down</span> / <span style="color:var(--accent-soft-ink)">--info</span> / <span style="color:var(--accent-soft-ink)">--ghost</span>)</td>
+                <td style="padding:10px 14px">native &lt;span&gt; or Slot.Root (asChild) — no Radix primitive</td>
+                <td style="padding:10px 14px">none — variant-only</td>
+                <td style="padding:10px 14px">primitives/pill.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.banner</span> (+ <span style="color:var(--accent-soft-ink)">--down</span> / <span style="color:var(--accent-soft-ink)">--warn</span> / <span style="color:var(--accent-soft-ink)">--info</span>) with <span style="color:var(--accent-soft-ink)">.banner__icon</span> · <span style="color:var(--accent-soft-ink)">.banner__msg</span> · <span style="color:var(--accent-soft-ink)">.banner__actions</span></td>
+                <td style="padding:10px 14px">native &lt;div role="alert" | "status"&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — variant-only; tone drives soft-bg + soft-ink + bottom border</td>
+                <td style="padding:10px 14px">primitives/banner.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.input</span> · <span style="color:var(--accent-soft-ink)">.textarea</span></td>
+                <td style="padding:10px 14px">native &lt;input&gt; / &lt;textarea&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">native :focus / :focus-within / :disabled; segmented variant uses [data-segmented] on the wrapper</td>
+                <td style="padding:10px 14px">primitives/input.tsx, primitives/textarea.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.field</span></td>
+                <td style="padding:10px 14px">Forge composition over Label.Root + arbitrary control — no Radix primitive of its own</td>
+                <td style="padding:10px 14px">[data-direction="row" | "column"] (Forge-emitted, not Radix)</td>
+                <td style="padding:10px 14px">primitives/field.tsx</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--line)">
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.card</span></td>
+                <td style="padding:10px 14px">native &lt;div&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — layout container</td>
+                <td style="padding:10px 14px">primitives/card.tsx</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px"><span style="color:var(--accent-soft-ink)">.tbl</span> · <span style="color:var(--accent-soft-ink)">.stat</span></td>
+                <td style="padding:10px 14px">native &lt;table&gt; / &lt;div&gt; — no Radix primitive</td>
+                <td style="padding:10px 14px">none — pure CSS recipes</td>
+                <td style="padding:10px 14px">(Radix wrapper TBD; see DESIGN-SYSTEM-REWORK.md primitives port)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin:0 0 24px">
+        <h3 style="margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Banner</h3>
+        <p style="margin:0 0 10px;font-size:13px;color:var(--ink-2);line-height:1.55;max-width:78ch">
+          A full-width strip rendered above page content for operator-facing
+          notices (daemon unreachable, prior unclean shutdown). One generic
+          recipe with three tone variants —
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--down</code>,
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--warn</code>,
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner--info</code>
+          — share the same soft-bg / soft-ink token pairs as
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.pill--*</code>
+          and the toaster bridge so banner / pill / toast read as one family.
+          Three slots: a leading
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__icon</code>
+          (16px, optional), the
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__msg</code>
+          body (flex-grow), and an optional trailing
+          <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:1px 5px;border-radius:4px">.banner__actions</code>
+          for buttons (Dismiss, Retry, …). Border-bottom only — the banner
+          stacks above page content rather than floating, so a full-border
+          ring would read as a card.
+        </p>
+        <pre style="margin:0;font-family:var(--font-mono);font-size:11.5px;background:var(--bg-sunken);color:var(--ink-2);padding:12px 14px;border-radius:8px;overflow-x:auto;line-height:1.55">&lt;div role="alert" class="banner banner--down"&gt;
+  &lt;span class="banner__icon"&gt;&lt;svg …/&gt;&lt;/span&gt;
+  &lt;span class="banner__msg"&gt;Unable to connect to the Wardnet daemon.&lt;/span&gt;
+  &lt;span class="banner__actions"&gt;&lt;button class="btn btn--ghost btn--sm"&gt;Dismiss&lt;/button&gt;&lt;/span&gt;
+&lt;/div&gt;</pre>
+      </div>
+
+      <div class="grid grid-2" style="margin-bottom:8px">
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Class on the Radix node, not a wrapper div</h3>
+          <p>Attach the Forge class to the exact Radix part that emits the
+          <code style="font-family:var(--font-mono);font-size:11px">data-state</code>
+          you're styling — wrapping it in a sibling
+          <code style="font-family:var(--font-mono);font-size:11px">&lt;div className="toggle"&gt;</code>
+          breaks the selector. Use Radix's
+          <code style="font-family:var(--font-mono);font-size:11px">asChild</code>
+          when you need to merge with another element.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>State lives in the DOM, never in JS</h3>
+          <p>"Is the dialog open?", "is the switch checked?", "which tab is
+          active?" — Radix already writes that to
+          <code style="font-family:var(--font-mono);font-size:11px">data-state</code>.
+          Forge styles read it directly. Don't add a parallel
+          <code style="font-family:var(--font-mono);font-size:11px">.is-open</code>
+          /
+          <code style="font-family:var(--font-mono);font-size:11px">.is-on</code>
+          class from React — the legacy
+          <code style="font-family:var(--font-mono);font-size:11px">.is-on</code>
+          / <code style="font-family:var(--font-mono);font-size:11px">.is-active</code>
+          selectors in <code style="font-family:var(--font-mono);font-size:11px">styles.css</code>
+          exist only for non-Radix mock pages.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Portals + overlays use <code style="font-family:var(--font-mono);font-size:11px">.scrim</code></h3>
+          <p>Dialog, AlertDialog, and Drawer all render through
+          <code style="font-family:var(--font-mono);font-size:11px">Radix.Portal</code>
+          and pair their content node with an Overlay carrying class
+          <code style="font-family:var(--font-mono);font-size:11px">.scrim</code>.
+          Popover, DropdownMenu, and Select portal too but render
+          <code style="font-family:var(--font-mono);font-size:11px">.popover</code>
+          without a scrim — they're click-outside-to-dismiss, not modal.</p>
+        </div>
+        <div class="principle">
+          <div class="num">RULE</div>
+          <h3>Side / orientation come from Radix CSS vars</h3>
+          <p>Popover-family animations honor
+          <code style="font-family:var(--font-mono);font-size:11px">--radix-popover-content-transform-origin</code>
+          so scale animates from the anchor edge. Select content width pins to
+          <code style="font-family:var(--font-mono);font-size:11px">--radix-select-trigger-width</code>.
+          Drawer reads
+          <code style="font-family:var(--font-mono);font-size:11px">[data-side]</code>
+          (Forge-emitted) to pick its slide axis. Don't recompute these in JS.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 SHELL PREVIEW -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">06</span><h2>App shell</h2>
+      <p>Floating sidebar variant — the chosen direction. Light & dark.</p>
+    </div>
+    <div class="grid grid-2">
+      <div>
+        <div class="shell-preview"><iframe src="index.html" title="light shell"></iframe></div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-3);margin-top:8px;text-align:center;">light · floating rail · default density</div>
+      </div>
+      <div>
+        <div class="shell-preview"><iframe id="dark-shell" src="index.html" title="dark shell"></iframe></div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-3);margin-top:8px;text-align:center;">dark · floating rail · compact</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 RESPONSIVE / MOBILE -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">07</span><h2>Mobile &amp; responsive</h2>
+      <p>The same tokens, rebuilt around a thumb. Bottom tab bar, single-column lists, sheets instead of modals.</p>
+    </div>
+    <div id="phones-mount"></div>
+  </section>
+
+  <!-- 08 VOICE -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">08</span><h2>Voice</h2>
+      <p>Direct, technical, never breathless. Errors are useful, not apologetic.</p>
+    </div>
+    <div class="voice-grid">
+      <div class="voice-card do">
+        <div class="lab">Do</div>
+        <p>"United States tunnel hasn't handshaken in 22 days. Bring it up?"</p>
+        <p>Specific subject, specific number, one verb-led action.</p>
+      </div>
+      <div class="voice-card dont">
+        <div class="lab">Don't</div>
+        <p>"Oops! Looks like one of your tunnels might be having trouble. Want to try reconnecting?"</p>
+        <p>Apologetic, vague, two qualifiers in one sentence.</p>
+      </div>
+      <div class="voice-card do">
+        <div class="lab">Do</div>
+        <p>"Revoke lease for Galaxy S24 Pedro?"</p>
+        <p>Names the device. Reversible action stays one click away.</p>
+      </div>
+      <div class="voice-card dont">
+        <div class="lab">Don't</div>
+        <p>"Are you sure you want to remove this device from your network?"</p>
+        <p>Vague pronouns. "Are you sure" never adds information.</p>
+      </div>
+      <div class="voice-card do">
+        <div class="lab">Do</div>
+        <p>"Filter is on. 4,747 of 1.25M queries blocked today."</p>
+        <p>State + number + window. The shape of every status line.</p>
+      </div>
+      <div class="voice-card dont">
+        <div class="lab">Don't</div>
+        <p>"Your DNS filtering is currently active and protecting your network."</p>
+        <p>"Currently", "your", "protecting" — all filler.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 FORMS -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">09</span><h2>Forms &amp; edit mode</h2>
+      <p>Detail pages are stacks of cards. Each card flips between read and edit independently.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="principle">
+        <div class="num">PATTERN</div>
+        <h3>Card-level edit, not page-level</h3>
+        <p>A device has Identity, Settings, DNS filtering, Network — four cards, four independent edit toggles. No global "Edit page" button. The user only enters the section they care about.</p>
+      </div>
+      <div class="principle">
+        <div class="num">PATTERN</div>
+        <h3>Read mode is the default</h3>
+        <p>Open in read mode showing labeled values. The <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);padding:2px 5px;border-radius:4px;">Edit</code> button sits top-right of each card. Click it → fields become inputs, Cancel + Save dock at the bottom-right of the card.</p>
+      </div>
+    </div>
+
+    <div id="forms-preview"></div>
+
+    <div style="margin-top:24px">
+      <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Field rules</h3>
+      <div class="grid grid-2">
+        <div class="principle"><div class="num">01 · LABELS</div><h3>Always above</h3><p>11px uppercase, +6% tracking, <code style="font-family:var(--font-mono);font-size:11px;">--ink-3</code>. Never inline placeholders as labels — placeholders disappear when typing.</p></div>
+        <div class="principle"><div class="num">02 · GROUPING</div><h3>2-column grid</h3><p>Cards lay out fields in a 2-col grid (1-col on mobile). Long fields like WireGuard configs span both columns.</p></div>
+        <div class="principle"><div class="num">03 · IMMUTABLE</div><h3>Read-only stays read-only</h3><p>MAC, first-seen, manufacturer never enter edit mode. They render as plain mono text in both modes.</p></div>
+        <div class="principle"><div class="num">04 · ACTIONS</div><h3>Cancel left, Save right</h3><p>Bottom-right of the card. Save is the only primary button on the page while editing. <code style="font-family:var(--font-mono);font-size:11px;">⌘+Enter</code> saves, <code style="font-family:var(--font-mono);font-size:11px;">Esc</code> cancels.</p></div>
+        <div class="principle"><div class="num">05 · VALIDATION</div><h3>Inline, on blur</h3><p>Red 1px border + 12px error text below the field. Save stays disabled until everything's valid. No toast spam.</p></div>
+        <div class="principle"><div class="num">06 · DESTRUCTIVE</div><h3>Lives outside cards</h3><p>"Delete tunnel", "Revoke lease" sit at the bottom of the page in a danger-toned button — never inside a settings card.</p></div>
+      </div>
+    </div>
+
+    <div style="margin-top:24px">
+      <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Control inventory</h3>
+      <div id="controls-preview"></div>
+    </div>
+  </section>
+
+  <!-- 11 CHARTS -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">10</span><h2>Charts</h2>
+      <p>Network data has a shape. Match the chart to the question.</p>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom:24px">
+      <div class="principle"><div class="num">QUESTION</div><h3>"How much, over time?"</h3><p>→ Throughput line chart. Two series max — Download (accent), Upload (info). Dual line, soft-fill area below. Always include a window selector (1h / 6h / 24h / 48h / 12mo).</p></div>
+      <div class="principle"><div class="num">QUESTION</div><h3>"Is it trending?"</h3><p>→ Sparkline. No axes, no labels. Last 24h or last 60 samples. Lives inside a stat tile to give the number context.</p></div>
+      <div class="principle"><div class="num">QUESTION</div><h3>"What's the breakdown?"</h3><p>→ Donut or stacked bar. Donut for ≤4 categories with a headline number in the middle (e.g. blocked %). Stacked bar for ranked top-N (top blocked domains, top talkers).</p></div>
+    </div>
+
+    <div id="charts-preview"></div>
+
+    <div style="margin-top:24px">
+      <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Chart rules</h3>
+      <div class="grid grid-2">
+        <div class="principle"><div class="num">01 · COLOR</div><h3>Two series max per chart</h3><p>Download = <code style="font-family:var(--font-mono);font-size:11px;color:var(--accent-soft-ink)">--accent</code>, Upload = <code style="font-family:var(--font-mono);font-size:11px;color:var(--info)">--info</code>. Categorical charts cycle accent → info → warn → ink-3. Never invent a new chart palette.</p></div>
+        <div class="principle"><div class="num">02 · GRID</div><h3>Horizontal hairlines only</h3><p>4 horizontal grid lines using <code style="font-family:var(--font-mono);font-size:11px;">--line</code> at <code style="font-family:var(--font-mono);font-size:11px;">stroke-dasharray:2 4</code>. No vertical gridlines, no tick marks.</p></div>
+        <div class="principle"><div class="num">03 · AXES</div><h3>Numbers, not headers</h3><p>Y-axis: 4 mono labels with a unit (KB/s, MB, %). X-axis: timestamps in 24h. No axis titles — the card title carries it.</p></div>
+        <div class="principle"><div class="num">04 · WINDOW</div><h3>Always selectable</h3><p>Pill group: 1h · 6h · 24h · 48h · 12mo. Selected pill uses <code style="font-family:var(--font-mono);font-size:11px;">--bg-card</code> with <code style="font-family:var(--font-mono);font-size:11px;">--shadow-card</code>. Window total ("↓ 3.1 GB · ↑ 186.7 MB") sits under the chart title.</p></div>
+        <div class="principle"><div class="num">05 · BRUSH</div><h3>Time-series ≥ 24h gets a brush</h3><p>Mini overview track below the main chart, accent-tinted. Drag to zoom. 12mo views always show it.</p></div>
+        <div class="principle"><div class="num">06 · EMPTY</div><h3>"No data yet" — never zeros</h3><p>If the device just connected, render the grid + a centered <code style="font-family:var(--font-mono);font-size:11px;">--ink-4</code> "Collecting…" label. A flat-zero line lies about the data.</p></div>
+        <div class="principle"><div class="num">07 · LEGEND</div><h3>Bottom-center, mono dots</h3><p>Tiny circle + label, mono 11px. No legend if there's only one series — the card title says what it is.</p></div>
+        <div class="principle"><div class="num">08 · TOOLTIP</div><h3>Card style, hover only</h3><p>Use <code style="font-family:var(--font-mono);font-size:11px;">--bg-card</code> + <code style="font-family:var(--font-mono);font-size:11px;">--shadow-pop</code>. Mono timestamp + bold value per series. No animation on enter.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 TABS -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">12</span><h2>Tabs &amp; sub-views</h2>
+      <p>Tabs split a single page into 2–5 grouped views. Underline style only — quiet, scannable, never the loudest thing on the page.</p>
+    </div>
+
+    <div id="tabs-preview" style="margin-bottom:24px"></div>
+
+    <div class="grid grid-2">
+      <div class="principle"><div class="num">01 · WHEN</div><h3>Group, don't navigate</h3><p>Use tabs only when the views share a subject — Devices: <em>Managed</em> / <em>Unmanaged</em>. Same noun, different filter. If a tab needs its own URL outside the parent, it's a sidebar item, not a tab.</p></div>
+      <div class="principle"><div class="num">02 · STYLE</div><h3>Underline, not pill</h3><p>Tabs sit on a baseline hairline. Active tab gets a 2px <code style="font-family:var(--font-mono);font-size:11px;">--ink</code> bar; inactive tabs are <code style="font-family:var(--font-mono);font-size:11px;">--ink-3</code>. Reserve the pill <code style="font-family:var(--font-mono);font-size:11px;">.tabs</code> control for time-window selection inside charts — never as page nav.</p></div>
+      <div class="principle"><div class="num">03 · COUNT</div><h3>5 max</h3><p>Past 5 tabs the page is two pages. Hard cap. Counts in tab labels are mono and parenthesized: <code style="font-family:var(--font-mono);font-size:11px;">Managed (28)</code>.</p></div>
+      <div class="principle"><div class="num">04 · URL</div><h3>Persist in <code style="font-family:var(--font-mono);font-size:11px;">?tab=</code></h3><p>Active tab is a query param so reload + share work. Default tab has no param. Switching tabs replaces history (no back-button graveyard).</p></div>
+      <div class="principle"><div class="num">05 · COUNTERS</div><h3>Right of label, mono, muted</h3><p>Counts use <code style="font-family:var(--font-mono);font-size:11px;">--ink-4</code> with mono. Active tab's counter promotes to <code style="font-family:var(--font-mono);font-size:11px;">--ink-2</code>. No badges, no dots — counts already say "look here".</p></div>
+      <div class="principle"><div class="num">06 · CHROME</div><h3>One row, no scroll</h3><p>Tabs sit just under the page H1, above the first card. They never wrap, never horizontal-scroll. If they would, fix the count, not the layout.</p></div>
+    </div>
+  </section>
+
+  <!-- 13 SOLO CHARTS -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">13</span><h2>Solo charts</h2>
+      <p>The chart that owns its card. Line is the default — throughput, latency, query rate. Always windowed, always brush-able past 24h.</p>
+    </div>
+
+    <div id="solo-chart-preview" style="margin-bottom:24px"></div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Anatomy</h3>
+    <div class="grid grid-2" style="margin-bottom:24px">
+      <div class="principle"><div class="num">A · TITLE BLOCK</div><h3>Top-left, two lines</h3><p>Line 1: card title in 14px semibold (Throughput / Latency / Queries). Line 2: window total in mono 11px <code style="font-family:var(--font-mono);font-size:11px;">--ink-3</code> — <em>"Window total: ↓ 3.1 GB · ↑ 186.7 MB"</em>. Always present, even at zero.</p></div>
+      <div class="principle"><div class="num">B · WINDOW SELECTOR</div><h3>Top-right pill group</h3><p>Fixed steps: <code style="font-family:var(--font-mono);font-size:11px;">1h · 6h · 24h · 48h · 30d · 12mo</code>. Default is 24h. Selected pill uses <code style="font-family:var(--font-mono);font-size:11px;">--bg-card</code> + <code style="font-family:var(--font-mono);font-size:11px;">--shadow-card</code>. Component: <code style="font-family:var(--font-mono);font-size:11px;">.tabs</code> (re-used).</p></div>
+      <div class="principle"><div class="num">C · PLOT AREA</div><h3>200–240px tall · viewBox-scaled</h3><p>Soft-fill area below the line at <code style="font-family:var(--font-mono);font-size:11px;">color-mix(--accent 12-14%, transparent)</code>. Stroke is 1.6–1.8px <code style="font-family:var(--font-mono);font-size:11px;">--accent</code>. 4 horizontal gridlines, dashed <code style="font-family:var(--font-mono);font-size:11px;">stroke-dasharray:2 4</code>. No vertical gridlines.</p></div>
+      <div class="principle"><div class="num">D · BRUSH</div><h3>Mini overview track, 32px tall</h3><p>Below the main plot for any window ≥ 24h. Drag the handles to slice — main plot zooms, window pill stays. Handles are 4px wide, <code style="font-family:var(--font-mono);font-size:11px;">--accent</code>; track fill is <code style="font-family:var(--font-mono);font-size:11px;">--accent-soft</code>.</p></div>
+      <div class="principle"><div class="num">E · LEGEND</div><h3>Bottom-center, mono 11px</h3><p>Skip if single series. For two: <em>Download (●) · Upload (●)</em>. Dot color matches the line. No interactive toggling — both series are always on.</p></div>
+      <div class="principle"><div class="num">F · TOOLTIP</div><h3>Card style, follows cursor</h3><p><code style="font-family:var(--font-mono);font-size:11px;">--bg-card</code> + <code style="font-family:var(--font-mono);font-size:11px;">--shadow-pop</code>, 1px line. Mono timestamp on top, then <em>↓ 1.2 MB/s</em> + <em>↑ 240 KB/s</em>. Vertical guideline pinned to the cursor's nearest sample, 1px <code style="font-family:var(--font-mono);font-size:11px;">--ink-4</code>.</p></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">States</h3>
+    <div id="solo-chart-states" style="margin-bottom:24px"></div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Code skeleton</h3>
+    <pre style="background:var(--bg-sunken);border:1px solid var(--line);border-radius:10px;padding:16px 20px;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;color:var(--ink-2);overflow-x:auto;margin:0"><span style="color:var(--ink-4)">// Solo line chart with window + brush — drop into any detail page</span>
+&lt;Card&gt;
+  &lt;ChartHeader
+    title="Throughput"
+    total={{ down: "3.1 GB", up: "186.7 MB" }}
+    window={window} onWindow={setWindow}     <span style="color:var(--ink-4)">// "1h" | "6h" | "24h" | "48h" | "30d" | "12mo"</span>
+  /&gt;
+  &lt;LineChart
+    series={[
+      { key: "d", color: "var(--accent)", label: "Download" },
+      { key: "u", color: "var(--info)",   label: "Upload"   },
+    ]}
+    points={points}                          <span style="color:var(--ink-4)">// [{ t, d, u }, …]</span>
+    state={loading ? "loading" : empty ? "empty" : "ready"}
+    brush={window === "24h" || window === "48h" || window === "30d" || window === "12mo"}
+    onBrush={setSlice}
+  /&gt;
+  &lt;ChartLegend series={…} /&gt;
+&lt;/Card&gt;</pre>
+  </section>
+
+  <!-- 14 EDIT MODES -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">14</span><h2>Editing data</h2>
+      <p>Two patterns, picked by stakes. Card-edit for things the user composes; auto-save for things they toggle.</p>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:24px">
+      <div class="principle">
+        <div class="num">PATTERN A · CARD EDIT</div>
+        <h3>For composed values</h3>
+        <p>Use when the user is filling out a related set of fields together — the device's <em>Identity</em>, <em>Settings</em>, <em>Network</em>. Read mode is the default; <em>Edit</em> button top-right of the card. Editing one card never blocks editing another. Cancel + Save dock at the bottom-right of the card. Save is the only primary on the page while editing.</p>
+      </div>
+      <div class="principle">
+        <div class="num">PATTERN B · AUTO-SAVE</div>
+        <h3>For independent switches</h3>
+        <p>Use when each control is its own decision — <em>DNS filtering on/off</em>, <em>Auto-update channel</em>, <em>Default profile</em>. The control commits on change; no Save button. Toast bottom-right confirms ("DNS filtering enabled"). On failure, a toast with <em>Retry</em> reverts the value.</p>
+      </div>
+    </div>
+
+    <div id="edit-modes-preview" style="margin-bottom:24px"></div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Field anatomy</h3>
+    <div id="field-anatomy" style="margin-bottom:24px"></div>
+
+    <div class="grid grid-3" style="margin-bottom:24px">
+      <div class="principle"><div class="num">1 · LABEL</div><h3>Always above</h3><p>Sentence case, 13px, weight 500, <code style="font-family:var(--font-mono);font-size:11px;">--ink</code>. <strong>Not</strong> uppercase — uppercase labels are reserved for read-mode <em>data points</em> (MAC, Last seen). Editable form fields use sentence-case labels so they read like a question the user is answering.</p></div>
+      <div class="principle"><div class="num">2 · DESCRIPTION</div><h3>Optional, between label and control</h3><p>12px, <code style="font-family:var(--font-mono);font-size:11px;">--ink-3</code>, single line where possible. Use it to explain consequence, not to repeat the label. <em>"Applied to devices that have no explicit profile assignment."</em> ✓ &nbsp; <em>"Choose a default profile"</em> ✗.</p></div>
+      <div class="principle"><div class="num">3 · CONTROL</div><h3>Below description, full-column width</h3><p>Inputs/selects fill the column. Toggles + radios are intrinsic-width and right-align inside their row. 8px gap label→description, 6px gap description→control.</p></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Layout grid</h3>
+    <div class="grid grid-2" style="margin-bottom:24px">
+      <div class="principle"><div class="num">2-COLUMN DEFAULT</div><h3>Two fields per row, 24px column gap, 18px row gap</h3><p>Cards lay fields out as <code style="font-family:var(--font-mono);font-size:11px;">grid-template-columns: 1fr 1fr</code>. Long values (WireGuard config, descriptions) span both columns with <code style="font-family:var(--font-mono);font-size:11px;">grid-column: 1 / -1</code>.</p></div>
+      <div class="principle"><div class="num">1-COLUMN STACK</div><h3>For action-style controls</h3><p>Settings page rows ("Safe Reboot", "Auto-update channel") are <em>label + description on the left, control on the right</em> — single-column rows separated by hairlines. Pattern B always uses this; Pattern A uses 2-column.</p></div>
+      <div class="principle"><div class="num">FULL-WIDTH</div><h3>Code &amp; long text</h3><p>WireGuard configs, multi-line names, IP-octet inputs — span both columns. Mono textareas use <code style="font-family:var(--font-mono);font-size:11px;">--bg-sunken</code> not <code style="font-family:var(--font-mono);font-size:11px;">--bg-elev</code> so the field reads as code, not prose.</p></div>
+      <div class="principle"><div class="num">RESPONSIVE</div><h3>Below 720px → 1 column</h3><p>2-column collapses to 1 at <code style="font-family:var(--font-mono);font-size:11px;">@media (max-width: 720px)</code>. The shell handles the breakpoint; field components don't need their own media queries.</p></div>
+    </div>
+
+    <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Save semantics</h3>
+    <div class="grid grid-3">
+      <div class="principle"><div class="num">CARD · SAVE</div><h3>Toast bottom-right</h3><p><em>"Device settings saved."</em> Auto-dismiss 4s. <code style="font-family:var(--font-mono);font-size:11px;">⌘+Enter</code> commits, <code style="font-family:var(--font-mono);font-size:11px;">Esc</code> cancels. Save is disabled while validation is pending.</p></div>
+      <div class="principle"><div class="num">CARD · DIRTY NAV</div><h3>Confirm before leave</h3><p>If the user navigates away from a page with an open edit card holding unsaved changes: <em>"Discard changes to Settings?"</em> · Cancel · Discard. Closing the tab uses <code style="font-family:var(--font-mono);font-size:11px;">beforeunload</code>.</p></div>
+      <div class="principle"><div class="num">AUTO · COMMIT</div><h3>Optimistic + revert</h3><p>UI updates immediately. Toast confirms ("Channel set to Beta"). On failure, revert and toast <em>"Couldn't save. Retry"</em> with a Retry action — danger-toned, 6s dismiss.</p></div>
+      <div class="principle"><div class="num">AUTO · DEBOUNCE</div><h3>Text inputs wait 600ms</h3><p>Toggles/selects commit on change. Free-text fields debounce 600ms after the last keystroke; show a faint <em>"Saving…"</em> in the description slot, replaced by <em>"Saved"</em> for 2s.</p></div>
+      <div class="principle"><div class="num">VALIDATION</div><h3>Inline, on blur</h3><p>Border turns <code style="font-family:var(--font-mono);font-size:11px;">--danger</code>, 12px error text replaces the description. Save (Pattern A) stays disabled until clean. Pattern B refuses commit and toasts the error.</p></div>
+      <div class="principle"><div class="num">DESTRUCTIVE</div><h3>Outside cards, page-bottom</h3><p>"Delete tunnel", "Revoke lease", "Restore from backup" sit at the page bottom in a danger-toned button. Confirm dialog names the subject: <em>"Delete Portugal Dedicated IP?"</em>. Never inline inside a settings card.</p></div>
+    </div>
+
+    <h3 style="margin:24px 0 12px;font-size:14px;font-weight:600;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;">Code skeleton</h3>
+    <pre style="background:var(--bg-sunken);border:1px solid var(--line);border-radius:10px;padding:16px 20px;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;color:var(--ink-2);overflow-x:auto;margin:0"><span style="color:var(--ink-4)">// Pattern A — card-edit</span>
+&lt;EditCard title="Settings"&gt;
+  {(mode) =&gt; mode === "read" ? (
+    &lt;Grid cols={2}&gt;
+      &lt;Read label="Friendly name" value={form.name} /&gt;
+      &lt;Read label="Type"          value={form.type} /&gt;
+    &lt;/Grid&gt;
+  ) : (
+    &lt;Grid cols={2}&gt;
+      &lt;Field label="Friendly name" desc="Shown across the admin UI."&gt;
+        &lt;TextInput value={form.name} onChange={…} /&gt;
+      &lt;/Field&gt;
+      &lt;Field label="Type"&gt;&lt;Select … /&gt;&lt;/Field&gt;
+    &lt;/Grid&gt;
+  )}
+&lt;/EditCard&gt;
+
+<span style="color:var(--ink-4)">// Pattern B — auto-save row</span>
+&lt;SettingRow
+  label="Default profile"
+  desc="Applied to devices with no explicit profile assignment."
+&gt;
+  &lt;Select value={profile} onChange={(v) =&gt; commit({ profile: v })} /&gt;
+&lt;/SettingRow&gt;</pre>
+  </section>
+
+  <!-- 15 MOTION -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">15</span><h2>Motion</h2>
+      <p>Cheap, fast, never the star.</p>
+    </div>
+    <div class="grid grid-3">
+      <div class="principle"><div class="num">120ms</div><h3>Snap</h3><p>Hover, focus, toggle, sidebar select. <code style="font-family:var(--font-mono);font-size:11px;">cubic-bezier(.2,.8,.2,1)</code></p></div>
+      <div class="principle"><div class="num">200ms</div><h3>Slide</h3><p>Sheets, popovers, dropdowns. Fade + 8px translate.</p></div>
+      <div class="principle"><div class="num">600ms</div><h3>Stream</h3><p>Live indicators, sparkline draw, log row enter. Reserved for "fresh data".</p></div>
+    </div>
+  </section>
+
+  <!-- 16 TAILWIND BRIDGE -->
+  <section class="ds-section">
+    <div class="ds-section-h">
+      <span class="num">16</span><h2>Tailwind bridge</h2>
+      <p>The system ships a <code style="font-family:var(--font-mono);font-size:11px;">tailwind.config.js</code> so you can write utilities (<code style="font-family:var(--font-mono);font-size:11px;">bg-card text-ink rounded-lg</code>) <em>or</em> hand-written component classes (<code style="font-family:var(--font-mono);font-size:11px;">.card .btn--primary</code>) — both compile against the same CSS variables in <code style="font-family:var(--font-mono);font-size:11px;">styles.css</code>. Theme + density toggles flip everything in lockstep; Tailwind never bakes hex.</p>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom:24px">
+      <div class="principle"><div class="num">SOURCE</div><h3>CSS vars stay canonical</h3><p>Every token in §02–04 lives in <code style="font-family:var(--font-mono);font-size:11px;">:root</code>. Tailwind references them by <code style="font-family:var(--font-mono);font-size:11px;">var(--…)</code>. Never paste hex into a utility — it breaks dark mode and density.</p></div>
+      <div class="principle"><div class="num">DARK</div><h3>data-theme, not class</h3><p>Config uses <code style="font-family:var(--font-mono);font-size:11px;">darkMode: ['selector','[data-theme="dark"]']</code> so the existing token blocks work unchanged. <code style="font-family:var(--font-mono);font-size:11px;">dark:</code> variants flip with the theme attribute.</p></div>
+      <div class="principle"><div class="num">MIX</div><h3>Compose freely</h3><p>The two systems are layered, not exclusive. Use <code style="font-family:var(--font-mono);font-size:11px;">.card</code> for the container, then Tailwind utilities for one-off layout inside it. Don't reinvent <code style="font-family:var(--font-mono);font-size:11px;">.btn--primary</code> as utilities — call the class.</p></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <h3 style="font-size:13px;font-weight:600;letter-spacing:-0.01em;margin:0 0 12px">Token → utility map</h3>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead>
+            <tr style="text-align:left;color:var(--ink-3);border-bottom:1px solid var(--line)">
+              <th style="padding:8px 12px 8px 0;font-weight:500">Concept</th>
+              <th style="padding:8px 12px;font-weight:500">CSS var</th>
+              <th style="padding:8px 12px;font-weight:500;font-family:var(--font-mono);font-size:11px">Tailwind</th>
+              <th style="padding:8px 0 8px 12px;font-weight:500">Hand class</th>
+            </tr>
+          </thead>
+          <tbody style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink-2)">
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Page bg</td>          <td style="padding:8px 12px">--bg</td>            <td style="padding:8px 12px;color:var(--accent)">bg-bg</td>           <td style="padding:8px 0 8px 12px">body</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Card surface</td>     <td style="padding:8px 12px">--bg-card</td>       <td style="padding:8px 12px;color:var(--accent)">bg-card</td>         <td style="padding:8px 0 8px 12px">.card</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Body text</td>        <td style="padding:8px 12px">--ink</td>           <td style="padding:8px 12px;color:var(--accent)">text-ink</td>        <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Muted text</td>       <td style="padding:8px 12px">--ink-3</td>         <td style="padding:8px 12px;color:var(--accent)">text-ink-3</td>      <td style="padding:8px 0 8px 12px">.muted</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Hairline</td>         <td style="padding:8px 12px">--line</td>          <td style="padding:8px 12px;color:var(--accent)">border-line</td>     <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Brand orange</td>     <td style="padding:8px 12px">--accent</td>        <td style="padding:8px 12px;color:var(--accent)">bg-accent text-accent-ink</td><td style="padding:8px 0 8px 12px">.btn--primary</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Up / OK</td>          <td style="padding:8px 12px">--accent-soft</td>   <td style="padding:8px 12px;color:var(--accent)">bg-accent-soft text-accent-soft-ink</td><td style="padding:8px 0 8px 12px">.pill--ok</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Warn</td>             <td style="padding:8px 12px">--warn-soft</td>     <td style="padding:8px 12px;color:var(--accent)">bg-warn-soft text-warn-soft-ink</td><td style="padding:8px 0 8px 12px">.pill--warn</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Down</td>             <td style="padding:8px 12px">--danger-soft</td>   <td style="padding:8px 12px;color:var(--accent)">bg-danger-soft text-danger-soft-ink</td><td style="padding:8px 0 8px 12px">.pill--down</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Sidebar bg</td>       <td style="padding:8px 12px">--side-bg</td>       <td style="padding:8px 12px;color:var(--accent)">bg-side</td>         <td style="padding:8px 0 8px 12px">.sidebar</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Radius (card)</td>    <td style="padding:8px 12px">--radius-lg</td>     <td style="padding:8px 12px;color:var(--accent)">rounded-lg</td>       <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Radius (control)</td> <td style="padding:8px 12px">--radius</td>        <td style="padding:8px 12px;color:var(--accent)">rounded</td>          <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Card shadow</td>      <td style="padding:8px 12px">--shadow-card</td>   <td style="padding:8px 12px;color:var(--accent)">shadow-card</td>      <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Density unit</td>     <td style="padding:8px 12px">--pad</td>           <td style="padding:8px 12px;color:var(--accent)">p-pad gap-pad</td>    <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Row height</td>       <td style="padding:8px 12px">--row-h</td>         <td style="padding:8px 12px;color:var(--accent)">h-row</td>            <td style="padding:8px 0 8px 12px">.row</td></tr>
+            <tr style="border-bottom:1px solid var(--line)"><td style="padding:8px 12px 8px 0">Mono</td>             <td style="padding:8px 12px">--font-mono</td>     <td style="padding:8px 12px;color:var(--accent)">font-mono</td>        <td style="padding:8px 0 8px 12px">—</td></tr>
+            <tr><td style="padding:8px 12px 8px 0">Snap motion</td>      <td style="padding:8px 12px">120ms</td>           <td style="padding:8px 12px;color:var(--accent)">duration-snap</td>     <td style="padding:8px 0 8px 12px">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <h3 style="font-size:13px;font-weight:600;letter-spacing:-0.01em;margin:0 0 4px">Type scales</h3>
+      <p style="font-size:12px;color:var(--ink-3);margin:0 0 12px">Each named scale ships size + line-height + tracking + weight as a single utility — don't recompose by hand.</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-2)">
+        <div><span style="color:var(--accent)">text-display</span> &nbsp;48/56</div>
+        <div><span style="color:var(--accent)">text-h1</span> &nbsp;28/36</div>
+        <div><span style="color:var(--accent)">text-h2</span> &nbsp;18/24</div>
+        <div><span style="color:var(--accent)">text-stat</span> &nbsp;32/36</div>
+        <div><span style="color:var(--accent)">text-body</span> &nbsp;14/22</div>
+        <div><span style="color:var(--accent)">text-label</span> &nbsp;11 ↑ 0.06em</div>
+        <div><span style="color:var(--accent)">text-mono-body</span> &nbsp;12/18</div>
+        <div><span style="color:var(--accent)">text-mono-log</span> &nbsp;12/16</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:13px;font-weight:600;letter-spacing:-0.01em;margin:0 0 12px">Setup</h3>
+<pre style="background:var(--bg-sunken);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;color:var(--ink-2);overflow-x:auto;margin:0 0 16px"><span style="color:var(--ink-3)">{/* Quick start — single page */}</span>
+&lt;html data-theme="light" data-density="comfortable"&gt;
+&lt;link rel="stylesheet" href="styles.css" /&gt;          <span style="color:var(--ink-3)">{/* tokens + components */}</span>
+&lt;script src="https://cdn.tailwindcss.com"&gt;&lt;/script&gt; <span style="color:var(--ink-3)">{/* dev only — pulls config from the page */}</span>
+&lt;script&gt;
+  tailwind.config = {
+    darkMode: ['selector', '[data-theme="dark"]'],
+    theme: { /* …subset of tailwind.config.js… */ }
+  }
+&lt;/script&gt;
+
+<span style="color:var(--ink-3)">{/* Production — vite/postcss */}</span>
+<span style="color:var(--ink-3)">// tailwind.config.js is at the project root, ready to import.</span>
+import config from './tailwind.config.js'</pre>
+
+      <h3 style="font-size:13px;font-weight:600;letter-spacing:-0.01em;margin:20px 0 12px">Idiomatic composition</h3>
+<pre style="background:var(--bg-sunken);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;color:var(--ink-2);overflow-x:auto;margin:0">&lt;<span style="color:var(--accent)">section</span> className=<span style="color:#5a8f4a">"card"</span>&gt;                            <span style="color:var(--ink-3)">{/* hand class for the container */}</span>
+  &lt;<span style="color:var(--accent)">header</span> className=<span style="color:#5a8f4a">"flex items-center justify-between mb-4"</span>&gt;
+    &lt;<span style="color:var(--accent)">h2</span> className=<span style="color:#5a8f4a">"text-h2 text-ink"</span>&gt;Throughput&lt;/<span style="color:var(--accent)">h2</span>&gt;
+    &lt;<span style="color:var(--accent)">span</span> className=<span style="color:#5a8f4a">"pill pill--ok"</span>&gt;Live&lt;/<span style="color:var(--accent)">span</span>&gt;        <span style="color:var(--ink-3)">{/* hand class for the recipe */}</span>
+  &lt;/<span style="color:var(--accent)">header</span>&gt;
+
+  &lt;<span style="color:var(--accent)">div</span> className=<span style="color:#5a8f4a">"grid grid-cols-2 gap-pad"</span>&gt;            <span style="color:var(--ink-3)">{/* utilities for one-off layout */}</span>
+    &lt;<span style="color:var(--accent)">div</span>&gt;
+      &lt;<span style="color:var(--accent)">div</span> className=<span style="color:#5a8f4a">"text-label text-ink-3"</span>&gt;IN&lt;/<span style="color:var(--accent)">div</span>&gt;
+      &lt;<span style="color:var(--accent)">div</span> className=<span style="color:#5a8f4a">"text-stat tabular-nums"</span>&gt;1.24 Gbps&lt;/<span style="color:var(--accent)">div</span>&gt;
+    &lt;/<span style="color:var(--accent)">div</span>&gt;
+    &lt;<span style="color:var(--accent)">div</span>&gt;
+      &lt;<span style="color:var(--accent)">div</span> className=<span style="color:#5a8f4a">"text-label text-ink-3"</span>&gt;OUT&lt;/<span style="color:var(--accent)">div</span>&gt;
+      &lt;<span style="color:var(--accent)">div</span> className=<span style="color:#5a8f4a">"text-stat tabular-nums"</span>&gt;842 Mbps&lt;/<span style="color:var(--accent)">div</span>&gt;
+    &lt;/<span style="color:var(--accent)">div</span>&gt;
+  &lt;/<span style="color:var(--accent)">div</span>&gt;
+
+  &lt;<span style="color:var(--accent)">button</span> className=<span style="color:#5a8f4a">"btn btn--primary mt-4"</span>&gt;Apply&lt;/<span style="color:var(--accent)">button</span>&gt; <span style="color:var(--ink-3)">{/* component class — never reinvent */}</span>
+&lt;/<span style="color:var(--accent)">section</span>&gt;</pre>
+
+      <div style="display:flex;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)">
+        <div style="flex:1"><strong style="color:var(--ink)">Do</strong> — utilities for layout, spacing, type scales, theme-aware colors.</div>
+        <div style="flex:1"><strong style="color:var(--ink)">Don't</strong> — rebuild <code style="font-family:var(--font-mono);font-size:11px">.btn--primary</code>, <code style="font-family:var(--font-mono);font-size:11px">.pill--ok</code>, or <code style="font-family:var(--font-mono);font-size:11px">.card</code> as utility soup. They're recipes for a reason.</div>
+        <div style="flex:1"><strong style="color:var(--ink)">Never</strong> — paste hex codes (<code style="font-family:var(--font-mono);font-size:11px">bg-[#d24c1a]</code>). Use <code style="font-family:var(--font-mono);font-size:11px">bg-accent</code> so dark mode + density still work.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="primitives.jsx"></script>
+
+<script type="text/babel">
+const D = window.WardData;
+const { Icon, Sparkline, Toggle, StatTile } = window;
+
+function Pill({ children, tone = "neutral" }) {
+  const map = {
+    neutral: { bg: "var(--bg-sunken)", color: "var(--ink-2)" },
+    ok: { bg: "var(--accent-soft)", color: "var(--accent-soft-ink)" },
+    warn: { bg: "var(--warn-soft)", color: "var(--warn-soft-ink)" },
+    danger: { bg: "var(--danger-soft)", color: "var(--danger-soft-ink)" },
+  };
+  const s = map[tone];
+  return <span style={{background:s.bg, color:s.color, padding:"3px 8px", borderRadius:999, fontSize:11, fontWeight:500}}>{children}</span>;
+}
+
+function Btn({ children, variant = "secondary" }) {
+  const variants = {
+    primary: { background: "var(--accent)", color: "var(--accent-ink)", border: "1px solid color-mix(in oklab, var(--accent) 70%, #000)", fontWeight: 600 },
+    secondary: { background: "var(--bg-elev)", color: "var(--ink)", border: "1px solid var(--line)" },
+    danger: { background: "var(--danger-soft)", color: "var(--danger-soft-ink)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)" },
+    ghost: { background: "transparent", color: "var(--ink-2)", border: "1px solid transparent" },
+  };
+  return <button style={{...variants[variant], padding:"8px 14px", borderRadius:10, fontFamily:"inherit", fontSize:13, cursor:"pointer"}}>{children}</button>;
+}
+
+function CompCard({ title, code, children, span }) {
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, overflow:"hidden", gridColumn: span ? `span ${span}` : "auto"}}>
+      <div style={{padding:"22px 24px", minHeight:120, display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", background:"var(--bg-sunken)"}}>{children}</div>
+      <div style={{padding:"10px 16px", borderTop:"1px solid var(--line)", display:"flex", justifyContent:"space-between", fontSize:12}}>
+        <span style={{fontWeight:600}}>{title}</span>
+        <span className="mono" style={{color:"var(--ink-3)", fontSize:11}}>{code}</span>
+      </div>
+    </div>
+  );
+}
+
+function ComponentsPreview() {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:16}}>
+      <CompCard title="Buttons" code="<Btn />">
+        <Btn variant="primary">Add tunnel</Btn>
+        <Btn>Edit</Btn>
+        <Btn variant="danger">Delete</Btn>
+        <Btn variant="ghost">Cancel</Btn>
+      </CompCard>
+      <CompCard title="Pills" code="<Pill />">
+        <Pill tone="ok">Active</Pill>
+        <Pill tone="warn">Throttled</Pill>
+        <Pill tone="danger">Down</Pill>
+        <Pill>22d ago</Pill>
+      </CompCard>
+      <CompCard title="Toggle" code="<Toggle />">
+        <Toggle on={true} onChange={()=>{}}/>
+        <Toggle on={false} onChange={()=>{}}/>
+      </CompCard>
+      <CompCard title="Stat tile" code="<StatTile />" span={2}>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, width:"100%"}}>
+          <StatTile label="Devices" value="30" sub="2 new today" />
+          <StatTile label="Memory" value="530.8 MB" sub="of 7.9 GB" progress={7}/>
+        </div>
+      </CompCard>
+      <CompCard title="Sparkline" code="<Sparkline />">
+        <div style={{width:160, height:60}}><Sparkline values={D.sparkA.split(" ").map(Number)} color="var(--accent)"/></div>
+      </CompCard>
+      <CompCard title="Form field" code="<input>">
+        <div style={{width:"100%", maxWidth:300}}>
+          <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Friendly name</div>
+          <input defaultValue="Galaxy S21 Leilah" style={{width:"100%", padding:"10px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", color:"var(--ink)", fontFamily:"inherit", fontSize:13}}/>
+        </div>
+      </CompCard>
+      <CompCard title="List row" code="DHCP lease" span={2}>
+        <div style={{width:"100%", display:"flex", alignItems:"center", gap:14, padding:"10px 4px"}}>
+          <div style={{width:32, height:32, borderRadius:8, background:"var(--bg-sunken)", border:"1px solid var(--line)", display:"grid", placeItems:"center", color:"var(--ink-2)"}}><Icon name="phone" size={15}/></div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14, fontWeight:500}}>Galaxy S24 Leilah</div>
+            <div className="mono" style={{fontSize:11, color:"var(--ink-3)"}}>5A:14:A4:4D:40:A9</div>
+          </div>
+          <div className="mono" style={{fontSize:12, color:"var(--ink-2)"}}>192.168.100.52</div>
+          <Pill tone="ok">Active</Pill>
+          <span style={{fontSize:12, color:"var(--ink-3)", minWidth:64, textAlign:"right"}}>just now</span>
+          <button style={{background:"transparent", border:"none", color:"var(--ink-3)", padding:"4px 8px", cursor:"pointer", fontSize:13}}>Make static</button>
+          <button style={{background:"transparent", border:"none", color:"var(--danger)", padding:"4px 8px", cursor:"pointer", fontSize:13, fontWeight:500}}>Revoke</button>
+        </div>
+      </CompCard>
+      <CompCard title="Code block" code=".mono">
+        <code className="mono" style={{padding:"10px 12px", background:"var(--bg-sunken)", borderRadius:8, fontSize:12, color:"var(--ink-2)", border:"1px solid var(--line)"}}>wg_ward0 ↔ pt131.nordvpn.com:51820</code>
+      </CompCard>
+      <CompCard title="Empty state" code="—" span={3}>
+        <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:6, padding:"12px 0"}}>
+          <div style={{width:42, height:42, borderRadius:12, background:"var(--bg-sunken)", border:"1px dashed var(--line-strong)", display:"grid", placeItems:"center", color:"var(--ink-3)"}}><Icon name="tunnel" size={20}/></div>
+          <div style={{fontSize:14, fontWeight:600}}>No tunnels yet</div>
+          <div style={{fontSize:12, color:"var(--ink-3)", maxWidth:"36ch", textAlign:"center"}}>Add a WireGuard config to route specific devices through a private endpoint.</div>
+          <div style={{marginTop:8}}><Btn variant="primary">Add tunnel</Btn></div>
+        </div>
+      </CompCard>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("components-preview")).render(<ComponentsPreview/>);
+
+// Dark shell theme
+const darkIframe = document.getElementById("dark-shell");
+darkIframe.addEventListener("load", () => {
+  try {
+    const doc = darkIframe.contentDocument;
+    const root = doc.body;
+    root.dataset.theme = "dark";
+    root.dataset.density = "compact";
+  } catch (e) {}
+});
+
+// Phone mount — show 3 phone shells
+function PhoneShell({ width = 320, height = 660, theme = "light", children }) {
+  return (
+    <div data-theme={theme} style={{
+      width, height,
+      borderRadius: 46, padding: 12,
+      background: "linear-gradient(160deg, #1c2235, #0a0e1a)",
+      boxShadow: "0 24px 60px -16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset",
+    }}>
+      <div style={{
+        width: "100%", height: "100%", borderRadius: 36, overflow: "hidden",
+        position: "relative", background: "var(--bg)",
+      }}>
+        <div style={{position:"absolute", top:8, left:"50%", transform:"translateX(-50%)", width:90, height:26, background:"#000", borderRadius:999, zIndex:10}}/>
+        <div style={{position:"absolute", top:0, left:0, right:0, height:42, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 22px", fontFamily:"var(--font-sans)", fontSize:12, fontWeight:600, color:"var(--ink)", zIndex:11}}>
+          <span>9:41</span>
+          <span style={{fontSize:11, opacity:0.7}}>●●●●</span>
+        </div>
+        <div style={{paddingTop:42, height:"100%", boxSizing:"border-box"}}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PhoneHome() {
+  return (
+    <div style={{padding:"10px 14px 0", display:"flex", flexDirection:"column", gap:10, height:"100%", background:"var(--bg)", color:"var(--ink)", overflow:"hidden"}}>
+      <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <div style={{width:22,height:22,borderRadius:6, background:"var(--accent)", display:"grid", placeItems:"center"}}><Icon name="shield" size={11}/></div>
+        <div style={{fontSize:15, fontWeight:600}}>Wardnet</div>
+      </div>
+      <div style={{padding:14, borderRadius:14, background:"linear-gradient(135deg, color-mix(in oklab, var(--accent) 18%, var(--bg-card)), var(--bg-card))", border:"1px solid var(--line)"}}>
+        <Pill tone="ok">● All systems normal</Pill>
+        <div style={{fontSize:18, fontWeight:600, marginTop:8, letterSpacing:"-0.02em"}}>Home network</div>
+        <div style={{fontSize:11, color:"var(--ink-3)", marginTop:2}}>30 devices · 2 active tunnels</div>
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+        <div style={{padding:10, borderRadius:10, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+          <div style={{fontSize:9, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>Devices</div>
+          <div style={{fontSize:20, fontWeight:600, letterSpacing:"-0.025em"}}>30</div>
+        </div>
+        <div style={{padding:10, borderRadius:10, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+          <div style={{fontSize:9, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>Tunnels</div>
+          <div style={{fontSize:20, fontWeight:600, letterSpacing:"-0.025em"}}>2/3</div>
+        </div>
+      </div>
+      <div style={{flex:1}}/>
+    </div>
+  );
+}
+
+function PhoneTunnel() {
+  return (
+    <div style={{padding:"10px 14px 0", display:"flex", flexDirection:"column", gap:10, height:"100%", background:"var(--bg)", color:"var(--ink)", overflow:"hidden"}}>
+      <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <div style={{width:22,height:22,borderRadius:6, background:"var(--bg-card)", border:"1px solid var(--line)", display:"grid", placeItems:"center"}}>‹</div>
+        <div style={{fontSize:14, fontWeight:600}}>Portugal</div>
+        <Pill tone="ok">Active</Pill>
+      </div>
+      <div style={{padding:12, borderRadius:12, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", marginBottom:4}}>Throughput · 24h</div>
+        <div style={{height:80}}><Sparkline values={D.sparkB.split(" ").map(Number)} color="var(--accent)"/></div>
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+        <div style={{padding:10, borderRadius:10, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+          <div style={{fontSize:9, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>↓ Down</div>
+          <div style={{fontSize:18, fontWeight:600}}>282 MB</div>
+        </div>
+        <div style={{padding:10, borderRadius:10, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+          <div style={{fontSize:9, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>↑ Up</div>
+          <div style={{fontSize:18, fontWeight:600}}>32.5 MB</div>
+        </div>
+      </div>
+      <div style={{flex:1}}/>
+    </div>
+  );
+}
+
+function PhoneFilter() {
+  return (
+    <div style={{padding:"10px 14px 0", display:"flex", flexDirection:"column", gap:8, height:"100%", background:"var(--bg)", color:"var(--ink)", overflow:"hidden"}}>
+      <div style={{fontSize:18, fontWeight:600, letterSpacing:"-0.02em"}}>Filtering</div>
+      <div style={{padding:12, borderRadius:12, background:"linear-gradient(135deg, color-mix(in oklab, var(--accent) 18%, var(--bg-card)), var(--bg-card))", border:"1px solid var(--line)"}}>
+        <Pill tone="ok">● 3 of 6 active</Pill>
+        <div style={{fontSize:22, fontWeight:600, marginTop:6}}>4,747 blocked</div>
+        <div style={{fontSize:10, color:"var(--ink-3)"}}>0.4% of 1.25M today</div>
+      </div>
+      {[{n:"Advertising",on:true},{n:"Malware",on:true},{n:"Trackers",on:true},{n:"Adult",on:false}].map(c => (
+        <div key={c.n} style={{display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:10, background:"var(--bg-card)", border:"1px solid var(--line)"}}>
+          <div style={{flex:1, fontSize:12}}>{c.n}</div>
+          <Toggle on={c.on} onChange={()=>{}}/>
+        </div>
+      ))}
+      <div style={{flex:1}}/>
+    </div>
+  );
+}
+
+function Phones() {
+  return (
+    <div className="pf-stack" style={{justifyContent:"center"}}>
+      <div>
+        <PhoneShell theme="light"><PhoneHome/></PhoneShell>
+        <div className="label">light · home</div>
+      </div>
+      <div>
+        <PhoneShell theme="dark"><PhoneTunnel/></PhoneShell>
+        <div className="label">dark · tunnel detail</div>
+      </div>
+      <div>
+        <PhoneShell theme="light"><PhoneFilter/></PhoneShell>
+        <div className="label">light · DNS filtering</div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("phones-mount")).render(<Phones/>);
+
+// ───────── Forms preview ─────────
+function FormsCard({ title, mode, onToggle, children, footer }) {
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, overflow:"hidden"}}>
+      <div style={{display:"flex", alignItems:"center", padding:"16px 20px", borderBottom:"1px solid var(--line)"}}>
+        <h3 style={{margin:0, fontSize:16, fontWeight:600, letterSpacing:"-0.015em"}}>{title}</h3>
+        <span style={{marginLeft:"auto"}}>
+          {mode === "read"
+            ? <button onClick={onToggle} style={{background:"var(--bg-elev)", border:"1px solid var(--line)", color:"var(--ink)", padding:"5px 12px", borderRadius:8, fontSize:12, fontFamily:"inherit", cursor:"pointer"}}>Edit</button>
+            : <span style={{fontSize:11, color:"var(--accent-soft-ink)", fontFamily:"var(--font-mono)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>● Editing</span>}
+        </span>
+      </div>
+      <div style={{padding:"20px"}}>{children}</div>
+      {footer && <div style={{display:"flex", gap:8, justifyContent:"flex-end", padding:"12px 20px", borderTop:"1px solid var(--line)", background:"var(--bg-sunken)"}}>{footer}</div>}
+    </div>
+  );
+}
+function FieldRead({ label, value, mono }) {
+  return (
+    <div>
+      <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:4}}>{label}</div>
+      <div className={mono ? "mono" : ""} style={{fontSize:14, color:"var(--ink)"}}>{value}</div>
+    </div>
+  );
+}
+function FieldInput({ label, value, type="text" }) {
+  return (
+    <div>
+      <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:4}}>{label}</div>
+      {type === "select"
+        ? <div style={{padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", alignItems:"center", justifyContent:"space-between"}}><span>{value}</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+        : <input defaultValue={value} style={{width:"100%", padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", color:"var(--ink)", fontFamily:"inherit", fontSize:13}}/>}
+    </div>
+  );
+}
+function FormsPreview() {
+  const [mode, setMode] = React.useState("edit");
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:16}}>
+      <FormsCard title="Identity" mode="read" onToggle={()=>{}}>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18}}>
+          <FieldRead label="MAC" value="BA:D3:47:CA:D4:73" mono/>
+          <FieldRead label="Hostname" value="Mwende-s-S21" mono/>
+          <FieldRead label="First seen" value="23d ago"/>
+          <FieldRead label="Last seen" value="just now"/>
+        </div>
+      </FormsCard>
+      <FormsCard
+        title="Settings"
+        mode={mode}
+        onToggle={() => setMode(m => m === "read" ? "edit" : "read")}
+        footer={mode === "edit" && <>
+          <button onClick={() => setMode("read")} style={{background:"transparent", border:"1px solid transparent", color:"var(--ink-2)", padding:"7px 14px", borderRadius:8, fontSize:13, fontFamily:"inherit", cursor:"pointer"}}>Cancel</button>
+          <button onClick={() => setMode("read")} style={{background:"var(--accent)", color:"var(--accent-ink)", border:"1px solid color-mix(in oklab, var(--accent) 70%, #000)", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer"}}>Save</button>
+        </>}
+      >
+        {mode === "read" ? (
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18}}>
+            <FieldRead label="Friendly name" value="Galaxy S21 Leilah"/>
+            <FieldRead label="Type" value="Phone"/>
+            <FieldRead label="Routing" value="Direct (no VPN)"/>
+            <FieldRead label="Admin lock" value="Unlocked"/>
+          </div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18}}>
+            <FieldInput label="Friendly name" value="Galaxy S21 Leilah"/>
+            <FieldInput label="Type" value="Phone" type="select"/>
+            <FieldInput label="Routing" value="Direct (no VPN)" type="select"/>
+            <div>
+              <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:4}}>Admin lock</div>
+              <div style={{display:"flex", alignItems:"center", gap:10, padding:"9px 0"}}><Toggle on={false} onChange={()=>{}}/><span style={{fontSize:13, color:"var(--ink-2)"}}>Prevent user routing changes</span></div>
+            </div>
+          </div>
+        )}
+      </FormsCard>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("forms-preview")).render(<FormsPreview/>);
+
+function ControlsPreview() {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12}}>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Text input</div>
+        <input defaultValue="Galaxy S21 Leilah" style={{width:"100%", padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", color:"var(--ink)", fontFamily:"inherit", fontSize:13}}/>
+      </div>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Select</div>
+        <div style={{padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", justifyContent:"space-between"}}><span>Phone</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+      </div>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Toggle</div>
+        <div style={{display:"flex", alignItems:"center", gap:10, padding:"9px 0"}}><Toggle on={true} onChange={()=>{}}/><span style={{fontSize:13}}>Prevent user routing changes</span></div>
+      </div>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Textarea (mono)</div>
+        <textarea readOnly defaultValue={"[Interface]\nPrivateKey = …\n[Peer]\nEndpoint = pt131.nordvpn.com:51820"} className="mono" style={{width:"100%", padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-sunken)", color:"var(--ink-2)", fontFamily:"var(--font-mono)", fontSize:11, minHeight:80, resize:"none"}}/>
+      </div>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Pill group</div>
+        <div style={{display:"inline-flex", padding:3, background:"var(--bg-sunken)", borderRadius:8}}>
+          {["1h","6h","24h","48h","12mo"].map((p,i) => (
+            <span key={p} style={{padding:"5px 10px", fontSize:12, borderRadius:6, fontWeight:i===2?600:500, background:i===2?"var(--bg-card)":"transparent", color:i===2?"var(--ink)":"var(--ink-3)", boxShadow:i===2?"var(--shadow-card)":"none"}}>{p}</span>
+          ))}
+        </div>
+      </div>
+      <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:12, padding:16}}>
+        <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Validation error</div>
+        <input defaultValue="not.an-ip" style={{width:"100%", padding:"9px 12px", borderRadius:8, border:"1px solid var(--danger)", background:"var(--bg-elev)", color:"var(--ink)", fontFamily:"inherit", fontSize:13}}/>
+        <div style={{fontSize:12, color:"var(--danger-soft-ink)", marginTop:4}}>Must be a valid IPv4 address.</div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("controls-preview")).render(<ControlsPreview/>);
+
+// ───────── Charts preview ─────────
+function Window({ active="24h" }) {
+  return (
+    <div style={{display:"inline-flex", padding:3, background:"var(--bg-sunken)", borderRadius:8}}>
+      {["1h","6h","24h","48h","12mo"].map(p => (
+        <span key={p} style={{padding:"4px 10px", fontSize:11, borderRadius:6, fontWeight:p===active?600:500, background:p===active?"var(--bg-card)":"transparent", color:p===active?"var(--ink)":"var(--ink-3)", boxShadow:p===active?"var(--shadow-card)":"none"}}>{p}</span>
+      ))}
+    </div>
+  );
+}
+function ThroughputChart() {
+  const W=520, H=180, P=32;
+  const down = "8 9 12 11 10 14 18 16 12 13 17 22 19 20 18 22 24 21 19 18 16 14 12 11 12 14 13 18 22 26 30 28 22 18 14".split(" ").map(Number);
+  const up = "2 3 2 3 4 3 5 4 3 4 5 6 5 6 5 6 7 6 5 4 3 3 4 5 4 3 4 5 6 7 8 6 5 4 3".split(" ").map(Number);
+  const max = 35;
+  const path = (vals) => vals.map((v,i) => `${i===0?"M":"L"} ${P + (W-P*2) * i/(vals.length-1)} ${H-P - (v/max)*(H-P*2)}`).join(" ");
+  const area = (vals) => `${path(vals)} L ${W-P} ${H-P} L ${P} ${H-P} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%", height:200, display:"block"}}>
+      {[0,1,2,3].map(i => <line key={i} x1={P} x2={W-P} y1={P + (H-P*2)*i/3} y2={P + (H-P*2)*i/3} stroke="var(--line)" strokeDasharray="2 4"/>)}
+      {[0,1,2,3].map(i => <text key={i} x={P-6} y={P + (H-P*2)*i/3 + 3} fontSize="9" textAnchor="end" fontFamily="var(--font-mono)" fill="var(--ink-3)">{Math.round(max - (max*i/3))}</text>)}
+      <path d={area(down)} fill="var(--accent)" opacity="0.12"/>
+      <path d={path(down)} fill="none" stroke="var(--accent)" strokeWidth="1.8"/>
+      <path d={path(up)} fill="none" stroke="var(--info)" strokeWidth="1.8"/>
+      <text x={P} y={H-10} fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-3)">13:29</text>
+      <text x={W-P} y={H-10} fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-3)" textAnchor="end">12:46</text>
+    </svg>
+  );
+}
+function Donut({ pct=0.4, label="Blocked" }) {
+  const r=42, c=2*Math.PI*r;
+  return (
+    <div style={{position:"relative", width:120, height:120}}>
+      <svg viewBox="0 0 120 120" width="120" height="120">
+        <circle cx="60" cy="60" r={r} fill="none" stroke="var(--line)" strokeWidth="10"/>
+        <circle cx="60" cy="60" r={r} fill="none" stroke="var(--accent)" strokeWidth="10" strokeDasharray={`${c*pct} ${c}`} strokeDashoffset={c*0.25} strokeLinecap="round" transform="rotate(-90 60 60)"/>
+      </svg>
+      <div style={{position:"absolute", inset:0, display:"grid", placeItems:"center", flexDirection:"column"}}>
+        <div style={{fontSize:22, fontWeight:600, letterSpacing:"-0.025em", textAlign:"center"}}>{Math.round(pct*100)}%</div>
+        <div style={{fontSize:10, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", textAlign:"center", marginTop:-4}}>{label}</div>
+      </div>
+    </div>
+  );
+}
+function StackedBars() {
+  const rows = [
+    {n:"doubleclick.net", v:1240, t:"ad"},
+    {n:"google-analytics.com", v:920, t:"ad"},
+    {n:"facebook.net", v:740, t:"ad"},
+    {n:"trackingtag.com", v:512, t:"track"},
+    {n:"telemetry.example", v:380, t:"track"},
+  ];
+  const max = 1240;
+  const tone = { ad: "var(--accent)", track: "var(--info)" };
+  return (
+    <div style={{display:"flex", flexDirection:"column", gap:8}}>
+      {rows.map(r => (
+        <div key={r.n} style={{display:"grid", gridTemplateColumns:"180px 1fr 60px", gap:12, alignItems:"center"}}>
+          <span className="mono" style={{fontSize:11, color:"var(--ink-2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{r.n}</span>
+          <div style={{height:8, borderRadius:4, background:"var(--bg-sunken)", overflow:"hidden"}}>
+            <div style={{height:"100%", width:`${(r.v/max)*100}%`, background:tone[r.t], borderRadius:4}}/>
+          </div>
+          <span className="mono" style={{fontSize:11, color:"var(--ink-3)", textAlign:"right"}}>{r.v.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function ChartCard({ title, sub, right, children, code }) {
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, padding:20}}>
+      <div style={{display:"flex", alignItems:"flex-start", marginBottom:14}}>
+        <div>
+          <h3 style={{margin:0, fontSize:14, fontWeight:600, letterSpacing:"-0.01em"}}>{title}</h3>
+          {sub && <div style={{fontSize:11, color:"var(--ink-3)", marginTop:2, fontFamily:"var(--font-mono)"}}>{sub}</div>}
+        </div>
+        <div style={{marginLeft:"auto"}}>{right}</div>
+      </div>
+      {children}
+      {code && <div style={{marginTop:12, paddingTop:10, borderTop:"1px solid var(--line)", fontFamily:"var(--font-mono)", fontSize:10, color:"var(--ink-3)"}}>{code}</div>}
+    </div>
+  );
+}
+function ChartsPreview() {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:16}}>
+      <ChartCard
+        title="Throughput"
+        sub="Window total: ↓ 3.1 GB · ↑ 186.7 MB"
+        right={<Window active="24h"/>}
+        code="line + soft-fill area · two series max · accent + info"
+      >
+        <ThroughputChart/>
+        <div style={{display:"flex", justifyContent:"center", gap:18, marginTop:8, fontFamily:"var(--font-mono)", fontSize:11, color:"var(--ink-3)"}}>
+          <span><span style={{display:"inline-block", width:8, height:8, borderRadius:99, background:"var(--accent)", marginRight:6, transform:"translateY(-1px)"}}/>Download</span>
+          <span><span style={{display:"inline-block", width:8, height:8, borderRadius:99, background:"var(--info)", marginRight:6, transform:"translateY(-1px)"}}/>Upload</span>
+        </div>
+      </ChartCard>
+      <ChartCard title="Blocked share" sub="24h" code="donut · ≤4 categories · headline number">
+        <div style={{display:"grid", placeItems:"center", padding:"12px 0"}}><Donut pct={0.04} label="Blocked"/></div>
+        <div style={{fontSize:12, color:"var(--ink-3)", textAlign:"center"}}>4,747 of 1.25M queries</div>
+      </ChartCard>
+      <ChartCard title="Top blocked domains" sub="24h · top 5" right={<Window active="24h"/>} code="stacked horizontal bar · ranked top-N">
+        <StackedBars/>
+      </ChartCard>
+      <ChartCard title="DNS queries" sub="Live · last 60s" code="sparkline · no axes · stat-tile companion">
+        <div style={{height:80}}><Sparkline values={D.sparkA.split(" ").map(Number)} color="var(--accent)"/></div>
+        <div style={{fontSize:22, fontWeight:600, letterSpacing:"-0.025em", marginTop:6}}>1,252,914</div>
+        <div style={{fontSize:11, color:"var(--ink-3)"}}>16 clients · 1,800 domains</div>
+      </ChartCard>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("charts-preview")).render(<ChartsPreview/>);
+
+// ───────── Tabs preview (underline style) ─────────
+function UnderlineTabs({ tabs, active, onChange }) {
+  return (
+    <div style={{display:"flex", gap:24, borderBottom:"1px solid var(--line)", paddingTop:4}}>
+      {tabs.map(t => {
+        const on = t.id === active;
+        return (
+          <button key={t.id} onClick={() => onChange(t.id)}
+            style={{appearance:"none", border:"none", background:"transparent", padding:"10px 0", cursor:"pointer",
+                    fontFamily:"inherit", fontSize:13.5, fontWeight: on ? 600 : 500, color: on ? "var(--ink)" : "var(--ink-3)",
+                    borderBottom: on ? "2px solid var(--ink)" : "2px solid transparent", marginBottom: -1, letterSpacing:"-0.005em",
+                    display:"flex", alignItems:"center", gap:8}}>
+            {t.label}
+            {t.count != null && <span className="mono" style={{fontSize:11, color: on ? "var(--ink-2)" : "var(--ink-4)"}}>({t.count})</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+function TabsPreview() {
+  const [a, setA] = React.useState("managed");
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, padding:"22px 24px"}}>
+      <div style={{fontSize:11, color:"var(--ink-3)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:6}}>Devices</div>
+      <h2 style={{margin:"0 0 16px", fontSize:26, fontWeight:600, letterSpacing:"-0.025em"}}>Devices</h2>
+      <UnderlineTabs
+        tabs={[{id:"managed",label:"Managed",count:28},{id:"unmanaged",label:"Unmanaged",count:12},{id:"recent",label:"Recently seen",count:4}]}
+        active={a} onChange={setA}
+      />
+      <div style={{padding:"20px 0 4px", fontSize:13, color:"var(--ink-3)"}}>
+        {a === "managed" ? "28 devices with friendly names, routing, and DHCP reservations." :
+         a === "unmanaged" ? "12 devices Wardnet has seen but you haven't named yet." :
+         "4 devices first seen in the last 24 hours."}
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("tabs-preview")).render(<TabsPreview/>);
+
+// ───────── Solo chart preview ─────────
+function genSeries(seed, n=120) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const base = 220 + 280 * Math.abs(Math.sin(i / 9 + seed));
+    const spike = (i % 23 === 7) ? 720 : (i % 31 === 0) ? 480 : 0;
+    out.push({ d: Math.max(8, Math.round(base + spike + (i % 5) * 24)), u: Math.max(2, Math.round(base/6 + (spike?spike/8:0))) });
+  }
+  return out;
+}
+function SoloLine({ pts, w=820, h=260, brush=true, hover=true, hoverIdx=58 }) {
+  const P = { l: 56, r: 16, t: 16, b: brush ? 64 : 28 };
+  const max = Math.max(1, ...pts.map(p => Math.max(p.d, p.u)));
+  const xs = (i) => P.l + (i / (pts.length - 1)) * (w - P.l - P.r);
+  const ys = (v) => h - P.b - (v/max) * (h - P.t - P.b);
+  const path = (k) => pts.map((p,i) => `${i?"L":"M"} ${xs(i).toFixed(1)} ${ys(p[k]).toFixed(1)}`).join(" ");
+  const area = (k) => `${path(k)} L ${xs(pts.length-1)} ${h-P.b} L ${P.l} ${h-P.b} Z`;
+  const ticks = [0,0.25,0.5,0.75,1].map(f => Math.round(max*(1-f)));
+  const fmt = (v) => v >= 1024 ? `${(v/1024).toFixed(1)} MB/s` : `${v} KB/s`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%", height:h, display:"block"}}>
+      {ticks.map((v,i) => {
+        const y = P.t + (h - P.t - P.b) * i/4;
+        return (<g key={i}>
+          <line x1={P.l} x2={w-P.r} y1={y} y2={y} stroke="var(--line)" strokeDasharray={i===4?"0":"2 4"} />
+          <text x={P.l-8} y={y+3} fontSize="10" textAnchor="end" fontFamily="var(--font-mono)" fill="var(--ink-4)">{fmt(v)}</text>
+        </g>);
+      })}
+      <path d={area("d")} fill="color-mix(in oklab, var(--accent) 14%, transparent)"/>
+      <path d={area("u")} fill="color-mix(in oklab, var(--info) 10%, transparent)"/>
+      <path d={path("d")} fill="none" stroke="var(--accent)" strokeWidth="1.6"/>
+      <path d={path("u")} fill="none" stroke="var(--info)" strokeWidth="1.6"/>
+      {/* x labels */}
+      {[0,0.25,0.5,0.75,1].map((f,i) => {
+        const lbls = ["−24h","−18h","−12h","−6h","now"];
+        return <text key={i} x={xs(Math.floor(f*(pts.length-1)))} y={h-P.b+16} fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-4)" textAnchor="middle">{lbls[i]}</text>;
+      })}
+      {/* hover */}
+      {hover && (() => {
+        const x = xs(hoverIdx), p = pts[hoverIdx];
+        return (<g>
+          <line x1={x} x2={x} y1={P.t} y2={h-P.b} stroke="var(--ink-4)" strokeWidth="1"/>
+          <circle cx={x} cy={ys(p.d)} r="3.5" fill="var(--accent)" stroke="var(--bg-card)" strokeWidth="1.5"/>
+          <circle cx={x} cy={ys(p.u)} r="3.5" fill="var(--info)" stroke="var(--bg-card)" strokeWidth="1.5"/>
+          <g transform={`translate(${Math.min(x+10, w-160)}, ${P.t+8})`}>
+            <rect width="148" height="58" rx="8" fill="var(--bg-card)" stroke="var(--line)" filter="drop-shadow(0 8px 16px rgba(15,20,40,0.12))"/>
+            <text x="12" y="18" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{`05/08 14:${String(20 + hoverIdx % 40).padStart(2,"0")}`}</text>
+            <circle cx="14" cy="32" r="3" fill="var(--accent)"/><text x="22" y="36" fontSize="11" fill="var(--ink)" fontWeight="500">Download</text>
+            <text x="138" y="36" fontSize="11" fontFamily="var(--font-mono)" fill="var(--ink)" textAnchor="end" fontWeight="600">{fmt(p.d)}</text>
+            <circle cx="14" cy="48" r="3" fill="var(--info)"/><text x="22" y="52" fontSize="11" fill="var(--ink)" fontWeight="500">Upload</text>
+            <text x="138" y="52" fontSize="11" fontFamily="var(--font-mono)" fill="var(--ink)" textAnchor="end" fontWeight="600">{fmt(p.u)}</text>
+          </g>
+        </g>);
+      })()}
+      {/* brush */}
+      {brush && (<g transform={`translate(0, ${h-36})`}>
+        <rect x={P.l} y="6" width={w-P.l-P.r} height="22" fill="var(--bg-sunken)" stroke="var(--line)" rx="4"/>
+        <path d={pts.map((p,i)=>`${i?"L":"M"} ${xs(i)} ${28 - (p.d/max)*18}`).join(" ")} fill="none" stroke="var(--accent)" strokeWidth="1" opacity="0.6"/>
+        <rect x={P.l + (w-P.l-P.r)*0.42} y="4" width={(w-P.l-P.r)*0.36} height="26" fill="color-mix(in oklab, var(--accent) 22%, transparent)" stroke="var(--accent)"/>
+        <rect x={P.l + (w-P.l-P.r)*0.42 - 2} y="2" width="4" height="30" fill="var(--accent)" rx="1"/>
+        <rect x={P.l + (w-P.l-P.r)*0.78 - 2} y="2" width="4" height="30" fill="var(--accent)" rx="1"/>
+      </g>)}
+    </svg>
+  );
+}
+function SoloChartCard({ title, sub, win, w=820, children, footer }) {
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, padding:"22px 24px"}}>
+      <div style={{display:"flex", alignItems:"flex-start", marginBottom:14}}>
+        <div>
+          <h3 style={{margin:0, fontSize:14, fontWeight:600, letterSpacing:"-0.01em"}}>{title}</h3>
+          {sub && <div style={{fontSize:11, color:"var(--ink-3)", marginTop:2, fontFamily:"var(--font-mono)"}}>{sub}</div>}
+        </div>
+        {win && <div style={{marginLeft:"auto"}}><Window active={win}/></div>}
+      </div>
+      {children}
+      {footer && <div style={{display:"flex", justifyContent:"center", gap:18, marginTop:8, fontFamily:"var(--font-mono)", fontSize:11, color:"var(--ink-3)"}}>{footer}</div>}
+    </div>
+  );
+}
+function SoloChartPreview() {
+  return (
+    <SoloChartCard
+      title="Throughput"
+      sub="Window total: ↓ 3.1 GB · ↑ 186.7 MB"
+      win="24h"
+      footer={<>
+        <span><span style={{display:"inline-block", width:8, height:8, borderRadius:99, background:"var(--accent)", marginRight:6, transform:"translateY(-1px)"}}/>Download</span>
+        <span><span style={{display:"inline-block", width:8, height:8, borderRadius:99, background:"var(--info)", marginRight:6, transform:"translateY(-1px)"}}/>Upload</span>
+      </>}
+    >
+      <SoloLine pts={genSeries(2.1)} brush={true} hover={true} hoverIdx={58}/>
+    </SoloChartCard>
+  );
+}
+ReactDOM.createRoot(document.getElementById("solo-chart-preview")).render(<SoloChartPreview/>);
+
+function StateChart({ state }) {
+  const w=420, h=180, P={l:48,r:12,t:12,b:24};
+  if (state === "loading") {
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%", height:h}}>
+        {[0,1,2,3].map(i => <line key={i} x1={P.l} x2={w-P.r} y1={P.t+(h-P.t-P.b)*i/3} y2={P.t+(h-P.t-P.b)*i/3} stroke="var(--line)" strokeDasharray="2 4"/>)}
+        <defs>
+          <linearGradient id="shimmer" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="var(--bg-sunken)"/>
+            <stop offset="50%" stopColor="var(--line)"/>
+            <stop offset="100%" stopColor="var(--bg-sunken)"/>
+            <animate attributeName="x1" from="-1" to="2" dur="1.6s" repeatCount="indefinite"/>
+            <animate attributeName="x2" from="0" to="3" dur="1.6s" repeatCount="indefinite"/>
+          </linearGradient>
+        </defs>
+        <rect x={P.l} y={P.t+30} width={w-P.l-P.r} height="6" rx="3" fill="url(#shimmer)" opacity="0.6"/>
+        <rect x={P.l} y={P.t+72} width={w-P.l-P.r} height="6" rx="3" fill="url(#shimmer)" opacity="0.6"/>
+        <rect x={P.l} y={P.t+114} width={w-P.l-P.r} height="6" rx="3" fill="url(#shimmer)" opacity="0.6"/>
+      </svg>
+    );
+  }
+  if (state === "empty") {
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%", height:h}}>
+        {[0,1,2,3].map(i => <line key={i} x1={P.l} x2={w-P.r} y1={P.t+(h-P.t-P.b)*i/3} y2={P.t+(h-P.t-P.b)*i/3} stroke="var(--line)" strokeDasharray="2 4"/>)}
+        <text x={w/2} y={h/2} fontSize="12" textAnchor="middle" fontFamily="var(--font-mono)" fill="var(--ink-4)">Collecting…</text>
+      </svg>
+    );
+  }
+  // brushed
+  const pts = genSeries(0.8, 60).slice(20, 44);
+  const max = Math.max(...pts.map(p => Math.max(p.d, p.u)));
+  const xs = (i) => P.l + (i / (pts.length - 1)) * (w-P.l-P.r);
+  const ys = (v) => h - P.b - (v/max)*(h-P.t-P.b);
+  const path = (k) => pts.map((p,i) => `${i?"L":"M"} ${xs(i).toFixed(1)} ${ys(p[k]).toFixed(1)}`).join(" ");
+  const area = (k) => `${path(k)} L ${xs(pts.length-1)} ${h-P.b} L ${P.l} ${h-P.b} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%", height:h}}>
+      {[0,1,2,3].map(i => <line key={i} x1={P.l} x2={w-P.r} y1={P.t+(h-P.t-P.b)*i/3} y2={P.t+(h-P.t-P.b)*i/3} stroke="var(--line)" strokeDasharray="2 4"/>)}
+      <path d={area("d")} fill="color-mix(in oklab, var(--accent) 14%, transparent)"/>
+      <path d={path("d")} fill="none" stroke="var(--accent)" strokeWidth="1.6"/>
+      <path d={path("u")} fill="none" stroke="var(--info)" strokeWidth="1.6"/>
+      <text x={P.l} y={h-6} fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-4)">−4h 12m</text>
+      <text x={w-P.r} y={h-6} fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-4)" textAnchor="end">−1h 4m</text>
+    </svg>
+  );
+}
+function StatesPreview() {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16}}>
+      {[
+        {k:"loading", title:"Loading", sub:"First fetch · skeleton", desc:"Show on first paint, before any sample lands. Animate horizontally — never spin."},
+        {k:"empty", title:"Empty", sub:"No data yet", desc:"New device, fresh tunnel, first hour. Render the grid + a centered 'Collecting…' label. Never a flat-zero line."},
+        {k:"brushed", title:"Brushed", sub:"−4h 12m → −1h 4m · 3h 8m slice", desc:"User dragged the brush handles. Window pill stays at 24h; only the plot zooms. Tooltip timestamps reflect the slice."},
+      ].map(s => (
+        <SoloChartCard key={s.k} title={s.title} sub={s.sub}>
+          <StateChart state={s.k}/>
+          <div style={{fontSize:12, color:"var(--ink-3)", marginTop:10, lineHeight:1.5}}>{s.desc}</div>
+        </SoloChartCard>
+      ))}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("solo-chart-states")).render(<StatesPreview/>);
+
+// ───────── Edit modes preview ─────────
+function PatternACard() {
+  const [mode, setMode] = React.useState("edit");
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, overflow:"hidden"}}>
+      <div style={{display:"flex", alignItems:"center", padding:"16px 20px", borderBottom:"1px solid var(--line)"}}>
+        <div>
+          <div style={{fontSize:11, color:"var(--accent-soft-ink)", fontFamily:"var(--font-mono)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:2}}>Pattern A · Card edit</div>
+          <h3 style={{margin:0, fontSize:16, fontWeight:600, letterSpacing:"-0.015em"}}>Settings</h3>
+        </div>
+        <span style={{marginLeft:"auto", fontSize:11, color:"var(--accent-soft-ink)", fontFamily:"var(--font-mono)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500}}>● Editing</span>
+      </div>
+      <div style={{padding:20, display:"grid", gridTemplateColumns:"1fr 1fr", rowGap:18, columnGap:24}}>
+        <div>
+          <div style={{fontSize:13, fontWeight:500, color:"var(--ink)"}}>Friendly name</div>
+          <div style={{fontSize:12, color:"var(--ink-3)", margin:"2px 0 8px"}}>Shown across the admin UI.</div>
+          <input defaultValue="Galaxy S21 Leilah" style={{width:"100%", padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", color:"var(--ink)", fontFamily:"inherit", fontSize:13}}/>
+        </div>
+        <div>
+          <div style={{fontSize:13, fontWeight:500, color:"var(--ink)"}}>Device type</div>
+          <div style={{fontSize:12, color:"var(--ink-3)", margin:"2px 0 8px"}}>Picks the icon and groups it on Devices.</div>
+          <div style={{padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", justifyContent:"space-between"}}><span>Phone</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+        </div>
+        <div style={{gridColumn:"1 / -1"}}>
+          <div style={{fontSize:13, fontWeight:500, color:"var(--ink)"}}>Routing</div>
+          <div style={{fontSize:12, color:"var(--ink-3)", margin:"2px 0 8px"}}>Where this device's traffic exits the network.</div>
+          <div style={{padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", justifyContent:"space-between"}}><span>Direct (no VPN)</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+        </div>
+      </div>
+      <div style={{display:"flex", gap:8, justifyContent:"flex-end", padding:"12px 20px", borderTop:"1px solid var(--line)", background:"var(--bg-sunken)"}}>
+        <button style={{background:"transparent", border:"1px solid transparent", color:"var(--ink-2)", padding:"7px 14px", borderRadius:8, fontSize:13, fontFamily:"inherit", cursor:"pointer"}}>Cancel</button>
+        <button style={{background:"var(--accent)", color:"var(--accent-ink)", border:"1px solid color-mix(in oklab, var(--accent) 70%, #000)", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer"}}>Save</button>
+      </div>
+    </div>
+  );
+}
+function PatternBCard() {
+  const [filter, setFilter] = React.useState(true);
+  const [profile, setProfile] = React.useState("Ad Blocking");
+  const [auto, setAuto] = React.useState(false);
+  const Row = ({label, desc, control}) => (
+    <div style={{display:"grid", gridTemplateColumns:"1fr auto", alignItems:"center", gap:24, padding:"16px 0", borderBottom:"1px solid var(--line)"}}>
+      <div>
+        <div style={{fontSize:13.5, fontWeight:500, color:"var(--ink)"}}>{label}</div>
+        <div style={{fontSize:12, color:"var(--ink-3)", marginTop:2, maxWidth:"58ch"}}>{desc}</div>
+      </div>
+      <div>{control}</div>
+    </div>
+  );
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, overflow:"hidden"}}>
+      <div style={{display:"flex", alignItems:"center", padding:"16px 20px", borderBottom:"1px solid var(--line)"}}>
+        <div>
+          <div style={{fontSize:11, color:"var(--accent-soft-ink)", fontFamily:"var(--font-mono)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:500, marginBottom:2}}>Pattern B · Auto-save</div>
+          <h3 style={{margin:0, fontSize:16, fontWeight:600, letterSpacing:"-0.015em"}}>DNS filtering</h3>
+        </div>
+      </div>
+      <div style={{padding:"4px 20px 20px"}}>
+        <Row label="DNS filtering enabled" desc="Emergency stop. When off, every DNS query bypasses filtering regardless of per-device settings." control={<Toggle on={filter} onChange={setFilter}/>}/>
+        <Row label="Default profile" desc='Applied to devices that have no explicit profile assignment. Choose "None" to leave them unfiltered.' control={
+          <div style={{padding:"7px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", gap:8, alignItems:"center", minWidth:180}}><span style={{flex:1}}>{profile}</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+        }/>
+        <div style={{display:"grid", gridTemplateColumns:"1fr auto", alignItems:"center", gap:24, padding:"16px 0"}}>
+          <div>
+            <div style={{fontSize:13.5, fontWeight:500, color:"var(--ink)"}}>Auto-install updates</div>
+            <div style={{fontSize:12, color:"var(--ink-3)", marginTop:2}}>Reboot during the 03:00–04:00 window when an update lands.</div>
+          </div>
+          <Toggle on={auto} onChange={setAuto}/>
+        </div>
+      </div>
+      <div style={{padding:"10px 20px", borderTop:"1px solid var(--line)", background:"var(--bg-sunken)", fontSize:12, color:"var(--ink-3)", fontFamily:"var(--font-mono)"}}>● No Save button — changes commit on toggle</div>
+    </div>
+  );
+}
+function EditModesPreview() {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, position:"relative"}}>
+      <PatternACard/>
+      <PatternBCard/>
+      <div style={{position:"absolute", bottom:-8, right:-8, background:"var(--bg-card)", border:"1px solid var(--line)", padding:"10px 14px", borderRadius:10, boxShadow:"var(--shadow-pop)", fontSize:13, display:"flex", alignItems:"center", gap:10}}>
+        <span style={{width:8, height:8, borderRadius:99, background:"var(--accent)"}}/>
+        <span>DNS filtering enabled</span>
+        <span style={{fontFamily:"var(--font-mono)", fontSize:11, color:"var(--ink-3)"}}>just now</span>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("edit-modes-preview")).render(<EditModesPreview/>);
+
+function FieldAnatomy() {
+  const Caret = ({label, x, y}) => (
+    <div style={{position:"absolute", left:x, top:y, display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--accent-soft-ink)", fontFamily:"var(--font-mono)", fontWeight:600}}>
+      <span style={{width:6, height:6, borderRadius:99, background:"var(--accent)"}}/>{label}
+    </div>
+  );
+  return (
+    <div style={{background:"var(--bg-card)", border:"1px solid var(--line)", borderRadius:14, padding:"32px 40px", position:"relative"}}>
+      <div style={{maxWidth:480, position:"relative"}}>
+        <div style={{fontSize:13, fontWeight:500, color:"var(--ink)"}}>Default profile</div>
+        <div style={{fontSize:12, color:"var(--ink-3)", margin:"4px 0 8px"}}>Applied to devices that have no explicit profile assignment. Choose "None" to leave unassigned devices unfiltered.</div>
+        <div style={{padding:"9px 12px", borderRadius:8, border:"1px solid var(--line)", background:"var(--bg-elev)", fontSize:13, display:"flex", justifyContent:"space-between"}}><span>Ad Blocking</span><span style={{color:"var(--ink-3)"}}>▾</span></div>
+
+        <Caret label="1 · LABEL · 13px / 500 / --ink" x={500} y={0}/>
+        <Caret label="2 · DESCRIPTION · 12px / --ink-3" x={500} y={28}/>
+        <Caret label="3 · CONTROL · full column" x={500} y={84}/>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("field-anatomy")).render(<FieldAnatomy/>);
+</script>
+</body>
+</html>

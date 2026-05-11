@@ -5,7 +5,7 @@ name: Build Site
 # Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml.
 # Produces a single artifact with a fixed name:
 #
-#   - site-dist — source/site/dist/ tree (raw, not pages-artifact)
+#   - site-dist — source/marketing-site/dist/ tree (raw, not pages-artifact)
 #
 # deploy-site.yml wraps it into a pages-artifact at deploy time. This
 # split keeps build-site.yml callable from orchestrators that don't
@@ -45,19 +45,19 @@ jobs:
         with:
           node-version: "25"
           cache: yarn
-          cache-dependency-path: source/site/yarn.lock
+          cache-dependency-path: source/marketing-site/yarn.lock
 
       # Run type-check + format:check only. The site unit tests run in
       # coverage.yml with instrumentation; running them here too would
       # be duplicated work.
       - name: Install deps
-        run: cd source/site && yarn install --immutable
+        run: cd source/marketing-site && yarn install --immutable
 
       - name: Type check
-        run: cd source/site && yarn type-check
+        run: cd source/marketing-site && yarn type-check
 
       - name: Format check
-        run: cd source/site && yarn format:check
+        run: cd source/marketing-site && yarn format:check
 
   build:
     name: Build Site bundle
@@ -73,7 +73,7 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/site/yarn.lock
+          cache-dependency-path: source/marketing-site/yarn.lock
 
       - name: Build
         env:
@@ -86,5 +86,5 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: site-dist
-          path: source/site/dist/
+          path: source/marketing-site/dist/
           retention-days: 7
