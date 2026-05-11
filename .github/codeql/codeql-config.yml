@@ -41,5 +41,13 @@ paths-ignore:
   # deployment and exposes HTTP only on the test LAN.
   - "source/daemon/crates/wardnet-test-agent/**"
 
+  # Forge design-system docs / visual studio. `source/forge/docs/` is
+  # reference material only (see source/forge/docs/README.md): no app
+  # build pulls from it and no published artefact references it. The
+  # mocks intentionally stub out state setters and other handlers that
+  # would otherwise be wired up in the real app, which trips lint-style
+  # CodeQL queries like js/useless-assignment-to-local.
+  - "source/forge/docs/**"
+
 # Default query suite is appropriate for us. We don't need to override
 # `queries:` here; keep the tuning surface minimal.
