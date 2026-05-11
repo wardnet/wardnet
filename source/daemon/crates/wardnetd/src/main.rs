@@ -23,8 +23,10 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::firewall_nftables::NftablesFirewallManager;
+use wardnetd::garp_pnet::PnetGarpOps;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
+use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
@@ -49,7 +51,7 @@ use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
 };
-use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services};
+use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services_with_factory};
 
 /// Wardnet daemon — self-hosted network privacy gateway.
 #[derive(Parser)]
@@ -211,6 +213,28 @@ async fn run(
     // Cancelling it from any source drives the same graceful-shutdown path.
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
+    // Build the repository factory up front so `PnetGarpOps` can hold a
+    // `SystemConfigRepository` handle (it reads `dhcp_router_ip` /
+    // `garp_router_mac` at broadcast time). Admin bootstrap is run
+    // explicitly here because we're calling `init_services_with_factory`
+    // below — that helper deliberately skips admin bootstrap.
+    let repo_factory = wardnetd_data::create_repository_factory(&config).await?;
+    let admin_credentials = config
+        .admin
+        .as_ref()
+        .map(|a| (a.username.as_str(), a.password.as_str()));
+    wardnetd_data::bootstrap::bootstrap_admin(&repo_factory.admin(), admin_credentials).await?;
+    let system_config_repo = repo_factory.system_config();
+
+    // Hold a clone of `garp_ops` outside `Backends` so the shutdown
+    // block (after `init_services_with_factory` has consumed
+    // `Backends`) can still call `broadcast_farewell`. Mirrors how
+    // `shutdown_token` is held.
+    let garp_ops: Arc<dyn wardnetd_services::garp::GarpOps> = Arc::new(PnetGarpOps::new(
+        config.network.lan_interface.clone(),
+        system_config_repo.clone(),
+    ));
+
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
         tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
@@ -235,11 +259,21 @@ async fn run(
             lan_ip,
         )),
         network_probe: Arc::new(PnetNetworkProbe::new(config.network.lan_interface.clone())),
+        garp_ops: garp_ops.clone(),
     };
 
-    // Wire services (initialises repo factory, bootstraps admin, creates all services).
-    let services =
-        init_services(&config, backends, lan_ip, started_at, log_service.clone()).await?;
+    // Wire services. Admin bootstrap already ran above; this helper
+    // seeds the setup-wizard / default-policy keys and classifies the
+    // previous shutdown.
+    let services = init_services_with_factory(
+        repo_factory.as_ref(),
+        backends,
+        &config,
+        lan_ip,
+        started_at,
+        log_service.clone(),
+    )
+    .await?;
 
     // Restore state from the database.
     services
@@ -266,6 +300,23 @@ async fn run(
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // Broadcast the GARP claim *before* any user-facing runner starts,
+    // so managed clients see "dhcp_router_ip is at the Pi's MAC again"
+    // by the time DHCP/DNS bind their sockets. ~1.1s of bounded boot
+    // latency (2 pulses × 500ms gap) buys deterministic acceptance —
+    // see issue #213, decision 5. Failures swallowed: the GARP path
+    // must never block bootstrap.
+    if let Err(e) = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        garp_ops.broadcast_claim(),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "GARP claim failed; continuing bootstrap");
+    }
 
     // Start background monitors.
     let monitor = TunnelMonitor::start(
@@ -294,11 +345,36 @@ async fn run(
     // accurate to within the heartbeat window.
     let heartbeat_runner = HeartbeatRunner::start(services.system.clone(), &root_span);
 
+    // mDNS advertiser: publishes `<hostname>.local.` (default
+    // `wardnet.local.`) so the setup wizard is reachable without
+    // knowing the LAN IP. Failure here is non-fatal — the wizard
+    // remains reachable by IP.
+    let mdns_advertiser = if config.mdns.enabled {
+        match MdnsAdvertiser::start(
+            &config.mdns,
+            &config.network.lan_interface,
+            lan_ip,
+            config.server.port,
+            env!("WARDNET_VERSION"),
+            &root_span,
+        ) {
+            Ok(advertiser) => Some(advertiser),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to start mDNS advertiser; continuing without it: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("mDNS advertiser disabled");
+        None
+    };
+
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
             packet_capture.clone(),
             services.discovery.clone(),
+            system_config_repo.clone(),
             services.event_publisher.as_ref(),
             &config.detection,
             config.network.lan_interface.clone(),
@@ -376,6 +452,9 @@ async fn run(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
+            services.routing.dns_upstream_snapshot(),
+            services.tunnel_repo.clone(),
+            services.event_publisher.clone(),
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );
@@ -503,7 +582,24 @@ async fn run(
     .instrument(api_span)
     .await?;
 
-    tracing::info!("server stopped, shutting down background tasks");
+    tracing::info!("server stopped, broadcasting GARP farewell before tearing down");
+    // Farewell goes out *before* anything else in the shutdown sequence
+    // so managed clients fall back to the upstream router while the rest
+    // of the daemon is still alive on the LAN. Failures swallowed: a
+    // GARP error must not block routing/DHCP/DNS cleanup. See issue
+    // #213, decision 3.
+    if let Err(e) = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        garp_ops.broadcast_farewell(),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "GARP farewell failed; continuing shutdown");
+    }
+
+    tracing::info!("shutting down background tasks");
     routing_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
@@ -516,6 +612,9 @@ async fn run(
     backup_cleanup_runner.shutdown().await;
     tunnel_metrics_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
+    if let Some(advertiser) = mdns_advertiser {
+        advertiser.shutdown().await;
+    }
     if let Some(detector) = device_detector {
         detector.shutdown().await;
     }

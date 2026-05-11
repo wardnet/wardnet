@@ -119,6 +119,7 @@ impl TunnelService for MockTunnelService {
             bytes_tx: 0,
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
+            override_default_dns: false,
         };
         Ok(CreateTunnelResponse {
             tunnel,
@@ -159,6 +160,13 @@ impl TunnelService for MockTunnelService {
         Ok(wardnet_common::api::TunnelDevicesResponse {
             devices: Vec::new(),
         })
+    }
+
+    async fn set_dns_override(&self, id: Uuid, value: bool) -> Result<Tunnel, AppError> {
+        let tunnel = self.get_tunnel(id).await?;
+        let mut updated = tunnel;
+        updated.override_default_dns = value;
+        Ok(updated)
     }
 
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
@@ -234,6 +242,7 @@ fn sample_tunnel() -> Tunnel {
         bytes_tx: 0,
         bytes_rx: 0,
         created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
+        override_default_dns: false,
     }
 }
 
@@ -285,6 +294,10 @@ fn tunnel_router(state: AppState) -> Router {
             "/api/tunnels/{id}/test",
             axum::routing::post(crate::api::tunnels::test_tunnel),
         )
+        .route(
+            "/api/tunnels/{id}/dns-override",
+            axum::routing::put(crate::api::tunnels::update_tunnel_dns_override),
+        )
         .with_state(state)
 }
 
@@ -314,6 +327,28 @@ async fn post_json(app: Router, uri: &str, json_body: &str) -> (StatusCode, serd
         .oneshot(
             Request::builder()
                 .method("POST")
+                .uri(uri)
+                .header("Content-Type", "application/json")
+                .header("Cookie", "wardnet_session=valid-token")
+                .extension(connect_info())
+                .body(Body::from(json_body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+/// Send an authenticated PUT request with JSON body.
+async fn put_json(app: Router, uri: &str, json_body: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
                 .uri(uri)
                 .header("Content-Type", "application/json")
                 .header("Cookie", "wardnet_session=valid-token")
@@ -824,6 +859,81 @@ async fn test_tunnel_unauthorized_without_session() {
                 .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/test")
                 .extension(connect_info())
                 .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/tunnels/:id/dns-override
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn update_tunnel_dns_override_returns_updated_tunnel() {
+    let mut tunnel = sample_tunnel();
+    tunnel.override_default_dns = false;
+    let state = build_state(MockTunnelService::with_tunnels(vec![tunnel]));
+    let app = tunnel_router(state);
+
+    let (status, json) = put_json(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/dns-override",
+        r#"{"override_default_dns": true}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["tunnel"]["id"], "00000000-0000-0000-0000-000000000010");
+    assert_eq!(json["tunnel"]["override_default_dns"], true);
+}
+
+#[tokio::test]
+async fn update_tunnel_dns_override_can_disable_the_flag() {
+    let mut tunnel = sample_tunnel();
+    tunnel.override_default_dns = true;
+    let state = build_state(MockTunnelService::with_tunnels(vec![tunnel]));
+    let app = tunnel_router(state);
+
+    let (status, json) = put_json(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/dns-override",
+        r#"{"override_default_dns": false}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["tunnel"]["override_default_dns"], false);
+}
+
+#[tokio::test]
+async fn update_tunnel_dns_override_not_found() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let (status, json) = put_json(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000099/dns-override",
+        r#"{"override_default_dns": true}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"], "not found");
+}
+
+#[tokio::test]
+async fn update_tunnel_dns_override_unauthorized_without_session() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/dns-override")
+                .header("Content-Type", "application/json")
+                .extension(connect_info())
+                .body(Body::from(r#"{"override_default_dns": true}"#))
                 .unwrap(),
         )
         .await

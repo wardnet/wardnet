@@ -22,6 +22,7 @@ fn sample_tunnel(id: &str, interface_name: &str) -> TunnelRow {
         dns: "[\"1.1.1.1\"]".to_owned(),
         peer_config: "{\"public_key\":\"abc\",\"endpoint\":\"198.51.100.1:51820\",\"allowed_ips\":[\"0.0.0.0/0\"],\"preshared_key\":null,\"persistent_keepalive\":25}".to_owned(),
         listen_port: None,
+        override_default_dns: false,
     }
 }
 

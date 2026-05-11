@@ -115,10 +115,7 @@ impl FirewallManager for StubFirewall {
     async fn remove_masquerade(&self, _interface: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
-    async fn add_dns_redirect(&self, _device_ip: &str, _dns_ip: &str) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn remove_dns_redirect(&self, _device_ip: &str) -> anyhow::Result<()> {
+    async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn add_tcp_reset_reject(&self, _device_ip: &str) -> anyhow::Result<()> {
@@ -212,6 +209,18 @@ fn stub_backends() -> Backends {
         power_ops: Arc::new(StubPowerOps),
         network_inspector: Arc::new(StubNetworkInspector),
         network_probe: Arc::new(StubNetworkProbe),
+        garp_ops: Arc::new(StubGarpOps),
+    }
+}
+
+struct StubGarpOps;
+#[async_trait]
+impl crate::garp::GarpOps for StubGarpOps {
+    async fn broadcast_farewell(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn broadcast_claim(&self) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 

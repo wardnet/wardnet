@@ -294,7 +294,7 @@ impl DeviceDiscoveryService for MockDiscoveryService {
 fn sample_device() -> Device {
     Device {
         id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
-        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        mac: "aa:bb:cc:dd:ee:01".to_owned(),
         name: Some("My Phone".to_owned()),
         hostname: None,
         manufacturer: Some("Apple".to_owned()),
@@ -418,7 +418,7 @@ async fn get_me_returns_device_when_found() {
 
     let (status, json) = get_json(app, "/api/devices/me").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["device"]["mac"], "AA:BB:CC:DD:EE:01");
+    assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["current_rule"]["type"], "direct");
     assert_eq!(json["admin_locked"], false);
 }
@@ -562,7 +562,7 @@ async fn list_devices_returns_all() {
     let (status, json) = get_json(app, "/api/devices").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["devices"].as_array().unwrap().len(), 1);
-    assert_eq!(json["devices"][0]["mac"], "AA:BB:CC:DD:EE:01");
+    assert_eq!(json["devices"][0]["mac"], "aa:bb:cc:dd:ee:01");
     // No lease or reservation for this device, so dhcp_status should be "external".
     assert_eq!(json["devices"][0]["dhcp_status"], "external");
 }
@@ -624,7 +624,7 @@ async fn get_device_by_id_success() {
     assert_eq!(status, StatusCode::OK);
     // DeviceDetailResponse is { device, current_rule } — device fields are
     // nested, current_rule sits at the top level.
-    assert_eq!(json["device"]["mac"], "AA:BB:CC:DD:EE:01");
+    assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["current_rule"]["type"], "direct");
     assert_eq!(json["device"]["dhcp_status"], "external");
 }
@@ -793,7 +793,7 @@ async fn list_devices_with_dhcp_lease_shows_lease_status() {
     let device = sample_device();
     let lease = wardnet_common::dhcp::DhcpLease {
         id: Uuid::new_v4(),
-        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         ip_address: "192.168.1.10".parse().unwrap(),
         hostname: None,
         lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),
@@ -828,7 +828,7 @@ async fn list_devices_with_dhcp_reservation_shows_reservation_status() {
     let device = sample_device();
     let reservation = wardnet_common::dhcp::DhcpReservation {
         id: Uuid::new_v4(),
-        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         ip_address: "192.168.1.10".parse().unwrap(),
         hostname: None,
         description: None,
@@ -860,7 +860,7 @@ async fn list_devices_reservation_overrides_lease() {
     let device = sample_device();
     let lease = wardnet_common::dhcp::DhcpLease {
         id: Uuid::new_v4(),
-        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         ip_address: "192.168.1.10".parse().unwrap(),
         hostname: None,
         lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),
@@ -872,7 +872,7 @@ async fn list_devices_reservation_overrides_lease() {
     };
     let reservation = wardnet_common::dhcp::DhcpReservation {
         id: Uuid::new_v4(),
-        mac_address: "AA:BB:CC:DD:EE:01".to_owned(),
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         ip_address: "192.168.1.10".parse().unwrap(),
         hostname: None,
         description: None,
@@ -908,7 +908,7 @@ async fn get_device_by_id_includes_dhcp_status() {
     let device = sample_device();
     let lease = wardnet_common::dhcp::DhcpLease {
         id: Uuid::new_v4(),
-        mac_address: "aa:bb:cc:dd:ee:01".to_owned(), // lowercase MAC
+        mac_address: "aa:bb:cc:dd:ee:01".to_owned(),
         ip_address: "192.168.1.10".parse().unwrap(),
         hostname: None,
         lease_start: "2026-04-13T00:00:00Z".parse().unwrap(),

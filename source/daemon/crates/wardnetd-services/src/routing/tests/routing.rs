@@ -164,6 +164,10 @@ impl TunnelRepository for MockTunnelRepo {
         Ok(())
     }
 
+    async fn update_dns_override(&self, _id: &str, _value: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_stats(
         &self,
         _id: &str,
@@ -286,6 +290,10 @@ impl TunnelService for MockTunnelService {
         &self,
         _id: Uuid,
     ) -> Result<wardnet_common::api::TunnelDevicesResponse, AppError> {
+        unimplemented!("not used in routing tests")
+    }
+
+    async fn set_dns_override(&self, _id: Uuid, _value: bool) -> Result<Tunnel, AppError> {
         unimplemented!("not used in routing tests")
     }
 
@@ -494,19 +502,11 @@ impl FirewallManager for MockNftables {
         Ok(())
     }
 
-    async fn add_dns_redirect(&self, device_ip: &str, dns_ip: &str) -> anyhow::Result<()> {
+    async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("add_dns_redirect:{device_ip}:{dns_ip}"));
-        Ok(())
-    }
-
-    async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()> {
-        self.calls
-            .lock()
-            .await
-            .push(format!("remove_dns_redirect:{device_ip}"));
+            .push("cleanup_legacy_dns_redirects".to_owned());
         Ok(())
     }
 
@@ -605,11 +605,15 @@ fn sample_tunnel(id: Uuid, interface_name: &str, status: TunnelStatus) -> Tunnel
         bytes_tx: 0,
         bytes_rx: 0,
         created_at: chrono::Utc::now(),
+        override_default_dns: true,
     }
 }
 
-/// Create a sample `TunnelConfig` with optional DNS servers.
+/// Create a sample `TunnelConfig` with optional DNS servers. Tests use
+/// the helper-defaulted `override_default_dns = !dns.is_empty()`, which
+/// matches the import-time default.
 fn sample_tunnel_config(dns: Vec<String>) -> TunnelConfig {
+    let override_default_dns = !dns.is_empty();
     TunnelConfig {
         address: vec!["10.66.0.2/32".to_owned()],
         dns,
@@ -621,6 +625,7 @@ fn sample_tunnel_config(dns: Vec<String>) -> TunnelConfig {
             preshared_key: None,
             persistent_keepalive: Some(25),
         },
+        override_default_dns,
     }
 }
 
@@ -1097,7 +1102,7 @@ async fn apply_rule_same_rule_is_noop() {
 }
 
 #[tokio::test]
-async fn apply_rule_tunnel_with_dns_adds_redirect() {
+async fn apply_rule_tunnel_with_override_marks_dns_upstream_as_tunnel() {
     let ts = setup_with_devices_and_tunnel(
         vec![],
         HashMap::new(),
@@ -1118,8 +1123,50 @@ async fn apply_rule_tunnel_with_dns_adds_redirect() {
 
     let nf = ts.nftables_calls.lock().await;
     assert!(
-        nf.contains(&"add_dns_redirect:192.168.1.10:9.9.9.9".to_owned()),
-        "expected DNS redirect call: {nf:?}"
+        !nf.iter().any(|c| c.contains("dns_redirect")),
+        "DNAT machinery removed (#342); no dns_redirect calls expected: {nf:?}"
+    );
+    let snapshot = ts.routing.dns_upstream_snapshot();
+    let map = snapshot.load();
+    let entry = map
+        .get(&"192.168.1.10".parse::<std::net::IpAddr>().unwrap())
+        .copied();
+    assert_eq!(
+        entry,
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+        "device IP should map to Tunnel(_) upstream when override_default_dns is on"
+    );
+}
+
+#[tokio::test]
+async fn apply_rule_tunnel_without_override_uses_default_upstream() {
+    let mut config = sample_tunnel_config(vec!["9.9.9.9".to_owned()]);
+    config.override_default_dns = false;
+
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        HashMap::new(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(config),
+        "direct".to_owned(),
+    );
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &target),
+    )
+    .await
+    .unwrap();
+
+    let snapshot = ts.routing.dns_upstream_snapshot();
+    let map = snapshot.load();
+    let entry = map.get(&"192.168.1.10".parse::<std::net::IpAddr>().unwrap());
+    assert!(
+        entry.is_none(),
+        "without override, device IP must not appear in the snapshot (default upstream pool used)"
     );
 }
 
@@ -1214,8 +1261,8 @@ async fn remove_device_routes_cleans_up_kernel_state() {
         "expected remove_ip_rule call: {nl:?}"
     );
     assert!(
-        nf.contains(&"remove_dns_redirect:192.168.1.10".to_owned()),
-        "expected remove_dns_redirect call: {nf:?}"
+        !nf.iter().any(|c| c.contains("dns_redirect")),
+        "DNAT machinery removed (#342); no dns_redirect calls expected: {nf:?}"
     );
 }
 
@@ -1307,14 +1354,11 @@ async fn handle_tunnel_down_removes_affected_device_rules() {
         "expected device 2 ip rule removal: {nl:?}"
     );
 
-    // DNS redirects should be removed.
+    // DNAT machinery removed (#342); no dns_redirect calls should fire
+    // when devices fall off this tunnel.
     assert!(
-        nf.contains(&"remove_dns_redirect:192.168.1.10".to_owned()),
-        "expected device 1 dns redirect removal: {nf:?}"
-    );
-    assert!(
-        nf.contains(&"remove_dns_redirect:192.168.1.11".to_owned()),
-        "expected device 2 dns redirect removal: {nf:?}"
+        !nf.iter().any(|c| c.contains("dns_redirect")),
+        "no dns_redirect calls expected: {nf:?}"
     );
 
     // Route table should also be cleaned up.

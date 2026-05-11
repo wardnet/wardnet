@@ -34,10 +34,14 @@ LINUX_TARGET := $(CURDIR)/.target-linux
 
 # Coverage: files excluded from cargo-llvm-cov.  Single source of truth —
 # CI calls `make coverage-daemon` with COV_FMT overridden for LCOV output.
-COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|pnet_network_probe\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
+COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
 # Default: human-readable summary.  CI overrides:
 #   make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
 COV_FMT    ?= --summary-only
+# Optional cargo-llvm-cov subcommand (e.g. `nextest --profile ci` so CI
+# emits a JUnit XML alongside the LCOV file). Default: empty -> standard
+# cargo test runner, which is what local devs want.
+COV_RUNNER ?=
 
 # ---------- Phony targets ----------
 
@@ -246,7 +250,7 @@ coverage-daemon: coverage-daemon-container
 endif
 
 coverage-daemon-native:
-	cd $(DAEMON_DIR) && cargo llvm-cov --workspace $(COV_FMT) \
+	cd $(DAEMON_DIR) && cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) \
 		--ignore-filename-regex '$(COV_IGNORE)'
 
 coverage-daemon-container:
@@ -259,7 +263,7 @@ coverage-daemon-container:
 		-w /workspace/$(DAEMON_DIR) \
 		-e CARGO_TARGET_DIR=/workspace/.target-linux \
 		$(RUST_IMAGE) \
-		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
+		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
 
 # ---------- OpenAPI spec ----------
 #

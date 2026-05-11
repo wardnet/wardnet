@@ -4,6 +4,21 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Identifies the upstream resolver pool a query should be forwarded to.
+///
+/// `Default` routes a query through the system-wide upstream servers
+/// configured in [`DnsConfig::upstream_servers`]. `Tunnel(_)` routes a
+/// query through the resolver bound to that tunnel's interface — this is
+/// the variant that makes tunneled-device queries egress via the tunnel
+/// rather than leaking to the ISP via the default route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UpstreamId {
+    /// System-wide DNS upstream pool.
+    Default,
+    /// Per-tunnel DNS upstream pool, identified by the tunnel UUID.
+    Tunnel(Uuid),
+}
+
 /// DNS resolution strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]

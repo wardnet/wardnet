@@ -36,20 +36,8 @@ impl FirewallManager for NoopFirewallManager {
         Ok(())
     }
 
-    async fn add_dns_redirect(&self, device_ip: &str, dns_ip: &str) -> anyhow::Result<()> {
-        tracing::debug!(
-            device_ip,
-            dns_ip,
-            "mock firewall add_dns_redirect: device_ip={device_ip}, dns_ip={dns_ip}",
-        );
-        Ok(())
-    }
-
-    async fn remove_dns_redirect(&self, device_ip: &str) -> anyhow::Result<()> {
-        tracing::debug!(
-            device_ip,
-            "mock firewall remove_dns_redirect: device_ip={device_ip}",
-        );
+    async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
+        tracing::debug!("mock firewall cleanup_legacy_dns_redirects");
         Ok(())
     }
 

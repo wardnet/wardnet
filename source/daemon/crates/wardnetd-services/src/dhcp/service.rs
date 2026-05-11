@@ -326,6 +326,7 @@ impl DhcpServiceImpl {
         self.dhcp
             .insert_lease_log(&DhcpLeaseLogRow {
                 lease_id: existing.id.to_string(),
+                mac_address: existing.mac_address.clone(),
                 event_type: "expired".to_owned(),
                 details: Some(detail),
             })
@@ -412,6 +413,17 @@ impl DhcpService for DhcpServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Invalidate the passively-learned upstream router MAC. Any
+        // change to `dhcp_router_ip` (including a no-op rewrite) means
+        // the previously stored MAC may no longer correspond to the
+        // gateway that lives at this IP. Discovery will repopulate
+        // `garp_router_mac` next time it observes a packet from the
+        // (possibly new) router IP. See issue #213, decision 1.
+        self.system_config
+            .set("garp_router_mac", "")
+            .await
+            .map_err(AppError::Internal)?;
+
         let config = self.load_config().await?;
         Ok(DhcpConfigResponse { config })
     }
@@ -460,6 +472,7 @@ impl DhcpService for DhcpServiceImpl {
         self.dhcp
             .insert_lease_log(&DhcpLeaseLogRow {
                 lease_id: id.to_string(),
+                mac_address: lease.mac_address.clone(),
                 event_type: "released".to_owned(),
                 details: Some("admin revoked".to_owned()),
             })
@@ -487,8 +500,9 @@ impl DhcpService for DhcpServiceImpl {
     ) -> Result<CreateDhcpReservationResponse, AppError> {
         auth_context::require_admin()?;
 
-        // Normalize MAC to lowercase for consistent lookups.
-        let mac = req.mac_address.to_lowercase();
+        // Casing is canonicalised at the repository boundary (issue #312);
+        // use the request value as-is.
+        let mac = req.mac_address.as_str();
 
         // Validate IP.
         let _: Ipv4Addr = req
@@ -499,7 +513,7 @@ impl DhcpService for DhcpServiceImpl {
         // Check for duplicate MAC.
         if self
             .dhcp
-            .find_reservation_by_mac(&mac)
+            .find_reservation_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
             .is_some()
@@ -526,7 +540,7 @@ impl DhcpService for DhcpServiceImpl {
         let id = Uuid::new_v4();
         let row = DhcpReservationRow {
             id: id.to_string(),
-            mac_address: mac.clone(),
+            mac_address: mac.to_owned(),
             ip_address: req.ip_address.clone(),
             hostname: req.hostname.clone(),
             description: req.description.clone(),
@@ -539,7 +553,7 @@ impl DhcpService for DhcpServiceImpl {
 
         let reservation = self
             .dhcp
-            .find_reservation_by_mac(&mac)
+            .find_reservation_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| {
@@ -614,8 +628,8 @@ impl DhcpService for DhcpServiceImpl {
 
     async fn assign_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError> {
         auth_context::require_admin()?;
-        let mac = mac.to_lowercase();
-        let mac = mac.as_str();
+        // Casing is canonicalised at the repository boundary (issue #312);
+        // pass the runtime-supplied MAC through verbatim.
         let hostname = Self::normalised_hostname(hostname);
 
         let config = self.load_config().await?;
@@ -644,6 +658,7 @@ impl DhcpService for DhcpServiceImpl {
                 self.dhcp
                     .insert_lease_log(&DhcpLeaseLogRow {
                         lease_id: existing.id.to_string(),
+                        mac_address: mac.to_owned(),
                         event_type: "assigned".to_owned(),
                         details: Some(format!(
                             "hostname updated: {} -> {new_h}",
@@ -716,6 +731,7 @@ impl DhcpService for DhcpServiceImpl {
         self.dhcp
             .insert_lease_log(&DhcpLeaseLogRow {
                 lease_id: id.to_string(),
+                mac_address: mac.to_owned(),
                 event_type: "assigned".to_owned(),
                 details: hostname.map(|h| format!("hostname: {h}")),
             })
@@ -742,8 +758,7 @@ impl DhcpService for DhcpServiceImpl {
 
     async fn renew_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError> {
         auth_context::require_admin()?;
-        let mac = mac.to_lowercase();
-        let mac = mac.as_str();
+        // Casing is canonicalised at the repository boundary (issue #312).
         let hostname = Self::normalised_hostname(hostname);
 
         let config = self.load_config().await?;
@@ -798,6 +813,7 @@ impl DhcpService for DhcpServiceImpl {
             self.dhcp
                 .insert_lease_log(&DhcpLeaseLogRow {
                     lease_id: existing.id.to_string(),
+                    mac_address: mac.to_owned(),
                     event_type: "renewed".to_owned(),
                     details: renewal_details,
                 })
@@ -831,8 +847,7 @@ impl DhcpService for DhcpServiceImpl {
 
     async fn release_lease(&self, mac: &str) -> Result<(), AppError> {
         auth_context::require_admin()?;
-        let mac = mac.to_lowercase();
-        let mac = mac.as_str();
+        // Casing is canonicalised at the repository boundary (issue #312).
 
         let lease = self
             .dhcp
@@ -849,6 +864,7 @@ impl DhcpService for DhcpServiceImpl {
             self.dhcp
                 .insert_lease_log(&DhcpLeaseLogRow {
                     lease_id: lease.id.to_string(),
+                    mac_address: lease.mac_address.clone(),
                     event_type: "released".to_owned(),
                     details: Some("client DHCPRELEASE".to_owned()),
                 })

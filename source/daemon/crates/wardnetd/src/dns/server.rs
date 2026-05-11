@@ -1,7 +1,9 @@
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
 use hickory_proto::op::{Message, OpCode, ResponseCode};
@@ -13,16 +15,20 @@ use hickory_resolver::config::{
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns};
+use uuid::Uuid;
+use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns, UpstreamId};
+use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
+use wardnetd_data::repository::TunnelRepository;
 use wardnetd_services::DnsFilterService;
 use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
+use wardnetd_services::event::EventPublisher;
 
 // ---------------------------------------------------------------------------
 // UdpDnsSocket — production socket impl
@@ -60,7 +66,9 @@ impl DnsSocket for UdpDnsSocket {
 
 /// Production DNS server. Filtering is delegated to a
 /// [`DnsFilterService`] handle, which owns the per-source / per-profile /
-/// per-device pipeline.
+/// per-device pipeline. Per-query upstream selection is driven by the
+/// `device_ip → UpstreamId` snapshot the routing service publishes
+/// (issue #342).
 pub struct UdpDnsServer {
     config: Arc<RwLock<DnsConfig>>,
     cache: Arc<RwLock<DnsCache>>,
@@ -82,24 +90,100 @@ pub struct UdpDnsServer {
     query_tracker: Mutex<Option<TaskTracker>>,
     local_addr: Arc<std::sync::Mutex<Option<SocketAddr>>>,
     log_sink: Option<Arc<DnsLogSink>>,
+    /// Lock-free per-query upstream-selection snapshot, populated by the
+    /// routing service. Maps a tunneled-device IP to `Tunnel(_)` only
+    /// when that tunnel has `override_default_dns = true`.
+    routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    /// Tunnel repository — needed to translate `Tunnel(uuid)` from the
+    /// routing snapshot into the interface name + DNS upstream we should
+    /// forward to via `SO_BINDTODEVICE`.
+    tunnel_repo: Arc<dyn TunnelRepository>,
+    /// Cache of per-tunnel forwarders (interface + upstream addr). Keyed
+    /// by tunnel UUID. Lazily populated on first miss; stale entries are
+    /// fine — a flipped `override_default_dns` simply changes which
+    /// upstream the snapshot points at, not the forwarder behaviour
+    /// itself, and unused entries quietly age out at process restart.
+    tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
+    /// Cancellation token for the background cache-invalidation
+    /// subscriber spawned in `new`/`with_bind_addr`. The subscriber
+    /// flushes the response cache on every `WardnetEvent::DnsFilterRebuilt`
+    /// (issue #341) so a freshly-published filter rebuild takes effect on
+    /// the next query rather than after cache TTL expiry. Lives for the
+    /// whole process — independent of the DNS `enabled` toggle — so
+    /// rebuild events that fire while DNS is disabled don't leave stale
+    /// entries when DNS is re-enabled. Cancelled in `Drop`.
+    cache_invalidator_cancel: CancellationToken,
+}
+
+impl Drop for UdpDnsServer {
+    fn drop(&mut self) {
+        // Signal the cache-invalidation subscriber to exit. The task
+        // observes the token and breaks out of its `select!`. Drop
+        // doesn't await the join — the bus has already been closed by
+        // its publisher (or soon will be) and the task self-terminates.
+        self.cache_invalidator_cancel.cancel();
+    }
+}
+
+/// Cached metadata required to forward a query to a specific tunnel's
+/// DNS server with `SO_BINDTODEVICE` set so the upstream packet egresses
+/// via the tunnel interface (see issue #342 — without this, the packet
+/// follows the default route and leaks plaintext DNS to the ISP).
+#[derive(Debug)]
+pub(crate) struct TunnelForwarderInfo {
+    pub(crate) interface_name: String,
+    pub(crate) upstream: SocketAddr,
 }
 
 impl UdpDnsServer {
     #[must_use]
-    pub fn new(config: DnsConfig, dns_filter: Arc<dyn DnsFilterService>) -> Self {
-        Self::with_bind_addr(config, SocketAddr::from(([0, 0, 0, 0], 53)), dns_filter)
+    pub fn new(
+        config: DnsConfig,
+        dns_filter: Arc<dyn DnsFilterService>,
+        routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        tunnel_repo: Arc<dyn TunnelRepository>,
+        events: Arc<dyn EventPublisher>,
+    ) -> Self {
+        Self::with_bind_addr(
+            config,
+            SocketAddr::from(([0, 0, 0, 0], 53)),
+            dns_filter,
+            routing_snapshot,
+            tunnel_repo,
+            events,
+        )
     }
 
+    // `events` is consumed (subscribed once, then dropped) — keeping the
+    // by-value signature mirrors the other Arc params and lets call
+    // sites read like a plain construction.
+    #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn with_bind_addr(
         config: DnsConfig,
         bind_addr: SocketAddr,
         dns_filter: Arc<dyn DnsFilterService>,
+        routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        tunnel_repo: Arc<dyn TunnelRepository>,
+        events: Arc<dyn EventPublisher>,
     ) -> Self {
         let cache_capacity = config.cache_size as usize;
+        let cache = Arc::new(RwLock::new(DnsCache::new(cache_capacity)));
+        let cache_invalidator_cancel = CancellationToken::new();
+        // Subscribe BEFORE spawning so any event published between
+        // construction and the task running is buffered into this
+        // receiver — `broadcast::Receiver` only drops messages older
+        // than its position, not future ones. Subscribing in the spawn
+        // body would race rebuild events that land in the same tick.
+        let event_rx = events.subscribe();
+        spawn_cache_invalidator(
+            Arc::clone(&cache),
+            event_rx,
+            cache_invalidator_cancel.clone(),
+        );
         Self {
             config: Arc::new(RwLock::new(config)),
-            cache: Arc::new(RwLock::new(DnsCache::new(cache_capacity))),
+            cache,
             dns_filter,
             bind_addr,
             injected_socket: None,
@@ -110,6 +194,10 @@ impl UdpDnsServer {
             query_tracker: Mutex::new(None),
             local_addr: Arc::new(std::sync::Mutex::new(None)),
             log_sink: None,
+            routing_snapshot,
+            tunnel_repo,
+            tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
+            cache_invalidator_cancel,
         }
     }
 
@@ -161,6 +249,9 @@ impl DnsServer for UdpDnsServer {
         let dns_filter = Arc::clone(&self.dns_filter);
         let running = Arc::clone(&self.running);
         let log_sink = self.log_sink.clone();
+        let routing_snapshot = Arc::clone(&self.routing_snapshot);
+        let tunnel_repo = Arc::clone(&self.tunnel_repo);
+        let tunnel_forwarders = Arc::clone(&self.tunnel_forwarders);
 
         let new_cancel = CancellationToken::new();
         let cancel = new_cancel.clone();
@@ -175,7 +266,19 @@ impl DnsServer for UdpDnsServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, config, cache, dns_filter, log_sink, cancel, tracker).await;
+            server_loop(
+                socket,
+                config,
+                cache,
+                dns_filter,
+                log_sink,
+                cancel,
+                tracker,
+                routing_snapshot,
+                tunnel_repo,
+                tunnel_forwarders,
+            )
+            .await;
             running.store(false, Ordering::SeqCst);
         });
 
@@ -235,6 +338,9 @@ async fn server_loop(
     log_sink: Option<Arc<DnsLogSink>>,
     cancel: CancellationToken,
     tracker: TaskTracker,
+    routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    tunnel_repo: Arc<dyn TunnelRepository>,
+    tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
 ) {
     let mut buf = vec![0u8; 4096];
 
@@ -260,6 +366,9 @@ async fn server_loop(
                         let dns_filter = Arc::clone(&dns_filter);
                         let resolver = Arc::clone(&resolver);
                         let log_sink = log_sink.clone();
+                        let routing_snapshot = Arc::clone(&routing_snapshot);
+                        let tunnel_repo = Arc::clone(&tunnel_repo);
+                        let tunnel_forwarders = Arc::clone(&tunnel_forwarders);
 
                         // Tracker.spawn keeps the Arc<DnsSocket> clone in
                         // this task observable to `stop()`, which awaits
@@ -274,6 +383,9 @@ async fn server_loop(
                                 dns_filter.as_ref(),
                                 &resolver,
                                 log_sink.as_deref(),
+                                &routing_snapshot,
+                                &tunnel_repo,
+                                &tunnel_forwarders,
                             )
                             .await
                             {
@@ -301,6 +413,9 @@ async fn handle_query(
     dns_filter: &dyn DnsFilterService,
     resolver: &Arc<RwLock<TokioResolver>>,
     log_sink: Option<&DnsLogSink>,
+    routing_snapshot: &Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    tunnel_repo: &Arc<dyn TunnelRepository>,
+    tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
 ) -> anyhow::Result<()> {
     let request = Message::from_bytes(packet)?;
     let id = request.metadata.id;
@@ -313,15 +428,28 @@ async fn handle_query(
     let rtype = question.query_type();
     let start = std::time::Instant::now();
 
-    // 1. Cache.
+    // 0. Resolve upstream pool for this client. Lookup miss = `Default`,
+    //    so LAN devices and tunneled devices with override disabled both
+    //    fall through to the system-wide upstream — the issue #342 fix
+    //    only re-routes the device IPs the routing service has explicitly
+    //    paired with `Tunnel(_)`.
+    let upstream_id = routing_snapshot
+        .load()
+        .get(&src.ip())
+        .copied()
+        .unwrap_or(UpstreamId::Default);
+
+    // 1. Cache, keyed by upstream so a tunneled device's answer doesn't
+    //    bleed into a LAN device's lookup of the same domain (or vice
+    //    versa).
     {
         let mut cache_guard = cache.write().await;
-        if let Some(cached) = cache_guard.get(&domain, rtype) {
+        if let Some(cached) = cache_guard.get(upstream_id, &domain, rtype) {
             let mut response = cached.clone();
             response.metadata.id = id;
             let bytes = response.to_bytes()?;
             socket.send_to(&bytes, src).await?;
-            tracing::trace!(%domain, ?rtype, "cache hit");
+            tracing::trace!(%domain, ?rtype, ?upstream_id, "cache hit");
             record_query(
                 log_sink,
                 &domain,
@@ -365,7 +493,6 @@ async fn handle_query(
                 Name, RData, Record,
                 rdata::{A, AAAA},
             };
-            use std::net::IpAddr;
 
             let mut response = Message::response(id, OpCode::Query);
             response.metadata.recursion_desired = true;
@@ -400,21 +527,116 @@ async fn handle_query(
         FilterAction::Pass => {}
     }
 
-    // 3. Forward to upstream.
-    let resolver_guard: tokio::sync::RwLockReadGuard<'_, TokioResolver> = resolver.read().await;
-    let lookup: Result<Lookup, _> = resolver_guard.lookup(&domain, rtype).await;
-
-    let cfg = config.read().await;
-    let upstream = upstream_label(&cfg.upstream_servers);
-
-    // If filtering would have blocked but the kill switch (or the global
-    // emergency stop) suppressed it, log this query as `blocked_skipped`
-    // — admins can audit what is still being resolved.
+    // 3. Forward to upstream — choice based on `upstream_id`.
     let pass_result = if outcome.would_have_blocked {
         "blocked_skipped"
     } else {
         "forwarded"
     };
+
+    match upstream_id {
+        UpstreamId::Default => {
+            forward_via_default_resolver(
+                resolver,
+                socket,
+                config,
+                cache,
+                log_sink,
+                request,
+                id,
+                src,
+                &domain,
+                rtype,
+                start,
+                pass_result,
+                upstream_id,
+            )
+            .await?;
+        }
+        UpstreamId::Tunnel(tunnel_id) => {
+            match get_or_build_tunnel_forwarder(tunnel_forwarders, tunnel_repo, tunnel_id).await {
+                Ok(forwarder) => {
+                    if let Err(e) = forward_via_tunnel(
+                        &forwarder,
+                        socket,
+                        cache,
+                        config,
+                        log_sink,
+                        packet,
+                        &request,
+                        id,
+                        src,
+                        &domain,
+                        rtype,
+                        start,
+                        pass_result,
+                        upstream_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            tunnel_id = %tunnel_id,
+                            %domain,
+                            "tunnel-bound DNS forward failed; returning ServFail"
+                        );
+                        send_servfail(socket, src, id, &request).await?;
+                        record_query(
+                            log_sink,
+                            &domain,
+                            rtype,
+                            src,
+                            "upstream_error",
+                            Some(forwarder.upstream.ip().to_string()),
+                            start.elapsed(),
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        tunnel_id = %tunnel_id,
+                        "could not build tunnel forwarder; returning ServFail"
+                    );
+                    send_servfail(socket, src, id, &request).await?;
+                    record_query(
+                        log_sink,
+                        &domain,
+                        rtype,
+                        src,
+                        "upstream_error",
+                        None,
+                        start.elapsed(),
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn forward_via_default_resolver(
+    resolver: &Arc<RwLock<TokioResolver>>,
+    socket: &Arc<dyn DnsSocket>,
+    config: &Arc<RwLock<DnsConfig>>,
+    cache: &Arc<RwLock<DnsCache>>,
+    log_sink: Option<&DnsLogSink>,
+    request: Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+) -> anyhow::Result<()> {
+    let resolver_guard = resolver.read().await;
+    let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
+
+    let cfg = config.read().await;
+    let upstream = upstream_label(&cfg.upstream_servers);
 
     match lookup {
         Ok(lookup) => {
@@ -435,7 +657,8 @@ async fn handle_query(
             if min_ttl < u32::MAX && min_ttl > 0 {
                 let mut cache_guard = cache.write().await;
                 cache_guard.insert(
-                    &domain,
+                    upstream_id,
+                    domain,
                     rtype,
                     response,
                     min_ttl,
@@ -445,10 +668,10 @@ async fn handle_query(
             }
 
             let elapsed = start.elapsed();
-            tracing::trace!(%domain, ?rtype, ?elapsed, "forwarded");
+            tracing::trace!(%domain, ?rtype, ?elapsed, ?upstream_id, "forwarded");
             record_query(
                 log_sink,
-                &domain,
+                domain,
                 rtype,
                 src,
                 pass_result,
@@ -457,20 +680,12 @@ async fn handle_query(
             );
         }
         Err(e) => {
-            let mut response = Message::response(id, OpCode::Query);
-            response.metadata.recursion_desired = true;
-            response.metadata.recursion_available = true;
-            response.metadata.response_code = ResponseCode::ServFail;
-            response.add_queries(request.queries.clone());
-
-            let bytes = response.to_bytes()?;
-            socket.send_to(&bytes, src).await?;
-
+            send_servfail(socket, src, id, &request).await?;
             let elapsed = start.elapsed();
             tracing::debug!(%domain, ?rtype, ?elapsed, error = %e, "upstream failed for {domain}: {e}");
             record_query(
                 log_sink,
-                &domain,
+                domain,
                 rtype,
                 src,
                 "upstream_error",
@@ -479,8 +694,177 @@ async fn handle_query(
             );
         }
     }
-
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn forward_via_tunnel(
+    forwarder: &TunnelForwarderInfo,
+    socket: &Arc<dyn DnsSocket>,
+    cache: &Arc<RwLock<DnsCache>>,
+    config: &Arc<RwLock<DnsConfig>>,
+    log_sink: Option<&DnsLogSink>,
+    packet: &[u8],
+    _request: &Message,
+    _id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+) -> anyhow::Result<()> {
+    // Build a fresh ephemeral UDP socket bound to the tunnel interface
+    // (`SO_BINDTODEVICE`). One per query keeps response demultiplexing
+    // trivial — each socket only ever sees the single response to its
+    // own outbound query — and avoids any cross-query state hazard. The
+    // syscall cost is negligible relative to the DNS round-trip.
+    let bound = bind_socket_to_device(&forwarder.interface_name)?;
+
+    bound.send_to(packet, forwarder.upstream).await?;
+
+    let mut buf = vec![0u8; 4096];
+    let recv =
+        tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv_from(&mut buf)).await;
+
+    let n = match recv {
+        Ok(Ok((n, _))) => n,
+        Ok(Err(e)) => {
+            return Err(anyhow::anyhow!("tunnel upstream recv error: {e}"));
+        }
+        Err(_) => {
+            return Err(anyhow::anyhow!("tunnel upstream timeout"));
+        }
+    };
+    buf.truncate(n);
+
+    // Forward the upstream's response straight back to the client. We
+    // also parse it so we can cache it; on parse failure, just send the
+    // raw bytes through and skip caching.
+    socket.send_to(&buf, src).await?;
+
+    if let Ok(parsed) = Message::from_bytes(&buf) {
+        let mut min_ttl = u32::MAX;
+        for record in &parsed.answers {
+            min_ttl = min_ttl.min(record.ttl);
+        }
+        if min_ttl < u32::MAX && min_ttl > 0 {
+            let cfg = config.read().await;
+            let mut cache_guard = cache.write().await;
+            cache_guard.insert(
+                upstream_id,
+                domain,
+                rtype,
+                parsed,
+                min_ttl,
+                cfg.cache_ttl_min_secs,
+                cfg.cache_ttl_max_secs,
+            );
+        }
+    }
+
+    let elapsed = start.elapsed();
+    tracing::trace!(
+        %domain,
+        ?rtype,
+        ?elapsed,
+        ?upstream_id,
+        interface = %forwarder.interface_name,
+        upstream = %forwarder.upstream,
+        "forwarded via tunnel"
+    );
+    record_query(
+        log_sink,
+        domain,
+        rtype,
+        src,
+        pass_result,
+        Some(forwarder.upstream.ip().to_string()),
+        elapsed,
+    );
+    Ok(())
+}
+
+async fn send_servfail(
+    socket: &Arc<dyn DnsSocket>,
+    src: SocketAddr,
+    id: u16,
+    request: &Message,
+) -> anyhow::Result<()> {
+    let mut response = Message::response(id, OpCode::Query);
+    response.metadata.recursion_desired = true;
+    response.metadata.recursion_available = true;
+    response.metadata.response_code = ResponseCode::ServFail;
+    response.add_queries(request.queries.clone());
+    let bytes = response.to_bytes()?;
+    socket.send_to(&bytes, src).await?;
+    Ok(())
+}
+
+/// Look up (or build, then cache) the forwarder for a given tunnel.
+pub(crate) async fn get_or_build_tunnel_forwarder(
+    tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
+    tunnel_repo: &Arc<dyn TunnelRepository>,
+    tunnel_id: Uuid,
+) -> anyhow::Result<Arc<TunnelForwarderInfo>> {
+    {
+        let guard = tunnel_forwarders.read().await;
+        if let Some(f) = guard.get(&tunnel_id) {
+            return Ok(Arc::clone(f));
+        }
+    }
+
+    let tunnel = tunnel_repo
+        .find_by_id(&tunnel_id.to_string())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("tunnel {tunnel_id} not found"))?;
+    let cfg = tunnel_repo
+        .find_config_by_id(&tunnel_id.to_string())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("tunnel {tunnel_id} has no config"))?;
+    let upstream_ip: IpAddr = cfg
+        .dns
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("tunnel {tunnel_id} has no DNS server configured"))?
+        .parse()
+        .map_err(|e| anyhow::anyhow!("tunnel {tunnel_id} DNS not a valid IP: {e}"))?;
+
+    let info = Arc::new(TunnelForwarderInfo {
+        interface_name: tunnel.interface_name,
+        upstream: SocketAddr::new(upstream_ip, 53),
+    });
+
+    let mut guard = tunnel_forwarders.write().await;
+    let entry = guard.entry(tunnel_id).or_insert_with(|| Arc::clone(&info));
+    Ok(Arc::clone(entry))
+}
+
+/// Build a fresh, non-blocking UDP socket bound to `interface_name` via
+/// `SO_BINDTODEVICE` so the upstream packet egresses on the tunnel
+/// interface. Linux-only; the daemon's systemd unit grants
+/// `CAP_NET_RAW`, which is sufficient for `SO_BINDTODEVICE` on
+/// Linux ≥ 5.7.
+#[cfg(target_os = "linux")]
+fn bind_socket_to_device(interface_name: &str) -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    socket.set_nonblocking(true)?;
+    socket.bind_device(Some(interface_name.as_bytes()))?;
+    let bind: SocketAddr = "0.0.0.0:0".parse().expect("hardcoded address");
+    socket.bind(&bind.into())?;
+    let std_socket: std::net::UdpSocket = socket.into();
+    UdpSocket::from_std(std_socket)
+}
+
+/// Non-Linux platforms (e.g. macOS hosts running unit tests) do not
+/// support `SO_BINDTODEVICE`. Fall back to an unbound socket — this
+/// still resolves but does NOT enforce egress via the tunnel, which is
+/// fine for tests because the mock tunnel interface doesn't exist.
+#[cfg(not(target_os = "linux"))]
+fn bind_socket_to_device(_interface_name: &str) -> std::io::Result<UdpSocket> {
+    let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    std_socket.set_nonblocking(true)?;
+    UdpSocket::from_std(std_socket)
 }
 
 pub(crate) fn record_query(
@@ -516,9 +900,66 @@ pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
     upstreams.first().map(|u| u.address.clone())
 }
 
+/// Long-lived background task: subscribe to the event bus and flush the
+/// response cache on every `WardnetEvent::DnsFilterRebuilt` (issue #341).
+///
+/// Lives for the whole `UdpDnsServer` instance — independent of the
+/// `enabled` toggle that controls the listener — so a rebuild that
+/// fires while DNS is paused doesn't leave the cache stale when the
+/// listener comes back. Flush on an empty cache is a no-op, so the
+/// always-on cost is nil. Exits cleanly on cancellation (Drop) or when
+/// the broadcast bus closes.
+///
+/// `pub(crate)` so the per-branch unit tests in `dns::tests::server`
+/// can drive it directly without standing up a full `UdpDnsServer`.
+pub(crate) fn spawn_cache_invalidator(
+    cache: Arc<RwLock<DnsCache>>,
+    mut event_rx: broadcast::Receiver<WardnetEvent>,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => {
+                    tracing::debug!("DNS cache invalidator cancelled");
+                    break;
+                }
+                result = event_rx.recv() => {
+                    match result {
+                        Ok(WardnetEvent::DnsFilterRebuilt { .. }) => {
+                            let removed = cache.write().await.flush();
+                            if removed > 0 {
+                                tracing::debug!(
+                                    removed,
+                                    "flushed DNS cache after filter rebuild"
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            // We may have skipped a rebuild event. Flush
+                            // defensively — a stale cache is the bug we're
+                            // here to prevent.
+                            tracing::warn!(
+                                skipped = n,
+                                "DNS cache invalidator lagged behind event bus; flushing defensively"
+                            );
+                            cache.write().await.flush();
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::info!("DNS cache invalidator: event bus closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 type TokioResolver = Resolver<TokioRuntimeProvider>;
 
-fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
+pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
     let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {

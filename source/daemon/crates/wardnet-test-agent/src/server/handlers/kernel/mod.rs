@@ -286,6 +286,7 @@ pub async fn get_link_show(Path(interface): Path<String>) -> impl IntoResponse {
             exists: false,
             up: false,
             mtu: None,
+            mac: None,
         })
         .into_response();
     }
@@ -293,14 +294,28 @@ pub async fn get_link_show(Path(interface): Path<String>) -> impl IntoResponse {
     let raw = String::from_utf8_lossy(&output.stdout);
     let up = raw.contains("UP") || raw.contains(",UP,") || raw.contains("<UP");
     let mtu = parse_mtu(&raw);
+    let mac = parse_link_ether(&raw);
 
     Json(LinkShowResponse {
         name: interface,
         exists: true,
         up,
         mtu,
+        mac,
     })
     .into_response()
+}
+
+/// Pull `link/ether AA:BB:..` out of `ip link show` output. Returns
+/// the MAC lowercased so callers can compare without normalising.
+fn parse_link_ether(raw: &str) -> Option<String> {
+    for line in raw.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("link/ether ") {
+            return rest.split_whitespace().next().map(str::to_lowercase);
+        }
+    }
+    None
 }
 
 /// Extracts the MTU value from `ip link show` output.

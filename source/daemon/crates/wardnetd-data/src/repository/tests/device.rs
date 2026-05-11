@@ -40,12 +40,12 @@ async fn insert_device(pool: &sqlx::SqlitePool, id: &str, mac: &str, ip: &str) {
 #[tokio::test]
 async fn find_by_ip_found() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     let device = repo.find_by_ip("192.168.1.10").await.unwrap().unwrap();
     assert_eq!(device.id.to_string(), DEV1);
-    assert_eq!(device.mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(device.mac, "aa:bb:cc:dd:ee:01");
     assert_eq!(device.last_ip, "192.168.1.10");
     assert_eq!(device.device_type, DeviceType::Unknown);
     assert!(!device.admin_locked);
@@ -63,21 +63,21 @@ async fn find_by_ip_not_found() {
 #[tokio::test]
 async fn find_by_id_found() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
-    assert_eq!(device.mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(device.mac, "aa:bb:cc:dd:ee:01");
 }
 
 #[tokio::test]
 async fn find_by_mac_found() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     let device = repo
-        .find_by_mac("AA:BB:CC:DD:EE:01")
+        .find_by_mac("aa:bb:cc:dd:ee:01")
         .await
         .unwrap()
         .unwrap();
@@ -89,8 +89,38 @@ async fn find_by_mac_not_found() {
     let pool = test_pool().await;
     let repo = SqliteDeviceRepository::new(pool);
 
-    let result = repo.find_by_mac("FF:FF:FF:FF:FF:FF").await.unwrap();
+    let result = repo.find_by_mac("ff:ff:ff:ff:ff:ff").await.unwrap();
     assert!(result.is_none());
+}
+
+/// Cross-case equality acceptance test for issue #312: an uppercase MAC
+/// inserted via the repo must be findable with a lowercase MAC argument
+/// (and the row must come back in canonical lowercase form). This pins
+/// the contract that `SqliteDeviceRepository` lowercases on both write
+/// and `_by_mac` lookup, so callers can stop normalising per-call.
+#[tokio::test]
+async fn insert_uppercase_mac_is_findable_by_lowercase() {
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let row = sample_device_row(DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10");
+    repo.insert(&row).await.unwrap();
+
+    let device = repo
+        .find_by_mac("aa:bb:cc:dd:ee:01")
+        .await
+        .unwrap()
+        .expect("lowercase lookup must hit the row inserted with uppercase MAC");
+    assert_eq!(device.mac, "aa:bb:cc:dd:ee:01");
+
+    // Reverse direction also works: uppercase argument resolves the
+    // (now-lowercase) stored row.
+    let again = repo
+        .find_by_mac("AA:BB:CC:DD:EE:01")
+        .await
+        .unwrap()
+        .expect("uppercase lookup must hit the same canonical row");
+    assert_eq!(again.id, device.id);
 }
 
 #[tokio::test]
@@ -98,11 +128,11 @@ async fn insert_new_device() {
     let pool = test_pool().await;
     let repo = SqliteDeviceRepository::new(pool);
 
-    let row = sample_device_row(DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let row = sample_device_row(DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10");
     repo.insert(&row).await.unwrap();
 
     let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
-    assert_eq!(device.mac, "AA:BB:CC:DD:EE:01");
+    assert_eq!(device.mac, "aa:bb:cc:dd:ee:01");
     assert_eq!(device.hostname, Some("my-host".to_owned()));
     assert_eq!(device.manufacturer, Some("Apple".to_owned()));
     assert_eq!(device.device_type, DeviceType::Phone);
@@ -114,7 +144,7 @@ async fn update_last_seen_and_ip() {
     let pool = test_pool().await;
     let repo = SqliteDeviceRepository::new(pool);
 
-    let row = sample_device_row(DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let row = sample_device_row(DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10");
     repo.insert(&row).await.unwrap();
 
     repo.update_last_seen_and_ip(DEV1, "192.168.1.20", "2026-03-07T12:00:00Z")
@@ -133,14 +163,14 @@ async fn update_last_seen_batch_multiple() {
 
     repo.insert(&sample_device_row(
         DEV1,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     ))
     .await
     .unwrap();
     repo.insert(&sample_device_row(
         DEV2,
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.11",
     ))
     .await
@@ -165,7 +195,7 @@ async fn update_hostname() {
 
     repo.insert(&sample_device_row(
         DEV1,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     ))
     .await
@@ -184,7 +214,7 @@ async fn update_name_and_type() {
 
     repo.insert(&sample_device_row(
         DEV1,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     ))
     .await
@@ -205,12 +235,12 @@ async fn find_stale_returns_old_devices() {
     let repo = SqliteDeviceRepository::new(pool);
 
     // Device 1: old last_seen.
-    let mut row1 = sample_device_row(DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10");
+    let mut row1 = sample_device_row(DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10");
     row1.last_seen = "2026-03-06T00:00:00Z".to_owned();
     repo.insert(&row1).await.unwrap();
 
     // Device 2: recent last_seen.
-    let mut row2 = sample_device_row(DEV2, "AA:BB:CC:DD:EE:02", "192.168.1.11");
+    let mut row2 = sample_device_row(DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11");
     row2.last_seen = "2026-03-07T12:00:00Z".to_owned();
     repo.insert(&row2).await.unwrap();
 
@@ -226,21 +256,21 @@ async fn find_all_returns_all_devices() {
 
     repo.insert(&sample_device_row(
         DEV1,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     ))
     .await
     .unwrap();
     repo.insert(&sample_device_row(
         DEV2,
-        "AA:BB:CC:DD:EE:02",
+        "aa:bb:cc:dd:ee:02",
         "192.168.1.11",
     ))
     .await
     .unwrap();
     repo.insert(&sample_device_row(
         DEV3,
-        "AA:BB:CC:DD:EE:03",
+        "aa:bb:cc:dd:ee:03",
         "192.168.1.12",
     ))
     .await
@@ -253,7 +283,7 @@ async fn find_all_returns_all_devices() {
 #[tokio::test]
 async fn find_rule_for_device_found() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     sqlx::query(
         "INSERT INTO routing_rules (id, device_id, target_json, created_by) \
          VALUES ('r1', ?, '{\"type\":\"direct\"}', 'user')",
@@ -272,7 +302,7 @@ async fn find_rule_for_device_found() {
 #[tokio::test]
 async fn find_rule_not_found() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     let result = repo.find_rule_for_device(DEV1).await.unwrap();
@@ -282,7 +312,7 @@ async fn find_rule_not_found() {
 #[tokio::test]
 async fn upsert_user_rule_insert_and_update() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     // Insert.
@@ -307,7 +337,7 @@ async fn update_admin_locked_sets_flag() {
 
     repo.insert(&sample_device_row(
         DEV1,
-        "AA:BB:CC:DD:EE:01",
+        "aa:bb:cc:dd:ee:01",
         "192.168.1.10",
     ))
     .await
@@ -331,9 +361,9 @@ async fn update_admin_locked_sets_flag() {
 #[tokio::test]
 async fn count_devices() {
     let pool = test_pool().await;
-    insert_device(&pool, DEV1, "AA:BB:CC:DD:EE:01", "192.168.1.10").await;
-    insert_device(&pool, DEV2, "AA:BB:CC:DD:EE:02", "192.168.1.11").await;
-    insert_device(&pool, DEV3, "AA:BB:CC:DD:EE:03", "192.168.1.12").await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    insert_device(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11").await;
+    insert_device(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.12").await;
     let repo = SqliteDeviceRepository::new(pool);
 
     assert_eq!(repo.count().await.unwrap(), 3);

@@ -3,11 +3,12 @@ import { useParams, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
+import { Toggle } from "@wardnet/forge-web/toggle";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
-import { useTunnel, useDeleteTunnel } from "@/hooks/useTunnels";
+import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@/hooks/useTunnels";
 import { countryFlag } from "@/lib/country";
 import { timeAgo } from "@/lib/utils";
 import type { TunnelMetricsRange, TunnelStatus } from "@wardnet/js";
@@ -52,6 +53,7 @@ export default function TunnelDetail() {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnel(id);
   const deleteTunnel = useDeleteTunnel();
+  const setDnsOverride = useSetTunnelDnsOverride();
 
   if (isLoading) {
     return <p className="text-sm text-ink-3">Loading…</p>;
@@ -89,27 +91,44 @@ export default function TunnelDetail() {
         <CardHeader>
           <CardTitle>Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-6 md:grid-cols-4">
-          <Field label="Provider" editing={false} value={tunnel.provider ?? "—"} />
+        <CardContent className="flex flex-col gap-5">
+          <div className="grid grid-cols-2 gap-x-6 md:grid-cols-4">
+            <Field label="Provider" editing={false} value={tunnel.provider ?? "—"} />
+            <Field
+              label="Country"
+              editing={false}
+              value={`${flag ? `${flag} ` : ""}${tunnel.country_code?.toUpperCase() ?? "—"}`}
+            />
+            <Field
+              label="Endpoint"
+              editing={false}
+              value={
+                <span className="mono block truncate" title={tunnel.endpoint}>
+                  {tunnel.endpoint}
+                </span>
+              }
+            />
+            <Field
+              label="Interface"
+              editing={false}
+              value={<span className="mono">{tunnel.interface_name}</span>}
+            />
+          </div>
           <Field
-            label="Country"
-            editing={false}
-            value={`${flag ? `${flag} ` : ""}${tunnel.country_code?.toUpperCase() ?? "—"}`}
-          />
-          <Field
-            label="Endpoint"
-            editing={false}
-            value={
-              <span className="mono block truncate" title={tunnel.endpoint}>
-                {tunnel.endpoint}
-              </span>
-            }
-          />
-          <Field
-            label="Interface"
-            editing={false}
-            value={<span className="mono">{tunnel.interface_name}</span>}
-          />
+            direction="row"
+            label="Filter and route DNS through this tunnel"
+            htmlFor="dns-override"
+            help="When on, devices routed through this tunnel resolve DNS via Wardnet so ad-blocking still applies, and Wardnet forwards those queries via the tunnel interface using the tunnel's DNS server. When off, the system-wide upstream pool is used."
+          >
+            <Toggle
+              id="dns-override"
+              checked={tunnel.override_default_dns}
+              disabled={setDnsOverride.isPending}
+              onCheckedChange={(checked) =>
+                setDnsOverride.mutate({ id: tunnel.id, value: checked })
+              }
+            />
+          </Field>
         </CardContent>
       </Card>
 

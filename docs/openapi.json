@@ -11522,6 +11522,185 @@
         ]
       }
     },
+    "/api/tunnels/{id}/dns-override": {
+      "put": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "Toggle the per-tunnel `override_default_dns` flag. When true, tunneled-device DNS queries are filtered by wardnet's ad-blocking pipeline and forwarded via a SO_BINDTODEVICE-bound socket on the tunnel interface. When false, those queries fall back to the system-wide upstream pool. Replaces the legacy nftables prerouting DNAT bypass — see issue #342. Admin only.",
+        "operationId": "update_tunnel_dns_override",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTunnelDnsOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "DNS override updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTunnelDnsOverrideResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/tunnels/{id}/metrics": {
       "get": {
         "tags": [
@@ -15836,7 +16015,8 @@
           "status",
           "bytes_tx",
           "bytes_rx",
-          "created_at"
+          "created_at",
+          "override_default_dns"
         ],
         "properties": {
           "bytes_rx": {
@@ -15875,6 +16055,10 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "override_default_dns": {
+            "type": "boolean",
+            "description": "When `true`, devices routed through this tunnel resolve DNS via\nwardnet's DNS server (so the ad-blocking filter still runs) and\nwardnet forwards those queries to the tunnel's DNS server with\n`SO_BINDTODEVICE`. When `false`, the per-tunnel DNS server (if\nany) is ignored and the system-wide upstream pool is used."
           },
           "provider": {
             "type": [
@@ -16585,6 +16769,31 @@
         "properties": {
           "status": {
             "$ref": "#/components/schemas/UpdateStatus"
+          }
+        }
+      },
+      "UpdateTunnelDnsOverrideRequest": {
+        "type": "object",
+        "description": "Request body for `PUT /api/tunnels/{id}/dns-override`.",
+        "required": [
+          "override_default_dns"
+        ],
+        "properties": {
+          "override_default_dns": {
+            "type": "boolean",
+            "description": "`true` routes tunneled-device DNS through wardnet (so the\nad-blocking filter still runs) using the tunnel's DNS server as\nupstream with `SO_BINDTODEVICE`. `false` falls back to the\nsystem-wide upstream pool. See issue #342."
+          }
+        }
+      },
+      "UpdateTunnelDnsOverrideResponse": {
+        "type": "object",
+        "description": "Response for `PUT /api/tunnels/{id}/dns-override`.",
+        "required": [
+          "tunnel"
+        ],
+        "properties": {
+          "tunnel": {
+            "$ref": "#/components/schemas/Tunnel"
           }
         }
       },

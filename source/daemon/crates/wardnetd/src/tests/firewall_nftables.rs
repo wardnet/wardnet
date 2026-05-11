@@ -325,40 +325,9 @@ table inet wardnet {
     );
 }
 
-#[tokio::test]
-async fn add_dns_redirect_sends_correct_command() {
-    let (mock, calls) = MockCommandExecutor::new();
-    let mgr = NftablesFirewallManager::new(Arc::new(mock));
-
-    mgr.add_dns_redirect("192.168.1.100", "10.5.0.1")
-        .await
-        .expect("add_dns_redirect should succeed");
-
-    let recorded = calls.lock().await;
-    assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0].program, "nft");
-    assert_eq!(
-        recorded[0].args,
-        vec![
-            "add",
-            "rule",
-            "inet",
-            "wardnet",
-            "prerouting",
-            "ip",
-            "saddr",
-            "192.168.1.100",
-            "udp",
-            "dport",
-            "53",
-            "dnat",
-            "to",
-            "10.5.0.1",
-            "comment",
-            "\"wardnet:dns:192.168.1.100\"",
-        ]
-    );
-}
+// (DNAT machinery removed in #342 — `add_dns_redirect`/`remove_dns_redirect`
+//  no longer exist. The `cleanup_legacy_dns_redirects` startup task is
+//  exercised below.)
 
 #[tokio::test]
 async fn check_tools_sends_version_command() {
@@ -378,21 +347,38 @@ async fn check_tools_sends_version_command() {
 }
 
 #[tokio::test]
-async fn remove_dns_redirect_finds_handle_and_deletes() {
+async fn cleanup_legacy_dns_redirects_deletes_every_match() {
     let (mock, calls) = MockCommandExecutor::with_responses(vec![
-        // list chain returns our fixture with handle 7.
-        success_output(NFT_PREROUTING_OUTPUT),
-        // delete rule succeeds.
+        // list chain: two legacy wardnet:dns:* DNAT rules from a daemon
+        // running before #342 plus one unrelated rule that must be left
+        // alone.
+        success_output(
+            "\
+table inet wardnet {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+        ip saddr 192.168.1.100 udp dport 53 dnat to 10.5.0.1 comment \"wardnet:dns:192.168.1.100\" # handle 7
+        ip saddr 192.168.1.101 udp dport 53 dnat to 10.5.0.2 comment \"wardnet:dns:192.168.1.101\" # handle 8
+        oifname \"wg_ward0\" masquerade comment \"wardnet:wg_ward0\" # handle 9
+    }
+}
+",
+        ),
+        success_output(""),
         success_output(""),
     ]);
     let mgr = NftablesFirewallManager::new(Arc::new(mock));
 
-    mgr.remove_dns_redirect("192.168.1.100")
+    mgr.cleanup_legacy_dns_redirects()
         .await
-        .expect("remove_dns_redirect should succeed");
+        .expect("cleanup should succeed");
 
     let recorded = calls.lock().await;
-    assert_eq!(recorded.len(), 2, "should issue list then delete");
+    assert_eq!(
+        recorded.len(),
+        3,
+        "should issue list + 2 deletes (the two wardnet:dns:* rules)"
+    );
     assert_eq!(
         recorded[1].args,
         vec![
@@ -405,10 +391,22 @@ async fn remove_dns_redirect_finds_handle_and_deletes() {
             "7"
         ]
     );
+    assert_eq!(
+        recorded[2].args,
+        vec![
+            "delete",
+            "rule",
+            "inet",
+            "wardnet",
+            "prerouting",
+            "handle",
+            "8"
+        ]
+    );
 }
 
 #[tokio::test]
-async fn remove_dns_redirect_warns_when_no_handle() {
+async fn cleanup_legacy_dns_redirects_noop_when_chain_clean() {
     let no_match = "\
 table inet wardnet {
     chain prerouting {
@@ -419,9 +417,9 @@ table inet wardnet {
     let (mock, calls) = MockCommandExecutor::with_responses(vec![success_output(no_match)]);
     let mgr = NftablesFirewallManager::new(Arc::new(mock));
 
-    mgr.remove_dns_redirect("192.168.1.100")
+    mgr.cleanup_legacy_dns_redirects()
         .await
-        .expect("should succeed even when rule not found");
+        .expect("cleanup should succeed when chain is already clean");
 
     let recorded = calls.lock().await;
     assert_eq!(

@@ -13,6 +13,7 @@ pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
+pub mod garp;
 pub mod logging;
 pub mod routing;
 pub mod system;
@@ -108,6 +109,10 @@ pub struct Backends {
     /// auto-discover the upstream router via ARP. Real impl wraps
     /// `pnet`'s datalink channel; the mock returns a synthetic MAC.
     pub network_probe: Arc<dyn system::NetworkProbe>,
+    /// Gratuitous-ARP failover hook. Real impl in `wardnetd` wraps
+    /// `pnet` to send the farewell/claim sequences; the mock is a
+    /// logging no-op. See [`garp::GarpOps`] and issue #213.
+    pub garp_ops: Arc<dyn garp::GarpOps>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -138,6 +143,11 @@ pub struct Services {
     pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
+    /// Tunnel repository — exposed so the DNS server can resolve
+    /// `UpstreamId::Tunnel(_)` entries from the routing snapshot into a
+    /// concrete (interface name, DNS upstream) pair without going through
+    /// the auth-gated tunnel service. See issue #342.
+    pub tunnel_repo: Arc<dyn wardnetd_data::repository::TunnelRepository>,
     /// Shared sink the DNS server writes to and the WS handler subscribes
     /// from. Live for the lifetime of the daemon.
     pub dns_log_sink: Arc<DnsLogSink>,
@@ -405,7 +415,7 @@ fn create_services(
 
     let routing_service = build_routing_service(
         device_repo,
-        tunnel_repo,
+        tunnel_repo.clone(),
         tunnel_service.clone(),
         backends.policy_router,
         backends.firewall,
@@ -448,6 +458,7 @@ fn create_services(
         jobs: job_service,
         dns_repo,
         dns_filter_repo,
+        tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
     }

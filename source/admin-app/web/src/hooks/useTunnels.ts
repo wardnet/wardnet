@@ -79,3 +79,21 @@ export function useTestTunnel() {
     },
   });
 }
+
+export function useSetTunnelDnsOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, value }: { id: string; value: boolean }) =>
+      tunnelService.setDnsOverride(id, { override_default_dns: value }),
+    onSuccess: (_data, vars) => {
+      toast.success(
+        vars.value
+          ? "Tunneled-device DNS will route through wardnet (filtered)"
+          : "Tunneled-device DNS now uses the system upstream pool",
+      );
+      qc.invalidateQueries({ queryKey: ["tunnels"] });
+      qc.invalidateQueries({ queryKey: ["tunnels", vars.id] });
+    },
+    onError: () => toast.error("Failed to update DNS override"),
+  });
+}

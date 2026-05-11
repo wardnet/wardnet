@@ -33,6 +33,7 @@ struct DbTunnelRow {
     bytes_tx: i64,
     bytes_rx: i64,
     created_at: String,
+    override_default_dns: i64,
 }
 
 impl DbTunnelRow {
@@ -59,6 +60,7 @@ impl DbTunnelRow {
             bytes_tx: self.bytes_tx.cast_unsigned(),
             bytes_rx: self.bytes_rx.cast_unsigned(),
             created_at: self.created_at.parse()?,
+            override_default_dns: self.override_default_dns != 0,
         })
     }
 }
@@ -70,6 +72,7 @@ struct DbTunnelConfigRow {
     dns: String,
     peer_config: String,
     listen_port: Option<i64>,
+    override_default_dns: i64,
 }
 
 impl DbTunnelConfigRow {
@@ -88,6 +91,7 @@ impl DbTunnelConfigRow {
             dns,
             listen_port,
             peer,
+            override_default_dns: self.override_default_dns != 0,
         })
     }
 }
@@ -97,7 +101,7 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
         let rows = sqlx::query_as::<_, DbTunnelRow>(
             "SELECT id, label, country_code, provider, interface_name, endpoint, \
-             status, last_handshake, bytes_tx, bytes_rx, created_at \
+             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns \
              FROM tunnels",
         )
         .fetch_all(&self.pool)
@@ -109,7 +113,7 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Tunnel>> {
         let row = sqlx::query_as::<_, DbTunnelRow>(
             "SELECT id, label, country_code, provider, interface_name, endpoint, \
-             status, last_handshake, bytes_tx, bytes_rx, created_at \
+             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns \
              FROM tunnels WHERE id = ?",
         )
         .bind(id)
@@ -121,7 +125,8 @@ impl TunnelRepository for SqliteTunnelRepository {
 
     async fn find_config_by_id(&self, id: &str) -> anyhow::Result<Option<TunnelConfig>> {
         let row = sqlx::query_as::<_, DbTunnelConfigRow>(
-            "SELECT address, dns, peer_config, listen_port FROM tunnels WHERE id = ?",
+            "SELECT address, dns, peer_config, listen_port, override_default_dns \
+             FROM tunnels WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -133,8 +138,8 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn insert(&self, row: &TunnelRow) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO tunnels (id, label, country_code, provider, interface_name, \
-             endpoint, status, address, dns, peer_config, listen_port) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             endpoint, status, address, dns, peer_config, listen_port, override_default_dns) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.label)
@@ -147,6 +152,7 @@ impl TunnelRepository for SqliteTunnelRepository {
         .bind(&row.dns)
         .bind(&row.peer_config)
         .bind(row.listen_port)
+        .bind(i64::from(row.override_default_dns))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -155,6 +161,15 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn update_status(&self, id: &str, status: &str) -> anyhow::Result<()> {
         sqlx::query("UPDATE tunnels SET status = ? WHERE id = ?")
             .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_dns_override(&self, id: &str, value: bool) -> anyhow::Result<()> {
+        sqlx::query("UPDATE tunnels SET override_default_dns = ? WHERE id = ?")
+            .bind(i64::from(value))
             .bind(id)
             .execute(&self.pool)
             .await?;

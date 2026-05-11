@@ -172,6 +172,7 @@ impl TunnelService for MockTunnelService {
             bytes_tx: 0,
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
+            override_default_dns: false,
         };
         self.imported.lock().unwrap().push(req);
         Ok(CreateTunnelResponse {
@@ -213,6 +214,10 @@ impl TunnelService for MockTunnelService {
         Ok(wardnet_common::api::TunnelDevicesResponse {
             devices: Vec::new(),
         })
+    }
+
+    async fn set_dns_override(&self, _id: Uuid, _value: bool) -> Result<Tunnel, AppError> {
+        unimplemented!()
     }
 
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
