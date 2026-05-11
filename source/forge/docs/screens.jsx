@@ -474,7 +474,7 @@ function FilteringScreen({ onToast }) {
   const [cats, setCats] = useStateS(WardData.filteringCategories);
   const [allow, setAllow] = useStateS(["icloud.com","apple-mapkit.com"]);
   const [block, setBlock] = useStateS(["analytics.tiktok.com","ads.yahoo.com","fb.gg"]);
-  const [newDomain, setNewDomain] = useStateS("");
+  const [newDomain] = useStateS("");
 
   return (
     <div className="col gap-20" data-screen-label="06 DNS Filtering">
