@@ -113,7 +113,7 @@ arc-swap = "1"
 # https://crates.io/crates/pnet
 pnet = "0.35"
 # https://crates.io/crates/sysinfo
-sysinfo = "0.38"
+sysinfo = "0.39"
 # https://crates.io/crates/dhcproto
 dhcproto = "0.14"
 
