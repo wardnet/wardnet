@@ -1,11 +1,5 @@
 <div align="center">
-
-<img src="artwork/logo-192x192.png" alt="Wardnet logo" width="192" />
-
-# Wardnet
-
-**Your network. Your rules.**
-
+<img src="artwork/logo-full.png" alt="Wardnet logo" />
 </div>
 
 [![CI](https://github.com/wardnet/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci.yml)
