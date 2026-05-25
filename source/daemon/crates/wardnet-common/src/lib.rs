@@ -9,6 +9,7 @@ pub mod dns_filter;
 pub mod event;
 pub mod jobs;
 pub mod routing;
+pub mod stats;
 pub mod tunnel;
 pub mod update;
 pub mod vpn_provider;

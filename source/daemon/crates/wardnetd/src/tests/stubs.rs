@@ -37,7 +37,8 @@ use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
-    ObservationResult, RoutingService, SystemService, TunnelService, VpnProviderService,
+    ObservationResult, RoutingService, StatsService, SystemService, TunnelService,
+    VpnProviderService,
 };
 
 use wardnetd_api::state::AppState;
@@ -540,12 +541,6 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
         unimplemented!()
     }
-    async fn dns_stats(
-        &self,
-        _hours: u32,
-    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
-        unimplemented!()
-    }
     fn subscribe_query_stream(
         &self,
     ) -> Result<tokio::sync::broadcast::Receiver<wardnet_common::api::QueryLogEvent>, AppError>
@@ -886,6 +881,33 @@ impl wardnetd_services::dns::server::DnsServer for StubDnsServer {
 // Helper: test_app_state
 // ---------------------------------------------------------------------------
 
+pub struct StubStatsService;
+
+#[async_trait]
+impl StatsService for StubStatsService {
+    async fn query(
+        &self,
+        _q: wardnet_common::stats::StatsQuery,
+    ) -> Result<wardnet_common::stats::StatsQueryResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn top(
+        &self,
+        _q: wardnet_common::stats::StatsTopQuery,
+    ) -> Result<wardnet_common::stats::StatsTopResponse, wardnetd_services::error::AppError> {
+        unimplemented!()
+    }
+    async fn run_flush(
+        &self,
+        _rows: Vec<wardnetd_data::repository::IntradayStatRow>,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn run_maintenance(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+}
+
 /// Create an [`AppState`] with all stub services and default configuration.
 ///
 /// Useful as a starting point for tests that only need one or two real
@@ -911,5 +933,6 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
         wardnetd_services::jobs::JobServiceImpl::new(),
+        Arc::new(StubStatsService),
     )
 }

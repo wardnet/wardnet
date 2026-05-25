@@ -7,19 +7,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use wardnet_common::api::{
-    DnsCacheFlushResponse, DnsConfigResponse, DnsStatsResponse, DnsStatusResponse,
-    ListQueryLogParams, ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest,
-    UpdateDnsConfigRequest,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListQueryLogParams,
+    ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode};
-use wardnetd_data::repository::{
-    BucketSize, DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow,
-    TopClientRow, TopDomainRow,
-};
+use wardnetd_data::repository::{DnsRepository, QueryLogFilter, QueryLogRow};
 
 use crate::DnsService;
 use crate::dns::log_sink::DnsLogSink;
@@ -74,9 +69,6 @@ impl DnsService for MockService {
     ) -> Result<ListQueryLogResponse, AppError> {
         unimplemented!()
     }
-    async fn dns_stats(&self, _hours: u32) -> Result<DnsStatsResponse, AppError> {
-        unimplemented!()
-    }
     fn subscribe_query_stream(
         &self,
     ) -> Result<tokio::sync::broadcast::Receiver<QueryLogEvent>, AppError> {
@@ -115,31 +107,6 @@ impl DnsRepository for RecordingRepo {
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64> {
         self.cleanups.lock().unwrap().push(retention_days);
         Ok(0)
-    }
-    async fn query_stats(&self, _since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
-        Ok(QueryStatsRow::default())
-    }
-    async fn top_domains(
-        &self,
-        _since: DateTime<Utc>,
-        _limit: u32,
-        _blocked_only: bool,
-    ) -> anyhow::Result<Vec<TopDomainRow>> {
-        Ok(Vec::new())
-    }
-    async fn top_clients(
-        &self,
-        _since: DateTime<Utc>,
-        _limit: u32,
-    ) -> anyhow::Result<Vec<TopClientRow>> {
-        Ok(Vec::new())
-    }
-    async fn series_buckets(
-        &self,
-        _since: DateTime<Utc>,
-        _bucket: BucketSize,
-    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
-        Ok(Vec::new())
     }
 }
 
@@ -269,31 +236,6 @@ impl DnsRepository for InsertFailingRepo {
     async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
         Ok(0)
     }
-    async fn query_stats(&self, _since: DateTime<Utc>) -> anyhow::Result<QueryStatsRow> {
-        Ok(QueryStatsRow::default())
-    }
-    async fn top_domains(
-        &self,
-        _since: DateTime<Utc>,
-        _limit: u32,
-        _blocked_only: bool,
-    ) -> anyhow::Result<Vec<TopDomainRow>> {
-        Ok(Vec::new())
-    }
-    async fn top_clients(
-        &self,
-        _since: DateTime<Utc>,
-        _limit: u32,
-    ) -> anyhow::Result<Vec<TopClientRow>> {
-        Ok(Vec::new())
-    }
-    async fn series_buckets(
-        &self,
-        _since: DateTime<Utc>,
-        _bucket: BucketSize,
-    ) -> anyhow::Result<Vec<SeriesBucketRow>> {
-        Ok(Vec::new())
-    }
 }
 
 /// Service whose `get_dns_config` always returns Err — exercises the
@@ -327,9 +269,6 @@ impl DnsService for ErroringConfigService {
         &self,
         _params: ListQueryLogParams,
     ) -> Result<ListQueryLogResponse, AppError> {
-        unimplemented!()
-    }
-    async fn dns_stats(&self, _hours: u32) -> Result<DnsStatsResponse, AppError> {
         unimplemented!()
     }
     fn subscribe_query_stream(

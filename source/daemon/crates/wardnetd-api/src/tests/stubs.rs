@@ -28,7 +28,7 @@ use wardnetd_services::logging::service::{LogFileInfo, LogService};
 use wardnetd_services::logging::stream::LogEntry;
 use wardnetd_services::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService, RoutingService,
-    SystemService, TunnelService, VpnProviderService,
+    StatsService, SystemService, TunnelService, VpnProviderService,
 };
 
 use crate::state::AppState;
@@ -183,12 +183,6 @@ impl DnsService for StubDnsService {
         &self,
         _params: wardnet_common::api::ListQueryLogParams,
     ) -> Result<wardnet_common::api::ListQueryLogResponse, AppError> {
-        unimplemented!()
-    }
-    async fn dns_stats(
-        &self,
-        _hours: u32,
-    ) -> Result<wardnet_common::api::DnsStatsResponse, AppError> {
         unimplemented!()
     }
     fn subscribe_query_stream(
@@ -810,6 +804,37 @@ impl wardnetd_services::UpdateService for StubUpdateService {
 }
 
 // ---------------------------------------------------------------------------
+// StubStatsService
+// ---------------------------------------------------------------------------
+
+pub struct StubStatsService;
+
+#[async_trait]
+impl StatsService for StubStatsService {
+    async fn query(
+        &self,
+        _q: wardnet_common::stats::StatsQuery,
+    ) -> Result<wardnet_common::stats::StatsQueryResponse, AppError> {
+        unimplemented!()
+    }
+    async fn top(
+        &self,
+        _q: wardnet_common::stats::StatsTopQuery,
+    ) -> Result<wardnet_common::stats::StatsTopResponse, AppError> {
+        unimplemented!()
+    }
+    async fn run_flush(
+        &self,
+        _rows: Vec<wardnetd_data::repository::IntradayStatRow>,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn run_maintenance(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Convenience constructor
 // ---------------------------------------------------------------------------
 
@@ -834,5 +859,6 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
+        Arc::new(StubStatsService),
     )
 }

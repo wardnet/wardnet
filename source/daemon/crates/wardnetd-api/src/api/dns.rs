@@ -1,14 +1,15 @@
-//! DNS server config + status + cache + query log + stats handlers.
+//! DNS server config + status + cache + query log handlers.
 //!
 //! Filter-source CRUD lives in [`super::dns_filter`] after issue #221.
+//! DNS stats moved to the generic `/api/stats` endpoints (issue #409).
 
 use axum::Json;
 use axum::extract::{Query, State};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::api::{
-    DnsCacheFlushResponse, DnsConfigResponse, DnsStatsParams, DnsStatsResponse, DnsStatusResponse,
-    ListQueryLogParams, ListQueryLogResponse, ToggleDnsRequest, UpdateDnsConfigRequest,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListQueryLogParams,
+    ListQueryLogResponse, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -23,7 +24,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(status))
         .routes(routes!(flush_cache))
         .routes(routes!(list_query_log))
-        .routes(routes!(get_stats))
 }
 
 #[utoipa::path(
@@ -192,31 +192,5 @@ pub async fn list_query_log(
     Query(params): Query<ListQueryLogParams>,
 ) -> Result<Json<ListQueryLogResponse>, AppError> {
     let response = state.dns_service().list_query_log(params).await?;
-    Ok(Json(response))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/dns/stats",
-    tag = "dns",
-    description = "Aggregated DNS statistics for a recent window. Admin only.",
-    params(DnsStatsParams),
-    responses(
-        (status = 200, description = "Aggregated stats", body = DnsStatsResponse),
-        AuthErrors,
-        BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
-)]
-pub async fn get_stats(
-    State(state): State<AppState>,
-    _auth: AdminAuth,
-    Query(params): Query<DnsStatsParams>,
-) -> Result<Json<DnsStatsResponse>, AppError> {
-    let hours = params.hours.unwrap_or(24);
-    let response = state.dns_service().dns_stats(hours).await?;
     Ok(Json(response))
 }

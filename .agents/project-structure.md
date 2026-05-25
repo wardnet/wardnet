@@ -4,11 +4,11 @@
 source/
 ├── daemon/                          # Rust workspace (Cargo.toml at this level)
 │   └── crates/
-│       ├── wardnet-common/          # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs, Config
+│       ├── wardnet-common/          # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs, Config, Stats query/response types
 │       ├── wardnetd-data/           # Data access layer
 │       │   ├── src/
-│       │   │   ├── repository/      # Trait definitions (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, DnsRepository, SystemConfigRepository, etc.)
-│       │   │   │   └── sqlite/      # SQLite implementations of all repository traits
+│       │   │   ├── repository/      # Trait definitions (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, DnsRepository, SystemConfigRepository, StatsRepository, etc.)
+│       │   │   │   └── sqlite/      # SQLite implementations of all repository traits (including SqliteStatsRepository)
 │       │   │   ├── database_dumper/ # DatabaseDumper trait + SqliteDumper (VACUUM INTO snapshot + atomic rename restore)
 │       │   │   ├── bootstrap/       # Admin account initialization (first-run setup)
 │       │   │   ├── db/              # SQLite pool init (WAL mode, migrations)
@@ -32,10 +32,12 @@ source/
 │       │       ├── auth_context/    # Task-local auth context (require_admin, with_context)
 │       │       ├── request_context/ # Request-scoped context
 │       │       ├── command/         # CommandExecutor trait (shell command abstraction)
+│       │       ├── stats/           # Generic pre-aggregating stats subsystem (StatsBuffer, Meter, StatsService, StatsFlushRunner)
 │       │       └── version/         # Compile-time version info
 │       ├── wardnetd-api/            # HTTP API layer (Axum)
 │       │   └── src/
-│       │       ├── api/             # Endpoint handlers (auth, devices, dhcp, dns, info, setup, system, tunnels, providers, backup, update)
+│       │       ├── api/             # Endpoint handlers (auth, devices, dhcp, dns, info, setup, stats, system, tunnels, providers, backup, update)
+│       │       │   ├── stats.rs     # GET /api/stats (time-series query) + GET /api/stats/top (top-N)
 │       │       │   └── logs_ws.rs   # WebSocket log streaming endpoint
 │       │       ├── middleware.rs    # AuthContextLayer, RequestContextLayer, CORS, tracing
 │       │       ├── state.rs         # AppState (holds Arc<dyn Service> trait objects + EventPublisher)

@@ -6,6 +6,7 @@ pub mod dns;
 pub mod dns_filter;
 pub mod session;
 pub mod sqlite;
+pub mod stats;
 pub mod system_config;
 pub mod tunnel;
 pub mod tunnel_metrics;
@@ -15,10 +16,7 @@ pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
-pub use dns::{
-    BucketSize, DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow,
-    TopClientRow, TopDomainRow,
-};
+pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 pub use dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
@@ -26,10 +24,11 @@ pub use dns_filter::{
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsFilterRepository, SqliteDnsRepository, SqliteSessionRepository,
+    SqliteDnsFilterRepository, SqliteDnsRepository, SqliteSessionRepository, SqliteStatsRepository,
     SqliteSystemConfigRepository, SqliteTunnelMetricsRepository, SqliteTunnelRepository,
     SqliteUpdateRepository,
 };
+pub use stats::{DailyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
 pub use tunnel_metrics::{DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository};

@@ -16,9 +16,9 @@ use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsFilterRepository,
     DnsRepository, SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository,
     SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsFilterRepository, SqliteDnsRepository,
-    SqliteSessionRepository, SqliteSystemConfigRepository, SqliteTunnelMetricsRepository,
-    SqliteTunnelRepository, SqliteUpdateRepository, SystemConfigRepository,
-    TunnelMetricsRepository, TunnelRepository, UpdateRepository,
+    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
+    SqliteTunnelMetricsRepository, SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository,
+    SystemConfigRepository, TunnelMetricsRepository, TunnelRepository, UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -35,6 +35,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn dns(&self) -> Arc<dyn DnsRepository>;
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
+    fn stats(&self) -> Arc<dyn StatsRepository>;
     fn tunnel_metrics(&self) -> Arc<dyn TunnelMetricsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
 
@@ -136,6 +137,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn tunnel(&self) -> Arc<dyn TunnelRepository> {
         Arc::new(SqliteTunnelRepository::new(self.pool.clone()))
+    }
+
+    fn stats(&self) -> Arc<dyn StatsRepository> {
+        Arc::new(SqliteStatsRepository::new(self.pool.clone()))
     }
 
     fn tunnel_metrics(&self) -> Arc<dyn TunnelMetricsRepository> {

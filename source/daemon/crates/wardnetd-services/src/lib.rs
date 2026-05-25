@@ -5,6 +5,7 @@ pub mod event;
 pub mod jobs;
 pub mod request_context;
 pub mod secret_store;
+pub mod stats;
 pub mod version;
 
 pub mod auth;
@@ -33,6 +34,8 @@ use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{DnsFilterRepository, DnsRepository, QueryLogRow};
 
 use crate::dns::log_sink::DnsLogSink;
+use crate::stats::Meter;
+use crate::stats::service::StatsServiceImpl;
 
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
@@ -59,6 +62,10 @@ pub use crate::dns_filter::DnsFilterService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::routing::RoutingService;
+pub use crate::stats::{
+    DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
+    StatsService,
+};
 pub use crate::system::SystemService;
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
@@ -153,6 +160,10 @@ pub struct Services {
     pub dns_log_sink: Arc<DnsLogSink>,
     /// Persistence receiver, taken by the runner once at startup.
     pub dns_log_persist_rx: Mutex<Option<mpsc::Receiver<QueryLogRow>>>,
+    /// Generic pre-aggregating stats service — used by HTTP handlers.
+    pub stats: Arc<dyn StatsService>,
+    /// Shared stats buffer — drained by [`StatsFlushRunner`] in `main.rs`.
+    pub stats_buffer: Arc<StatsBuffer>,
 }
 
 /// Initialize all services from the application configuration.
@@ -337,9 +348,14 @@ fn create_services(
     let tunnel_repo = repo_factory.tunnel();
     let tunnel_metrics_repo = repo_factory.tunnel_metrics();
     let update_repo = repo_factory.update();
+    let stats_repo = repo_factory.stats();
 
     let event_publisher: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(256));
     let job_service: Arc<dyn JobService> = JobServiceImpl::new();
+
+    let stats_buffer = StatsBuffer::new();
+    let stats_meter = Meter::new(stats_buffer.clone());
+    let stats_service: Arc<dyn StatsService> = Arc::new(StatsServiceImpl::new(stats_repo));
 
     let auth_service: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(
         admin_repo,
@@ -361,11 +377,10 @@ fn create_services(
         lan_ip,
     ));
 
-    let (dns_log_sink, dns_log_persist_rx) = DnsLogSink::new();
+    let (dns_log_sink, dns_log_persist_rx) = DnsLogSink::new_with_stats(&stats_meter);
     let dns_service: Arc<dyn DnsService> = Arc::new(DnsServiceImpl::new(
         system_config_repo.clone(),
         dns_repo.clone(),
-        device_repo.clone(),
         event_publisher.clone(),
         Some(dns_log_sink.clone()),
     ));
@@ -461,6 +476,8 @@ fn create_services(
         tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
+        stats: stats_service,
+        stats_buffer,
     }
 }
 

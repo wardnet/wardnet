@@ -30,6 +30,12 @@ you're about to make, rather than the whole set.
   `BackupArchiver`, `DatabaseDumper`, and `SecretStore` compose
   into the export/import flow, plus the two-phase apply and the
   background cleanup runner.
+- **[Stats subsystem](.agents/architecture.md#stats-subsystem-issue-409)** —
+  generic pre-aggregating metrics pipeline: `StatsBuffer` → `StatsFlushRunner`
+  → `stats_intraday` / `stats_daily`; `Meter` / `Counter` / `Gauge` instruments;
+  `StatsService` with time-series and top-N queries; `/api/stats` and
+  `/api/stats/top` endpoints. Also covers the DNS stats migration away from
+  `DnsRepository`.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

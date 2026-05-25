@@ -1,7 +1,7 @@
 use super::test_pool;
 use crate::repository::SqliteDnsRepository;
-use crate::repository::dns::{BucketSize, DnsRepository, QueryLogFilter, QueryLogRow};
-use chrono::{Duration, Utc};
+use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
+use chrono::Utc;
 
 fn ts_now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
@@ -241,131 +241,6 @@ async fn query_log_paginated_ordering() {
     assert_eq!(rows[0].domain, "third.com");
     assert_eq!(rows[1].domain, "second.com");
     assert_eq!(rows[2].domain, "first.com");
-}
-
-#[tokio::test]
-async fn query_stats_aggregates_totals() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let entries = vec![
-        sample_row("10.0.0.1", "a.com", "forwarded"),
-        sample_row("10.0.0.1", "b.com", "blocked"),
-        sample_row("10.0.0.2", "b.com", "blocked"),
-        sample_row("10.0.0.3", "c.com", "cache_hit"),
-    ];
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let since = Utc::now() - Duration::hours(1);
-    let stats = repo.query_stats(since).await.unwrap();
-
-    assert_eq!(stats.total_queries, 4);
-    assert_eq!(stats.blocked_queries, 2);
-    assert_eq!(stats.unique_clients, 3);
-    assert_eq!(stats.unique_domains, 3);
-    assert!((stats.avg_latency_ms - 1.5).abs() < 1e-6);
-}
-
-#[tokio::test]
-async fn query_stats_excludes_rows_before_since() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let entries = vec![
-        QueryLogRow {
-            timestamp: "2020-01-01T00:00:00Z".to_owned(),
-            client_ip: "10.0.0.1".to_owned(),
-            domain: "old.com".to_owned(),
-            query_type: "A".to_owned(),
-            result: "blocked".to_owned(),
-            upstream: None,
-            latency_ms: 1.0,
-            device_id: None,
-        },
-        sample_row("10.0.0.2", "fresh.com", "forwarded"),
-    ];
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let since = Utc::now() - Duration::hours(1);
-    let stats = repo.query_stats(since).await.unwrap();
-    assert_eq!(stats.total_queries, 1);
-    assert_eq!(stats.unique_domains, 1);
-}
-
-#[tokio::test]
-async fn top_domains_orders_by_count_desc() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let mut entries = Vec::new();
-    for _ in 0..3 {
-        entries.push(sample_row("10.0.0.1", "ads.example.com", "blocked"));
-    }
-    for _ in 0..5 {
-        entries.push(sample_row("10.0.0.2", "trk.example.com", "blocked"));
-    }
-    entries.push(sample_row("10.0.0.3", "ok.example.com", "forwarded"));
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let since = Utc::now() - Duration::hours(1);
-
-    let all = repo.top_domains(since, 10, false).await.unwrap();
-    assert_eq!(all.len(), 3);
-    assert_eq!(all[0].domain, "trk.example.com");
-    assert_eq!(all[0].count, 5);
-    assert_eq!(all[1].domain, "ads.example.com");
-    assert_eq!(all[1].count, 3);
-
-    let blocked = repo.top_domains(since, 10, true).await.unwrap();
-    assert_eq!(blocked.len(), 2);
-    assert!(blocked.iter().all(|d| d.domain != "ok.example.com"));
-
-    let limited = repo.top_domains(since, 1, false).await.unwrap();
-    assert_eq!(limited.len(), 1);
-    assert_eq!(limited[0].domain, "trk.example.com");
-}
-
-#[tokio::test]
-async fn top_clients_orders_and_limits() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let mut entries = Vec::new();
-    for _ in 0..2 {
-        entries.push(sample_row("10.0.0.1", "a.com", "forwarded"));
-    }
-    for _ in 0..4 {
-        entries.push(sample_row("10.0.0.2", "b.com", "forwarded"));
-    }
-    entries.push(sample_row("10.0.0.3", "c.com", "forwarded"));
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let since = Utc::now() - Duration::hours(1);
-    let rows = repo.top_clients(since, 10).await.unwrap();
-    assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0].client_ip, "10.0.0.2");
-    assert_eq!(rows[0].count, 4);
-    assert_eq!(rows[1].client_ip, "10.0.0.1");
-    assert_eq!(rows[1].count, 2);
-}
-
-#[tokio::test]
-async fn series_buckets_groups_by_hour() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let entries = vec![
-        sample_row("10.0.0.1", "a.com", "forwarded"),
-        sample_row("10.0.0.1", "b.com", "blocked"),
-        sample_row("10.0.0.2", "c.com", "forwarded"),
-    ];
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let since = Utc::now() - Duration::hours(1);
-    let buckets = repo.series_buckets(since, BucketSize::Hour).await.unwrap();
-    assert_eq!(buckets.len(), 1);
-    assert_eq!(buckets[0].total, 3);
-    assert_eq!(buckets[0].blocked, 1);
 }
 
 #[tokio::test]
