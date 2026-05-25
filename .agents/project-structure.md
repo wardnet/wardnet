@@ -4,11 +4,11 @@
 source/
 ├── daemon/                          # Rust workspace (Cargo.toml at this level)
 │   └── crates/
-│       ├── wardnet-common/          # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs, Config
+│       ├── wardnet-common/          # Shared types: Device, Tunnel, RoutingTarget, DHCP, VPN Provider types, Events, API DTOs, Config, Stats query/response types
 │       ├── wardnetd-data/           # Data access layer
 │       │   ├── src/
-│       │   │   ├── repository/      # Trait definitions (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, DnsRepository, SystemConfigRepository, etc.)
-│       │   │   │   └── sqlite/      # SQLite implementations of all repository traits
+│       │   │   ├── repository/      # Trait definitions (AdminRepository, DeviceRepository, TunnelRepository, DhcpRepository, DnsRepository, SystemConfigRepository, StatsRepository, etc.)
+│       │   │   │   └── sqlite/      # SQLite implementations of all repository traits (including SqliteStatsRepository)
 │       │   │   ├── database_dumper/ # DatabaseDumper trait + SqliteDumper (VACUUM INTO snapshot + atomic rename restore)
 │       │   │   ├── bootstrap/       # Admin account initialization (first-run setup)
 │       │   │   ├── db/              # SQLite pool init (WAL mode, migrations)
