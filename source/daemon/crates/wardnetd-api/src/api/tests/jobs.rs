@@ -89,6 +89,7 @@ fn build_state(job_service: Arc<dyn JobService>) -> AppState {
         Arc::new(StubDnsServer),
         Arc::new(StubEventPublisher),
         job_service,
+        Arc::new(crate::tests::stubs::StubStatsService),
     )
 }
 

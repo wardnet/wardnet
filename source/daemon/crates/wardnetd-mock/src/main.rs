@@ -276,6 +276,7 @@ async fn run(
         dns_server,
         services.event_publisher.clone(),
         services.jobs.clone(),
+        services.stats.clone(),
     );
 
     // Drain the DNS query log persistence channel into SQLite so the

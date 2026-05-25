@@ -16,10 +16,7 @@ pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
-pub use dns::{
-    BucketSize, DnsRepository, QueryLogFilter, QueryLogRow, QueryStatsRow, SeriesBucketRow,
-    TopClientRow, TopDomainRow,
-};
+pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 pub use dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,

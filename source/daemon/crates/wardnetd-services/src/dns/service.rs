@@ -1,21 +1,22 @@
-//! DNS server config + status + cache flush + query log + stats.
+//! DNS server config + status + cache flush + query log.
 //!
 //! After issue #221 (Stage 7), every filter-source concern (blocklists,
 //! allowlist, custom rules, per-device settings) lives behind
 //! [`crate::dns_filter::DnsFilterService`]. This service is left with the
-//! DNS server lifecycle and observability.
+//! DNS server lifecycle and query log observability.
+//!
+//! DNS stats (totals, top domains, top clients, time series) moved to the
+//! generic stats subsystem in issue #409. Use `StatsService` + the
+//! `/api/stats` and `/api/stats/top` endpoints instead.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 use wardnet_common::api::{
-    DnsCacheFlushResponse, DnsConfigResponse, DnsSeriesBucket, DnsSeriesPoint, DnsStatsResponse,
-    DnsStatsTotals, DnsStatusResponse, ListQueryLogParams, ListQueryLogResponse, QueryLogEvent,
-    ToggleDnsRequest, TopClient, TopDomain, UpdateDnsConfigRequest,
+    DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListQueryLogParams,
+    ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
     DnsConfig, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
@@ -26,17 +27,12 @@ use crate::auth_context;
 use crate::dns::log_sink::DnsLogSink;
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::{
-    BucketSize, DeviceRepository, DnsRepository, QueryLogFilter, SystemConfigRepository,
-};
+use wardnetd_data::repository::{DnsRepository, QueryLogFilter, SystemConfigRepository};
 
 pub const QUERY_LOG_MAX_LIMIT: u32 = 500;
 pub const QUERY_LOG_DEFAULT_LIMIT: u32 = 50;
-pub const DNS_STATS_DEFAULT_HOURS: u32 = 24;
-pub const DNS_STATS_MAX_HOURS: u32 = 168;
 pub const QUERY_LOG_RETENTION_MIN_DAYS: u32 = 1;
 pub const QUERY_LOG_RETENTION_MAX_DAYS: u32 = 30;
-const STATS_TOP_N: u32 = 10;
 
 #[async_trait]
 pub trait DnsService: Send + Sync {
@@ -52,7 +48,6 @@ pub trait DnsService: Send + Sync {
         &self,
         params: ListQueryLogParams,
     ) -> Result<ListQueryLogResponse, AppError>;
-    async fn dns_stats(&self, hours: u32) -> Result<DnsStatsResponse, AppError>;
     fn subscribe_query_stream(&self) -> Result<broadcast::Receiver<QueryLogEvent>, AppError>;
     async fn flush_query_log(&self) -> Result<u64, AppError>;
 
@@ -63,7 +58,6 @@ pub trait DnsService: Send + Sync {
 pub struct DnsServiceImpl {
     system_config: Arc<dyn SystemConfigRepository>,
     dns_repo: Arc<dyn DnsRepository>,
-    device_repo: Arc<dyn DeviceRepository>,
     events: Arc<dyn EventPublisher>,
     log_sink: Option<Arc<DnsLogSink>>,
 }
@@ -72,14 +66,12 @@ impl DnsServiceImpl {
     pub fn new(
         system_config: Arc<dyn SystemConfigRepository>,
         dns_repo: Arc<dyn DnsRepository>,
-        device_repo: Arc<dyn DeviceRepository>,
         events: Arc<dyn EventPublisher>,
         log_sink: Option<Arc<DnsLogSink>>,
     ) -> Self {
         Self {
             system_config,
             dns_repo,
-            device_repo,
             events,
             log_sink,
         }
@@ -161,7 +153,7 @@ impl DnsServiceImpl {
 
     fn publish_config_changed(&self) {
         self.events.publish(WardnetEvent::DnsConfigChanged {
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
         });
     }
 }
@@ -254,7 +246,7 @@ impl DnsService for DnsServiceImpl {
                 .map_err(AppError::Internal)?;
             self.events.publish(WardnetEvent::DnsFilterChanged {
                 change: wardnet_common::event::DnsFilterChange::GlobalToggle,
-                timestamp: Utc::now(),
+                timestamp: chrono::Utc::now(),
             });
         }
         if let Some(v) = req.query_log_enabled {
@@ -364,101 +356,6 @@ impl DnsService for DnsServiceImpl {
         Ok(ListQueryLogResponse { entries, total })
     }
 
-    async fn dns_stats(&self, hours: u32) -> Result<DnsStatsResponse, AppError> {
-        auth_context::require_admin()?;
-
-        let hours = hours.clamp(1, DNS_STATS_MAX_HOURS);
-        let since = Utc::now() - Duration::hours(i64::from(hours));
-
-        let stats = self
-            .dns_repo
-            .query_stats(since)
-            .await
-            .map_err(AppError::Internal)?;
-
-        let blocked_percent = if stats.total_queries == 0 {
-            0.0
-        } else {
-            #[allow(clippy::cast_precision_loss)]
-            let pct = (stats.blocked_queries as f64) / (stats.total_queries as f64) * 100.0;
-            pct
-        };
-
-        let totals = DnsStatsTotals {
-            total_queries: stats.total_queries,
-            blocked_queries: stats.blocked_queries,
-            blocked_percent,
-            avg_latency_ms: stats.avg_latency_ms,
-            unique_clients: stats.unique_clients,
-            unique_domains: stats.unique_domains,
-        };
-
-        let top_domains = self
-            .dns_repo
-            .top_domains(since, STATS_TOP_N, false)
-            .await
-            .map_err(AppError::Internal)?
-            .into_iter()
-            .map(|r| TopDomain {
-                domain: r.domain,
-                count: r.count,
-            })
-            .collect();
-
-        let top_blocked = self
-            .dns_repo
-            .top_domains(since, STATS_TOP_N, true)
-            .await
-            .map_err(AppError::Internal)?
-            .into_iter()
-            .map(|r| TopDomain {
-                domain: r.domain,
-                count: r.count,
-            })
-            .collect();
-
-        let top_client_rows = self
-            .dns_repo
-            .top_clients(since, STATS_TOP_N)
-            .await
-            .map_err(AppError::Internal)?;
-
-        let top_clients = self.enrich_top_clients(top_client_rows).await;
-
-        let bucket = if hours <= 1 {
-            BucketSize::Minute
-        } else {
-            BucketSize::Hour
-        };
-        let series_rows = self
-            .dns_repo
-            .series_buckets(since, bucket)
-            .await
-            .map_err(AppError::Internal)?;
-        let series = series_rows
-            .into_iter()
-            .map(|r| DnsSeriesPoint {
-                bucket: r.bucket,
-                total: r.total,
-                blocked: r.blocked,
-            })
-            .collect();
-        let series_bucket = match bucket {
-            BucketSize::Minute => DnsSeriesBucket::Minute,
-            BucketSize::Hour => DnsSeriesBucket::Hour,
-        };
-
-        Ok(DnsStatsResponse {
-            hours,
-            totals,
-            top_domains,
-            top_blocked,
-            top_clients,
-            series_bucket,
-            series,
-        })
-    }
-
     fn subscribe_query_stream(&self) -> Result<broadcast::Receiver<QueryLogEvent>, AppError> {
         auth_context::require_admin()?;
         match &self.log_sink {
@@ -475,10 +372,10 @@ impl DnsService for DnsServiceImpl {
     }
 }
 
-fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<Utc>> {
+fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
     use chrono::NaiveDateTime;
     let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?;
-    Ok(chrono::TimeZone::from_utc_datetime(&Utc, &naive))
+    Ok(chrono::TimeZone::from_utc_datetime(&chrono::Utc, &naive))
 }
 
 fn parse_dns_query_result(s: &str) -> DnsQueryResult {
@@ -490,52 +387,5 @@ fn parse_dns_query_result(s: &str) -> DnsQueryResult {
         "rewritten" | "local" => DnsQueryResult::Local,
         "recursive" => DnsQueryResult::Recursive,
         _ => DnsQueryResult::Error,
-    }
-}
-
-impl DnsServiceImpl {
-    async fn enrich_top_clients(
-        &self,
-        rows: Vec<wardnetd_data::repository::TopClientRow>,
-    ) -> Vec<TopClient> {
-        type DeviceMeta = (Option<String>, Option<String>, Option<String>);
-        let mut by_ip: HashMap<String, DeviceMeta> = HashMap::new();
-
-        for row in &rows {
-            if by_ip.contains_key(&row.client_ip) {
-                continue;
-            }
-            match self.device_repo.find_by_ip(&row.client_ip).await {
-                Ok(Some(device)) => {
-                    let label = device.name.clone().or_else(|| device.hostname.clone());
-                    by_ip.insert(
-                        row.client_ip.clone(),
-                        (Some(device.id.to_string()), label, Some(device.mac.clone())),
-                    );
-                }
-                Ok(None) => {
-                    by_ip.insert(row.client_ip.clone(), (None, None, None));
-                }
-                Err(e) => {
-                    tracing::warn!(client_ip = %row.client_ip, error = %e,
-                        "device lookup failed for top-client");
-                    by_ip.insert(row.client_ip.clone(), (None, None, None));
-                }
-            }
-        }
-
-        rows.into_iter()
-            .map(|row| {
-                let (device_id, device_label, device_mac) =
-                    by_ip.remove(&row.client_ip).unwrap_or((None, None, None));
-                TopClient {
-                    client_ip: row.client_ip,
-                    count: row.count,
-                    device_id,
-                    device_label,
-                    device_mac,
-                }
-            })
-            .collect()
     }
 }

@@ -5,8 +5,8 @@ use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsService, JobService, LogService, RoutingService, SystemService,
-    TunnelService, UpdateService, VpnProviderService,
+    DnsFilterService, DnsService, JobService, LogService, RoutingService, StatsService,
+    SystemService, TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -36,6 +36,7 @@ struct Inner {
     dns_server: Arc<dyn DnsServer>,
     event_publisher: Arc<dyn EventPublisher>,
     job_service: Arc<dyn JobService>,
+    stats_service: Arc<dyn StatsService>,
 }
 
 impl AppState {
@@ -59,6 +60,7 @@ impl AppState {
         dns_server: Arc<dyn DnsServer>,
         event_publisher: Arc<dyn EventPublisher>,
         job_service: Arc<dyn JobService>,
+        stats_service: Arc<dyn StatsService>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -79,6 +81,7 @@ impl AppState {
                 dns_server,
                 event_publisher,
                 job_service,
+                stats_service,
             }),
         }
     }
@@ -179,5 +182,11 @@ impl AppState {
     #[must_use]
     pub fn job_service(&self) -> &dyn JobService {
         self.inner.job_service.as_ref()
+    }
+
+    /// Access the generic stats service for time-series and top-N queries.
+    #[must_use]
+    pub fn stats_service(&self) -> &dyn StatsService {
+        self.inner.stats_service.as_ref()
     }
 }

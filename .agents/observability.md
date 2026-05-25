@@ -15,6 +15,7 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
   ├── dhcp_server{}                            # background task (if DHCP enabled)
   ├── update_runner{}                          # background task (auto-update poll)
   ├── backup_cleanup_runner{}                  # background task (.bak-* sweep)
+  ├── stats_flush_runner{}                     # background task (10s buffer flush + 1h rollup/trim)
   ├── mdns{}                                   # background task (advertises wardnet.local)
   └── api_server{}                             # axum serve
         └── http_request{method=GET, path=/api/devices}  # per-request (tower-http TraceLayer)

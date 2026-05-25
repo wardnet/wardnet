@@ -519,6 +519,12 @@ async fn run(
         &root_span,
     );
 
+    let stats_flush_runner = wardnetd_services::StatsFlushRunner::start(
+        services.stats_buffer.clone(),
+        services.stats.clone(),
+        &root_span,
+    );
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -537,6 +543,7 @@ async fn run(
         dns_server,
         services.event_publisher.clone(),
         services.jobs.clone(),
+        services.stats.clone(),
     );
 
     let app = wardnetd_api::api::router(state);
@@ -611,6 +618,7 @@ async fn run(
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     tunnel_metrics_runner.shutdown().await;
+    stats_flush_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {
         advertiser.shutdown().await;

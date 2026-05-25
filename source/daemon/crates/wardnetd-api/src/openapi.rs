@@ -49,6 +49,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "dns", description = "DNS resolver, ad-blocking, filters"),
         (name = "system", description = "Runtime status and logs"),
         (name = "jobs", description = "Background job status"),
+        (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),
         (name = "update", description = "Auto-update and rollback"),
     )
 )]
