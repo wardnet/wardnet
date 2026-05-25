@@ -62,7 +62,10 @@ pub use crate::dns_filter::DnsFilterService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::routing::RoutingService;
-pub use crate::stats::{StatsBuffer, StatsFlushRunner, StatsService, DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL};
+pub use crate::stats::{
+    DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
+    StatsService,
+};
 pub use crate::system::SystemService;
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;

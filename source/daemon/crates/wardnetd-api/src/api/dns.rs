@@ -194,4 +194,3 @@ pub async fn list_query_log(
     let response = state.dns_service().list_query_log(params).await?;
     Ok(Json(response))
 }
-

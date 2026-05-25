@@ -4,6 +4,9 @@ pub mod meter;
 pub mod service;
 
 pub use buffer::StatsBuffer;
-pub use flush_runner::{StatsFlushRunner, DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL};
+pub use flush_runner::{DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsFlushRunner};
 pub use meter::{Counter, Gauge, Meter};
 pub use service::{StatsService, StatsServiceImpl};
+
+#[cfg(test)]
+mod tests;

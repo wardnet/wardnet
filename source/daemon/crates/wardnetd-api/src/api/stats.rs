@@ -10,9 +10,7 @@ use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
-    router
-        .routes(routes!(query))
-        .routes(routes!(top))
+    router.routes(routes!(query)).routes(routes!(top))
 }
 
 #[utoipa::path(

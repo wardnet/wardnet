@@ -2,6 +2,8 @@
 //! server and the persistence runner / WS subscribers.
 
 use crate::dns::log_sink::DnsLogSink;
+use crate::stats::buffer::StatsBuffer;
+use crate::stats::meter::Meter;
 use wardnetd_data::repository::QueryLogRow;
 
 fn sample_row(domain: &str) -> QueryLogRow {
@@ -62,4 +64,59 @@ async fn broadcast_send_is_fire_and_forget_with_no_subscribers() {
     sink.record(sample_row("nosub.com"));
     let row = rx.recv().await.expect("persist channel still works");
     assert_eq!(row.domain, "nosub.com");
+}
+
+#[tokio::test]
+async fn new_with_stats_records_dns_query_metrics() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _rx) = DnsLogSink::new_with_stats(&meter);
+
+    // A forwarded query: dns.queries and dns.latency_ms are recorded;
+    // dns.queries.by_domain is NOT (only for blocked).
+    let mut row = sample_row("example.com");
+    row.result = "forwarded".to_owned();
+    row.latency_ms = 5.0;
+    sink.record(row);
+
+    let rows = buf.drain();
+    let metrics: Vec<&str> = rows.iter().map(|r| r.metric.as_str()).collect();
+    assert!(
+        metrics.contains(&"dns.queries"),
+        "dns.queries must be recorded"
+    );
+    assert!(
+        metrics.contains(&"dns.latency_ms"),
+        "dns.latency_ms must be recorded"
+    );
+    assert!(
+        metrics.contains(&"dns.queries.by_client"),
+        "dns.queries.by_client must be recorded"
+    );
+    assert!(
+        !metrics.contains(&"dns.queries.by_domain"),
+        "dns.queries.by_domain must only be recorded for blocked queries"
+    );
+}
+
+#[tokio::test]
+async fn new_with_stats_records_by_domain_only_for_blocked() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _rx) = DnsLogSink::new_with_stats(&meter);
+
+    let mut row = sample_row("ads.tracker.com");
+    row.result = "blocked".to_owned();
+    sink.record(row);
+
+    let rows = buf.drain();
+    let domain_row = rows.iter().find(|r| r.metric == "dns.queries.by_domain");
+    assert!(
+        domain_row.is_some(),
+        "dns.queries.by_domain must be recorded for blocked queries"
+    );
+    assert!(
+        domain_row.unwrap().labels.contains("ads.tracker.com"),
+        "domain label must include the blocked domain"
+    );
 }

@@ -175,11 +175,13 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
     if outcome == "blocked" {
         // Escape any double-quotes in the domain (extremely rare but safe).
         let domain = row.domain.replace('"', r#"\""#);
-        inst.by_domain.add(&format!(r#"{{"domain":"{domain}"}}"#), 1.0);
+        inst.by_domain
+            .add(&format!(r#"{{"domain":"{domain}"}}"#), 1.0);
     }
 
     let client = row.client_ip.replace('"', r#"\""#);
-    inst.by_client.add(&format!(r#"{{"client":"{client}"}}"#), 1.0);
+    inst.by_client
+        .add(&format!(r#"{{"client":"{client}"}}"#), 1.0);
 }
 
 /// Normalise a raw DNS result string into the canonical outcome label value.
