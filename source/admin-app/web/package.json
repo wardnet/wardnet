@@ -15,7 +15,7 @@
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.2.7",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@tanstack/react-query": "5.100.9",
+    "@tanstack/react-query": "5.100.11",
     "@tanstack/react-table": "8.21.3",
     "@wardnet/forge": "portal:../../forge",
     "@wardnet/forge-web": "workspace:^",
