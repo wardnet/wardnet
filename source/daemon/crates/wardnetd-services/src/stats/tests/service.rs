@@ -1,3 +1,5 @@
+#![allow(clippy::float_cmp)]
+
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -57,7 +59,7 @@ impl StatsRepository for MemoryStatsRepo {
                 r.metric == metric
                     && r.bucket_ts >= from
                     && r.bucket_ts <= to
-                    && label_filter.map_or(true, |f| r.labels == f)
+                    && label_filter.is_none_or(|f| r.labels == f)
             })
             .cloned()
             .collect())
@@ -77,7 +79,7 @@ impl StatsRepository for MemoryStatsRepo {
                 r.metric == metric
                     && r.day.as_str() >= from
                     && r.day.as_str() <= to
-                    && label_filter.map_or(true, |f| r.labels == f)
+                    && label_filter.is_none_or(|f| r.labels == f)
             })
             .cloned()
             .collect())

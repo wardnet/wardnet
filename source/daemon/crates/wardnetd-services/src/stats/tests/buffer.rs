@@ -1,3 +1,5 @@
+#![allow(clippy::float_cmp)]
+
 use crate::stats::buffer::StatsBuffer;
 
 #[test]

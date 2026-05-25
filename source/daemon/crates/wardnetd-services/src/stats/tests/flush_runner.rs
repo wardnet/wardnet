@@ -58,8 +58,8 @@ async fn startup_runs_maintenance_immediately() {
     let runner = StatsFlushRunner::start_with_intervals(
         buffer,
         service.clone() as Arc<dyn StatsService>,
-        Duration::from_secs(3600),
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
+        Duration::from_hours(1),
         &tracing::Span::current(),
     );
     // Yield so the spawned task can run its startup maintenance call.
@@ -78,8 +78,8 @@ async fn shutdown_flushes_non_empty_buffer() {
     let runner = StatsFlushRunner::start_with_intervals(
         buffer.clone(),
         service.clone() as Arc<dyn StatsService>,
-        Duration::from_secs(3600),
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
+        Duration::from_hours(1),
         &tracing::Span::current(),
     );
     // Record data after starting so the periodic ticker doesn't race us.
@@ -99,7 +99,7 @@ async fn periodic_flush_drains_buffer() {
         buffer.clone(),
         service.clone() as Arc<dyn StatsService>,
         Duration::from_millis(20),
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
         &tracing::Span::current(),
     );
     buffer.record("m", "{}", 2.0, "counter");
@@ -119,7 +119,7 @@ async fn empty_buffer_is_not_flushed() {
         buffer,
         service.clone() as Arc<dyn StatsService>,
         Duration::from_millis(20),
-        Duration::from_secs(3600),
+        Duration::from_hours(1),
         &tracing::Span::current(),
     );
     tokio::time::sleep(Duration::from_millis(100)).await;
