@@ -44,7 +44,9 @@ async fn upsert_counter_accumulates_on_conflict() {
     let pool = test_pool().await;
     let repo = SqliteStatsRepository::new(pool);
     let row = intraday("hits", r#"{"outcome":"blocked"}"#, 1200, 3.0, "counter");
-    repo.upsert_intraday(std::slice::from_ref(&row)).await.unwrap();
+    repo.upsert_intraday(std::slice::from_ref(&row))
+        .await
+        .unwrap();
     repo.upsert_intraday(&[row]).await.unwrap();
     let rows = repo.query_intraday("hits", None, 0, 9999).await.unwrap();
     assert_eq!(rows.len(), 1);
