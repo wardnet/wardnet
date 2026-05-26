@@ -16,6 +16,7 @@ import { Button } from "@wardnet/forge-web/button";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
+import { DnsStatsSection } from "@/components/features/DnsStatsSection";
 import {
   useDnsStatus,
   useDnsConfig,
@@ -242,6 +243,9 @@ export default function Dns() {
             isSaving={updateConfig.isPending}
             onUpdate={(servers) => updateConfig.mutate({ upstream_servers: servers })}
           />
+
+          {/* DNS query stats — config cards first, metrics below (TunnelDetail pattern). */}
+          <DnsStatsSection />
         </div>
       )}
     </div>

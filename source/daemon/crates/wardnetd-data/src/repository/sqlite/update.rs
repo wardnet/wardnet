@@ -4,16 +4,23 @@ use sqlx::SqlitePool;
 use wardnet_common::update::{UpdateHistoryEntry, UpdateHistoryStatus};
 
 use super::super::update::{UpdateHistoryRow, UpdateRepository};
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`UpdateRepository`].
 pub struct SqliteUpdateRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteUpdateRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -63,7 +70,7 @@ impl UpdateRepository for SqliteUpdateRepository {
         .bind(&row.phase)
         .bind(row.status.as_str())
         .bind(&row.error)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(result.last_insert_rowid())
     }
@@ -85,7 +92,7 @@ impl UpdateRepository for SqliteUpdateRepository {
         .bind(error)
         .bind(&now)
         .bind(id)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -96,7 +103,7 @@ impl UpdateRepository for SqliteUpdateRepository {
              FROM update_history ORDER BY started_at DESC LIMIT ?",
         )
         .bind(i64::from(limit))
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         rows.into_iter().map(DbRow::into_entry).collect()
     }
@@ -106,7 +113,7 @@ impl UpdateRepository for SqliteUpdateRepository {
             "SELECT id, from_version, to_version, phase, status, error, started_at, finished_at \
              FROM update_history WHERE status = 'succeeded' ORDER BY started_at DESC LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
         row.map(DbRow::into_entry).transpose()
     }

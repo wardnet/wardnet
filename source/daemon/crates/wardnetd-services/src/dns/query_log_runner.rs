@@ -25,8 +25,9 @@ use wardnet_common::auth::AuthContext;
 
 use crate::DnsService;
 use crate::auth_context;
+use crate::db_busy::retry_on_busy;
 use crate::dns::log_sink::DnsLogSink;
-use wardnetd_data::repository::{DnsRepository, QueryLogRow};
+use wardnetd_data::repository::{DnsRepository, MaintenanceRepository, QueryLogRow};
 
 /// Maximum entries flushed in a single insert batch.
 pub const BATCH_MAX: usize = 256;
@@ -36,6 +37,18 @@ pub const BATCH_INTERVAL: Duration = Duration::from_secs(1);
 pub const CLEANUP_TICK_INTERVAL: Duration = Duration::from_hours(1);
 /// Minimum interval between dropped-counter warnings.
 pub const DROPPED_REPORT_INTERVAL: Duration = Duration::from_mins(1);
+/// How many times to retry an `insert_query_log_batch` call when the
+/// database is locked. With a 30 s `busy_timeout` plus this retry loop,
+/// a flush can ride out roughly a minute of contention before giving
+/// up. The buffer is preserved across retries — only a final failure
+/// (or success) clears it.
+const FLUSH_BUSY_RETRIES: u32 = 2;
+/// Sleep between busy-retry attempts. Small enough not to add visible
+/// latency; long enough to let a competing writer commit.
+const FLUSH_BUSY_BACKOFF: Duration = Duration::from_millis(200);
+/// `tracing` label for retry observability — kept short so it groups
+/// cleanly in Loki alongside `stats_flush`.
+const FLUSH_OPERATION: &str = "dns_query_log_flush";
 
 /// Background runner draining the persistence side of [`DnsLogSink`].
 pub struct DnsQueryLogRunner {
@@ -49,6 +62,7 @@ impl DnsQueryLogRunner {
     pub fn start(
         service: Arc<dyn DnsService>,
         dns_repo: Arc<dyn DnsRepository>,
+        maintenance_repo: Arc<dyn MaintenanceRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         parent: &tracing::Span,
@@ -56,6 +70,7 @@ impl DnsQueryLogRunner {
         Self::start_with_intervals(
             service,
             dns_repo,
+            maintenance_repo,
             sink,
             rx,
             BATCH_INTERVAL,
@@ -67,9 +82,11 @@ impl DnsQueryLogRunner {
     /// Start the runner with custom flush + cleanup tick intervals.
     /// Production callers use [`Self::start`]; tests pass shorter
     /// intervals to exercise the loop without waiting.
+    #[allow(clippy::too_many_arguments)]
     pub fn start_with_intervals(
         service: Arc<dyn DnsService>,
         dns_repo: Arc<dyn DnsRepository>,
+        maintenance_repo: Arc<dyn MaintenanceRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         batch_interval: Duration,
@@ -83,6 +100,7 @@ impl DnsQueryLogRunner {
             runner_loop(
                 service,
                 dns_repo,
+                maintenance_repo,
                 sink,
                 rx,
                 batch_interval,
@@ -107,6 +125,7 @@ impl DnsQueryLogRunner {
 async fn runner_loop(
     service: Arc<dyn DnsService>,
     dns_repo: Arc<dyn DnsRepository>,
+    maintenance_repo: Arc<dyn MaintenanceRepository>,
     sink: Arc<DnsLogSink>,
     mut rx: mpsc::Receiver<QueryLogRow>,
     batch_interval: Duration,
@@ -164,7 +183,13 @@ async fn runner_loop(
                 let today_now = today();
                 if today_now != last_cleanup_day {
                     last_cleanup_day = today_now;
-                    cleanup(&service, dns_repo.as_ref(), &admin_ctx).await;
+                    cleanup(
+                        &service,
+                        dns_repo.as_ref(),
+                        maintenance_repo.as_ref(),
+                        &admin_ctx,
+                    )
+                    .await;
                 }
             }
         }
@@ -211,7 +236,21 @@ pub(crate) async fn flush(
 
     let count = buffer.len();
     let started = Instant::now();
-    let result = dns_repo.insert_query_log_batch(buffer).await;
+
+    // Retry on SQLITE_BUSY so a maintenance tick on another runner
+    // doesn't cost us a whole batch. The buffer is preserved across
+    // retries (the closure borrows it via `&*buffer`) and only cleared
+    // on the final outcome.
+    let result = retry_on_busy(
+        FLUSH_OPERATION,
+        FLUSH_BUSY_RETRIES,
+        FLUSH_BUSY_BACKOFF,
+        || {
+            let buf: &[QueryLogRow] = buffer;
+            dns_repo.insert_query_log_batch(buf)
+        },
+    )
+    .await;
     buffer.clear();
 
     match result {
@@ -235,6 +274,7 @@ pub(crate) async fn flush(
 pub(crate) async fn cleanup(
     service: &Arc<dyn DnsService>,
     dns_repo: &dyn DnsRepository,
+    maintenance_repo: &dyn MaintenanceRepository,
     admin_ctx: &AuthContext,
 ) {
     let cfg = match auth_context::with_context(admin_ctx.clone(), service.get_dns_config()).await {
@@ -260,6 +300,26 @@ pub(crate) async fn cleanup(
                 deleted = deleted,
                 retention_days = retention,
             );
+            // Release the freelist back to the filesystem so the
+            // 7-day-retention envelope translates into a steady-state
+            // DB file size instead of monotonic growth. Only meaningful
+            // on databases with `auto_vacuum=INCREMENTAL`; a no-op
+            // elsewhere. Bounded per call so it can't monopolise the
+            // writer lock — leftover free pages get picked up on
+            // subsequent cleanup ticks.
+            match maintenance_repo.incremental_vacuum().await {
+                Ok(reclaimed) if reclaimed > 0 => {
+                    tracing::info!(
+                        reclaimed_pages = reclaimed,
+                        "incremental vacuum reclaimed pages: reclaimed_pages={reclaimed}",
+                        reclaimed = reclaimed,
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "incremental vacuum failed: {e}");
+                }
+            }
         }
         Err(e) => {
             tracing::error!(error = %e, "DNS query log cleanup failed: {e}");

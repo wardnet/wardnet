@@ -7,7 +7,6 @@ import type {
   DnsCacheFlushResponse,
   ListQueryLogParams,
   ListQueryLogResponse,
-  DnsStatsResponse,
 } from "../types/dns.js";
 
 /** DNS server management — config, status, cache, query log, stats.
@@ -50,7 +49,7 @@ export class DnsService {
     });
   }
 
-  // --- Query log + stats ---
+  // --- Query log ---
 
   /** Paginated DNS query log (admin only). */
   async listQueryLog(params: ListQueryLogParams = {}): Promise<ListQueryLogResponse> {
@@ -65,10 +64,5 @@ export class DnsService {
     if (params.result) parts.push(`result=${enc(params.result)}`);
     const path = parts.length === 0 ? "/dns/log" : `/dns/log?${parts.join("&")}`;
     return this.client.request<ListQueryLogResponse>(path);
-  }
-
-  /** Aggregated DNS stats over the last `hours` hours (admin only). */
-  async getStats(hours = 24): Promise<DnsStatsResponse> {
-    return this.client.request<DnsStatsResponse>(`/dns/stats?hours=${hours}`);
   }
 }

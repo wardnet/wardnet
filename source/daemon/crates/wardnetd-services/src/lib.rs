@@ -1,5 +1,6 @@
 pub mod auth_context;
 pub mod command;
+pub mod db_busy;
 pub mod error;
 pub mod event;
 pub mod jobs;
@@ -150,6 +151,10 @@ pub struct Services {
     pub jobs: Arc<dyn JobService>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
+    /// Cross-cutting DB maintenance (incremental vacuum etc.). Exposed
+    /// here so the DNS query-log cleanup runner can release freed
+    /// pages back to the filesystem after retention deletes.
+    pub maintenance_repo: Arc<dyn wardnetd_data::repository::MaintenanceRepository>,
     /// Tunnel repository — exposed so the DNS server can resolve
     /// `UpstreamId::Tunnel(_)` entries from the routing snapshot into a
     /// concrete (interface name, DNS upstream) pair without going through
@@ -345,6 +350,7 @@ fn create_services(
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
     let dns_filter_repo = repo_factory.dns_filter();
+    let maintenance_repo = repo_factory.maintenance();
     let tunnel_repo = repo_factory.tunnel();
     let tunnel_metrics_repo = repo_factory.tunnel_metrics();
     let update_repo = repo_factory.update();
@@ -473,6 +479,7 @@ fn create_services(
         jobs: job_service,
         dns_repo,
         dns_filter_repo,
+        maintenance_repo,
         tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),

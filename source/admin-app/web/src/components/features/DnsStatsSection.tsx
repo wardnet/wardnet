@@ -5,12 +5,14 @@ import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
-import { useDnsStats } from "@/hooks/useDnsLogs";
+import { useDnsStatsDashboard } from "@/hooks/useStats";
+import type { StatsTopEntry } from "@wardnet/js";
 
 const RANGES: { value: number; label: string }[] = [
   { value: 1, label: "1h" },
   { value: 24, label: "24h" },
   { value: 168, label: "7d" },
+  { value: 8760, label: "12m" },
 ];
 
 const chartConfig: ChartConfig = {
@@ -18,36 +20,25 @@ const chartConfig: ChartConfig = {
   blocked: { label: "Blocked", color: "var(--chart-2)" },
 };
 
-interface ChartPoint {
-  bucket: string;
-  total: number;
-  blocked: number;
+function formatXAxis(ts: string, hours: number): string {
+  const d = new Date(ts);
+  if (hours <= 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (hours <= 168)
+    return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** Stats panel for the Ad blocking page: top cards, time series, top tables. */
+/** Stats panel for the DNS page: top cards, time series, top tables. */
 export function DnsStatsSection() {
   const [hours, setHours] = useState<number>(24);
-  const { data: stats } = useDnsStats(hours);
+  const { data, isLoading, isError, error } = useDnsStatsDashboard(hours);
 
-  const series: ChartPoint[] = useMemo(
-    () =>
-      stats?.series.map((p) => ({
-        bucket: p.bucket,
-        total: p.total,
-        blocked: p.blocked,
-      })) ?? [],
-    [stats],
-  );
+  const series = data?.series ?? [];
 
   // Brush state — tagged with a dataset key so the selection auto-resets
-  // when the range changes (a 1h-window selection means nothing on a 7d
-  // dataset). Same pattern as TunnelThroughputChart.
+  // when the range changes. Same pattern as TunnelThroughputChart.
   const datasetKey = `${hours}|${series.length}`;
-  const [stored, setStored] = useState<{
-    key: string;
-    start: number;
-    end: number;
-  } | null>(null);
+  const [stored, setStored] = useState<{ key: string; start: number; end: number } | null>(null);
   const brush = stored?.key === datasetKey ? stored : null;
 
   const windowTotals = useMemo(() => {
@@ -63,40 +54,47 @@ export function DnsStatsSection() {
     return { total, blocked };
   }, [series, brush]);
 
-  const topBlockedDomain = stats?.top_blocked[0];
+  const topBlockedDomain = data?.topDomains.entries[0];
+  const topBlockedLabel = topBlockedDomain
+    ? (parseLabels(topBlockedDomain.labels).domain ?? "—")
+    : "—";
   const rangeLabel = RANGES.find((r) => r.value === hours)?.label ?? `${hours}h`;
+
+  if (isError) {
+    return (
+      <Card error={error instanceof Error ? error.message : "Failed to load DNS stats"} />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <DashboardStatCard
-          title="Queries"
-          value={stats?.totals.total_queries.toLocaleString() ?? "—"}
-          subtitle={`last ${rangeLabel}`}
+          title={`Queries (${rangeLabel})`}
+          value={data ? data.total.toLocaleString() : "—"}
         />
         <DashboardStatCard
-          title="Blocked"
-          value={stats ? `${stats.totals.blocked_percent.toFixed(1)}%` : "—"}
+          title={`Blocked (${rangeLabel})`}
+          value={data ? `${data.blockedPercent.toFixed(1)}%` : "—"}
           subtitle={
-            stats
-              ? `${stats.totals.blocked_queries.toLocaleString()} of ${stats.totals.total_queries.toLocaleString()}`
+            data
+              ? `${data.blocked.toLocaleString()} of ${data.total.toLocaleString()}`
               : undefined
           }
-          usagePercent={stats?.totals.blocked_percent}
+          usagePercent={data?.blockedPercent}
         />
         <DashboardStatCard
-          title="Top blocked"
-          value={topBlockedDomain?.domain ?? "—"}
+          title={`Top blocked (${rangeLabel})`}
+          value={topBlockedLabel}
           subtitle={
-            topBlockedDomain ? `${topBlockedDomain.count.toLocaleString()} queries` : undefined
+            topBlockedDomain
+              ? `${Math.round(topBlockedDomain.total).toLocaleString()} queries`
+              : undefined
           }
         />
         <DashboardStatCard
-          title="Active clients"
-          value={stats?.totals.unique_clients.toString() ?? "—"}
-          subtitle={
-            stats ? `${stats.totals.unique_domains.toLocaleString()} unique domains` : undefined
-          }
+          title={`Active clients (${rangeLabel})`}
+          value={data ? data.topClients.entries.length.toString() : "—"}
         />
       </div>
 
@@ -120,12 +118,31 @@ export function DnsStatsSection() {
           </Tabs>
         </CardHeader>
         <CardContent>
+          {isLoading ? (
+            <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+              Loading…
+            </div>
+          ) : series.length === 0 ? (
+            <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+              No data yet.
+            </div>
+          ) : (
           <ChartContainer config={chartConfig} className="h-64 w-full">
             <LineChart data={series} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="bucket" tick={{ fontSize: 10 }} minTickGap={48} tickMargin={10} />
+              <XAxis
+                dataKey="ts"
+                tick={{ fontSize: 10 }}
+                minTickGap={48}
+                tickMargin={10}
+                tickFormatter={(ts: string) => formatXAxis(ts, hours)}
+              />
               <YAxis tick={{ fontSize: 10 }} width={42} />
-              <Tooltip />
+              <Tooltip
+                labelFormatter={(label) =>
+                  typeof label === "string" ? formatXAxis(label, hours) : String(label)
+                }
+              />
               <Legend />
               <Line
                 type="monotone"
@@ -144,42 +161,58 @@ export function DnsStatsSection() {
                 name="Blocked"
               />
               <Brush
-                dataKey="bucket"
+                dataKey="ts"
                 height={24}
                 travellerWidth={8}
                 stroke="var(--color-total)"
                 tickFormatter={() => ""}
                 onChange={(r) => {
                   if (typeof r?.startIndex === "number" && typeof r?.endIndex === "number") {
-                    setStored({
-                      key: datasetKey,
-                      start: r.startIndex,
-                      end: r.endIndex,
-                    });
+                    setStored({ key: datasetKey, start: r.startIndex, end: r.endIndex });
                   }
                 }}
               />
             </LineChart>
           </ChartContainer>
+          )}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <TopList title="Top domains" items={stats?.top_domains} valueLabel="queries" />
-        <TopList title="Top blocked" items={stats?.top_blocked} valueLabel="blocks" />
-        <TopClientsList stats={stats} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TopList
+          title="Top blocked domains"
+          entries={data?.topDomains.entries}
+          labelKey="domain"
+          valueLabel="blocks"
+        />
+        <TopList
+          title="Top clients"
+          entries={data?.topClients.entries}
+          labelKey="client"
+          valueLabel="queries"
+        />
       </div>
     </div>
   );
 }
 
+function parseLabels(json: string): Record<string, string> {
+  try {
+    return JSON.parse(json) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
 function TopList({
   title,
-  items,
+  entries,
+  labelKey,
   valueLabel,
 }: {
   title: string;
-  items: { domain: string; count: number }[] | undefined;
+  entries: StatsTopEntry[] | undefined;
+  labelKey: string;
   valueLabel: string;
 }) {
   return (
@@ -188,51 +221,15 @@ function TopList({
         <CardTitle className="text-sm">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        {items && items.length > 0 ? (
+        {entries && entries.length > 0 ? (
           <ul className="flex flex-col gap-2 text-sm">
-            {items.map((item) => (
-              <li key={item.domain} className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-xs">{item.domain}</span>
-                <span className="tabular-nums text-ink-3">
-                  {item.count.toLocaleString()} {valueLabel}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-ink-3">No data yet.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TopClientsList({
-  stats,
-}: {
-  stats:
-    | { top_clients: { client_ip: string; count: number; device_label?: string | null }[] }
-    | undefined;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Top clients</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {stats && stats.top_clients.length > 0 ? (
-          <ul className="flex flex-col gap-2 text-sm">
-            {stats.top_clients.map((c) => {
-              const primary = c.device_label || c.client_ip;
-              const secondary = c.device_label ? c.client_ip : null;
+            {entries.map((entry, i) => {
+              const label = parseLabels(entry.labels)[labelKey] ?? entry.labels;
               return (
-                <li key={c.client_ip} className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{primary}</span>
-                    {secondary && <span className="text-xs text-ink-3">{secondary}</span>}
-                  </div>
+                <li key={i} className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-xs">{label}</span>
                   <span className="tabular-nums text-ink-3">
-                    {c.count.toLocaleString()} queries
+                    {Math.round(entry.total).toLocaleString()} {valueLabel}
                   </span>
                 </li>
               );

@@ -2535,6 +2535,7 @@ __metadata:
     "@wardnet/js": "portal:../../sdk/wardnet-js"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
+    consola: "npm:^3.4.2"
     cronstrue: "npm:3.14.0"
     eslint: "npm:10.3.0"
     eslint-config-prettier: "npm:10.1.8"
@@ -2591,6 +2592,8 @@ __metadata:
 "@wardnet/js@portal:../../sdk/wardnet-js::locator=%40wardnet%2Fadmin-web%40workspace%3Aweb":
   version: 0.0.0-use.local
   resolution: "@wardnet/js@portal:../../sdk/wardnet-js::locator=%40wardnet%2Fadmin-web%40workspace%3Aweb"
+  dependencies:
+    consola: "npm:^3.4.2"
   languageName: node
   linkType: soft
 
@@ -2748,6 +2751,13 @@ __metadata:
     react: ^18 || ^19 || ^19.0.0-rc
     react-dom: ^18 || ^19 || ^19.0.0-rc
   checksum: 10c0/5605ac4396ec9bc65c82f954da19dd89a0636a54026df72780e2470da1381f9d57434a80a53f2d57eaa4e759660a3ebba9232b74258dc09970576591eae03116
+  languageName: node
+  linkType: hard
+
+"consola@npm:^3.4.2":
+  version: 3.4.2
+  resolution: "consola@npm:3.4.2"
+  checksum: 10c0/7cebe57ecf646ba74b300bcce23bff43034ed6fbec9f7e39c27cee1dc00df8a21cd336b466ad32e304ea70fba04ec9e890c200270de9a526ce021ba8a7e4c11a
   languageName: node
   linkType: hard
 

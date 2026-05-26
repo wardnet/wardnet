@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { ErrorBoundary } from "@/components/core/ErrorBoundary";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
@@ -82,7 +83,9 @@ export default function App() {
       <Route
         element={
           <SetupGuard>
-            <AppLayout />
+            <ErrorBoundary>
+              <AppLayout />
+            </ErrorBoundary>
           </SetupGuard>
         }
       >

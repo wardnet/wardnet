@@ -8,6 +8,7 @@ use uuid::Uuid;
 use wardnet_common::dns::{AllowlistEntry, Blocklist, CustomFilterRule};
 use wardnet_common::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 
+use crate::db::DbPools;
 use crate::repository::dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
@@ -34,13 +35,18 @@ fn parse_ts_opt(s: Option<&String>) -> anyhow::Result<Option<chrono::DateTime<Ut
 
 /// SQLite-backed DNS filter repository.
 pub struct SqliteDnsFilterRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteDnsFilterRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -157,7 +163,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "SELECT id, name, builtin, created_at, updated_at \
              FROM dns_filter_profiles ORDER BY builtin DESC, name ASC",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         rows.into_iter().map(DbProfileRow::into_profile).collect()
     }
@@ -169,7 +175,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              FROM dns_filter_profiles WHERE id = ?",
         )
         .bind(&id_str)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
         row.map(DbProfileRow::into_profile).transpose()
     }
@@ -185,7 +191,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .bind(name)
         .bind(&now)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(DnsFilterProfile {
             id,
@@ -204,7 +210,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 .bind(name)
                 .bind(&now)
                 .bind(&id_str)
-                .execute(&self.pool)
+                .execute(&self.pools.write)
                 .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -213,7 +219,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let id_str = id.to_string();
         let result = sqlx::query("DELETE FROM dns_filter_profiles WHERE id = ? AND builtin = 0")
             .bind(&id_str)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -229,7 +235,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              ORDER BY created_at ASC",
         )
         .bind(&pid)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         rows.into_iter()
             .map(DbBlocklistRow::into_blocklist)
@@ -244,7 +250,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              FROM dns_filter_blocklists WHERE id = ?",
         )
         .bind(&id_str)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
         row.map(DbBlocklistRow::into_blocklist).transpose()
     }
@@ -264,7 +270,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .bind(&row.cron_schedule)
         .bind(&now)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -310,7 +316,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         for b in &binds {
             q = q.bind(b);
         }
-        q.execute(&self.pool).await?;
+        q.execute(&self.pools.write).await?;
         Ok(())
     }
 
@@ -318,7 +324,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let id_str = id.to_string();
         let result = sqlx::query("DELETE FROM dns_filter_blocklists WHERE id = ?")
             .bind(&id_str)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -328,7 +334,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let now = now_iso();
         let count = domains.len() as u64;
 
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
 
         sqlx::query("DELETE FROM dns_filter_blocked_domains WHERE blocklist_id = ?")
             .bind(&id_str)
@@ -376,7 +382,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 .bind(&now)
                 .bind(&now)
                 .bind(&id_str)
-                .execute(&self.pool)
+                .execute(&self.pools.write)
                 .await?;
             }
             None => {
@@ -386,7 +392,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 )
                 .bind(&now)
                 .bind(&id_str)
-                .execute(&self.pool)
+                .execute(&self.pools.write)
                 .await?;
             }
         }
@@ -402,7 +408,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              FROM dns_filter_allowlist WHERE profile_id = ? ORDER BY created_at ASC",
         )
         .bind(&pid)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         rows.into_iter().map(DbAllowlistRow::into_entry).collect()
     }
@@ -418,7 +424,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .bind(&row.domain)
         .bind(&row.reason)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -427,7 +433,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let id_str = id.to_string();
         let result = sqlx::query("DELETE FROM dns_filter_allowlist WHERE id = ?")
             .bind(&id_str)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -441,7 +447,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              FROM dns_filter_custom_rules WHERE profile_id = ? ORDER BY created_at ASC",
         )
         .bind(&pid)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         rows.into_iter().map(DbCustomRuleRow::into_rule).collect()
     }
@@ -453,7 +459,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              FROM dns_filter_custom_rules WHERE id = ?",
         )
         .bind(&id_str)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
         row.map(DbCustomRuleRow::into_rule).transpose()
     }
@@ -472,7 +478,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .bind(&row.comment)
         .bind(&now)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -514,7 +520,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         for b in &binds {
             q = q.bind(b);
         }
-        q.execute(&self.pool).await?;
+        q.execute(&self.pools.write).await?;
         Ok(())
     }
 
@@ -522,7 +528,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let id_str = id.to_string();
         let result = sqlx::query("DELETE FROM dns_filter_custom_rules WHERE id = ?")
             .bind(&id_str)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected() > 0)
     }
@@ -540,13 +546,13 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              WHERE bl.profile_id = ? AND bl.enabled = 1",
         )
         .bind(&pid)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         let allow: Vec<String> =
             sqlx::query_scalar("SELECT domain FROM dns_filter_allowlist WHERE profile_id = ?")
                 .bind(&pid)
-                .fetch_all(&self.pool)
+                .fetch_all(&self.pools.read)
                 .await?;
 
         let rules: Vec<String> = sqlx::query_scalar(
@@ -554,7 +560,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
              WHERE profile_id = ? AND enabled = 1",
         )
         .bind(&pid)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         Ok(ProfileFilterInputs {
@@ -570,7 +576,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "SELECT domain FROM dns_filter_blocked_domains WHERE blocklist_id = ?",
         )
         .bind(&id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(domains)
     }
@@ -587,14 +593,14 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "SELECT enabled, updated_at FROM dns_filter_device_settings WHERE device_id = ?",
         )
         .bind(&did)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         let profile_ids: Vec<String> = sqlx::query_scalar(
             "SELECT profile_id FROM dns_filter_device_profile WHERE device_id = ?",
         )
         .bind(&did)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         if settings_row.is_none() && profile_ids.is_empty() {
@@ -630,7 +636,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .bind(&row.device_id)
         .bind(row.enabled)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -641,7 +647,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         profile_ids: &[Uuid],
     ) -> anyhow::Result<()> {
         let did = device_id.to_string();
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
 
         sqlx::query("DELETE FROM dns_filter_device_profile WHERE device_id = ?")
             .bind(&did)
@@ -687,7 +693,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         );
 
         let rows: Vec<(String, Option<String>, Option<i64>, Option<String>)> =
-            sqlx::query_as(&sql).fetch_all(&self.pool).await?;
+            sqlx::query_as(&sql).fetch_all(&self.pools.read).await?;
 
         let mut out = Vec::with_capacity(rows.len());
         for (device_id_s, ip, enabled, updated) in rows {
@@ -697,7 +703,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 "SELECT profile_id FROM dns_filter_device_profile WHERE device_id = ?",
             )
             .bind(&device_id_s)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?;
             let profile_ids: Vec<Uuid> = profile_ids
                 .into_iter()
@@ -728,14 +734,14 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let enabled: Option<String> =
             sqlx::query_scalar("SELECT value FROM system_config WHERE key = ?")
                 .bind(KEY_DNS_FILTERING_ENABLED)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&self.pools.read)
                 .await?;
 
         let default_profile_ids: Vec<String> = sqlx::query_scalar(
             "SELECT profile_id FROM dns_filter_default_profile \
              ORDER BY created_at, profile_id",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         let enabled = enabled.as_deref() != Some("false");
@@ -751,7 +757,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
     }
 
     async fn set_dns_filter_config(&self, config: &DnsFilterConfig) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         sqlx::query(
             "INSERT INTO system_config (key, value) VALUES (?, ?) \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",

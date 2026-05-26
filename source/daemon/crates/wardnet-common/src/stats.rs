@@ -11,7 +11,7 @@ pub enum StatsBucket {
 }
 
 /// Parameters for a time-series stats query.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct StatsQuery {
     pub metric: String,
     /// Exact labels JSON string to filter by. `None` returns all label combinations.
@@ -38,13 +38,11 @@ pub struct StatsQueryResponse {
 }
 
 /// Parameters for a top-N stats query.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct StatsTopQuery {
     pub metric: String,
     /// Label dimension to rank by (e.g. `"domain"`, `"client"`).
     pub label_key: String,
-    /// Optional fixed label filter, e.g. `("outcome", "blocked")`.
-    pub filter_label: Option<(String, String)>,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
     pub limit: u32,

@@ -325,7 +325,6 @@ async fn top_returns_forbidden_without_admin_context() {
     let q = StatsTopQuery {
         metric: "m".to_owned(),
         label_key: "outcome".to_owned(),
-        filter_label: None,
         from: Utc::now(),
         to: Utc::now(),
         limit: 5,
@@ -356,7 +355,6 @@ async fn top_with_admin_context() {
     let q = StatsTopQuery {
         metric: "dns.queries".to_owned(),
         label_key: "domain".to_owned(),
-        filter_label: None,
         from: Utc::now() - chrono::Duration::hours(1),
         to: Utc::now() + chrono::Duration::hours(1),
         limit: 5,

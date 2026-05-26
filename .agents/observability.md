@@ -36,6 +36,41 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
 - Locally administered MACs (bit 1 of first byte set) detected as "Randomized MAC" (typically phones using MAC randomization).
 - `cargo::rerun-if-changed=data/oui.csv` — only regenerates when CSV changes.
 
+## SQLite performance notes
+
+### Index every column used in WHERE on high-volume tables
+
+`dns_query_log` is written on every DNS query and can hold millions of rows.
+Any column used in a `WHERE` clause — including filter columns added later to
+`QueryLogFilter` — must have an explicit index in the migration that introduces
+the column. Omitting the index causes full-table scans on reads **and** inflates
+WAL file size, which makes writes progressively slower on Raspberry Pi SD cards.
+
+**Checklist for a new column on `dns_query_log` (or any append-only log table):**
+
+1. Add `CREATE INDEX IF NOT EXISTS idx_<table>_<col> ON <table>(<col>)` in the
+   same migration that adds the column.
+2. If the column participates in FK-like joins (even without a `REFERENCES`
+   clause), add the index. SQLite enforces `foreign_keys=ON` constraints by
+   scanning the referenced table; an unindexed child column forces a full scan
+   on every insert.
+3. Verify with `EXPLAIN QUERY PLAN` that the insert does not trigger a table
+   scan (`SCAN <table>` in the plan output is a red flag on a table > 1k rows).
+
+### WAL checkpoint contention on Raspberry Pi
+
+WAL mode (`synchronous=NORMAL`) is the correct configuration. However, if a
+read transaction holds an old WAL snapshot — e.g., a long-running stats
+aggregation query — SQLite cannot reclaim WAL frames and the WAL file grows
+unbounded. Once the WAL exceeds a few hundred MB, the auto-checkpoint that runs
+after each commit dominates write latency, producing `slow statement` warnings
+(`elapsed > 1s`) on otherwise trivial INSERTs.
+
+**Regression signal:** `slow statement` warnings on `INSERT INTO dns_query_log`
+with `elapsed > 1s` on a production Raspberry Pi. Root cause is almost always
+either a missing index causing FK scan amplification or a stale WAL from a
+long-running reader.
+
 ## Versioning
 
 - Version is derived from git tags at compile time via `build.rs` → `WARDNET_VERSION` env var.

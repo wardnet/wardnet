@@ -6,17 +6,24 @@ use wardnet_common::dhcp::{
 };
 
 use super::super::dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`DhcpRepository`].
 pub struct SqliteDhcpRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteDhcpRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -145,7 +152,7 @@ impl DhcpRepository for SqliteDhcpRepository {
         .bind(&row.lease_end)
         .bind(&row.status)
         .bind(&row.device_id)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -157,7 +164,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_leases WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbLeaseRow::into_lease).transpose()
@@ -172,7 +179,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_leases WHERE mac_address = ? AND status = 'active'",
         )
         .bind(mac.to_lowercase())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbLeaseRow::into_lease).transpose()
@@ -185,7 +192,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_leases WHERE ip_address = ? AND status = 'active'",
         )
         .bind(ip)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbLeaseRow::into_lease).transpose()
@@ -197,7 +204,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              status, device_id, created_at, updated_at \
              FROM dhcp_leases WHERE status = 'active'",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         rows.into_iter().map(DbLeaseRow::into_lease).collect()
@@ -209,7 +216,7 @@ impl DhcpRepository for SqliteDhcpRepository {
             .bind(status)
             .bind(&now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -220,7 +227,7 @@ impl DhcpRepository for SqliteDhcpRepository {
             .bind(new_end)
             .bind(&now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -231,7 +238,7 @@ impl DhcpRepository for SqliteDhcpRepository {
             .bind(hostname)
             .bind(&now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -244,7 +251,7 @@ impl DhcpRepository for SqliteDhcpRepository {
         )
         .bind(&now)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
 
         Ok(result.rows_affected())
@@ -262,7 +269,7 @@ impl DhcpRepository for SqliteDhcpRepository {
         .bind(&row.ip_address)
         .bind(&row.hostname)
         .bind(&row.description)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -270,7 +277,7 @@ impl DhcpRepository for SqliteDhcpRepository {
     async fn delete_reservation(&self, id: &str) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM dhcp_reservations WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -280,7 +287,7 @@ impl DhcpRepository for SqliteDhcpRepository {
             "SELECT id, mac_address, ip_address, hostname, description, created_at, updated_at \
              FROM dhcp_reservations",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         rows.into_iter()
@@ -295,7 +302,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_reservations WHERE mac_address = ?",
         )
         .bind(mac.to_lowercase())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbReservationRow::into_reservation).transpose()
@@ -307,7 +314,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_reservations WHERE ip_address = ?",
         )
         .bind(ip)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbReservationRow::into_reservation).transpose()
@@ -325,7 +332,7 @@ impl DhcpRepository for SqliteDhcpRepository {
         .bind(row.mac_address.to_lowercase())
         .bind(&row.event_type)
         .bind(&row.details)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -336,7 +343,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_lease_log WHERE lease_id = ? ORDER BY created_at",
         )
         .bind(lease_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         rows.into_iter().map(DbLeaseLogRow::into_log).collect()
@@ -348,7 +355,7 @@ impl DhcpRepository for SqliteDhcpRepository {
              FROM dhcp_lease_log WHERE mac_address = ? ORDER BY created_at",
         )
         .bind(mac.to_lowercase())
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         rows.into_iter().map(DbLeaseLogRow::into_log).collect()
