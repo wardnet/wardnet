@@ -21,7 +21,7 @@ struct Assets;
 ///   A matching `If-None-Match` yields a 304 Not Modified.
 pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
     let path = uri.path().trim_start_matches('/');
-    let etag = format!("\"{}\"", RELEASE_VERSION);
+    let etag = format!("\"{RELEASE_VERSION}\"");
 
     // 304 shortcut: skip the body when the client already has this build.
     if req_headers
