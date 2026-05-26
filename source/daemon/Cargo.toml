@@ -157,7 +157,7 @@ netlink-packet-route = "0.30"
 netlink-sys = "0.8"
 
 # https://crates.io/crates/opentelemetry
-opentelemetry = "0.31"
+opentelemetry = "0.32"
 # https://crates.io/crates/opentelemetry_sdk
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 # https://crates.io/crates/opentelemetry-otlp
