@@ -143,10 +143,15 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
     // takes the rows by value, so each attempt clones them — fine,
     // batches are bounded and the clone is only paid on retry, which
     // should be rare under the 30 s `busy_timeout`.
-    let result = retry_on_busy(FLUSH_OPERATION, FLUSH_BUSY_RETRIES, FLUSH_BUSY_BACKOFF, || {
-        let rows = rows.clone();
-        service.run_flush(rows)
-    })
+    let result = retry_on_busy(
+        FLUSH_OPERATION,
+        FLUSH_BUSY_RETRIES,
+        FLUSH_BUSY_BACKOFF,
+        || {
+            let rows = rows.clone();
+            service.run_flush(rows)
+        },
+    )
     .await;
     if let Err(e) = result {
         tracing::warn!(

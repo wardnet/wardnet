@@ -9437,16 +9437,54 @@
         ],
         "description": "Query a time-series metric. Admin only.",
         "operationId": "query",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StatsQuery"
-              }
+        "parameters": [
+          {
+            "name": "metric",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "name": "label_filter",
+            "in": "query",
+            "description": "Exact labels JSON string to filter by. `None` returns all label combinations.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/StatsBucket"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Stats query result",
@@ -9572,16 +9610,53 @@
         ],
         "description": "Return the top-N label values for a metric. Admin only.",
         "operationId": "top",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StatsTopQuery"
-              }
+        "parameters": [
+          {
+            "name": "metric",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "name": "label_key",
+            "in": "query",
+            "description": "Label dimension to rank by (e.g. `\"domain\"`, `\"client\"`).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Top-N query result",
@@ -15827,48 +15902,6 @@
           "keys"
         ]
       },
-      "StatsBucket": {
-        "type": "string",
-        "description": "Time-series bucket granularity for stats queries.",
-        "enum": [
-          "minute",
-          "hour",
-          "day"
-        ]
-      },
-      "StatsQuery": {
-        "type": "object",
-        "description": "Parameters for a time-series stats query.",
-        "required": [
-          "metric",
-          "from",
-          "to",
-          "bucket"
-        ],
-        "properties": {
-          "bucket": {
-            "$ref": "#/components/schemas/StatsBucket"
-          },
-          "from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "label_filter": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Exact labels JSON string to filter by. `None` returns all label combinations."
-          },
-          "metric": {
-            "type": "string"
-          },
-          "to": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "StatsQueryResponse": {
         "type": "object",
         "description": "Response for a time-series stats query.",
@@ -15926,55 +15959,6 @@
           "total": {
             "type": "number",
             "format": "double"
-          }
-        }
-      },
-      "StatsTopQuery": {
-        "type": "object",
-        "description": "Parameters for a top-N stats query.",
-        "required": [
-          "metric",
-          "label_key",
-          "from",
-          "to",
-          "limit"
-        ],
-        "properties": {
-          "filter_label": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": false,
-            "prefixItems": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "description": "Optional fixed label filter, e.g. `(\"outcome\", \"blocked\")`."
-          },
-          "from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "label_key": {
-            "type": "string",
-            "description": "Label dimension to rank by (e.g. `\"domain\"`, `\"client\"`)."
-          },
-          "limit": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "metric": {
-            "type": "string"
-          },
-          "to": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },

@@ -121,4 +121,3 @@ export interface ListQueryLogResponse {
   entries: DnsQueryLogEntry[];
   total: number;
 }
-

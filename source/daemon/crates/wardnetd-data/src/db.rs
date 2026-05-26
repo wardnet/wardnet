@@ -262,7 +262,9 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     let started = std::time::Instant::now();
     match sqlx::query("VACUUM").execute(write).await {
         Ok(_) => {
-            let new_size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(db_size);
+            let new_size = std::fs::metadata(db_path)
+                .map(|m| m.len())
+                .unwrap_or(db_size);
             tracing::info!(
                 elapsed_secs = started.elapsed().as_secs_f64(),
                 old_size = db_size,

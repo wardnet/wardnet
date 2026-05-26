@@ -9,10 +9,18 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/js@workspace:."
   dependencies:
+    consola: "npm:^3.4.2"
     prettier: "npm:3.8.3"
     typescript: "npm:6.0.3"
   languageName: unknown
   linkType: soft
+
+"consola@npm:^3.4.2":
+  version: 3.4.2
+  resolution: "consola@npm:3.4.2"
+  checksum: 10c0/7cebe57ecf646ba74b300bcce23bff43034ed6fbec9f7e39c27cee1dc00df8a21cd336b466ad32e304ea70fba04ec9e890c200270de9a526ce021ba8a7e4c11a
+  languageName: node
+  linkType: hard
 
 "prettier@npm:3.8.3":
   version: 3.8.3

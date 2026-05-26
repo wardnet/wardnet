@@ -241,10 +241,15 @@ pub(crate) async fn flush(
     // doesn't cost us a whole batch. The buffer is preserved across
     // retries (the closure borrows it via `&*buffer`) and only cleared
     // on the final outcome.
-    let result = retry_on_busy(FLUSH_OPERATION, FLUSH_BUSY_RETRIES, FLUSH_BUSY_BACKOFF, || {
-        let buf: &[QueryLogRow] = buffer;
-        dns_repo.insert_query_log_batch(buf)
-    })
+    let result = retry_on_busy(
+        FLUSH_OPERATION,
+        FLUSH_BUSY_RETRIES,
+        FLUSH_BUSY_BACKOFF,
+        || {
+            let buf: &[QueryLogRow] = buffer;
+            dns_repo.insert_query_log_batch(buf)
+        },
+    )
     .await;
     buffer.clear();
 

@@ -1,4 +1,5 @@
 import type { ApiError } from "./types/api.js";
+import { logger } from "./logger.js";
 
 /** Options for creating a WardnetClient. */
 export interface WardnetClientOptions {
@@ -55,7 +56,7 @@ export class WardnetClient {
         );
         // Log explicitly — React Query (and other consumers) often swallow
         // the rejection, so the throw alone may not surface in DevTools.
-        console.error(err);
+        logger.error(err);
         throw err;
       }
     }

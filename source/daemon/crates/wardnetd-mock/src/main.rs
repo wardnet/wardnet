@@ -33,12 +33,12 @@ use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
-use wardnetd_services::stats::flush_runner::StatsFlushRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
 use wardnetd_services::secret_store::FileSecretStore;
+use wardnetd_services::stats::flush_runner::StatsFlushRunner;
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier,
 };
