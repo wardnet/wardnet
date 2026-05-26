@@ -21,7 +21,13 @@ export function useChart(): { config: ChartConfig } {
   return ctx;
 }
 
-export interface ChartContainerProps extends React.ComponentProps<"div"> {
+// `ref` is intentionally omitted from the public surface: the wrapper
+// div is owned by ChartContainer's internal ResizeObserver, and exposing
+// a forwarded ref would let consumers stomp on it. If a consumer ever
+// needs imperative access, switch to `forwardRef` + `useImperativeHandle`
+// rather than re-adding `ref` here.
+export interface ChartContainerProps
+  extends Omit<React.ComponentProps<"div">, "ref"> {
   config: ChartConfig;
   children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>["children"];
 }
@@ -42,6 +48,12 @@ export interface ChartContainerProps extends React.ComponentProps<"div"> {
  * `styles.css`; consumers point a chartConfig entry at
  * `var(--chart-1)` and the indirection bridges the named series
  * (e.g. "rx") to the concrete colour.
+ *
+ * We measure the wrapper div ourselves with ResizeObserver and pass
+ * fixed numeric width/height to ResponsiveContainer. Recharts only
+ * creates its SizeDetectorContainer (and emits the "width(-1) and
+ * height(-1)" warning) when width/height are percentages — numeric
+ * values take the static calculation path and never warn.
  */
 export function ChartContainer({ config, className, children, ...props }: ChartContainerProps) {
   const cssVars = React.useMemo(() => {
@@ -54,6 +66,26 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
     return out;
   }, [config]);
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  // Seed with (1, 1) so the chart renders immediately on first paint
+  // without a flash of empty space and without the recharts warning.
+  const [dims, setDims] = React.useState({ width: 1, height: 1 });
+
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = (w: number, h: number) =>
+      setDims((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+    const { width, height } = el.getBoundingClientRect();
+    update(width, height);
+    const observer = new ResizeObserver(([entry]) => {
+      const { width: w, height: h } = entry.contentRect;
+      update(w, h);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <ChartContext.Provider value={{ config }}>
       <div
@@ -61,8 +93,11 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
         className={cn("chart", className)}
         style={cssVars as React.CSSProperties}
         {...props}
+        ref={containerRef}
       >
-        <RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+        <RechartsPrimitive.ResponsiveContainer width={dims.width} height={dims.height}>
+          {children}
+        </RechartsPrimitive.ResponsiveContainer>
       </div>
     </ChartContext.Provider>
   );

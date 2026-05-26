@@ -2,17 +2,24 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use super::super::ApiKeyRepository;
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`ApiKeyRepository`].
 pub struct SqliteApiKeyRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteApiKeyRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -20,7 +27,7 @@ impl SqliteApiKeyRepository {
 impl ApiKeyRepository for SqliteApiKeyRepository {
     async fn find_all_hashes(&self) -> anyhow::Result<Vec<(String, String)>> {
         let rows = sqlx::query_as::<_, (String, String)>("SELECT id, key_hash FROM api_keys")
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?;
         Ok(rows)
     }
@@ -37,7 +44,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
             .bind(label)
             .bind(key_hash)
             .bind(created_at)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -46,7 +53,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
         sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
             .bind(now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }

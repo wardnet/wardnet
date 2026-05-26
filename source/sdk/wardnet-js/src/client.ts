@@ -46,6 +46,20 @@ export class WardnetClient {
    * those overrides; routing through it keeps the auth path uniform.
    */
   async request<T>(path: string, init?: RequestInit): Promise<T> {
+    if (init?.body != null) {
+      const method = (init.method ?? "GET").toUpperCase();
+      if (method === "GET" || method === "HEAD") {
+        const err = new Error(
+          `WardnetClient.request: ${method} ${path} was called with a body. ` +
+            `GET/HEAD requests cannot have a body. Set method: "POST"/"PUT"/"PATCH"/"DELETE" or drop the body.`,
+        );
+        // Log explicitly — React Query (and other consumers) often swallow
+        // the rejection, so the throw alone may not surface in DevTools.
+        console.error(err);
+        throw err;
+      }
+    }
+
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: { "Content-Type": "application/json" },
       credentials: "include",

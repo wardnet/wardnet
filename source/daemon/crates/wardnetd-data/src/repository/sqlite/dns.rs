@@ -7,18 +7,24 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 
+use crate::db::DbPools;
 use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 
 pub struct SqliteDnsRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteDnsRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -52,7 +58,7 @@ impl DbQueryLogRow {
 #[async_trait]
 impl DnsRepository for SqliteDnsRepository {
     async fn insert_query_log_batch(&self, entries: &[QueryLogRow]) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         for entry in entries {
             sqlx::query(
                 "INSERT INTO dns_query_log \
@@ -93,7 +99,7 @@ impl DnsRepository for SqliteDnsRepository {
         }
         q = q.bind(limit).bind(offset);
 
-        let rows = q.fetch_all(&self.pool).await?;
+        let rows = q.fetch_all(&self.pools.read).await?;
         Ok(rows.into_iter().map(DbQueryLogRow::into_row).collect())
     }
 
@@ -104,7 +110,7 @@ impl DnsRepository for SqliteDnsRepository {
         for b in &binds {
             q = q.bind(b);
         }
-        let count = q.fetch_one(&self.pool).await?;
+        let count = q.fetch_one(&self.pools.read).await?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
 
@@ -117,7 +123,7 @@ impl DnsRepository for SqliteDnsRepository {
 
         let result = sqlx::query("DELETE FROM dns_query_log WHERE timestamp < ?")
             .bind(&cutoff)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected())
     }

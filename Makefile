@@ -350,8 +350,8 @@ run-dev-web:
 # dev server runs in the foreground. Ctrl+C stops Vite and tears down
 # the mock via the EXIT trap.
 #
-# Database is in-memory by default (ephemeral); `RESUME=true` to
-# persist at `.wardnet-local/wardnet.db`.
+# Database persists at `.wardnet-local/wardnet.db` by default; pass
+# `RESUME=false` for an ephemeral in-memory DB (re-runs setup wizard).
 run-dev:
 	@echo "=== Starting wardnetd-mock + web UI dev server ==="
 	@set -e; \
@@ -473,9 +473,9 @@ help:
 	@echo ""
 	@echo "  run-dev        Run wardnetd-mock + web UI dev server locally"
 	@echo "                 Mock API on :7411, web UI on :7412 (proxies /api)"
-	@echo "                 Ctrl+C stops both. In-memory DB by default."
-	@echo "                 make run-dev                    (ephemeral in-memory DB)"
-	@echo "                 make run-dev RESUME=true        (persist DB at .wardnet-local/)"
+	@echo "                 Ctrl+C stops both. DB persists at .wardnet-local/ by default."
+	@echo "                 make run-dev                    (persist DB at .wardnet-local/)"
+	@echo "                 make run-dev RESUME=false       (ephemeral in-memory DB)"
 	@echo "  run-dev-daemon Run just wardnetd-mock on :7411 (same RESUME flag)"
 	@echo "  run-dev-web    Run just the Vite dev server on :7412"
 	@echo ""

@@ -13,7 +13,7 @@ use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DailyMetricRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow,
-    IntradayMetricRow, QueryLogRow, TunnelRow,
+    IntradayMetricRow, IntradayStatRow, QueryLogRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -324,14 +324,37 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         dns_repo.insert_query_log_batch(chunk).await?;
     }
 
+    // ------------------------------------------------------------------
+    // DNS stats — 48 h of per-minute intraday rows so the 1h, 24h and
+    // partial 7d tabs have data immediately, plus one rollup row per day
+    // for the 12m daily chart.
+    // ------------------------------------------------------------------
+    let dns_client_ips_for_stats: Vec<String> = device_lease_inputs
+        .iter()
+        .map(|(_, _, _, ip)| ip.clone())
+        .collect();
+    let stats_repo = factory.stats();
+
+    let intraday_stat_rows = generate_dns_intraday_stats(&dns_client_ips_for_stats, now);
+    let total_intraday = intraday_stat_rows.len();
+    for chunk in intraday_stat_rows.chunks(256) {
+        stats_repo.upsert_intraday(chunk).await?;
+    }
+
+    let daily_rollup_days = seed_daily_stats(&*stats_repo, &dns_client_ips_for_stats, now).await?;
+
     tracing::info!(
         devices = device_ids.len(),
         tunnels = tunnel_ids.len(),
         dns_queries = total_log_rows,
-        "seeded demo data: devices={dev}, tunnels={tun}, dns_queries={dns}",
+        stat_intraday = total_intraday,
+        stat_daily_days = daily_rollup_days,
+        "seeded demo data: devices={dev}, tunnels={tun}, dns_queries={dns}, stat_intraday={si}, stat_daily_days={sd}",
         dev = device_ids.len(),
         tun = tunnel_ids.len(),
         dns = total_log_rows,
+        si = total_intraday,
+        sd = daily_rollup_days,
     );
 
     Ok(SeededIds {
@@ -533,4 +556,196 @@ fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> 
     }
 
     rows
+}
+
+// ── DNS stats seeding ─────────────────────────────────────────────────────
+
+const AD_BLOCKED_DOMAINS: [&str; 5] = [
+    "doubleclick.net",
+    "googletagmanager.com",
+    "adservice.google.com",
+    "ads.facebook.com",
+    "tracker.example.net",
+];
+
+/// Domain share of the blocked-query total (must sum to 1.0).
+const DOMAIN_WEIGHTS: [f64; 5] = [0.35, 0.25, 0.20, 0.12, 0.08];
+
+/// Client share of total queries (must sum to 1.0, first 5 entries used).
+const CLIENT_WEIGHTS: [f64; 5] = [0.30, 0.25, 0.20, 0.15, 0.10];
+
+/// Generate 48 h of per-minute intraday stats rows for the DNS metrics.
+///
+/// Covers the 1h, 24h, and partial 7d tabs. The event emitter keeps adding
+/// live rows on top of these, so the charts stay fresh after launch.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn generate_dns_intraday_stats(
+    client_ips: &[String],
+    now: chrono::DateTime<Utc>,
+) -> Vec<IntradayStatRow> {
+    const HOURS: i64 = 48;
+    // Peak ~10 queries/min at 20:00, trough ~2/min at 04:00.
+    const BASE_QPM: f64 = 10.0;
+
+    let end_ts = (now.timestamp() / 60) * 60;
+    let start_ts = end_ts - HOURS * 3_600;
+
+    let capacity = ((end_ts - start_ts) / 60) as usize
+        * (3 + AD_BLOCKED_DOMAINS.len() + client_ips.len().min(5));
+    let mut rows = Vec::with_capacity(capacity);
+
+    let mut minute_ts = start_ts;
+    while minute_ts <= end_ts {
+        let hour_of_day = ((minute_ts % 86_400) as f64) / 3_600.0;
+        // Diurnal: cosine peaking at 20:00, trough at 08:00.
+        let phase = (hour_of_day - 20.0) / 24.0 * std::f64::consts::TAU;
+        let diurnal = (phase.cos() * 0.4 + 0.6).clamp(0.2, 1.0);
+
+        let seed = minute_ts as u64;
+        let jitter = ((seed.wrapping_mul(2_654_435_761) % 21) as f64 - 10.0) / 100.0;
+        let total_qpm = (BASE_QPM * diurnal * (1.0 + jitter)).max(0.5);
+
+        let blocked = (total_qpm * 0.20).max(0.05);
+        let forwarded = total_qpm * 0.50;
+        let cached = total_qpm * 0.30;
+
+        rows.push(IntradayStatRow {
+            metric: "dns.queries".to_owned(),
+            labels: r#"{"outcome":"blocked"}"#.to_owned(),
+            bucket_ts: minute_ts,
+            value: blocked,
+            kind: "counter".to_owned(),
+        });
+        rows.push(IntradayStatRow {
+            metric: "dns.queries".to_owned(),
+            labels: r#"{"outcome":"forwarded"}"#.to_owned(),
+            bucket_ts: minute_ts,
+            value: forwarded,
+            kind: "counter".to_owned(),
+        });
+        rows.push(IntradayStatRow {
+            metric: "dns.queries".to_owned(),
+            labels: r#"{"outcome":"cached"}"#.to_owned(),
+            bucket_ts: minute_ts,
+            value: cached,
+            kind: "counter".to_owned(),
+        });
+
+        for (i, domain) in AD_BLOCKED_DOMAINS.iter().enumerate() {
+            rows.push(IntradayStatRow {
+                metric: "dns.queries.by_domain".to_owned(),
+                labels: format!(r#"{{"domain":"{domain}"}}"#),
+                bucket_ts: minute_ts,
+                value: (blocked * DOMAIN_WEIGHTS[i]).max(0.01),
+                kind: "counter".to_owned(),
+            });
+        }
+
+        for (i, client_ip) in client_ips.iter().enumerate().take(5) {
+            rows.push(IntradayStatRow {
+                metric: "dns.queries.by_client".to_owned(),
+                labels: format!(r#"{{"client":"{client_ip}"}}"#),
+                bucket_ts: minute_ts,
+                value: (total_qpm * CLIENT_WEIGHTS[i]).max(0.01),
+                kind: "counter".to_owned(),
+            });
+        }
+
+        minute_ts += 60;
+    }
+
+    rows
+}
+
+/// Insert one representative intraday row per `(day, metric, labels)` then
+/// roll it into `stats_daily`, giving the 12m chart 13 months of history.
+///
+/// The historical intraday rows survive until the flush runner's trim pass;
+/// the daily rows persist permanently. Returns the number of days processed.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+async fn seed_daily_stats(
+    stats_repo: &dyn wardnetd_data::repository::StatsRepository,
+    client_ips: &[String],
+    now: chrono::DateTime<Utc>,
+) -> anyhow::Result<usize> {
+    const DAILY_RETENTION_DAYS: i64 = 397;
+    // ~14 400 queries per weekday (10/min × 1440 min).
+    const BASE_QUERIES_PER_DAY: f64 = 14_400.0;
+
+    for days_ago in 1..=DAILY_RETENTION_DAYS {
+        let day_dt = now - Duration::days(days_ago);
+        let day_str = day_dt.format("%Y-%m-%d").to_string();
+
+        // Noon UTC timestamp — always within the correct calendar day.
+        let day_ts = day_dt.timestamp();
+        let midnight_ts = day_ts - (day_ts % 86_400);
+        let noon_ts = midnight_ts + 43_200;
+
+        let dow = day_dt.weekday().num_days_from_monday();
+        let weekend_boost = if dow >= 5 { 1.3 } else { 1.0 };
+        let jitter_seed = (days_ago as u64).wrapping_mul(2_654_435_761);
+        let jitter = ((jitter_seed % 21) as f64 - 10.0) / 100.0;
+
+        let total = (BASE_QUERIES_PER_DAY * weekend_boost * (1.0 + jitter)).max(100.0);
+        let blocked = total * 0.20;
+        let forwarded = total * 0.50;
+        let cached = total * 0.30;
+
+        let mut day_rows = vec![
+            IntradayStatRow {
+                metric: "dns.queries".to_owned(),
+                labels: r#"{"outcome":"blocked"}"#.to_owned(),
+                bucket_ts: noon_ts,
+                value: blocked,
+                kind: "counter".to_owned(),
+            },
+            IntradayStatRow {
+                metric: "dns.queries".to_owned(),
+                labels: r#"{"outcome":"forwarded"}"#.to_owned(),
+                bucket_ts: noon_ts,
+                value: forwarded,
+                kind: "counter".to_owned(),
+            },
+            IntradayStatRow {
+                metric: "dns.queries".to_owned(),
+                labels: r#"{"outcome":"cached"}"#.to_owned(),
+                bucket_ts: noon_ts,
+                value: cached,
+                kind: "counter".to_owned(),
+            },
+        ];
+
+        for (i, domain) in AD_BLOCKED_DOMAINS.iter().enumerate() {
+            day_rows.push(IntradayStatRow {
+                metric: "dns.queries.by_domain".to_owned(),
+                labels: format!(r#"{{"domain":"{domain}"}}"#),
+                bucket_ts: noon_ts,
+                value: (blocked * DOMAIN_WEIGHTS[i]).max(0.1),
+                kind: "counter".to_owned(),
+            });
+        }
+
+        for (i, client_ip) in client_ips.iter().enumerate().take(5) {
+            day_rows.push(IntradayStatRow {
+                metric: "dns.queries.by_client".to_owned(),
+                labels: format!(r#"{{"client":"{client_ip}"}}"#),
+                bucket_ts: noon_ts,
+                value: (total * CLIENT_WEIGHTS[i]).max(0.1),
+                kind: "counter".to_owned(),
+            });
+        }
+
+        stats_repo.upsert_intraday(&day_rows).await?;
+        stats_repo.rollup_daily(&day_str).await?;
+    }
+
+    Ok(DAILY_RETENTION_DAYS as usize)
 }

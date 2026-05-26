@@ -5,17 +5,24 @@ use wardnet_common::wireguard_config::WgPeerConfig;
 
 use super::super::TunnelRepository;
 use super::super::tunnel::TunnelRow;
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`TunnelRepository`].
 pub struct SqliteTunnelRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteTunnelRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -104,7 +111,7 @@ impl TunnelRepository for SqliteTunnelRepository {
              status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns \
              FROM tunnels",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         rows.into_iter().map(DbTunnelRow::into_tunnel).collect()
@@ -117,7 +124,7 @@ impl TunnelRepository for SqliteTunnelRepository {
              FROM tunnels WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbTunnelRow::into_tunnel).transpose()
@@ -129,7 +136,7 @@ impl TunnelRepository for SqliteTunnelRepository {
              FROM tunnels WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         row.map(DbTunnelConfigRow::into_tunnel_config).transpose()
@@ -153,7 +160,7 @@ impl TunnelRepository for SqliteTunnelRepository {
         .bind(&row.peer_config)
         .bind(row.listen_port)
         .bind(i64::from(row.override_default_dns))
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -162,7 +169,7 @@ impl TunnelRepository for SqliteTunnelRepository {
         sqlx::query("UPDATE tunnels SET status = ? WHERE id = ?")
             .bind(status)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -171,7 +178,7 @@ impl TunnelRepository for SqliteTunnelRepository {
         sqlx::query("UPDATE tunnels SET override_default_dns = ? WHERE id = ?")
             .bind(i64::from(value))
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -190,7 +197,7 @@ impl TunnelRepository for SqliteTunnelRepository {
         .bind(bytes_rx)
         .bind(last_handshake)
         .bind(id)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -198,7 +205,7 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM tunnels WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -208,14 +215,14 @@ impl TunnelRepository for SqliteTunnelRepository {
             "SELECT COALESCE(MAX(CAST(REPLACE(interface_name, 'wg_ward', '') AS INTEGER)) + 1, 0) \
              FROM tunnels",
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&self.pools.read)
         .await?;
         Ok(idx)
     }
 
     async fn count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tunnels")
-            .fetch_one(&self.pool)
+            .fetch_one(&self.pools.read)
             .await?;
         Ok(count)
     }
@@ -223,7 +230,7 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn count_active(&self) -> anyhow::Result<i64> {
         let count =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tunnels WHERE status = 'up'")
-                .fetch_one(&self.pool)
+                .fetch_one(&self.pools.read)
                 .await?;
         Ok(count)
     }

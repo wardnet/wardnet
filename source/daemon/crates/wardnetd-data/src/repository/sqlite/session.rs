@@ -2,17 +2,24 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use super::super::SessionRepository;
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`SessionRepository`].
 pub struct SqliteSessionRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteSessionRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -35,7 +42,7 @@ impl SessionRepository for SqliteSessionRepository {
         .bind(token_hash)
         .bind(created_at)
         .bind(expires_at)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -50,7 +57,7 @@ impl SessionRepository for SqliteSessionRepository {
         )
         .bind(token_hash)
         .bind(now)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
         Ok(row)
     }
@@ -58,7 +65,7 @@ impl SessionRepository for SqliteSessionRepository {
     async fn delete_expired(&self, now: &str) -> anyhow::Result<u64> {
         let result = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
             .bind(now)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected())
     }

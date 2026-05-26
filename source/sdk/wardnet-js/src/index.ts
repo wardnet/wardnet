@@ -134,6 +134,9 @@ export { DnsFilterService } from "./services/dns-filter.js";
 export { DnsLogStreamService } from "./services/dnsLogStream.js";
 export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
+// Services — stats
+export { StatsService } from "./services/stats.js";
+
 // Services — auto-update
 export { UpdateService } from "./services/update.js";
 
@@ -174,7 +177,7 @@ export type {
   UpdateHistoryResponse,
 } from "./types/update.js";
 
-// Types — DNS (server config + query log + stats)
+// Types — DNS (server config + query log)
 export type {
   DnsProtocol,
   DnsResolutionMode,
@@ -190,13 +193,18 @@ export type {
   QueryLogEvent,
   ListQueryLogParams,
   ListQueryLogResponse,
-  DnsStatsTotals,
-  TopDomain,
-  TopClient,
-  DnsSeriesPoint,
-  DnsSeriesBucket,
-  DnsStatsResponse,
 } from "./types/dns.js";
+
+// Types — stats
+export type {
+  StatsBucket,
+  StatsQuery,
+  StatsSeriesPoint,
+  StatsQueryResponse,
+  StatsTopQuery,
+  StatsTopEntry,
+  StatsTopResponse,
+} from "./types/stats.js";
 
 // Types — DNS Filter (profiles, blocklists, allowlist, rules, per-device settings)
 export type {

@@ -2,17 +2,24 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use super::super::tunnel_metrics::{DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository};
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`TunnelMetricsRepository`].
 pub struct SqliteTunnelMetricsRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteTunnelMetricsRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -65,7 +72,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
         .bind(row.ts)
         .bind(row.bytes_tx_delta)
         .bind(row.bytes_rx_delta)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -74,7 +81,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
         if rows.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         for row in rows {
             sqlx::query(
                 "INSERT OR REPLACE INTO tunnel_metrics_intraday \
@@ -95,7 +102,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
         if rows.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         for row in rows {
             sqlx::query(
                 "INSERT OR REPLACE INTO tunnel_metrics_daily \
@@ -127,7 +134,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
         .bind(tunnel_id)
         .bind(from_ts)
         .bind(to_ts)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }
@@ -147,7 +154,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
         .bind(tunnel_id)
         .bind(from_day)
         .bind(to_day)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }
@@ -167,13 +174,13 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
              ORDER BY d ASC",
         )
         .bind(before_day)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows)
     }
 
     async fn rollup_day(&self, day: &str) -> anyhow::Result<usize> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         // INSERT OR IGNORE keeps the operation idempotent: re-running
         // rollup_day for the same day is a no-op once rows exist.
         let res = sqlx::query(
@@ -194,7 +201,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
     async fn trim_intraday(&self, cutoff_ts: i64) -> anyhow::Result<u64> {
         let res = sqlx::query("DELETE FROM tunnel_metrics_intraday WHERE ts < ?")
             .bind(cutoff_ts)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(res.rows_affected())
     }
@@ -202,7 +209,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
     async fn trim_daily(&self, cutoff_day: &str) -> anyhow::Result<u64> {
         let res = sqlx::query("DELETE FROM tunnel_metrics_daily WHERE day < ?")
             .bind(cutoff_day)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(res.rows_affected())
     }
@@ -212,7 +219,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
             "SELECT tunnel_id, ts, bytes_tx_delta, bytes_rx_delta \
              FROM tunnel_metrics_intraday ORDER BY tunnel_id, ts",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }
@@ -222,7 +229,7 @@ impl TunnelMetricsRepository for SqliteTunnelMetricsRepository {
             "SELECT tunnel_id, day, bytes_tx_total, bytes_rx_total \
              FROM tunnel_metrics_daily ORDER BY tunnel_id, day",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }

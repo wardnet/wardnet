@@ -15,12 +15,27 @@ use tracing::Instrument;
 
 use super::buffer::StatsBuffer;
 use super::service::StatsService;
+use crate::db_busy::retry_on_busy;
 
 /// How often the buffer is drained and flushed to `stats_intraday`.
 pub const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(10);
 
 /// How often rollup + trim maintenance runs.
 pub const DEFAULT_MAINTENANCE_INTERVAL: Duration = Duration::from_hours(1);
+
+/// Grace period before the *first* maintenance tick after the runner
+/// starts. The DNS query-log runner and any pending API writes get this
+/// long to settle before maintenance grabs the writer lock for its
+/// rollup + trim. Decoupled from `flush_interval` so changing the
+/// flush cadence doesn't quietly retune startup behaviour.
+pub const STARTUP_MAINTENANCE_GRACE: Duration = Duration::from_secs(10);
+
+/// How many times to retry `run_flush` on `SQLITE_BUSY`. Same shape
+/// as the DNS query-log runner — two retries with a short backoff
+/// covers the windows around incremental_vacuum / cleanup.
+const FLUSH_BUSY_RETRIES: u32 = 2;
+const FLUSH_BUSY_BACKOFF: Duration = Duration::from_millis(200);
+const FLUSH_OPERATION: &str = "stats_flush";
 
 /// Background runner for the stats subsystem.
 pub struct StatsFlushRunner {
@@ -83,15 +98,20 @@ async fn runner_loop(
     maintenance_interval: Duration,
     cancel: CancellationToken,
 ) {
-    // Fire maintenance immediately on startup (idempotent rollup catches any
-    // missed days from a previous crash).
-    perform_maintenance(&service).await;
-
     let mut flush_ticker = tokio::time::interval(flush_interval);
     flush_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     flush_ticker.tick().await; // skip the immediate tick — buffer is empty at startup
 
-    let mut next_maintenance = Instant::now() + maintenance_interval;
+    // Maintenance was previously kicked off synchronously here, but
+    // that grabbed the SQLite writer lock the moment the daemon came
+    // up and starved the DNS query-log flush of its first batch (see
+    // issue: "failed to flush DNS query log batch ... database is
+    // locked"). Defer the first run by `STARTUP_MAINTENANCE_GRACE` so
+    // the other background writers get to settle in first; subsequent
+    // runs happen every `maintenance_interval` as before. Idempotency
+    // of the rollup means we still catch any missed days from a
+    // previous crash, just a few seconds later.
+    let mut next_maintenance = Instant::now() + STARTUP_MAINTENANCE_GRACE;
 
     loop {
         tokio::select! {
@@ -119,7 +139,16 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
         return;
     }
     let count = rows.len();
-    if let Err(e) = service.run_flush(rows).await {
+    // Retry the flush on transient writer-lock contention. `run_flush`
+    // takes the rows by value, so each attempt clones them — fine,
+    // batches are bounded and the clone is only paid on retry, which
+    // should be rare under the 30 s `busy_timeout`.
+    let result = retry_on_busy(FLUSH_OPERATION, FLUSH_BUSY_RETRIES, FLUSH_BUSY_BACKOFF, || {
+        let rows = rows.clone();
+        service.run_flush(rows)
+    })
+    .await;
+    if let Err(e) = result {
         tracing::warn!(
             error = %e,
             count,

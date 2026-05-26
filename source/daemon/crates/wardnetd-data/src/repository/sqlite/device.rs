@@ -5,17 +5,24 @@ use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use super::super::DeviceRepository;
 use super::super::device::DeviceRow as InsertDeviceRow;
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`DeviceRepository`].
 pub struct SqliteDeviceRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteDeviceRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -69,7 +76,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_ip = ?");
         let row = sqlx::query_as::<_, DeviceRow>(&query)
             .bind(ip)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.pools.read)
             .await?;
         row.map(DeviceRow::into_device).transpose()
     }
@@ -78,7 +85,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE id = ?");
         let row = sqlx::query_as::<_, DeviceRow>(&query)
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.pools.read)
             .await?;
         row.map(DeviceRow::into_device).transpose()
     }
@@ -91,7 +98,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE mac = ?");
         let row = sqlx::query_as::<_, DeviceRow>(&query)
             .bind(mac.to_lowercase())
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.pools.read)
             .await?;
         row.map(DeviceRow::into_device).transpose()
     }
@@ -99,7 +106,7 @@ impl DeviceRepository for SqliteDeviceRepository {
     async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
         let query = format!("SELECT {SELECT_COLS} FROM devices ORDER BY last_seen DESC");
         let rows = sqlx::query_as::<_, DeviceRow>(&query)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DeviceRow::into_device).collect()
     }
@@ -117,7 +124,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(&device.first_seen)
         .bind(&device.last_seen)
         .bind(&device.last_ip)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -132,13 +139,13 @@ impl DeviceRepository for SqliteDeviceRepository {
             .bind(last_seen)
             .bind(ip)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
 
     async fn update_last_seen_batch(&self, updates: &[(String, String)]) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         for (device_id, last_seen) in updates {
             sqlx::query("UPDATE devices SET last_seen = ? WHERE id = ?")
                 .bind(last_seen)
@@ -154,7 +161,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         sqlx::query("UPDATE devices SET hostname = ? WHERE id = ?")
             .bind(hostname)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -169,7 +176,7 @@ impl DeviceRepository for SqliteDeviceRepository {
             .bind(name)
             .bind(device_type)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
@@ -178,7 +185,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_seen < ?");
         let rows = sqlx::query_as::<_, DeviceRow>(&query)
             .bind(before)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DeviceRow::into_device).collect()
     }
@@ -188,7 +195,7 @@ impl DeviceRepository for SqliteDeviceRepository {
             "SELECT device_id, target_json, created_by FROM routing_rules WHERE device_id = ?",
         )
         .bind(device_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.pools.read)
         .await?;
 
         match row {
@@ -223,7 +230,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(target_json)
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -243,7 +250,7 @@ impl DeviceRepository for SqliteDeviceRepository {
              ORDER BY d.last_seen DESC";
         let rows = sqlx::query_as::<_, DeviceRow>(query)
             .bind(&pattern)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DeviceRow::into_device).collect()
     }
@@ -261,7 +268,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let device_ids: Vec<String> =
             sqlx::query_scalar("SELECT device_id FROM routing_rules WHERE target_json LIKE ?")
                 .bind(&pattern)
-                .fetch_all(&self.pool)
+                .fetch_all(&self.pools.read)
                 .await?;
 
         if !device_ids.is_empty() {
@@ -271,7 +278,7 @@ impl DeviceRepository for SqliteDeviceRepository {
             .bind(direct_json)
             .bind(now)
             .bind(&pattern)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         }
 
@@ -282,14 +289,14 @@ impl DeviceRepository for SqliteDeviceRepository {
         sqlx::query("UPDATE devices SET admin_locked = ? WHERE id = ?")
             .bind(locked)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(())
     }
 
     async fn count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM devices")
-            .fetch_one(&self.pool)
+            .fetch_one(&self.pools.read)
             .await?;
         Ok(count)
     }

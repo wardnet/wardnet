@@ -1,3 +1,4 @@
+import { CircleAlertIcon } from "lucide-react";
 import { Link } from "react-router";
 import { StatTile } from "@wardnet/forge-web/stat-tile";
 
@@ -9,6 +10,8 @@ interface DashboardStatCardProps {
   usagePercent?: number;
   /** If provided, wraps the card in a router Link to this path. */
   to?: string;
+  /** If provided, renders the card in error mode instead of the stat tile. */
+  error?: string | null;
 }
 
 /** Single stat card for the admin dashboard. */
@@ -18,7 +21,20 @@ export function DashboardStatCard({
   subtitle,
   usagePercent,
   to,
+  error,
 }: DashboardStatCardProps) {
+  if (error) {
+    return (
+      <div
+        className="card flex items-start gap-2 p-3.5 text-danger-soft-ink"
+        style={{ background: "var(--danger-soft)" }}
+      >
+        <CircleAlertIcon className="size-4 shrink-0 mt-0.5" />
+        <p className="text-[0.8125rem] font-medium leading-snug m-0">{error}</p>
+      </div>
+    );
+  }
+
   const tile = (
     <StatTile
       label={title}

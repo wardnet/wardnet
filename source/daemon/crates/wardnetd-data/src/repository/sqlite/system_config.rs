@@ -5,6 +5,7 @@ use sqlx::sqlite::SqliteConnection;
 use wardnet_common::api::LastShutdownState;
 
 use super::super::{LastShutdownInfo, SystemConfigRepository};
+use crate::db::DbPools;
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 
@@ -80,14 +81,20 @@ fn parse_prev_state(value: Option<&str>) -> LastShutdownState {
 
 /// SQLite-backed implementation of [`SystemConfigRepository`].
 pub struct SqliteSystemConfigRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteSystemConfigRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -96,7 +103,7 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
     async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
         let row = sqlx::query_scalar::<_, String>("SELECT value FROM system_config WHERE key = ?")
             .bind(key)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.pools.read)
             .await?;
         Ok(row)
     }
@@ -108,21 +115,21 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
         )
         .bind(key)
         .bind(value)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
 
     async fn device_count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM devices")
-            .fetch_one(&self.pool)
+            .fetch_one(&self.pools.read)
             .await?;
         Ok(count)
     }
 
     async fn tunnel_count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tunnels")
-            .fetch_one(&self.pool)
+            .fetch_one(&self.pools.read)
             .await?;
         Ok(count)
     }
@@ -131,13 +138,13 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
         let size = sqlx::query_scalar::<_, i64>(
             "SELECT page_count * page_size AS size FROM pragma_page_count(), pragma_page_size()",
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&self.pools.read)
         .await?;
         Ok(u64::try_from(size).unwrap_or(0))
     }
 
     async fn detect_previous_shutdown(&self) -> anyhow::Result<LastShutdownInfo> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
 
         let prev_state = get_value(&mut tx, KEY_LAST_SHUTDOWN_STATE).await?;
         let prev_at = parse_ts_opt(get_value(&mut tx, KEY_LAST_SHUTDOWN_AT).await?.as_deref())?;
@@ -200,7 +207,7 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
 
     async fn record_graceful_shutdown(&self) -> anyhow::Result<()> {
         let now = now_iso();
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         upsert_value(&mut tx, KEY_LAST_SHUTDOWN_STATE, STATE_GRACEFUL).await?;
         upsert_value(&mut tx, KEY_LAST_SHUTDOWN_AT, &now).await?;
         tx.commit().await?;

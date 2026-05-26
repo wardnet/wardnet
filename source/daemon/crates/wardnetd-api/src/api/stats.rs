@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::stats::{StatsQuery, StatsQueryResponse, StatsTopQuery, StatsTopResponse};
@@ -18,7 +18,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     path = "/api/stats",
     tag = "stats",
     description = "Query a time-series metric. Admin only.",
-    request_body = StatsQuery,
+    params(StatsQuery),
     responses(
         (status = 200, description = "Stats query result", body = StatsQueryResponse),
         AuthErrors,
@@ -31,7 +31,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 pub async fn query(
     State(state): State<AppState>,
     _auth: AdminAuth,
-    Json(body): Json<StatsQuery>,
+    Query(body): Query<StatsQuery>,
 ) -> Result<Json<StatsQueryResponse>, AppError> {
     let response = state.stats_service().query(body).await?;
     Ok(Json(response))
@@ -42,7 +42,7 @@ pub async fn query(
     path = "/api/stats/top",
     tag = "stats",
     description = "Return the top-N label values for a metric. Admin only.",
-    request_body = StatsTopQuery,
+    params(StatsTopQuery),
     responses(
         (status = 200, description = "Top-N query result", body = StatsTopResponse),
         AuthErrors,
@@ -55,7 +55,7 @@ pub async fn query(
 pub async fn top(
     State(state): State<AppState>,
     _auth: AdminAuth,
-    Json(body): Json<StatsTopQuery>,
+    Query(body): Query<StatsTopQuery>,
 ) -> Result<Json<StatsTopResponse>, AppError> {
     let response = state.stats_service().top(body).await?;
     Ok(Json(response))

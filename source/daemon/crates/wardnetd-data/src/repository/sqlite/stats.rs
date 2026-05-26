@@ -3,17 +3,24 @@ use sqlx::SqlitePool;
 use wardnet_common::stats::StatsTopEntry;
 
 use super::super::stats::{DailyStatRow, IntradayStatRow, StatsRepository};
+use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`StatsRepository`].
 pub struct SqliteStatsRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteStatsRepository {
     /// Create a new repository backed by the given connection pool.
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create a new repository with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -80,7 +87,7 @@ impl StatsRepository for SqliteStatsRepository {
         if rows.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         for row in rows {
             // Counter and gauge differ only in the conflict resolution:
             // counters accumulate, gauges overwrite.
@@ -112,7 +119,7 @@ impl StatsRepository for SqliteStatsRepository {
     }
 
     async fn rollup_daily(&self, day: &str) -> anyhow::Result<usize> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pools.write.begin().await?;
         // Counters are summed; gauges take the last observed value for the day.
         // INSERT OR IGNORE keeps rollup idempotent — re-running for the same
         // day is a no-op once a row exists.
@@ -144,7 +151,7 @@ impl StatsRepository for SqliteStatsRepository {
     async fn trim_intraday(&self, cutoff_ts: i64) -> anyhow::Result<u64> {
         let res = sqlx::query("DELETE FROM stats_intraday WHERE bucket_ts < ?")
             .bind(cutoff_ts)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(res.rows_affected())
     }
@@ -152,7 +159,7 @@ impl StatsRepository for SqliteStatsRepository {
     async fn trim_daily(&self, cutoff_day: &str) -> anyhow::Result<u64> {
         let res = sqlx::query("DELETE FROM stats_daily WHERE day < ?")
             .bind(cutoff_day)
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?;
         Ok(res.rows_affected())
     }
@@ -175,7 +182,7 @@ impl StatsRepository for SqliteStatsRepository {
             .bind(filter)
             .bind(from)
             .bind(to)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?
         } else {
             sqlx::query_as::<_, DbIntradayRow>(
@@ -187,7 +194,7 @@ impl StatsRepository for SqliteStatsRepository {
             .bind(metric)
             .bind(from)
             .bind(to)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?
         };
         Ok(rows.into_iter().map(Into::into).collect())
@@ -211,7 +218,7 @@ impl StatsRepository for SqliteStatsRepository {
             .bind(filter)
             .bind(from)
             .bind(to)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?
         } else {
             sqlx::query_as::<_, DbDailyRow>(
@@ -223,7 +230,7 @@ impl StatsRepository for SqliteStatsRepository {
             .bind(metric)
             .bind(from)
             .bind(to)
-            .fetch_all(&self.pool)
+            .fetch_all(&self.pools.read)
             .await?
         };
         Ok(rows.into_iter().map(Into::into).collect())
@@ -256,7 +263,7 @@ impl StatsRepository for SqliteStatsRepository {
         .bind(&key_path)
         .bind(&key_path)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }

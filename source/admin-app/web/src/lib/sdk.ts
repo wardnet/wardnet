@@ -15,6 +15,7 @@ import {
   DnsLogStreamService,
   JobsService,
   LogService,
+  StatsService,
   UpdateService,
 } from "@wardnet/js";
 
@@ -35,5 +36,6 @@ export const dnsFilterService = new DnsFilterService(client);
 export const dnsLogStreamService = new DnsLogStreamService(client, window.location.origin);
 export const jobsService = new JobsService(client);
 export const logService = new LogService(client, window.location.origin);
+export const statsService = new StatsService(client);
 export const updateService = new UpdateService(client);
 export const backupService = new BackupService(client);

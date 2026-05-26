@@ -486,6 +486,7 @@ async fn run(
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
         services.dns_repo.clone(),
+        services.maintenance_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &root_span,
