@@ -7,7 +7,7 @@ use crate::db::DbPools;
 use crate::repository::maintenance::MaintenanceRepository;
 
 /// How many pages a single `PRAGMA incremental_vacuum(N)` call is
-/// allowed to reclaim. Tuned for a Raspberry Pi: ~8 MiB at the SQLite
+/// allowed to reclaim. Tuned for a Raspberry Pi: ~8 MiB at the `SQLite`
 /// default 4 KiB page size — small enough to release the writer lock
 /// promptly so concurrent flushes don't queue against
 /// `busy_timeout`. The cleanup tick fires daily; unreclaimed pages

@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 /// Reader pool size — bounded so a runaway read can't exhaust file descriptors.
 const READ_MAX_CONNECTIONS: u32 = 5;
-/// Writer pool is always a single connection — SQLite only allows one writer
+/// Writer pool is always a single connection — `SQLite` only allows one writer
 /// at a time, and serialising at the pool level produces async-aware
-/// backpressure instead of busy-spin waits inside SQLite.
+/// backpressure instead of busy-spin waits inside `SQLite`.
 const WRITE_MAX_CONNECTIONS: u32 = 1;
 /// Wait this long for the write lock before returning `SQLITE_BUSY`. The
 /// sqlx default of 5 s is shorter than a worst-case `stats_intraday`
@@ -28,10 +28,10 @@ const MEMORY_CONNECTION_STRING: &str = ":memory:";
 ///
 /// The reader pool runs N connections so concurrent `SELECT`s don't
 /// serialise. The writer pool runs a **single** connection so the
-/// "one writer at a time" rule SQLite enforces internally is expressed
+/// "one writer at a time" rule `SQLite` enforces internally is expressed
 /// at the connection layer — when a writer is busy, a second writer
 /// `await`s the connection cooperatively, rather than issuing SQL and
-/// busy-spinning against SQLite's internal lock until `busy_timeout`.
+/// busy-spinning against `SQLite`'s internal lock until `busy_timeout`.
 ///
 /// `read` and `write` always point at the same underlying database
 /// (same file, same shared-cache URI). They differ only in size.
@@ -223,7 +223,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
         return;
     }
 
-    let db_size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let db_size = std::fs::metadata(db_path).map_or(0, |m| m.len());
     let parent = db_path.parent().unwrap_or_else(|| Path::new("."));
     match available_disk_bytes(parent) {
         Some(free) if free < db_size.saturating_mul(12) / 10 => {
@@ -262,9 +262,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     let started = std::time::Instant::now();
     match sqlx::query("VACUUM").execute(write).await {
         Ok(_) => {
-            let new_size = std::fs::metadata(db_path)
-                .map(|m| m.len())
-                .unwrap_or(db_size);
+            let new_size = std::fs::metadata(db_path).map_or(db_size, |m| m.len());
             tracing::info!(
                 elapsed_secs = started.elapsed().as_secs_f64(),
                 old_size = db_size,
@@ -298,7 +296,7 @@ fn available_disk_bytes(path: &Path) -> Option<u64> {
     // writes into the zero-initialised buffer and returns 0 on success.
     let stat = unsafe {
         let mut buf: libc::statvfs = std::mem::zeroed();
-        if libc::statvfs(c_path.as_ptr(), &mut buf) != 0 {
+        if libc::statvfs(c_path.as_ptr(), std::ptr::addr_of_mut!(buf)) != 0 {
             let errno = std::io::Error::last_os_error();
             tracing::debug!(
                 error = %errno,
@@ -311,7 +309,7 @@ fn available_disk_bytes(path: &Path) -> Option<u64> {
     };
     // `f_frsize` is the fundamental block size; `f_bavail` is the
     // number of blocks available to non-root.
-    let frsize: u64 = stat.f_frsize.try_into().ok()?;
-    let bavail: u64 = stat.f_bavail.try_into().ok()?;
+    let frsize = stat.f_frsize as u64;
+    let bavail = stat.f_bavail as u64;
     frsize.checked_mul(bavail)
 }

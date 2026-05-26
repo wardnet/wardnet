@@ -515,6 +515,8 @@ __metadata:
 "@wardnet/js@portal:../../sdk/wardnet-js::locator=%40wardnet%2Fend2end-daemon%40workspace%3A.":
   version: 0.0.0-use.local
   resolution: "@wardnet/js@portal:../../sdk/wardnet-js::locator=%40wardnet%2Fend2end-daemon%40workspace%3A."
+  dependencies:
+    consola: "npm:^3.4.2"
   languageName: node
   linkType: soft
 
@@ -563,6 +565,13 @@ __metadata:
   version: 3.0.0
   resolution: "chownr@npm:3.0.0"
   checksum: 10c0/43925b87700f7e3893296c8e9c56cc58f926411cce3a6e5898136daaf08f08b9a8eb76d37d3267e707d0dcc17aed2e2ebdf5848c0c3ce95cf910a919935c1b10
+  languageName: node
+  linkType: hard
+
+"consola@npm:^3.4.2":
+  version: 3.4.2
+  resolution: "consola@npm:3.4.2"
+  checksum: 10c0/7cebe57ecf646ba74b300bcce23bff43034ed6fbec9f7e39c27cee1dc00df8a21cd336b466ad32e304ea70fba04ec9e890c200270de9a526ce021ba8a7e4c11a
   languageName: node
   linkType: hard
 
