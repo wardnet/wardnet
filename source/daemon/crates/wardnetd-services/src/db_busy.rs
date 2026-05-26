@@ -1,10 +1,10 @@
-//! Shared helpers for handling SQLite's `SQLITE_BUSY` / `SQLITE_LOCKED`
+//! Shared helpers for handling `SQLite`'s `SQLITE_BUSY` / `SQLITE_LOCKED`
 //! transient errors.
 //!
 //! Background writers (DNS query-log flush, stats flush, daily
 //! maintenance) all sit on the same single-connection writer pool. The
 //! pool's 30 s `busy_timeout` covers the common case, but when one
-//! writer overruns — e.g. a long incremental_vacuum after a big
+//! writer overruns — e.g. a long `incremental_vacuum` after a big
 //! retention DELETE — another writer's next operation can still come
 //! back with `database is locked`. These helpers wrap the offending
 //! operation in a bounded retry loop so a transient lock window costs a
@@ -14,10 +14,10 @@ use std::time::Duration;
 
 use tracing::warn;
 
-/// Recognise a transient SQLite lock error.
+/// Recognise a transient `SQLite` lock error.
 ///
 /// Walks the `anyhow::Error` chain for a [`sqlx::Error::Database`] and
-/// matches the SQLite primary result code: `5` (`SQLITE_BUSY`) or `6`
+/// matches the `SQLite` primary result code: `5` (`SQLITE_BUSY`) or `6`
 /// (`SQLITE_LOCKED`). Both indicate the operation can succeed if
 /// retried after the conflicting writer releases its lock.
 ///
@@ -25,13 +25,13 @@ use tracing::warn;
 /// underlying type can't be recovered (e.g. an error that was bounced
 /// through `anyhow::anyhow!` and lost its source chain), so callers
 /// retain coverage even when intermediate layers reshape the error.
+#[must_use]
 pub fn is_busy_error(err: &anyhow::Error) -> bool {
     if let Some(sqlx_err) = err.downcast_ref::<sqlx::Error>()
         && let sqlx::Error::Database(db_err) = sqlx_err
+        && let Some(code) = db_err.code()
     {
-        if let Some(code) = db_err.code() {
-            return code == "5" || code == "6";
-        }
+        return code == "5" || code == "6";
     }
     let rendered = err.to_string();
     rendered.contains("database is locked") || rendered.contains("database table is locked")

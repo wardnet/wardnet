@@ -4,7 +4,8 @@
 //! - Every [`DEFAULT_FLUSH_INTERVAL`]: drain the buffer; if non-empty, call
 //!   [`StatsService::run_flush`].
 //! - Every [`DEFAULT_MAINTENANCE_INTERVAL`]: call [`StatsService::run_maintenance`].
-//!   Fires immediately on startup so a crash-restart doesn't miss a rollup.
+//!   First run is deferred by [`STARTUP_MAINTENANCE_GRACE`] so other writers
+//!   settle in before maintenance grabs the writer lock.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,7 +33,7 @@ pub const STARTUP_MAINTENANCE_GRACE: Duration = Duration::from_secs(10);
 
 /// How many times to retry `run_flush` on `SQLITE_BUSY`. Same shape
 /// as the DNS query-log runner — two retries with a short backoff
-/// covers the windows around incremental_vacuum / cleanup.
+/// covers the windows around `incremental_vacuum` / cleanup.
 const FLUSH_BUSY_RETRIES: u32 = 2;
 const FLUSH_BUSY_BACKOFF: Duration = Duration::from_millis(200);
 const FLUSH_OPERATION: &str = "stats_flush";
@@ -55,17 +56,20 @@ impl StatsFlushRunner {
             service,
             DEFAULT_FLUSH_INTERVAL,
             DEFAULT_MAINTENANCE_INTERVAL,
+            STARTUP_MAINTENANCE_GRACE,
             parent,
         )
     }
 
     /// Start the runner with custom intervals. Production callers use
-    /// [`Self::start`]; tests pass shorter intervals.
+    /// [`Self::start`]; tests pass shorter intervals or `Duration::ZERO`
+    /// for `startup_maintenance_grace` to run maintenance immediately.
     pub fn start_with_intervals(
         buffer: Arc<StatsBuffer>,
         service: Arc<dyn StatsService>,
         flush_interval: Duration,
         maintenance_interval: Duration,
+        startup_maintenance_grace: Duration,
         parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
@@ -76,6 +80,7 @@ impl StatsFlushRunner {
                 service,
                 flush_interval,
                 maintenance_interval,
+                startup_maintenance_grace,
                 cancel.clone(),
             )
             .instrument(span),
@@ -96,22 +101,18 @@ async fn runner_loop(
     service: Arc<dyn StatsService>,
     flush_interval: Duration,
     maintenance_interval: Duration,
+    startup_maintenance_grace: Duration,
     cancel: CancellationToken,
 ) {
     let mut flush_ticker = tokio::time::interval(flush_interval);
     flush_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     flush_ticker.tick().await; // skip the immediate tick — buffer is empty at startup
 
-    // Maintenance was previously kicked off synchronously here, but
-    // that grabbed the SQLite writer lock the moment the daemon came
-    // up and starved the DNS query-log flush of its first batch (see
-    // issue: "failed to flush DNS query log batch ... database is
-    // locked"). Defer the first run by `STARTUP_MAINTENANCE_GRACE` so
-    // the other background writers get to settle in first; subsequent
-    // runs happen every `maintenance_interval` as before. Idempotency
-    // of the rollup means we still catch any missed days from a
-    // previous crash, just a few seconds later.
-    let mut next_maintenance = Instant::now() + STARTUP_MAINTENANCE_GRACE;
+    // Defer the first maintenance run by `startup_maintenance_grace` so
+    // other background writers (DNS query-log flush) get to settle in
+    // before maintenance grabs the SQLite writer lock. Production uses
+    // `STARTUP_MAINTENANCE_GRACE` (10 s); tests pass `Duration::ZERO`.
+    let mut next_maintenance = Instant::now() + startup_maintenance_grace;
 
     loop {
         tokio::select! {
