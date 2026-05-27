@@ -33,3 +33,10 @@
 - Same stack as the web UI (React 19 + Vite + Tailwind 4)
 - Docs are plain markdown under `source/site/content/docs/`, rendered via `react-markdown` + `remark-gfm` with custom component mappings in `DocsArticle.tsx`
 - Topic catalogue in `source/site/content/docs.yml` (loaded via `@modyfi/vite-plugin-yaml`)
+
+## Planned infrastructure (PWA initiative — issues #435–#441)
+
+- **Caddy** — reverse proxy bundled in the release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443 and forwards to the daemon on port 7411. The daemon manages the Caddyfile on startup. See issue #436.
+- **DDNS + ACME bridge service** — wardnet-operated service assigning each install a subdomain (`<id>.wardnet.network`) and acting as ACME bridge for Let's Encrypt DNS-01 challenges. The cert private key is generated on the Pi and never leaves it. See issue #435.
+- **VAPID / Web Push** — daemon-side push notification support (VAPID key pair generated at setup, subscription records keyed to device MAC or admin session). See issue #440.
+- **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. See `CONTEXT.md` for the full glossary and issues #437–#439 for implementation.

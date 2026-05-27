@@ -1,41 +1,31 @@
 # Wardnet Domain Glossary
 
-## Chart infrastructure (admin UI)
+## Surfaces
 
-**StatsRange**
-The unified time-window discriminant used across every stats chart and data-fetching hook: `"1h" | "12h" | "24h" | "7d" | "12mo"`. Defined in `hooks/useStats.ts` alongside the companion `RANGE_HOURS` map (range → numeric hours). All chart components accept `StatsRange`; the legacy per-hook range aliases have been removed.
+**Admin site** — The full desktop web admin. Served at `<id>.wardnet.network/admin/`. Not a PWA; intended for desktop use only. Previously named `admin-app` in source; renamed to `admin-site`.
 
-**RANGE_HOURS**
-A `Record<StatsRange, number>` that maps each range string to its equivalent in hours. Used by chart `XAxis` tick formatters to select the appropriate date/time representation: HH:MM for ≤24 h, "Jan 5 14:00" for ≤168 h, and "Jan 5" for longer ranges.
+**User PWA** — Installable mobile app for non-admin household members. Served at `<id>.wardnet.network/`. Scope: self-service only (own device routing, own DNS stats, own connection status). Cannot manage other devices.
 
-**ZoomRange**
-An inclusive index window into a sorted dataset: `{ startIndex: number; endIndex: number }`. Both indices refer to positions in the *unzoomed* data array. Exported from `hooks/useChartZoom.ts`.
+**Admin mobile PWA** — Installable mobile app for admins. Served at `<id>.wardnet.network/admin-app/`. Scope: daily operational tasks (device management, tunnel status, power actions). Not a replacement for the admin site; configuration work (DHCP, filter profiles, tunnel creation) stays on the desktop.
 
-**useChartZoom**
-React hook that owns drag-to-zoom behaviour for a Recharts time-series chart. Accepts `{ length, datasetKey, zoom, onZoomChange }` and returns `{ chartProps, previewRange, isZoomed, reset }`.
+## Identity and access
 
-- `chartProps` — Recharts mouse-event handlers (`onMouseDown / onMouseMove / onMouseUp / onMouseLeave`); spread directly onto the Recharts root element (`<AreaChart>`, `<LineChart>`, etc.).
-- `previewRange` — live `ZoomRange | null` during an active drag; render as a `<ReferenceArea>` so the user sees the pending window.
-- `isZoomed` — `true` when a committed zoom selection is narrower than the full dataset.
-- `reset` — clears the committed zoom (calls `onZoomChange(null)`).
+**Device-keyed** — Identified by MAC address / LAN IP. Non-admin users have no credentials; their identity is their device on the network. Push subscriptions and self-service routing rules are device-keyed.
 
-**datasetKey**
-A string that uniquely identifies the current dataset snapshot, e.g. `"24h|143"` (range + point count). Passed to `useChartZoom`; when it changes, any in-flight drag is automatically discarded without an extra `useEffect`. Prevents stale indices from a previous data fetch being committed as a zoom selection.
+**Admin session** — Credential-based (username + password). Required for any admin surface. Push subscriptions on the admin mobile PWA are admin-session-keyed.
 
-**ZoomableChartContainer**
-A compound component at `components/compound/ZoomableChartContainer.tsx` that wraps shadcn's `ChartContainer` and renders an overlaid "Reset zoom" ghost button when `isZoomed` is true. The chart's Recharts event wiring (`chartProps`) stays on the caller — `ZoomableChartContainer` only handles the visual container and reset affordance. Replaces bare `<ChartContainer>` on all interactive stats charts.
+**Admin lock** — Flag set by an admin on a device that prevents the device owner from changing their own routing rule. Read-only state visible in the user PWA.
 
-**applyZoom**
-Pure helper exported from `hooks/useChartZoom.ts`. Slices a data array down to the `ZoomRange` window (`data.slice(start, end + 1)`). Keep calls inside a `useMemo` alongside other per-chart derived values.
+## Features
 
-**Lifted zoom state**
-When two or more charts on the same page share a time window (e.g. tunnel throughput + latency on `TunnelDetail`), the `zoom: ZoomRange | null` state is lifted to the parent and passed down as props. Each chart receives the same `zoom` and `onZoomChange`; they share one `useChartZoom` call or each call `useChartZoom` with the same `zoom`/`onZoomChange`. Single-chart sections (e.g. `DnsStatsSection`) own their zoom locally.
+**Route verification** — User PWA feature. Makes a client-side request to an external IP geolocation API to show the device's current public IP and inferred country/location. Used to confirm that a VPN routing rule is working as intended. Client-side call is correct: the browser request travels through the Pi's per-device routing, so the result reflects the device's actual egress path.
 
-**useTunnelStats**
-Hook at `hooks/useTunnelStats.ts`. Fetches `tunnel.bytes.tx`, `tunnel.bytes.rx`, and `tunnel.latency.rtt_ms` for a single tunnel via `StatsService.queryMulti` with `label_filter = {"tunnel_id":"<uuid>"}`. Returns `TunnelStatsData { points: TunnelStatsPoint[]; bucketSecs: number; range: StatsRange }`. The parent (`TunnelDetail`) makes a single call and fans the result out to both `TunnelThroughputChart` and `TunnelLatencyChart`.
+**Device-keyed push subscription** — A Web Push subscription (VAPID) stored in the daemon's database keyed to a device record (MAC/IP). Allows the daemon to notify a specific device's browser even when the PWA is not open.
 
-**TunnelStatsData / TunnelStatsPoint**
-The shape returned by `useTunnelStats`. Each point carries `{ ts: string; bytesTx: number; bytesRx: number; rttMs: number | null }`. `rttMs` is nullable because the latency probe may not have run yet for a given bucket.
+## Infrastructure
 
-**label_filter (StatsQuery)**
-An exact-match filter on the `labels` JSON column in `stats_intraday` / `stats_hourly` / `stats_daily`. Passed as a JSON string (e.g. `'{"tunnel_id":"<uuid>"}'`) to scope a query to a single resource. No partial/single-key match — the full sorted-keys JSON object must match.
+**DDNS service** — Wardnet-operated service that assigns each installation a unique subdomain (`<install-id>.wardnet.network`) and manages DNS records for it. Also acts as an ACME bridge: handles `_acme-challenge` TXT records on behalf of the Pi so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it.
+
+**Path-based app routing** — All three surfaces are served from a single domain (`<id>.wardnet.network`) at different paths (`/`, `/admin-app/`, `/admin/`). Each PWA has its own `manifest.json` with a distinct `scope` and `start_url`, making them independently installable despite sharing an origin.
+
+**Caddy** — Reverse proxy bundled in the wardnet release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443, certificate provisioning via Let's Encrypt DNS-01 (using the wardnet DDNS service as the ACME bridge), and forwards all traffic to the daemon on port 7411. The daemon manages the Caddyfile on startup and config changes.

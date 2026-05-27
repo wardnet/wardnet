@@ -54,3 +54,12 @@ you're about to make, rather than the whole set.
 - **[Workflow](.agents/workflow.md)** — git conventions,
   mandatory pre-push checklist, coverage rules, and the
   always/ask/never boundaries.
+
+## Domain glossary
+
+[`CONTEXT.md`](CONTEXT.md) is the canonical glossary for domain terms used
+across issues, design docs, and code comments. It covers the three app
+surfaces (admin site, user PWA, admin mobile PWA), identity model
+(device-keyed vs admin-session), infrastructure (DDNS service, Caddy,
+path-based routing), and planned features (route verification, VAPID push).
+Read it before working on any of the PWA initiative issues (#435–#441).

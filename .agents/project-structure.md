@@ -81,7 +81,8 @@ source/
 │           ├── client.ts            # WardnetClient base HTTP client
 │           ├── services/            # AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService, BackupService, UpdateService
 │           └── types/               # TypeScript type definitions (mirrors daemon API)
-├── web-ui/                          # React + TypeScript frontend
+├── admin-site/                      # PLANNED (issue #437): rename of web-ui/ — full desktop admin (not a PWA)
+├── web-ui/                          # React + TypeScript frontend (to be renamed admin-site — see issue #437)
 │   └── src/
 │       ├── components/
 │       │   ├── core/ui/             # shadcn/ui components (Button, Card, Sheet, Dialog, Select, Tabs, Switch, etc.)
@@ -92,6 +93,9 @@ source/
 │       ├── stores/                  # Zustand stores (authStore)
 │       ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
 │       └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
+├── user-app/                        # PLANNED (issue #438): user PWA — self-service for non-admin household members; served at /
+├── admin-app/                       # PLANNED (issue #439): admin mobile PWA — daily operational tasks; served at /admin-app/
+├── web-lib/                         # PLANNED (issue #437): shared component library used by all three app surfaces
 └── site/                            # Public documentation + marketing site (Vite + React)
     ├── content/docs/                # Markdown articles served by DocsArticle.tsx
     ├── content/docs.yml             # Topic catalogue driving /docs
