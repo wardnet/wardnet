@@ -7,6 +7,7 @@ fn dns_filter_profile_round_trip() {
     let profile = DnsFilterProfile {
         id: Uuid::new_v4(),
         name: "Ad Blocking".to_owned(),
+        description: Some("Blocks ads and trackers.".to_owned()),
         builtin: true,
         created_at: "2026-05-06T00:00:00Z".parse().unwrap(),
         updated_at: "2026-05-06T00:00:00Z".parse().unwrap(),

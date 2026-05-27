@@ -13524,6 +13524,13 @@
           "name"
         ],
         "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional free-text annotation (max 200 characters)."
+          },
           "name": {
             "type": "string"
           }
@@ -14300,7 +14307,7 @@
       },
       "DnsFilterProfile": {
         "type": "object",
-        "description": "A named bundle of DNS filter sources (blocklists, allowlist, custom rules).\n\nBuiltin profiles cannot be deleted — the API responds with `409 Conflict`\nwhen an admin tries.",
+        "description": "A named bundle of DNS filter sources (blocklists, allowlist, custom rules).\n\nBuiltin profiles cannot be deleted or modified — the API responds with\n`409 Conflict` when an admin attempts either operation.",
         "required": [
           "id",
           "name",
@@ -14315,6 +14322,13 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional operator-supplied annotation. Builtin profiles carry a\nseeded description; custom profiles default to `None`."
           },
           "id": {
             "type": "string",
@@ -16534,8 +16548,15 @@
       },
       "UpdateProfileRequest": {
         "type": "object",
-        "description": "Request body for PUT /api/dns/filter/profiles/{id}.",
+        "description": "Request body for PUT /api/dns/filter/profiles/{id}.\n\nAll fields are partial-update: omitting them from JSON leaves the stored\nvalue unchanged. Pass `description: null` to clear an existing description.",
         "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`undefined` / omitted = leave unchanged. `null` = clear. `string` = set.\n\nStandard serde cannot distinguish \"field absent\" from \"field: null\" for\n`Option<T>`. The custom deserializer below wraps the inner deserialize so\nthat `null` → `Some(None)` and absent → `None`, giving us three states."
+          },
           "name": {
             "type": [
               "string",

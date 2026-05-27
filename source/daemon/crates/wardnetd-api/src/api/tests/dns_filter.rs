@@ -104,6 +104,7 @@ fn sample_profile() -> DnsFilterProfile {
     DnsFilterProfile {
         id: PROFILE_ID,
         name: "Sample".into(),
+        description: None,
         builtin: false,
         created_at: Utc::now(),
         updated_at: Utc::now(),

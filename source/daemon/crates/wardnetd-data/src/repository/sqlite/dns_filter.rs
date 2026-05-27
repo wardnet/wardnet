@@ -56,6 +56,7 @@ impl SqliteDnsFilterRepository {
 struct DbProfileRow {
     id: String,
     name: String,
+    description: Option<String>,
     builtin: i64,
     created_at: String,
     updated_at: String,
@@ -66,6 +67,7 @@ impl DbProfileRow {
         Ok(DnsFilterProfile {
             id: self.id.parse()?,
             name: self.name,
+            description: self.description,
             builtin: self.builtin != 0,
             created_at: parse_ts(&self.created_at)?,
             updated_at: parse_ts(&self.updated_at)?,
@@ -160,7 +162,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
 
     async fn list_profiles(&self) -> anyhow::Result<Vec<DnsFilterProfile>> {
         let rows = sqlx::query_as::<_, DbProfileRow>(
-            "SELECT id, name, builtin, created_at, updated_at \
+            "SELECT id, name, description, builtin, created_at, updated_at \
              FROM dns_filter_profiles ORDER BY builtin DESC, name ASC",
         )
         .fetch_all(&self.pools.read)
@@ -171,7 +173,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
     async fn get_profile(&self, id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>> {
         let id_str = id.to_string();
         let row = sqlx::query_as::<_, DbProfileRow>(
-            "SELECT id, name, builtin, created_at, updated_at \
+            "SELECT id, name, description, builtin, created_at, updated_at \
              FROM dns_filter_profiles WHERE id = ?",
         )
         .bind(&id_str)
@@ -180,15 +182,21 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         row.map(DbProfileRow::into_profile).transpose()
     }
 
-    async fn create_profile(&self, id: Uuid, name: &str) -> anyhow::Result<DnsFilterProfile> {
+    async fn create_profile(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> anyhow::Result<DnsFilterProfile> {
         let now = now_iso();
         let id_str = id.to_string();
         sqlx::query(
-            "INSERT INTO dns_filter_profiles (id, name, builtin, created_at, updated_at) \
-             VALUES (?, ?, 0, ?, ?)",
+            "INSERT INTO dns_filter_profiles (id, name, description, builtin, created_at, updated_at) \
+             VALUES (?, ?, ?, 0, ?, ?)",
         )
         .bind(&id_str)
         .bind(name)
+        .bind(description)
         .bind(&now)
         .bind(&now)
         .execute(&self.pools.write)
@@ -196,22 +204,47 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         Ok(DnsFilterProfile {
             id,
             name: name.to_owned(),
+            description: description.map(str::to_owned),
             builtin: false,
             created_at: parse_ts(&now)?,
             updated_at: parse_ts(&now)?,
         })
     }
 
-    async fn rename_profile(&self, id: Uuid, name: &str) -> anyhow::Result<bool> {
+    async fn update_profile_fields(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        description: Option<Option<&str>>,
+    ) -> anyhow::Result<bool> {
+        if name.is_none() && description.is_none() {
+            // Nothing to update — not an error, return true (row exists).
+            return Ok(true);
+        }
         let now = now_iso();
         let id_str = id.to_string();
-        let result =
-            sqlx::query("UPDATE dns_filter_profiles SET name = ?, updated_at = ? WHERE id = ?")
-                .bind(name)
-                .bind(&now)
-                .bind(&id_str)
-                .execute(&self.pools.write)
-                .await?;
+        // Build the SET clause dynamically so we only touch the fields the
+        // caller asked to change, preserving the others unchanged.
+        let mut set_parts: Vec<&str> = vec!["updated_at = ?"];
+        if name.is_some() {
+            set_parts.push("name = ?");
+        }
+        if description.is_some() {
+            set_parts.push("description = ?");
+        }
+        let sql = format!(
+            "UPDATE dns_filter_profiles SET {} WHERE id = ?",
+            set_parts.join(", ")
+        );
+        let mut q = sqlx::query(&sql).bind(&now);
+        if let Some(n) = name {
+            q = q.bind(n);
+        }
+        if let Some(d) = description {
+            q = q.bind(d); // binds Option<&str>: None → SQL NULL
+        }
+        q = q.bind(&id_str);
+        let result = q.execute(&self.pools.write).await?;
         Ok(result.rows_affected() > 0)
     }
 

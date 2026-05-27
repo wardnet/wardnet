@@ -715,10 +715,17 @@ impl DnsFilterService for DnsFilterServiceImpl {
         if req.name.trim().is_empty() {
             return Err(AppError::BadRequest("name must not be empty".to_owned()));
         }
+        if let Some(desc) = req.description.as_deref()
+            && desc.len() > 200
+        {
+            return Err(AppError::BadRequest(
+                "description must not exceed 200 characters".to_owned(),
+            ));
+        }
         let id = Uuid::new_v4();
         let profile = self
             .repo
-            .create_profile(id, &req.name)
+            .create_profile(id, &req.name, req.description.as_deref())
             .await
             .map_err(AppError::Internal)?;
         self.publish(DnsFilterChange::ProfileMembership { profile_id: id });
@@ -735,15 +742,31 @@ impl DnsFilterService for DnsFilterServiceImpl {
     ) -> Result<UpdateProfileResponse, AppError> {
         auth_context::require_admin()?;
         let existing = self.ensure_profile_exists(id).await?;
-        if let Some(name) = req.name.as_deref() {
-            if name.trim().is_empty() {
-                return Err(AppError::BadRequest("name must not be empty".to_owned()));
-            }
-            self.repo
-                .rename_profile(id, name)
-                .await
-                .map_err(AppError::Internal)?;
+        if existing.builtin {
+            return Err(AppError::Conflict(
+                "builtin profiles cannot be modified".to_owned(),
+            ));
         }
+        if let Some(name) = req.name.as_deref()
+            && name.trim().is_empty()
+        {
+            return Err(AppError::BadRequest("name must not be empty".to_owned()));
+        }
+        if let Some(Some(desc)) = req.description.as_ref()
+            && desc.len() > 200
+        {
+            return Err(AppError::BadRequest(
+                "description must not exceed 200 characters".to_owned(),
+            ));
+        }
+        self.repo
+            .update_profile_fields(
+                id,
+                req.name.as_deref(),
+                req.description.as_ref().map(|d| d.as_deref()),
+            )
+            .await
+            .map_err(AppError::Internal)?;
         let profile = self.ensure_profile_exists(id).await.unwrap_or(existing);
         self.publish(DnsFilterChange::ProfileMembership { profile_id: id });
         Ok(UpdateProfileResponse {

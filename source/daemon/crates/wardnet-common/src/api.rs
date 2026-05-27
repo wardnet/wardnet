@@ -927,6 +927,9 @@ pub struct GetProfileResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProfileRequest {
     pub name: String,
+    /// Optional free-text annotation (max 200 characters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Response for POST /api/dns/filter/profiles.
@@ -937,10 +940,24 @@ pub struct CreateProfileResponse {
 }
 
 /// Request body for PUT /api/dns/filter/profiles/{id}.
+///
+/// All fields are partial-update: omitting them from JSON leaves the stored
+/// value unchanged. Pass `description: null` to clear an existing description.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// `undefined` / omitted = leave unchanged. `null` = clear. `string` = set.
+    ///
+    /// Standard serde cannot distinguish "field absent" from "field: null" for
+    /// `Option<T>`. The custom deserializer below wraps the inner deserialize so
+    /// that `null` → `Some(None)` and absent → `None`, giving us three states.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_field"
+    )]
+    pub description: Option<Option<String>>,
 }
 
 /// Response for PUT /api/dns/filter/profiles/{id}.

@@ -77,18 +77,13 @@ export default function DnsFilterProfile() {
         status={profile.builtin ? <Pill variant="ghost">Builtin</Pill> : undefined}
       />
 
-      {/* Builtin profiles have nothing to edit on the identity card
-          (name is fixed, deletion is forbidden), so we skip the card
-          entirely — the Builtin pill in the DetailPageHeader already
-          conveys the type. */}
-      {!profile.builtin && (
-        <ProfileIdentityCard
-          profileId={profile.id}
-          name={profile.name}
-          builtin={profile.builtin}
-          onDeleted={() => void navigate("/dns/filter")}
-        />
-      )}
+      <ProfileIdentityCard
+        profileId={profile.id}
+        name={profile.name}
+        description={profile.description}
+        builtin={profile.builtin}
+        onDeleted={() => void navigate("/dns/filter")}
+      />
 
       <BlocklistsCard profileId={profile.id} />
       <AllowlistCard profileId={profile.id} />
@@ -104,26 +99,44 @@ export default function DnsFilterProfile() {
 interface IdentityCardProps {
   profileId: string;
   name: string;
+  description: string | null;
   builtin: boolean;
   onDeleted: () => void;
 }
 
-function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCardProps) {
+function ProfileIdentityCard({
+  profileId,
+  name,
+  description,
+  builtin,
+  onDeleted,
+}: IdentityCardProps) {
   const update = useUpdateDnsFilterProfile();
   const del = useDeleteDnsFilterProfile();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
+  const [draftDesc, setDraftDesc] = useState(description ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   function startEdit() {
     setDraft(name);
+    setDraftDesc(description ?? "");
     update.reset();
     setEditing(true);
   }
 
   async function handleSave() {
-    await update.mutateAsync({ id: profileId, body: { name: draft.trim() } });
+    const nameChanged = draft.trim() !== name;
+    const descChanged = draftDesc.trim() !== (description ?? "");
+    await update.mutateAsync({
+      id: profileId,
+      body: {
+        name: nameChanged ? draft.trim() : undefined,
+        // empty string → null (clear); unchanged → undefined (omit)
+        description: descChanged ? draftDesc.trim() || null : undefined,
+      },
+    });
     setEditing(false);
   }
 
@@ -131,6 +144,11 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
     await del.mutateAsync(profileId);
     onDeleted();
   }
+
+  const saveDisabled =
+    update.isPending ||
+    draft.trim() === "" ||
+    (draft.trim() === name && draftDesc.trim() === (description ?? ""));
 
   return (
     <Card>
@@ -151,6 +169,14 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
             <Field label="Name" htmlFor="profile-name">
               <Input id="profile-name" value={draft} onChange={(e) => setDraft(e.target.value)} />
             </Field>
+            <Field label="Description (optional)" htmlFor="profile-desc">
+              <Input
+                id="profile-desc"
+                value={draftDesc}
+                onChange={(e) => setDraftDesc(e.target.value)}
+                placeholder="e.g. Strict — for kids' devices"
+              />
+            </Field>
             {update.isError && (
               <ApiErrorAlert error={update.error} fallback="Failed to update profile" />
             )}
@@ -168,10 +194,7 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
               <Button variant="ghost" onClick={() => setEditing(false)} disabled={update.isPending}>
                 Cancel
               </Button>
-              <Button
-                onClick={handleSave}
-                disabled={update.isPending || draft.trim() === "" || draft.trim() === name}
-              >
+              <Button onClick={handleSave} disabled={saveDisabled}>
                 {update.isPending ? "Saving…" : "Save"}
               </Button>
             </div>
@@ -185,8 +208,14 @@ function ProfileIdentityCard({ profileId, name, builtin, onDeleted }: IdentityCa
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs uppercase tracking-wide text-ink-3">Type</span>
-            <span className="text-sm">{builtin ? "Builtin (cannot delete)" : "Custom"}</span>
+            <span className="text-sm">{builtin ? "Builtin" : "Custom"}</span>
           </div>
+          {(description !== null || builtin) && (
+            <div className="flex flex-col gap-0.5 lg:col-span-2">
+              <span className="text-xs uppercase tracking-wide text-ink-3">Description</span>
+              <span className="text-sm text-ink-2">{description ?? "—"}</span>
+            </div>
+          )}
         </CardContent>
       )}
 

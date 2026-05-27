@@ -15,12 +15,15 @@ use uuid::Uuid;
 
 /// A named bundle of DNS filter sources (blocklists, allowlist, custom rules).
 ///
-/// Builtin profiles cannot be deleted — the API responds with `409 Conflict`
-/// when an admin tries.
+/// Builtin profiles cannot be deleted or modified — the API responds with
+/// `409 Conflict` when an admin attempts either operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsFilterProfile {
     pub id: Uuid,
     pub name: String,
+    /// Optional operator-supplied annotation. Builtin profiles carry a
+    /// seeded description; custom profiles default to `None`.
+    pub description: Option<String>,
     pub builtin: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
