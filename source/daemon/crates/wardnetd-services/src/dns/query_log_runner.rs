@@ -7,12 +7,15 @@
 //!   whichever fires first, into a single transactional insert.
 //! - Once per day (configurable in tests via the constructor), runs
 //!   `DnsRepository::cleanup_query_log(retention_days)` to enforce
-//!   retention. VACUUM is intentionally out of scope.
+//!   retention.
 //! - Honors `query_log_enabled = false` by draining the channel into
 //!   the void: still consumes (so the producer never blocks) but skips
 //!   the insert. Broadcast streaming is independent and untouched.
 //! - If [`DnsLogSink::take_dropped`] is non-zero, logs at `warn!` no
 //!   more than once per [`DROPPED_REPORT_INTERVAL`].
+//!
+//! Incremental vacuum is handled by [`crate::db_maintenance_runner::DbMaintenanceRunner`],
+//! which fires independently of the DNS query-log feature flag.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,7 +30,7 @@ use crate::DnsService;
 use crate::auth_context;
 use crate::db_busy::retry_on_busy;
 use crate::dns::log_sink::DnsLogSink;
-use wardnetd_data::repository::{DnsRepository, MaintenanceRepository, QueryLogRow};
+use wardnetd_data::repository::{DnsRepository, QueryLogRow};
 
 /// Maximum entries flushed in a single insert batch.
 pub const BATCH_MAX: usize = 256;
@@ -62,7 +65,6 @@ impl DnsQueryLogRunner {
     pub fn start(
         service: Arc<dyn DnsService>,
         dns_repo: Arc<dyn DnsRepository>,
-        maintenance_repo: Arc<dyn MaintenanceRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         parent: &tracing::Span,
@@ -70,7 +72,6 @@ impl DnsQueryLogRunner {
         Self::start_with_intervals(
             service,
             dns_repo,
-            maintenance_repo,
             sink,
             rx,
             BATCH_INTERVAL,
@@ -82,11 +83,9 @@ impl DnsQueryLogRunner {
     /// Start the runner with custom flush + cleanup tick intervals.
     /// Production callers use [`Self::start`]; tests pass shorter
     /// intervals to exercise the loop without waiting.
-    #[allow(clippy::too_many_arguments)]
     pub fn start_with_intervals(
         service: Arc<dyn DnsService>,
         dns_repo: Arc<dyn DnsRepository>,
-        maintenance_repo: Arc<dyn MaintenanceRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         batch_interval: Duration,
@@ -100,7 +99,6 @@ impl DnsQueryLogRunner {
             runner_loop(
                 service,
                 dns_repo,
-                maintenance_repo,
                 sink,
                 rx,
                 batch_interval,
@@ -121,11 +119,9 @@ impl DnsQueryLogRunner {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn runner_loop(
     service: Arc<dyn DnsService>,
     dns_repo: Arc<dyn DnsRepository>,
-    maintenance_repo: Arc<dyn MaintenanceRepository>,
     sink: Arc<DnsLogSink>,
     mut rx: mpsc::Receiver<QueryLogRow>,
     batch_interval: Duration,
@@ -183,13 +179,7 @@ async fn runner_loop(
                 let today_now = today();
                 if today_now != last_cleanup_day {
                     last_cleanup_day = today_now;
-                    cleanup(
-                        &service,
-                        dns_repo.as_ref(),
-                        maintenance_repo.as_ref(),
-                        &admin_ctx,
-                    )
-                    .await;
+                    cleanup(&service, dns_repo.as_ref(), &admin_ctx).await;
                 }
             }
         }
@@ -274,7 +264,6 @@ pub(crate) async fn flush(
 pub(crate) async fn cleanup(
     service: &Arc<dyn DnsService>,
     dns_repo: &dyn DnsRepository,
-    maintenance_repo: &dyn MaintenanceRepository,
     admin_ctx: &AuthContext,
 ) {
     let cfg = match auth_context::with_context(admin_ctx.clone(), service.get_dns_config()).await {
@@ -300,26 +289,6 @@ pub(crate) async fn cleanup(
                 deleted = deleted,
                 retention_days = retention,
             );
-            // Release the freelist back to the filesystem so the
-            // 7-day-retention envelope translates into a steady-state
-            // DB file size instead of monotonic growth. Only meaningful
-            // on databases with `auto_vacuum=INCREMENTAL`; a no-op
-            // elsewhere. Bounded per call so it can't monopolise the
-            // writer lock — leftover free pages get picked up on
-            // subsequent cleanup ticks.
-            match maintenance_repo.incremental_vacuum().await {
-                Ok(reclaimed) if reclaimed > 0 => {
-                    tracing::info!(
-                        reclaimed_pages = reclaimed,
-                        "incremental vacuum reclaimed pages: reclaimed_pages={reclaimed}",
-                        reclaimed = reclaimed,
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!(error = %e, "incremental vacuum failed: {e}");
-                }
-            }
         }
         Err(e) => {
             tracing::error!(error = %e, "DNS query log cleanup failed: {e}");

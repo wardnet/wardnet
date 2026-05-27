@@ -40,6 +40,7 @@ use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
+use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
@@ -495,11 +496,15 @@ async fn run(
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
         services.dns_repo.clone(),
-        services.maintenance_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &root_span,
     );
+
+    // Return freed SQLite pages to the filesystem once per day — fires
+    // regardless of any per-feature flag so it covers all tables.
+    let db_maintenance_runner =
+        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &root_span);
 
     // Start the auto-update poller. An initial check runs immediately; then
     // every `check_interval_secs` with ±10% jitter.
@@ -615,6 +620,7 @@ async fn run(
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
+    db_maintenance_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;

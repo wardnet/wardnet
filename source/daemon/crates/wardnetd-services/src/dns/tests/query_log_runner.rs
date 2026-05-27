@@ -14,9 +14,7 @@ use wardnet_common::api::{
 };
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode};
-use wardnetd_data::repository::{
-    DnsRepository, MaintenanceRepository, QueryLogFilter, QueryLogRow,
-};
+use wardnetd_data::repository::{DnsRepository, QueryLogFilter, QueryLogRow};
 
 use crate::DnsService;
 use crate::dns::log_sink::DnsLogSink;
@@ -112,23 +110,6 @@ impl DnsRepository for RecordingRepo {
     }
 }
 
-/// Mock maintenance repo — records how many times `incremental_vacuum`
-/// was called so future cleanup-path tests can assert the post-cleanup
-/// hook fired.
-#[derive(Default)]
-struct RecordingMaintenance {
-    #[allow(dead_code)]
-    vacuums: Mutex<u32>,
-}
-
-#[async_trait]
-impl MaintenanceRepository for RecordingMaintenance {
-    async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
-        *self.vacuums.lock().unwrap() += 1;
-        Ok(0)
-    }
-}
-
 fn sample_row() -> QueryLogRow {
     QueryLogRow {
         timestamp: "2026-05-05T00:00:00Z".to_owned(),
@@ -151,7 +132,6 @@ async fn runner_flushes_buffered_rows_when_enabled() {
     let runner = DnsQueryLogRunner::start_with_intervals(
         service,
         repo.clone(),
-        Arc::new(RecordingMaintenance::default()),
         sink.clone(),
         rx,
         Duration::from_millis(50),
@@ -177,7 +157,6 @@ async fn runner_drains_into_void_when_disabled() {
     let runner = DnsQueryLogRunner::start_with_intervals(
         service,
         repo.clone(),
-        Arc::new(RecordingMaintenance::default()),
         sink.clone(),
         rx,
         Duration::from_millis(50),
@@ -204,7 +183,6 @@ async fn runner_drains_remaining_on_shutdown() {
     let runner = DnsQueryLogRunner::start_with_intervals(
         service,
         repo.clone(),
-        Arc::new(RecordingMaintenance::default()),
         sink.clone(),
         rx,
         Duration::from_mins(1),
@@ -335,8 +313,7 @@ async fn cleanup_runs_when_enabled() {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
     };
-    let maintenance = RecordingMaintenance::default();
-    crate::dns::query_log_runner::cleanup(&service, &repo, &maintenance, &admin_ctx).await;
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
     let calls = repo.cleanups.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0], 7);
@@ -349,7 +326,6 @@ async fn cleanup_skips_when_disabled() {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
     };
-    let maintenance = RecordingMaintenance::default();
-    crate::dns::query_log_runner::cleanup(&service, &repo, &maintenance, &admin_ctx).await;
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
     assert!(repo.cleanups.lock().unwrap().is_empty());
 }
