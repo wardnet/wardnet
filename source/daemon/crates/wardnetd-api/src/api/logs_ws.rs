@@ -4,6 +4,7 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
+use crate::api::middleware::AdminAuth;
 use crate::state::AppState;
 use wardnetd_services::logging::stream::LogEntry;
 
@@ -31,18 +32,20 @@ fn level_priority(level: &str) -> u8 {
     }
 }
 
-/// GET /api/system/logs/ws
+/// `GET /api/system/logs/stream` — admin-gated WS upgrade. The `_auth`
+/// extractor refuses the upgrade when the caller has no admin session,
+/// so unauthenticated clients see 401 instead of an upgrade.
 ///
-/// WebSocket endpoint for real-time log streaming. The client can send
-/// filter commands at any time:
+/// Once connected the client can send filter commands at any time:
 ///
 /// ```json
 /// {"type": "set_filter", "level": "warn", "target": "wardnetd::service"}
 /// ```
-///
-/// No authentication is enforced at the WS upgrade level — the connection
-/// is only reachable if the client already passed the auth middleware.
-pub async fn logs_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
+pub async fn logs_ws(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
     let rx = state.log_service().subscribe();
     ws.on_upgrade(move |socket| handle_socket(socket, rx))
 }

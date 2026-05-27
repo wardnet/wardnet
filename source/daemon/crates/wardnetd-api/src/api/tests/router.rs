@@ -70,6 +70,7 @@ async fn all_api_routes_are_reachable() {
         ("GET", "/api/setup/status".to_owned()),
         ("POST", "/api/setup".to_owned()),
         ("GET", "/api/system/status".to_owned()),
+        ("GET", "/api/system/logs/stream".to_owned()),
         ("GET", "/api/tunnels".to_owned()),
         ("POST", "/api/tunnels".to_owned()),
         ("DELETE", format!("/api/tunnels/{fake_uuid}")),
@@ -141,6 +142,7 @@ async fn authenticated_routes_return_401_without_credentials() {
     let protected_routes: Vec<(&str, &str)> = vec![
         ("GET", "/api/devices"),
         ("GET", "/api/system/status"),
+        ("GET", "/api/system/logs/stream"),
         ("GET", "/api/tunnels"),
         ("GET", "/api/providers"),
     ];
