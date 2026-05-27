@@ -9,13 +9,16 @@ use wardnetd_services::tunnel::TunnelService;
 
 /// Background tasks for monitoring active `WireGuard` tunnels.
 ///
-/// Spawns two periodic loops:
-/// - **Stats collection**: polls byte counters every N seconds for `Up` tunnels.
-/// - **Health check**: polls `last_handshake` every N seconds for `Up` tunnels.
+/// Spawns three periodic loops:
+/// - **Stats collection**: polls byte counters every N seconds for active tunnels.
+/// - **Health check**: polls `last_handshake` every N seconds for active tunnels.
+/// - **Latency probe**: ICMP-echoes each active tunnel and records the RTT
+///   as a `tunnel.latency.rtt_ms` gauge.
 pub struct TunnelMonitor {
     cancel: CancellationToken,
     stats_handle: tokio::task::JoinHandle<()>,
     health_handle: tokio::task::JoinHandle<()>,
+    latency_handle: tokio::task::JoinHandle<()>,
 }
 
 impl TunnelMonitor {
@@ -28,6 +31,7 @@ impl TunnelMonitor {
         tunnel_service: Arc<dyn TunnelService>,
         stats_interval_secs: u64,
         health_check_interval_secs: u64,
+        latency_probe_interval_secs: u64,
         parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
@@ -39,7 +43,16 @@ impl TunnelMonitor {
         );
 
         let health_handle = tokio::spawn(
-            health_loop(tunnel_service, health_check_interval_secs, cancel.clone())
+            health_loop(
+                tunnel_service.clone(),
+                health_check_interval_secs,
+                cancel.clone(),
+            )
+            .instrument(span.clone()),
+        );
+
+        let latency_handle = tokio::spawn(
+            latency_loop(tunnel_service, latency_probe_interval_secs, cancel.clone())
                 .instrument(span),
         );
 
@@ -47,14 +60,16 @@ impl TunnelMonitor {
             cancel,
             stats_handle,
             health_handle,
+            latency_handle,
         }
     }
 
-    /// Cancel both background tasks and wait for them to finish.
+    /// Cancel all background tasks and wait for them to finish.
     pub async fn shutdown(self) {
         self.cancel.cancel();
         let _ = self.stats_handle.await;
         let _ = self.health_handle.await;
+        let _ = self.latency_handle.await;
         tracing::info!("tunnel monitor shut down");
     }
 }
@@ -93,6 +108,25 @@ async fn health_loop(
 
         if let Err(e) = tunnel_service.run_health_check().await {
             tracing::error!(error = %e, "health loop: failed to run health check: {e}");
+        }
+    }
+}
+
+async fn latency_loop(
+    tunnel_service: Arc<dyn TunnelService>,
+    interval_secs: u64,
+    cancel: CancellationToken,
+) {
+    let mut tick = interval(Duration::from_secs(interval_secs));
+
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => break,
+            _ = tick.tick() => {}
+        }
+
+        if let Err(e) = tunnel_service.probe_latencies().await {
+            tracing::error!(error = %e, "latency loop: failed to probe latencies: {e}");
         }
     }
 }

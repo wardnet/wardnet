@@ -56,7 +56,7 @@ tokio = { version = "1", features = ["full"] }
 # https://crates.io/crates/axum
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 # https://crates.io/crates/axum-extra
-axum-extra = { version = "0.12", features = ["typed-header", "cookie"] }
+axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 
 # https://crates.io/crates/sqlx
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
@@ -149,6 +149,10 @@ hickory-resolver = "0.26"
 # queries egress via the tunnel interface instead of leaking to the ISP.
 socket2 = { version = "0.6", features = ["all"] }
 
+# https://crates.io/crates/surge-ping — async ICMP echo with SO_BINDTODEVICE
+# support, used by the per-tunnel latency prober to measure RTT through
+# a specific tunnel interface.
+surge-ping = "0.8"
 # https://crates.io/crates/rtnetlink
 rtnetlink = "0.21"
 # https://crates.io/crates/netlink-packet-route

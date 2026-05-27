@@ -37,6 +37,7 @@ use wardnetd::system::{PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPower
 use wardnetd::tunnel_exit_probe::ReqwestTunnelExitProbe;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
+use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
 use wardnetd_services::dhcp::runner::DhcpRunner;
@@ -240,6 +241,13 @@ async fn run(
         tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
             config.tunnel.test_probe_url.clone(),
         )),
+        tunnel_latency_prober: Arc::new(SurgePingTunnelLatencyProber::new(
+            config
+                .tunnel
+                .latency_probe_target
+                .parse()
+                .expect("tunnel.latency_probe_target must be a valid IP address"),
+        )),
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),
@@ -323,6 +331,7 @@ async fn run(
         services.tunnel.clone(),
         config.tunnel.stats_interval_secs,
         config.tunnel.health_check_interval_secs,
+        config.tunnel.latency_probe_interval_secs,
         &root_span,
     );
     let idle_watcher = IdleTunnelWatcher::start(
@@ -510,16 +519,6 @@ async fn run(
         &root_span,
     );
 
-    // Tunnel metrics runner — rolls completed days into
-    // `tunnel_metrics_daily` and trims past-retention rows in both
-    // tables. Hourly cadence; the rollup is idempotent so a missed run
-    // (daemon offline, clock skew) catches up on the next tick.
-    let tunnel_metrics_runner = wardnetd_services::tunnel::TunnelMetricsRunner::start(
-        services.tunnel.clone(),
-        wardnetd_services::tunnel::DEFAULT_ROLLUP_INTERVAL,
-        &root_span,
-    );
-
     let stats_flush_runner = wardnetd_services::StatsFlushRunner::start(
         services.stats_buffer.clone(),
         services.stats.clone(),
@@ -618,7 +617,6 @@ async fn run(
     dns_query_log_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
-    tunnel_metrics_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {

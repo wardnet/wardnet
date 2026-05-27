@@ -6,8 +6,6 @@ import type {
   ListTunnelsResponse,
   TunnelDetailResponse,
   TunnelDevicesResponse,
-  TunnelMetricsRange,
-  TunnelMetricsResponse,
   TunnelTestResponse,
   UpdateTunnelDnsOverrideRequest,
   UpdateTunnelDnsOverrideResponse,
@@ -25,13 +23,6 @@ export class TunnelService {
   /** Get one tunnel by ID (admin only). */
   async getById(id: string): Promise<TunnelDetailResponse> {
     return this.client.request<TunnelDetailResponse>(`/tunnels/${id}`);
-  }
-
-  /** Get throughput history for a tunnel (admin only). */
-  async getMetrics(id: string, range: TunnelMetricsRange = "24h"): Promise<TunnelMetricsResponse> {
-    return this.client.request<TunnelMetricsResponse>(
-      `/tunnels/${id}/metrics?range=${encodeURIComponent(range)}`,
-    );
   }
 
   /** List the devices currently routed through a tunnel (admin only). */

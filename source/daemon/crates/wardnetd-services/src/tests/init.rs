@@ -25,6 +25,7 @@ use crate::routing::policy_router::PolicyRouter;
 use crate::system::SystemPowerOps;
 use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
+use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
 use crate::{init_services, init_services_with_factory};
 use wardnet_common::config::AdminConfig;
 
@@ -61,6 +62,16 @@ impl TunnelExitProbe for StubTunnelExitProbe {
     async fn probe(&self, _interface: &str) -> Result<ExitInfo, ProbeError> {
         Err(ProbeError::Unsupported(
             "stub probe in init test".to_owned(),
+        ))
+    }
+}
+
+struct StubTunnelLatencyProber;
+#[async_trait]
+impl TunnelLatencyProber for StubTunnelLatencyProber {
+    async fn probe(&self, _interface: &str) -> Result<u64, LatencyProbeError> {
+        Err(LatencyProbeError::Unsupported(
+            "stub latency prober in init test".to_owned(),
         ))
     }
 }
@@ -192,6 +203,7 @@ fn stub_backends() -> Backends {
     Backends {
         tunnel_interface: Arc::new(StubTunnelInterface),
         tunnel_exit_probe: Arc::new(StubTunnelExitProbe),
+        tunnel_latency_prober: Arc::new(StubTunnelLatencyProber),
         policy_router: Arc::new(StubPolicyRouter),
         firewall: Arc::new(StubFirewall),
         packet_capture: Arc::new(StubPacketCapture),

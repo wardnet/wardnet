@@ -7,9 +7,10 @@ use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::stats::{StatsBucket, StatsQuery, StatsTopEntry, StatsTopQuery};
-use wardnetd_data::repository::{DailyStatRow, IntradayStatRow, StatsRepository};
+use wardnetd_data::repository::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 
 use crate::auth_context;
+use crate::error::AppError;
 use crate::stats::service::{StatsService, StatsServiceImpl};
 
 fn admin_ctx() -> AuthContext {
@@ -23,6 +24,7 @@ fn admin_ctx() -> AuthContext {
 #[derive(Default)]
 struct MemoryStatsRepo {
     intraday: Mutex<Vec<IntradayStatRow>>,
+    hourly: Mutex<Vec<HourlyStatRow>>,
     daily: Mutex<Vec<DailyStatRow>>,
 }
 
@@ -33,15 +35,7 @@ impl StatsRepository for MemoryStatsRepo {
         Ok(())
     }
 
-    async fn rollup_daily(&self, _day: &str) -> anyhow::Result<usize> {
-        Ok(0)
-    }
-
     async fn trim_intraday(&self, _cutoff_ts: i64) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-
-    async fn trim_daily(&self, _cutoff_day: &str) -> anyhow::Result<u64> {
         Ok(0)
     }
 
@@ -63,6 +57,47 @@ impl StatsRepository for MemoryStatsRepo {
             })
             .cloned()
             .collect())
+    }
+
+    async fn upsert_hourly(&self, rows: &[HourlyStatRow]) -> anyhow::Result<()> {
+        self.hourly.lock().unwrap().extend_from_slice(rows);
+        Ok(())
+    }
+
+    async fn rollup_hourly(&self, _hour_ts: i64) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+
+    async fn trim_hourly(&self, _cutoff_ts: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn query_hourly(
+        &self,
+        metric: &str,
+        label_filter: Option<&str>,
+        from: i64,
+        to: i64,
+    ) -> anyhow::Result<Vec<HourlyStatRow>> {
+        let guard = self.hourly.lock().unwrap();
+        Ok(guard
+            .iter()
+            .filter(|r| {
+                r.metric == metric
+                    && r.hour_ts >= from
+                    && r.hour_ts <= to
+                    && label_filter.is_none_or(|f| r.labels == f)
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn rollup_daily(&self, _day: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+
+    async fn trim_daily(&self, _cutoff_day: &str) -> anyhow::Result<u64> {
+        Ok(0)
     }
 
     async fn query_daily(
@@ -129,6 +164,16 @@ fn intraday(metric: &str, labels: &str, bucket_ts: i64, value: f64) -> IntradayS
     }
 }
 
+fn hourly(metric: &str, labels: &str, hour_ts: i64, value: f64, kind: &str) -> HourlyStatRow {
+    HourlyStatRow {
+        metric: metric.to_owned(),
+        labels: labels.to_owned(),
+        hour_ts,
+        value,
+        kind: kind.to_owned(),
+    }
+}
+
 // ── run_flush ─────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -153,7 +198,8 @@ async fn run_flush_delegates_rows_to_repo() {
 async fn query_returns_forbidden_without_admin_context() {
     let svc = make_service();
     let q = StatsQuery {
-        metric: "m".to_owned(),
+        metric: Some("m".to_owned()),
+        metrics: None,
         label_filter: None,
         from: Utc::now(),
         to: Utc::now(),
@@ -175,7 +221,8 @@ async fn query_minute_with_admin_context() {
     ));
     let svc = StatsServiceImpl::new(repo);
     let q = StatsQuery {
-        metric: "dns.queries".to_owned(),
+        metric: Some("dns.queries".to_owned()),
+        metrics: None,
         label_filter: None,
         from: Utc::now() - chrono::Duration::hours(1),
         to: Utc::now() + chrono::Duration::hours(1),
@@ -184,9 +231,9 @@ async fn query_minute_with_admin_context() {
     let resp = auth_context::with_context(admin_ctx(), svc.query(q))
         .await
         .unwrap();
-    assert_eq!(resp.metric, "dns.queries");
-    assert_eq!(resp.series.len(), 1);
-    assert_eq!(resp.series[0].value, 5.0);
+    assert_eq!(resp.metric.as_deref(), Some("dns.queries"));
+    assert_eq!(resp.series.as_ref().unwrap().len(), 1);
+    assert_eq!(resp.series.as_ref().unwrap()[0].value, 5.0);
 }
 
 #[tokio::test]
@@ -201,7 +248,8 @@ async fn query_minute_with_label_filter() {
     }
     let svc = StatsServiceImpl::new(repo);
     let q = StatsQuery {
-        metric: "m".to_owned(),
+        metric: Some("m".to_owned()),
+        metrics: None,
         label_filter: Some(r#"{"outcome":"blocked"}"#.to_owned()),
         from: Utc::now() - chrono::Duration::hours(1),
         to: Utc::now() + chrono::Duration::hours(1),
@@ -210,25 +258,33 @@ async fn query_minute_with_label_filter() {
     let resp = auth_context::with_context(admin_ctx(), svc.query(q))
         .await
         .unwrap();
-    assert_eq!(resp.series.len(), 1);
-    assert_eq!(resp.series[0].value, 5.0);
+    assert_eq!(resp.series.as_ref().unwrap().len(), 1);
+    assert_eq!(resp.series.as_ref().unwrap()[0].value, 5.0);
 }
 
 #[tokio::test]
-async fn query_hour_aggregates_minute_rows() {
+async fn query_hour_reads_from_hourly_table() {
     let repo = Arc::new(MemoryStatsRepo::default());
-    // Two rows in the same hour at different minute offsets
+    // Seed stats_hourly directly — StatsBucket::Hour now queries that
+    // table rather than aggregating from intraday in-memory.
     let hour_base = 1_746_000_000_i64;
     {
-        let mut g = repo.intraday.lock().unwrap();
-        g.push(intraday("dns.queries", "{}", hour_base, 3.0));
-        g.push(intraday("dns.queries", "{}", hour_base + 60, 7.0));
+        let mut g = repo.hourly.lock().unwrap();
+        g.push(hourly("dns.queries", "{}", hour_base, 10.0, "counter"));
+        g.push(hourly(
+            "dns.queries",
+            "{}",
+            hour_base + 3600,
+            20.0,
+            "counter",
+        ));
     }
     let svc = StatsServiceImpl::new(repo);
     let from = chrono::DateTime::from_timestamp(hour_base - 1, 0).unwrap();
-    let to = chrono::DateTime::from_timestamp(hour_base + 3600, 0).unwrap();
+    let to = chrono::DateTime::from_timestamp(hour_base + 7200, 0).unwrap();
     let q = StatsQuery {
-        metric: "dns.queries".to_owned(),
+        metric: Some("dns.queries".to_owned()),
+        metrics: None,
         label_filter: None,
         from,
         to,
@@ -237,41 +293,40 @@ async fn query_hour_aggregates_minute_rows() {
     let resp = auth_context::with_context(admin_ctx(), svc.query(q))
         .await
         .unwrap();
-    assert_eq!(
-        resp.series.len(),
-        1,
-        "two minute rows in the same hour must collapse to one point"
-    );
-    assert_eq!(resp.series[0].value, 10.0);
+    let series = resp.series.as_ref().unwrap();
+    assert_eq!(series.len(), 2, "two hourly rows must produce two points");
+    assert_eq!(series[0].value, 10.0);
+    assert_eq!(series[1].value, 20.0);
 }
 
 #[tokio::test]
-async fn query_hour_gauge_takes_latest_value() {
+async fn query_hour_with_label_filter() {
     let repo = Arc::new(MemoryStatsRepo::default());
     let hour_base = 1_746_000_000_i64;
     {
-        let mut g = repo.intraday.lock().unwrap();
-        g.push(IntradayStatRow {
-            metric: "latency".to_owned(),
-            labels: "{}".to_owned(),
-            bucket_ts: hour_base,
-            value: 100.0,
-            kind: "gauge".to_owned(),
-        });
-        g.push(IntradayStatRow {
-            metric: "latency".to_owned(),
-            labels: "{}".to_owned(),
-            bucket_ts: hour_base + 60,
-            value: 50.0,
-            kind: "gauge".to_owned(),
-        });
+        let mut g = repo.hourly.lock().unwrap();
+        g.push(hourly(
+            "m",
+            r#"{"outcome":"blocked"}"#,
+            hour_base,
+            5.0,
+            "counter",
+        ));
+        g.push(hourly(
+            "m",
+            r#"{"outcome":"forwarded"}"#,
+            hour_base,
+            3.0,
+            "counter",
+        ));
     }
     let svc = StatsServiceImpl::new(repo);
     let from = chrono::DateTime::from_timestamp(hour_base - 1, 0).unwrap();
     let to = chrono::DateTime::from_timestamp(hour_base + 3600, 0).unwrap();
     let q = StatsQuery {
-        metric: "latency".to_owned(),
-        label_filter: None,
+        metric: Some("m".to_owned()),
+        metrics: None,
+        label_filter: Some(r#"{"outcome":"blocked"}"#.to_owned()),
         from,
         to,
         bucket: StatsBucket::Hour,
@@ -279,11 +334,8 @@ async fn query_hour_gauge_takes_latest_value() {
     let resp = auth_context::with_context(admin_ctx(), svc.query(q))
         .await
         .unwrap();
-    assert_eq!(resp.series.len(), 1);
-    assert_eq!(
-        resp.series[0].value, 50.0,
-        "gauge hour aggregation must take the latest value"
-    );
+    assert_eq!(resp.series.as_ref().unwrap().len(), 1);
+    assert_eq!(resp.series.as_ref().unwrap()[0].value, 5.0);
 }
 
 #[tokio::test]
@@ -304,7 +356,8 @@ async fn query_day_returns_daily_points() {
         .unwrap()
         .with_timezone(&Utc);
     let q = StatsQuery {
-        metric: "dns.queries".to_owned(),
+        metric: Some("dns.queries".to_owned()),
+        metrics: None,
         label_filter: None,
         from,
         to,
@@ -313,8 +366,106 @@ async fn query_day_returns_daily_points() {
     let resp = auth_context::with_context(admin_ctx(), svc.query(q))
         .await
         .unwrap();
-    assert_eq!(resp.series.len(), 1);
-    assert_eq!(resp.series[0].value, 100.0);
+    assert_eq!(resp.series.as_ref().unwrap().len(), 1);
+    assert_eq!(resp.series.as_ref().unwrap()[0].value, 100.0);
+}
+
+#[tokio::test]
+async fn query_multi_metric_returns_results_map() {
+    let repo = Arc::new(MemoryStatsRepo::default());
+    let now_ts = Utc::now().timestamp();
+    let bucket_ts = now_ts - (now_ts % 60);
+    {
+        let mut g = repo.intraday.lock().unwrap();
+        g.push(intraday(
+            "tunnel.bytes.tx",
+            r#"{"tunnel_id":"a"}"#,
+            bucket_ts,
+            100.0,
+        ));
+        g.push(intraday(
+            "tunnel.bytes.rx",
+            r#"{"tunnel_id":"a"}"#,
+            bucket_ts,
+            200.0,
+        ));
+    }
+    let svc = StatsServiceImpl::new(repo);
+    let q = StatsQuery {
+        metric: None,
+        metrics: Some(vec![
+            "tunnel.bytes.tx".to_owned(),
+            "tunnel.bytes.rx".to_owned(),
+        ]),
+        label_filter: None,
+        from: Utc::now() - chrono::Duration::hours(1),
+        to: Utc::now() + chrono::Duration::hours(1),
+        bucket: StatsBucket::Minute,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.query(q))
+        .await
+        .unwrap();
+    assert!(resp.metric.is_none());
+    assert!(resp.series.is_none());
+    let results = resp
+        .results
+        .expect("multi-metric response populates results");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results.get("tunnel.bytes.tx").unwrap()[0].value, 100.0);
+    assert_eq!(results.get("tunnel.bytes.rx").unwrap()[0].value, 200.0);
+}
+
+#[tokio::test]
+async fn query_multi_metric_with_empty_list_returns_empty_results() {
+    let svc = make_service();
+    let q = StatsQuery {
+        metric: None,
+        metrics: Some(vec![]),
+        label_filter: None,
+        from: Utc::now() - chrono::Duration::hours(1),
+        to: Utc::now() + chrono::Duration::hours(1),
+        bucket: StatsBucket::Minute,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.query(q))
+        .await
+        .unwrap();
+    assert!(resp.metric.is_none());
+    assert!(resp.series.is_none());
+    assert_eq!(resp.results.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn query_rejects_when_both_metric_and_metrics_set() {
+    let svc = make_service();
+    let q = StatsQuery {
+        metric: Some("m".to_owned()),
+        metrics: Some(vec!["n".to_owned()]),
+        label_filter: None,
+        from: Utc::now(),
+        to: Utc::now(),
+        bucket: StatsBucket::Minute,
+    };
+    let err = auth_context::with_context(admin_ctx(), svc.query(q))
+        .await
+        .expect_err("setting both metric and metrics must be a bad request");
+    assert!(matches!(err, AppError::BadRequest(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn query_rejects_when_neither_metric_nor_metrics_set() {
+    let svc = make_service();
+    let q = StatsQuery {
+        metric: None,
+        metrics: None,
+        label_filter: None,
+        from: Utc::now(),
+        to: Utc::now(),
+        bucket: StatsBucket::Minute,
+    };
+    let err = auth_context::with_context(admin_ctx(), svc.query(q))
+        .await
+        .expect_err("setting neither metric nor metrics must be a bad request");
+    assert!(matches!(err, AppError::BadRequest(_)), "got {err:?}");
 }
 
 // ── top ───────────────────────────────────────────────────────────────────────

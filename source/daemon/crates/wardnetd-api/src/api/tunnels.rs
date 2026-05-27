@@ -1,14 +1,13 @@
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
-    TunnelDetailResponse, TunnelDevicesResponse, TunnelMetricsRange, TunnelMetricsResponse,
-    TunnelTestResponse, UpdateTunnelDnsOverrideRequest, UpdateTunnelDnsOverrideResponse,
+    TunnelDetailResponse, TunnelDevicesResponse, TunnelTestResponse,
+    UpdateTunnelDnsOverrideRequest, UpdateTunnelDnsOverrideResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -21,7 +20,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(list_tunnels, create_tunnel))
         .routes(routes!(get_tunnel, delete_tunnel))
-        .routes(routes!(get_tunnel_metrics))
         .routes(routes!(list_tunnel_devices))
         .routes(routes!(test_tunnel))
         .routes(routes!(update_tunnel_dns_override))
@@ -101,48 +99,6 @@ pub async fn get_tunnel(
 ) -> Result<Json<TunnelDetailResponse>, AppError> {
     let tunnel = state.tunnel_service().get_tunnel(id).await?;
     Ok(Json(TunnelDetailResponse { tunnel }))
-}
-
-/// Query string for `GET /api/tunnels/{id}/metrics`.
-#[derive(Debug, Deserialize, utoipa::IntoParams)]
-pub struct GetMetricsQuery {
-    /// Range selector. One of `1h`, `6h`, `24h`, `48h`, `12mo`. Defaults
-    /// to `24h` when omitted.
-    #[serde(default)]
-    pub range: Option<TunnelMetricsRange>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/tunnels/{id}/metrics",
-    tag = "tunnels",
-    description = "Throughput history for a tunnel. The `1h..48h` ranges return \
-                   one point per `interval_secs` (5 min by default) carrying the \
-                   bytes-tx/bytes-rx delta over that interval. The `12mo` range \
-                   returns one point per day with the daily totals. Admin only.",
-    params(
-        ("id" = Uuid, Path, description = "Tunnel ID"),
-        GetMetricsQuery,
-    ),
-    responses(
-        (status = 200, description = "Throughput history", body = TunnelMetricsResponse),
-        AuthErrors,
-        NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
-)]
-pub async fn get_tunnel_metrics(
-    State(state): State<AppState>,
-    _auth: AdminAuth,
-    Path(id): Path<Uuid>,
-    Query(q): Query<GetMetricsQuery>,
-) -> Result<Json<TunnelMetricsResponse>, AppError> {
-    let range = q.range.unwrap_or(TunnelMetricsRange::TwentyFourHours);
-    let response = state.tunnel_service().get_metrics(id, range).await?;
-    Ok(Json(response))
 }
 
 #[utoipa::path(

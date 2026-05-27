@@ -2,7 +2,7 @@
 
 use super::test_pool;
 use crate::repository::SqliteStatsRepository;
-use crate::repository::stats::{IntradayStatRow, StatsRepository};
+use crate::repository::stats::{HourlyStatRow, IntradayStatRow, StatsRepository};
 
 fn intraday(metric: &str, labels: &str, bucket_ts: i64, value: f64, kind: &str) -> IntradayStatRow {
     IntradayStatRow {
@@ -241,6 +241,179 @@ async fn query_daily_with_label_filter() {
             "2026-01-01",
             "2026-12-31",
         )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].value, 5.0);
+}
+
+// ── stats_hourly ──────────────────────────────────────────────────────────────
+
+fn hourly(metric: &str, labels: &str, hour_ts: i64, value: f64, kind: &str) -> HourlyStatRow {
+    HourlyStatRow {
+        metric: metric.to_owned(),
+        labels: labels.to_owned(),
+        hour_ts,
+        value,
+        kind: kind.to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn upsert_hourly_inserts_new_rows() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_hourly(&[hourly("dns.queries", "{}", 3600, 5.0, "counter")])
+        .await
+        .unwrap();
+    let rows = repo
+        .query_hourly("dns.queries", None, 0, 99999)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].value, 5.0);
+    assert_eq!(rows[0].kind, "counter");
+}
+
+#[tokio::test]
+async fn upsert_hourly_counter_accumulates_on_conflict() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    let row = hourly("hits", "{}", 3600, 3.0, "counter");
+    repo.upsert_hourly(std::slice::from_ref(&row))
+        .await
+        .unwrap();
+    repo.upsert_hourly(&[row]).await.unwrap();
+    let rows = repo.query_hourly("hits", None, 0, 99999).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].value, 6.0, "counter must accumulate on conflict");
+}
+
+#[tokio::test]
+async fn upsert_hourly_gauge_overwrites_on_conflict() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_hourly(&[hourly("latency", "{}", 3600, 100.0, "gauge")])
+        .await
+        .unwrap();
+    repo.upsert_hourly(&[hourly("latency", "{}", 3600, 50.0, "gauge")])
+        .await
+        .unwrap();
+    let rows = repo.query_hourly("latency", None, 0, 99999).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].value, 50.0, "gauge must overwrite on conflict");
+}
+
+#[tokio::test]
+async fn rollup_hourly_aggregates_counter_rows() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    // hour_ts = 3600 covers minute rows at 3600 and 3660.
+    repo.upsert_intraday(&[
+        intraday("dns.queries", "{}", 3600, 10.0, "counter"),
+        intraday("dns.queries", "{}", 3660, 20.0, "counter"),
+    ])
+    .await
+    .unwrap();
+    let n = repo.rollup_hourly(3600).await.unwrap();
+    assert!(n > 0, "rollup must insert at least one hourly row");
+    let rows = repo
+        .query_hourly("dns.queries", None, 0, 99999)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].value, 30.0,
+        "counter rollup must sum intraday values"
+    );
+    assert_eq!(rows[0].hour_ts, 3600);
+}
+
+#[tokio::test]
+async fn rollup_hourly_gauge_takes_latest_value() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_intraday(&[
+        intraday("latency", "{}", 3600, 100.0, "gauge"),
+        intraday("latency", "{}", 3660, 50.0, "gauge"),
+    ])
+    .await
+    .unwrap();
+    repo.rollup_hourly(3600).await.unwrap();
+    let rows = repo.query_hourly("latency", None, 0, 99999).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].value, 50.0,
+        "gauge rollup must take the latest value"
+    );
+}
+
+#[tokio::test]
+async fn rollup_hourly_is_idempotent() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_intraday(&[intraday("m", "{}", 3600, 5.0, "counter")])
+        .await
+        .unwrap();
+    repo.rollup_hourly(3600).await.unwrap();
+    repo.rollup_hourly(3600).await.unwrap();
+    let rows = repo.query_hourly("m", None, 0, 99999).await.unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "second rollup must not duplicate the hourly row"
+    );
+    assert_eq!(rows[0].value, 5.0);
+}
+
+#[tokio::test]
+async fn rollup_hourly_excludes_rows_from_next_hour() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_intraday(&[
+        intraday("m", "{}", 3600, 1.0, "counter"), // in this hour
+        intraday("m", "{}", 7200, 9.0, "counter"), // next hour — must be excluded
+    ])
+    .await
+    .unwrap();
+    repo.rollup_hourly(3600).await.unwrap();
+    let rows = repo.query_hourly("m", None, 0, 99999).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].value, 1.0,
+        "next-hour rows must not bleed into rollup"
+    );
+}
+
+#[tokio::test]
+async fn trim_hourly_removes_old_rows() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_hourly(&[
+        hourly("m", "{}", 3600, 1.0, "counter"),
+        hourly("m", "{}", 7200, 2.0, "counter"),
+    ])
+    .await
+    .unwrap();
+    let deleted = repo.trim_hourly(5000).await.unwrap();
+    assert_eq!(deleted, 1);
+    let remaining = repo.query_hourly("m", None, 0, 99999).await.unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].hour_ts, 7200);
+}
+
+#[tokio::test]
+async fn query_hourly_with_label_filter() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_hourly(&[
+        hourly("m", r#"{"outcome":"blocked"}"#, 3600, 5.0, "counter"),
+        hourly("m", r#"{"outcome":"forwarded"}"#, 3600, 3.0, "counter"),
+    ])
+    .await
+    .unwrap();
+    let rows = repo
+        .query_hourly("m", Some(r#"{"outcome":"blocked"}"#), 0, 99999)
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);

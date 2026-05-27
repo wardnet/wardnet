@@ -9,7 +9,7 @@ use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use tokio::net::TcpListener;
@@ -25,6 +25,7 @@ use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
 use wardnetd_mock::backends::noop_exit_probe::NoopExitProbe;
 use wardnetd_mock::backends::noop_garp::NoopGarpOps;
+use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
@@ -38,7 +39,7 @@ use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
 use wardnetd_services::secret_store::FileSecretStore;
-use wardnetd_services::stats::flush_runner::StatsFlushRunner;
+use wardnetd_services::stats::flush_runner::{DEFAULT_FLUSH_INTERVAL, StatsFlushRunner};
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier,
 };
@@ -173,7 +174,7 @@ async fn run(
             HttpsManifestSource::new(
                 &config.update.manifest_base_url,
                 wardnetd_services::update::short_arch(std::env::consts::ARCH).unwrap_or("aarch64"),
-                std::time::Duration::from_secs(config.update.http_timeout_secs),
+                Duration::from_secs(config.update.http_timeout_secs),
             )
             .expect("failed to build mock release source"),
         ),
@@ -223,6 +224,7 @@ async fn run(
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
         tunnel_exit_probe: Arc::new(NoopExitProbe::new(factory.tunnel())),
+        tunnel_latency_prober: Arc::new(NoopLatencyProber::new()),
         policy_router: Arc::new(NoopPolicyRouter),
         firewall: Arc::new(NoopFirewallManager),
         packet_capture: Arc::new(NoopPacketCapture),
@@ -299,9 +301,14 @@ async fn run(
 
     // Drain the in-memory stats buffer into stats_intraday so the fake DNS
     // queries emitted by FakeEventEmitter show up in the live stats charts.
-    let stats_flush_runner = StatsFlushRunner::start(
+    // Use a 5-minute maintenance interval (vs 1 h in production) and no
+    // startup grace so the hourly rollup runs quickly for local dev.
+    let stats_flush_runner = StatsFlushRunner::start_with_intervals(
         services.stats_buffer.clone(),
         services.stats.clone(),
+        DEFAULT_FLUSH_INTERVAL,
+        Duration::from_mins(5),
+        Duration::ZERO,
         &tracing::Span::current(),
     );
 

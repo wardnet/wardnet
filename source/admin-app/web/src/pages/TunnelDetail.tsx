@@ -4,14 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/car
 import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
 import { Toggle } from "@wardnet/forge-web/toggle";
+import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
+import { TunnelLatencyChart } from "@/components/features/TunnelLatencyChart";
 import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@/hooks/useTunnels";
+import { useTunnelStats, RANGES, type StatsRange } from "@/hooks/useTunnelStats";
+import { type ZoomRange } from "@/hooks/useChartZoom";
 import { countryFlag } from "@/lib/country";
 import { timeAgo } from "@/lib/utils";
-import type { TunnelMetricsRange, TunnelStatus } from "@wardnet/js";
+import type { TunnelStatus } from "@wardnet/js";
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
   switch (status) {
@@ -38,22 +42,19 @@ function statusLabel(status: TunnelStatus): string {
   }
 }
 
-/** Tunnel detail page: breadcrumb header + Configuration card + ported
- *  TunnelThroughputChart (Forge §10 chart) + TunnelDevicesTable (`.tbl`
- *  + `.host`) per `forge/docs/detail-screens.jsx`. The page wrapper is
- *  Forge `col gap-20` (matches the 20 px section rhythm of the studio
- *  mock); the Configuration grid swaps the bespoke `MetadataRow` for the
- *  ported Forge `Field` primitive (read-only mode), keeping label /
- *  value rhythm consistent with `DeviceIdentityCard`. Public API
- *  unchanged — default-exported, no props (consumed via
- *  `<Route element={<TunnelDetail />} />` in `App.tsx`). */
 export default function TunnelDetail() {
   const { id = "" } = useParams<{ id: string }>();
-  const [range, setRange] = useState<TunnelMetricsRange>("24h");
+  const [range, setRange] = useState<StatsRange>("24h");
+  const [zoom, setZoom] = useState<ZoomRange | null>(null);
   const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnel(id);
   const deleteTunnel = useDeleteTunnel();
   const setDnsOverride = useSetTunnelDnsOverride();
+  const {
+    data: statsData,
+    isLoading: statsLoading,
+    isError: statsError,
+  } = useTunnelStats(id, range);
 
   if (isLoading) {
     return <p className="text-sm text-ink-3">Loading…</p>;
@@ -132,7 +133,41 @@ export default function TunnelDetail() {
         </CardContent>
       </Card>
 
-      <TunnelThroughputChart tunnelId={tunnel.id} range={range} onRangeChange={setRange} />
+      <div className="col gap-4">
+        <div className="flex justify-end">
+          <Tabs
+            value={range}
+            onValueChange={(v) => {
+              setRange(v as StatsRange);
+              setZoom(null);
+            }}
+          >
+            <TabsList>
+              {RANGES.map((r) => (
+                <TabsTrigger key={r.value} value={r.value}>
+                  {r.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+        <TunnelThroughputChart
+          data={statsData}
+          isLoading={statsLoading}
+          isError={statsError}
+          range={range}
+          zoom={zoom}
+          onZoomChange={setZoom}
+        />
+        <TunnelLatencyChart
+          data={statsData}
+          isLoading={statsLoading}
+          isError={statsError}
+          range={range}
+          zoom={zoom}
+          onZoomChange={setZoom}
+        />
+      </div>
 
       <TunnelDevicesTable tunnelId={tunnel.id} />
 

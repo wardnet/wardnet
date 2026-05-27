@@ -195,18 +195,6 @@ impl TunnelService for MockTunnelService {
         Err(AppError::NotFound("not implemented in mock".to_owned()))
     }
 
-    async fn get_metrics(
-        &self,
-        _id: Uuid,
-        range: wardnet_common::api::TunnelMetricsRange,
-    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
-        Ok(wardnet_common::api::TunnelMetricsResponse {
-            range,
-            interval_secs: 300,
-            points: Vec::new(),
-        })
-    }
-
     async fn list_tunnel_devices(
         &self,
         _id: Uuid,
@@ -254,7 +242,7 @@ impl TunnelService for MockTunnelService {
         Ok(())
     }
 
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
+    async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
 }

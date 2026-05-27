@@ -313,6 +313,7 @@ dependencies = [
  "axum-core",
  "bytes",
  "cookie",
+ "form_urlencoded",
  "futures-core",
  "futures-util",
  "headers",
@@ -321,6 +322,9 @@ dependencies = [
  "http-body-util",
  "mime",
  "pin-project-lite",
+ "serde_core",
+ "serde_html_form",
+ "serde_path_to_error",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -3123,11 +3127,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "682396b533413cc2e009fbb48aadf93619a149d3e57defba19ff50ce0201bd0d"
 dependencies = [
  "ipnetwork",
- "pnet_base",
+ "pnet_base 0.35.0",
  "pnet_datalink",
- "pnet_packet",
+ "pnet_packet 0.35.0",
  "pnet_sys",
  "pnet_transport",
+]
+
+[[package]]
+name = "pnet_base"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe4cf6fb3ab38b68d01ab2aea03ed3d1132b4868fa4e06285f29f16da01c5f4c"
+dependencies = [
+ "no-std-net",
 ]
 
 [[package]]
@@ -3147,9 +3160,21 @@ checksum = "e79e70ec0be163102a332e1d2d5586d362ad76b01cec86f830241f2b6452a7b7"
 dependencies = [
  "ipnetwork",
  "libc",
- "pnet_base",
+ "pnet_base 0.35.0",
  "pnet_sys",
  "winapi",
+]
+
+[[package]]
+name = "pnet_macros"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "688b17499eee04a0408aca0aa5cba5fc86401d7216de8a63fdf7a4c227871804"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn",
 ]
 
 [[package]]
@@ -3166,11 +3191,32 @@ dependencies = [
 
 [[package]]
 name = "pnet_macros_support"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eea925b72f4bd37f8eab0f221bbe4c78b63498350c983ffa9dd4bcde7e030f56"
+dependencies = [
+ "pnet_base 0.34.0",
+]
+
+[[package]]
+name = "pnet_macros_support"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eed67a952585d509dd0003049b1fc56b982ac665c8299b124b90ea2bdb3134ab"
 dependencies = [
- "pnet_base",
+ "pnet_base 0.35.0",
+]
+
+[[package]]
+name = "pnet_packet"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a005825396b7fe7a38a8e288dbc342d5034dac80c15212436424fef8ea90ba"
+dependencies = [
+ "glob",
+ "pnet_base 0.34.0",
+ "pnet_macros 0.34.0",
+ "pnet_macros_support 0.34.0",
 ]
 
 [[package]]
@@ -3180,9 +3226,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c96ebadfab635fcc23036ba30a7d33a80c39e8461b8bd7dc7bb186acb96560f"
 dependencies = [
  "glob",
- "pnet_base",
- "pnet_macros",
- "pnet_macros_support",
+ "pnet_base 0.35.0",
+ "pnet_macros 0.35.0",
+ "pnet_macros_support 0.35.0",
 ]
 
 [[package]]
@@ -3202,8 +3248,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f604d98bc2a6591cf719b58d3203fd882bdd6bf1db696c4ac97978e9f4776bf"
 dependencies = [
  "libc",
- "pnet_base",
- "pnet_packet",
+ "pnet_base 0.35.0",
+ "pnet_packet 0.35.0",
  "pnet_sys",
 ]
 
@@ -4051,6 +4097,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_html_form"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2f2d7ff8a2140333718bb329f5c40fc5f0865b84c426183ce14c97d2ab8154f"
+dependencies = [
+ "form_urlencoded",
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_json"
 version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4479,6 +4538,22 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "surge-ping"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30498e9c9feba213c3df6ed675bdf75519ccbee493517e7225305898c86cac05"
+dependencies = [
+ "hex",
+ "parking_lot",
+ "pnet_packet 0.34.0",
+ "rand 0.9.2",
+ "socket2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "symbolic-common"
@@ -5391,6 +5466,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "surge-ping",
  "sysinfo",
  "tempfile",
  "tokio",

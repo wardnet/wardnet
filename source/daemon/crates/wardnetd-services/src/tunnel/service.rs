@@ -3,13 +3,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
-use chrono::{Duration, Utc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
-    TunnelDevicesResponse, TunnelMetricsPoint, TunnelMetricsRange, TunnelMetricsResponse,
-    TunnelTestResult,
+    TunnelDevicesResponse, TunnelTestResult,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::{Tunnel, TunnelStatus};
@@ -18,26 +16,17 @@ use wardnet_common::wireguard_config;
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::stats::meter::Meter;
 use crate::tunnel::exit_probe::{ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{
     CreateTunnelParams, TunnelConfig as TiTunnelConfig, TunnelInterface,
 };
+use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
-use wardnetd_data::repository::tunnel_metrics::{IntradayMetricRow, TunnelMetricsRepository};
 use wardnetd_data::secret_store::SecretStore;
 
 use crate::tunnel::key_store::{KeyStore, KeyStoreAdapter};
-
-/// Per-tunnel state used to decimate the 5-second poll into one row per
-/// `metrics_sample_interval_secs`. Tracks the last cumulative counter we
-/// observed and the wall clock at which we wrote a row.
-#[derive(Debug, Clone, Copy)]
-struct LastSample {
-    written_at: chrono::DateTime<Utc>,
-    bytes_tx: u64,
-    bytes_rx: u64,
-}
 
 /// Tunnel lifecycle management.
 ///
@@ -70,18 +59,6 @@ pub trait TunnelService: Send + Sync {
     /// Returns `AppError::Conflict` if a test is already in flight for
     /// the same tunnel id.
     async fn test_tunnel(&self, id: Uuid) -> Result<TunnelTestResult, AppError>;
-
-    /// Get throughput history for a tunnel over the requested range.
-    ///
-    /// The `1h..48h` ranges are read from the intraday table at the
-    /// configured sample interval. The `12mo` range reads from the daily
-    /// rollup. The server returns *deltas*; clients divide by
-    /// `interval_secs` to render bytes/sec.
-    async fn get_metrics(
-        &self,
-        id: Uuid,
-        range: TunnelMetricsRange,
-    ) -> Result<TunnelMetricsResponse, AppError>;
 
     /// List the devices currently routed through this tunnel.
     async fn list_tunnel_devices(&self, id: Uuid) -> Result<TunnelDevicesResponse, AppError>;
@@ -129,34 +106,35 @@ pub trait TunnelService: Send + Sync {
     /// background task context.
     async fn run_health_check(&self) -> Result<(), AppError>;
 
-    /// Roll up any complete day not yet present in
-    /// `tunnel_metrics_daily`, then trim past-retention rows from both
-    /// metrics tables. Idempotent.
+    /// Probe the latency of every active tunnel and record it as a
+    /// `tunnel.latency.rtt_ms` gauge labelled by `tunnel_id`.
     ///
-    /// Used by [`crate::tunnel::TunnelMetricsRunner`]. No auth guard —
-    /// called from background task context.
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError>;
+    /// Used by the tunnel monitor background task. No auth guard — called from
+    /// background task context.
+    async fn probe_latencies(&self) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`TunnelService`].
 pub struct TunnelServiceImpl {
     tunnels: Arc<dyn TunnelRepository>,
-    metrics: Arc<dyn TunnelMetricsRepository>,
     devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     tunnel_interface: Arc<dyn TunnelInterface>,
     exit_probe: Arc<dyn TunnelExitProbe>,
+    latency_prober: Arc<dyn TunnelLatencyProber>,
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
-    /// In-memory tracking of the last counter snapshot and write
-    /// time per tunnel. Used to decimate the 5-second poll into one
-    /// `tunnel_metrics_intraday` row per `metrics_sample_interval_secs`.
-    last_intraday_sample: Mutex<HashMap<Uuid, LastSample>>,
+    meter: Arc<Meter>,
+    /// Last cumulative `(bytes_tx, bytes_rx)` observed per tunnel.
+    /// Used by `collect_stats` to compute positive deltas to feed into
+    /// the generic stats pipeline. A counter that goes *down* means the
+    /// tunnel reconnected (the kernel `WireGuard` counters reset on
+    /// recreate); we treat that as a baseline reset and skip the delta.
+    last_bytes: Mutex<HashMap<Uuid, (u64, u64)>>,
     /// Tunnel ids with a `test_tunnel` call in progress. Each id is
     /// inserted on entry and removed via the [`InFlightGuard`] RAII
     /// guard. Concurrent calls for the same id return
     /// `AppError::Conflict`.
     tests_in_flight: Arc<std::sync::Mutex<HashSet<Uuid>>>,
-    metrics_sample_interval_secs: u64,
 }
 
 impl TunnelServiceImpl {
@@ -169,26 +147,26 @@ impl TunnelServiceImpl {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
-        metrics: Arc<dyn TunnelMetricsRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
+        latency_prober: Arc<dyn TunnelLatencyProber>,
         secret_store: Arc<dyn SecretStore>,
         events: Arc<dyn EventPublisher>,
-        metrics_sample_interval_secs: u64,
+        meter: Arc<Meter>,
     ) -> Self {
         let keys: Arc<dyn KeyStore> = Arc::new(KeyStoreAdapter::new(secret_store));
         Self {
             tunnels,
-            metrics,
             devices,
             tunnel_interface,
             exit_probe,
+            latency_prober,
             keys,
             events,
-            last_intraday_sample: Mutex::new(HashMap::new()),
+            meter,
+            last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
-            metrics_sample_interval_secs,
         }
     }
 
@@ -201,25 +179,25 @@ impl TunnelServiceImpl {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_key_store(
         tunnels: Arc<dyn TunnelRepository>,
-        metrics: Arc<dyn TunnelMetricsRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
+        latency_prober: Arc<dyn TunnelLatencyProber>,
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
-        metrics_sample_interval_secs: u64,
+        meter: Arc<Meter>,
     ) -> Self {
         Self {
             tunnels,
-            metrics,
             devices,
             tunnel_interface,
             exit_probe,
+            latency_prober,
             keys,
             events,
-            last_intraday_sample: Mutex::new(HashMap::new()),
+            meter,
+            last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
-            metrics_sample_interval_secs,
         }
     }
 
@@ -456,96 +434,45 @@ impl TunnelServiceImpl {
         }
     }
 
-    /// Decimate the 5-second poll loop into one
-    /// `tunnel_metrics_intraday` row per
-    /// `metrics_sample_interval_secs`.
+    /// Compute positive deltas since the previous observation and feed
+    /// them into the generic stats pipeline as `tunnel.bytes.tx` /
+    /// `tunnel.bytes.rx` counter increments, labelled by `tunnel_id`.
     ///
-    /// The first observation per tunnel records baseline state without
-    /// writing a row — there is no previous sample to delta against.
-    /// On subsequent calls, if at least `interval` has elapsed since the
-    /// last write, the bytes-since-last-write delta is persisted. The
-    /// counter is read from `stats.bytes_*`, which is the *cumulative*
-    /// `WireGuard` byte count; if it has *decreased* relative to the
-    /// stored snapshot we treat the new sample as a counter reset and
-    /// emit `current` as the delta (never negative).
-    ///
-    /// Errors are logged but never propagated — metrics are best-effort
-    /// next to the live-stats update which is the canonical operation.
-    async fn maybe_record_intraday(&self, tunnel_id: Uuid, bytes_tx: u64, bytes_rx: u64) {
-        self.maybe_record_intraday_at(tunnel_id, bytes_tx, bytes_rx, chrono::Utc::now())
-            .await;
-    }
-
-    /// Time-parameterized core of [`Self::maybe_record_intraday`].
-    /// Public-in-crate so tests can drive the decimation deterministically.
-    pub(crate) async fn maybe_record_intraday_at(
-        &self,
-        tunnel_id: Uuid,
-        bytes_tx: u64,
-        bytes_rx: u64,
-        now: chrono::DateTime<Utc>,
-    ) {
-        if self.metrics_sample_interval_secs == 0 {
-            return;
-        }
-        let interval = Duration::seconds(self.metrics_sample_interval_secs.cast_signed());
-
-        let prev = {
-            let map = self.last_intraday_sample.lock().await;
-            map.get(&tunnel_id).copied()
-        };
-
-        let Some(prev) = prev else {
-            self.last_intraday_sample.lock().await.insert(
-                tunnel_id,
-                LastSample {
-                    written_at: now,
-                    bytes_tx,
-                    bytes_rx,
-                },
-            );
+    /// The first observation per tunnel records the baseline without
+    /// recording a delta. If a subsequent counter is *lower* than the
+    /// stored value we treat it as a reset — the kernel `WireGuard`
+    /// counters zero on iface recreate — and refresh the baseline
+    /// without recording.
+    pub(crate) async fn record_byte_deltas(&self, tunnel_id: Uuid, bytes_tx: u64, bytes_rx: u64) {
+        let mut map = self.last_bytes.lock().await;
+        let prev = map.insert(tunnel_id, (bytes_tx, bytes_rx));
+        let Some((prev_tx, prev_rx)) = prev else {
             return;
         };
+        drop(map);
 
-        if (now - prev.written_at) < interval {
+        if bytes_tx < prev_tx || bytes_rx < prev_rx {
+            // Counter reset — the new value is the fresh baseline,
+            // already stored above.
             return;
         }
 
-        let tx_delta = if bytes_tx >= prev.bytes_tx {
-            bytes_tx - prev.bytes_tx
-        } else {
-            bytes_tx
-        };
-        let rx_delta = if bytes_rx >= prev.bytes_rx {
-            bytes_rx - prev.bytes_rx
-        } else {
-            bytes_rx
-        };
+        let tx_delta = bytes_tx - prev_tx;
+        let rx_delta = bytes_rx - prev_rx;
 
-        let row = IntradayMetricRow {
-            tunnel_id: tunnel_id.to_string(),
-            ts: now.timestamp(),
-            bytes_tx_delta: i64::try_from(tx_delta).unwrap_or(i64::MAX),
-            bytes_rx_delta: i64::try_from(rx_delta).unwrap_or(i64::MAX),
-        };
-
-        if let Err(e) = self.metrics.insert_intraday(&row).await {
-            tracing::warn!(
-                tunnel_id = %tunnel_id,
-                error = %e,
-                "failed to write intraday metrics row"
-            );
-            return;
+        let labels = format!(r#"{{"tunnel_id":"{tunnel_id}"}}"#);
+        if tx_delta > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            self.meter
+                .counter("tunnel.bytes.tx")
+                .add(&labels, tx_delta as f64);
         }
-
-        self.last_intraday_sample.lock().await.insert(
-            tunnel_id,
-            LastSample {
-                written_at: now,
-                bytes_tx,
-                bytes_rx,
-            },
-        );
+        if rx_delta > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            self.meter
+                .counter("tunnel.bytes.rx")
+                .add(&labels, rx_delta as f64);
+        }
     }
 
     /// Try to claim the in-flight slot for this tunnel id. Returns
@@ -882,76 +809,6 @@ impl TunnelService for TunnelServiceImpl {
         Ok(tunnel)
     }
 
-    async fn get_metrics(
-        &self,
-        id: Uuid,
-        range: TunnelMetricsRange,
-    ) -> Result<TunnelMetricsResponse, AppError> {
-        auth_context::require_admin()?;
-
-        self.require_tunnel(id).await?;
-
-        let now = chrono::Utc::now();
-        if range.is_daily() {
-            // 12-month window: pull rows from the daily table where
-            // `day` is within the past 365 days.
-            let to_day = now.format("%Y-%m-%d").to_string();
-            let from_day = (now - Duration::days(365)).format("%Y-%m-%d").to_string();
-            let rows = self
-                .metrics
-                .query_daily(&id.to_string(), &from_day, &to_day)
-                .await
-                .map_err(AppError::Internal)?;
-            let points = rows
-                .into_iter()
-                .map(|r| {
-                    let ts = format!("{}T00:00:00Z", r.day);
-                    TunnelMetricsPoint {
-                        ts,
-                        bytes_tx: r.bytes_tx_total,
-                        bytes_rx: r.bytes_rx_total,
-                    }
-                })
-                .collect();
-            return Ok(TunnelMetricsResponse {
-                range,
-                interval_secs: 86_400,
-                points,
-            });
-        }
-
-        let window = match range {
-            TunnelMetricsRange::OneHour => Duration::hours(1),
-            TunnelMetricsRange::SixHours => Duration::hours(6),
-            TunnelMetricsRange::TwentyFourHours => Duration::hours(24),
-            TunnelMetricsRange::FortyEightHours => Duration::hours(48),
-            TunnelMetricsRange::TwelveMonths => unreachable!("handled above"),
-        };
-        let from_ts = (now - window).timestamp();
-        let to_ts = now.timestamp();
-        let rows = self
-            .metrics
-            .query_intraday(&id.to_string(), from_ts, to_ts)
-            .await
-            .map_err(AppError::Internal)?;
-        let points = rows
-            .into_iter()
-            .map(|r| TunnelMetricsPoint {
-                ts: chrono::DateTime::<chrono::Utc>::from_timestamp(r.ts, 0)
-                    .map_or_else(String::new, |dt| dt.to_rfc3339()),
-                bytes_tx: r.bytes_tx_delta,
-                bytes_rx: r.bytes_rx_delta,
-            })
-            .collect();
-
-        let interval_secs = u32::try_from(self.metrics_sample_interval_secs).unwrap_or(300);
-        Ok(TunnelMetricsResponse {
-            range,
-            interval_secs,
-            points,
-        })
-    }
-
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
         self.bring_up_core(id).await
@@ -1087,7 +944,7 @@ impl TunnelService for TunnelServiceImpl {
                 continue;
             }
 
-            self.maybe_record_intraday(tunnel.id, stats.bytes_tx, stats.bytes_rx)
+            self.record_byte_deltas(tunnel.id, stats.bytes_tx, stats.bytes_rx)
                 .await;
 
             self.events
@@ -1209,60 +1066,41 @@ impl TunnelService for TunnelServiceImpl {
         Ok(())
     }
 
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
-        let now = chrono::Utc::now();
-        let today = now.format("%Y-%m-%d").to_string();
+    async fn probe_latencies(&self) -> Result<(), AppError> {
+        let all_tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;
+        let active_tunnels: Vec<_> = all_tunnels
+            .into_iter()
+            .filter(|t| t.status != wardnet_common::tunnel::TunnelStatus::Down)
+            .collect();
 
-        // Rollup: any complete day with no daily row.
-        let pending = self
-            .metrics
-            .days_pending_rollup(&today)
-            .await
-            .map_err(AppError::Internal)?;
-        for day in &pending {
-            match self.metrics.rollup_day(day).await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!(
-                    day = %day,
-                    tunnels = n,
-                    "tunnel metrics: rolled up day {day} for {n} tunnels"
-                ),
-                Err(e) => tracing::warn!(
-                    day = %day,
-                    error = %e,
-                    "tunnel metrics: rollup failed for day {day}: {e}"
-                ),
+        for tunnel in active_tunnels {
+            match self.latency_prober.probe(&tunnel.interface_name).await {
+                Ok(rtt_ms) => {
+                    let labels = format!(r#"{{"tunnel_id":"{}"}}"#, tunnel.id);
+                    #[allow(clippy::cast_precision_loss)]
+                    self.meter
+                        .gauge("tunnel.latency.rtt_ms")
+                        .set(&labels, rtt_ms as f64);
+                }
+                Err(LatencyProbeError::Unsupported(msg)) => {
+                    // Platform-level: log once-per-loop and skip the rest of the
+                    // tunnels — every iface would fail the same way.
+                    tracing::debug!(
+                        error = %msg,
+                        "latency probe unsupported on this platform: {msg}"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        tunnel_id = %tunnel.id,
+                        interface = %tunnel.interface_name,
+                        error = %e,
+                        "latency probe failed for {}: {e}", tunnel.interface_name
+                    );
+                }
             }
         }
-
-        let intraday_cutoff = (now - chrono::Duration::hours(48)).timestamp();
-        match self.metrics.trim_intraday(intraday_cutoff).await {
-            Ok(0) => {}
-            Ok(n) => tracing::debug!(
-                deleted = n,
-                "tunnel metrics: trimmed {n} intraday rows past retention"
-            ),
-            Err(e) => tracing::warn!(
-                error = %e,
-                "tunnel metrics: intraday trim failed: {e}"
-            ),
-        }
-
-        let daily_cutoff = (now - chrono::Duration::days(365))
-            .format("%Y-%m-%d")
-            .to_string();
-        match self.metrics.trim_daily(&daily_cutoff).await {
-            Ok(0) => {}
-            Ok(n) => tracing::debug!(
-                deleted = n,
-                "tunnel metrics: trimmed {n} daily rows past retention"
-            ),
-            Err(e) => tracing::warn!(
-                error = %e,
-                "tunnel metrics: daily trim failed: {e}"
-            ),
-        }
-
         Ok(())
     }
 }

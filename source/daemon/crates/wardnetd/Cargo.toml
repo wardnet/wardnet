@@ -91,6 +91,8 @@ regex.workspace = true
 cron.workspace = true
 # https://crates.io/crates/mdns-sd — mDNS responder advertising wardnet.local for setup discovery
 mdns-sd.workspace = true
+# https://crates.io/crates/surge-ping — async ICMP echo with SO_BINDTODEVICE for per-tunnel latency probe
+surge-ping.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

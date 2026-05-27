@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -11,10 +13,25 @@ pub enum StatsBucket {
 }
 
 /// Parameters for a time-series stats query.
+///
+/// Exactly one of `metric` or `metrics` must be set. The single-metric
+/// form returns a flat series under `series`; the multi-metric form
+/// runs one query per metric (sharing the same `label_filter`, `from`,
+/// `to`, and `bucket`) and returns a `metric_name -> series` map under
+/// `results`. The multi-metric path is provided to let callers fetch
+/// multiple related metrics in one round-trip (e.g. the tunnel
+/// detail page fetching tx, rx, and `rtt_ms` together).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct StatsQuery {
-    pub metric: String,
+    /// Single metric name. Mutually exclusive with `metrics`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric: Option<String>,
+    /// Multiple metric names to fan out over in a single call. Mutually
+    /// exclusive with `metric`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<Vec<String>>,
     /// Exact labels JSON string to filter by. `None` returns all label combinations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_filter: Option<String>,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
@@ -31,10 +48,18 @@ pub struct StatsSeriesPoint {
 }
 
 /// Response for a time-series stats query.
+///
+/// The shape of the response mirrors the request: a single-metric
+/// query returns `metric` + `series`; a multi-metric query returns
+/// `results` (metric name → series). Exactly one variant is populated.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct StatsQueryResponse {
-    pub metric: String,
-    pub series: Vec<StatsSeriesPoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<Vec<StatsSeriesPoint>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub results: Option<HashMap<String, Vec<StatsSeriesPoint>>>,
 }
 
 /// Parameters for a top-N stats query.

@@ -591,13 +591,6 @@ impl TunnelService for StubTunnelService {
     ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
         unimplemented!()
     }
-    async fn get_metrics(
-        &self,
-        _id: Uuid,
-        _range: wardnet_common::api::TunnelMetricsRange,
-    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
-        unimplemented!()
-    }
     async fn list_tunnel_devices(
         &self,
         _id: Uuid,
@@ -635,8 +628,7 @@ impl TunnelService for StubTunnelService {
     async fn run_health_check(&self) -> Result<(), AppError> {
         Ok(())
     }
-
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
+    async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
 }

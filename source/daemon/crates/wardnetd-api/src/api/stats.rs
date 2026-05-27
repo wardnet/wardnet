@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::extract::{Query, State};
+use axum_extra::extract::Query as ExtraQuery;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::stats::{StatsQuery, StatsQueryResponse, StatsTopQuery, StatsTopResponse};
@@ -17,7 +18,10 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     get,
     path = "/api/stats",
     tag = "stats",
-    description = "Query a time-series metric. Admin only.",
+    description = "Query a time-series metric. Pass either `metric=<name>` for a \
+                   single series, or repeat `metrics=<name>` to fetch multiple \
+                   series in one round-trip — both share the same time range, \
+                   bucket, and label filter. Admin only.",
     params(StatsQuery),
     responses(
         (status = 200, description = "Stats query result", body = StatsQueryResponse),
@@ -31,7 +35,10 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 pub async fn query(
     State(state): State<AppState>,
     _auth: AdminAuth,
-    Query(body): Query<StatsQuery>,
+    // `axum_extra::extract::Query` (serde_html_form) supports repeated
+    // keys for `Vec<String>` — the standard axum `Query` extractor
+    // (`serde_urlencoded`) does not.
+    ExtraQuery(body): ExtraQuery<StatsQuery>,
 ) -> Result<Json<StatsQueryResponse>, AppError> {
     let response = state.stats_service().query(body).await?;
     Ok(Json(response))
