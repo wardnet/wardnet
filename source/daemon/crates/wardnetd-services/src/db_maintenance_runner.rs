@@ -202,9 +202,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Starting and immediately shutting down the runner must complete without
-    /// panicking. Exercises DbMaintenanceRunner::start → start_with_interval
-    /// → start_with_interval_and_day → shutdown, and the cancel branch of
-    /// runner_loop.
+    /// panicking. Exercises `DbMaintenanceRunner::start` → `start_with_interval`
+    /// → `start_with_interval_and_day` → `shutdown`, and the cancel branch of
+    /// `runner_loop`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn runner_shuts_down_cleanly() {
         let repo = MockMaintenance::ok(0);
