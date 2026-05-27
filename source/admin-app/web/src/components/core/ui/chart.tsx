@@ -13,6 +13,7 @@ export type ChartConfig = Record<
 
 const ChartContext = React.createContext<{ config: ChartConfig } | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useChart(): { config: ChartConfig } {
   const ctx = React.useContext(ChartContext);
   if (!ctx) {
@@ -26,8 +27,7 @@ export function useChart(): { config: ChartConfig } {
 // a forwarded ref would let consumers stomp on it. If a consumer ever
 // needs imperative access, switch to `forwardRef` + `useImperativeHandle`
 // rather than re-adding `ref` here.
-export interface ChartContainerProps
-  extends Omit<React.ComponentProps<"div">, "ref"> {
+export interface ChartContainerProps extends Omit<React.ComponentProps<"div">, "ref"> {
   config: ChartConfig;
   children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>["children"];
 }
@@ -103,5 +103,7 @@ export function ChartContainer({ config, className, children, ...props }: ChartC
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const ChartTooltip = RechartsPrimitive.Tooltip;
+// eslint-disable-next-line react-refresh/only-export-components
 export const ChartLegend = RechartsPrimitive.Legend;

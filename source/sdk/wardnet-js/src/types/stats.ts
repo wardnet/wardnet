@@ -1,7 +1,18 @@
 export type StatsBucket = "minute" | "hour" | "day";
 
+/**
+ * Parameters for a time-series stats query.
+ *
+ * Exactly one of `metric` or `metrics` must be set:
+ *  - `metric` returns a flat series under `series` in the response.
+ *  - `metrics` runs one query per name (sharing the same `from`/`to`/
+ *    `bucket`/`label_filter`) and returns a `metric → series` map
+ *    under `results` — used to fetch multiple related metrics (e.g.
+ *    tunnel tx, rx, and `rtt_ms`) in a single round-trip.
+ */
 export interface StatsQuery {
-  metric: string;
+  metric?: string;
+  metrics?: string[];
   label_filter?: string | null;
   from: string;
   to: string;
@@ -14,9 +25,15 @@ export interface StatsSeriesPoint {
   labels: string;
 }
 
+/**
+ * Response shape mirrors the request: a single-metric query returns
+ * `metric` + `series`; a multi-metric query returns `results` (metric
+ * name → series). Exactly one of `series` / `results` is populated.
+ */
 export interface StatsQueryResponse {
-  metric: string;
-  series: StatsSeriesPoint[];
+  metric?: string;
+  series?: StatsSeriesPoint[];
+  results?: Record<string, StatsSeriesPoint[]>;
 }
 
 export interface StatsTopQuery {

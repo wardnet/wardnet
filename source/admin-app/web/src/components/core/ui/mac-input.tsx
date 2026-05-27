@@ -1,4 +1,4 @@
-import { useRef, useCallback, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useRef, useCallback, useMemo, type KeyboardEvent, type ClipboardEvent } from "react";
 import { cn } from "@/lib/utils";
 
 interface MacInputProps {
@@ -50,7 +50,10 @@ export function MacInput({
   const ref3 = useRef<HTMLInputElement>(null);
   const ref4 = useRef<HTMLInputElement>(null);
   const ref5 = useRef<HTMLInputElement>(null);
-  const refs = [ref0, ref1, ref2, ref3, ref4, ref5];
+  const refs = useMemo(
+    () => [ref0, ref1, ref2, ref3, ref4, ref5],
+    [ref0, ref1, ref2, ref3, ref4, ref5],
+  );
   const segments = parseSegments(value);
   const placeholderSegs = placeholder.split(":").map((s) => s.slice(0, 2));
 

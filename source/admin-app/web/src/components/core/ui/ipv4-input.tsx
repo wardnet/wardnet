@@ -1,4 +1,4 @@
-import { useRef, useCallback, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useRef, useCallback, useMemo, type KeyboardEvent, type ClipboardEvent } from "react";
 import { cn } from "@/lib/utils";
 
 interface Ipv4InputProps {
@@ -31,12 +31,11 @@ export function Ipv4Input({
   className,
   id,
 }: Ipv4InputProps) {
-  const refs = [
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-  ];
+  const ref0 = useRef<HTMLInputElement>(null);
+  const ref1 = useRef<HTMLInputElement>(null);
+  const ref2 = useRef<HTMLInputElement>(null);
+  const ref3 = useRef<HTMLInputElement>(null);
+  const refs = useMemo(() => [ref0, ref1, ref2, ref3], [ref0, ref1, ref2, ref3]);
 
   const octets = parseOctets(value);
   const placeholders = parseOctets(placeholder);

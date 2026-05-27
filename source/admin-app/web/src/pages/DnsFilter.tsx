@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { useNavigate } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ShieldCheck } from "lucide-react";
@@ -58,15 +58,21 @@ export default function DnsFilter() {
 
   const profiles = data?.profiles ?? [];
   const hasProfiles = profiles.length > 0;
-  const defaultIds = configData?.config.default_profile_ids ?? [];
+  const defaultIds = useMemo(
+    () => configData?.config.default_profile_ids ?? [],
+    [configData?.config.default_profile_ids],
+  );
   const filteringEnabled = configData?.config.enabled ?? false;
 
-  function toggleDefault(profileId: string, next: boolean) {
-    const set = new Set(defaultIds);
-    if (next) set.add(profileId);
-    else set.delete(profileId);
-    updateConfig.mutate({ default_profile_ids: Array.from(set) });
-  }
+  const toggleDefault = useCallback(
+    (profileId: string, next: boolean) => {
+      const set = new Set(defaultIds);
+      if (next) set.add(profileId);
+      else set.delete(profileId);
+      updateConfig.mutate({ default_profile_ids: Array.from(set) });
+    },
+    [defaultIds, updateConfig],
+  );
 
   function open(profile: DnsFilterProfile) {
     void navigate(`/dns/filter/profiles/${profile.id}`);
@@ -136,7 +142,7 @@ export default function DnsFilter() {
         },
       },
     ],
-    [defaultIds, filteringEnabled, updateConfig.isPending],
+    [defaultIds, filteringEnabled, updateConfig.isPending, toggleDefault],
   );
 
   return (

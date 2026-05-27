@@ -17,9 +17,15 @@ export default function Dashboard() {
   const { data: tunnelsData } = useTunnels();
   const { data: dhcpStatus } = useDhcpStatus();
   const { data: errorsData } = useRecentErrors();
-  const { data: dnsStats, isError: dnsStatsError, error: dnsStatsErrorObj } = useDnsStatSummary(24);
+  const {
+    data: dnsStats,
+    isError: dnsStatsError,
+    error: dnsStatsErrorObj,
+  } = useDnsStatSummary("24h");
   const dnsStatsErrorMsg = dnsStatsError
-    ? (dnsStatsErrorObj instanceof Error ? dnsStatsErrorObj.message : "Failed to load DNS stats")
+    ? dnsStatsErrorObj instanceof Error
+      ? dnsStatsErrorObj.message
+      : "Failed to load DNS stats"
     : null;
 
   const deviceCount = devicesData?.devices.length ?? status?.device_count ?? 0;

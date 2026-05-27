@@ -90,24 +90,6 @@ export interface TunnelDetailResponse {
   tunnel: Tunnel;
 }
 
-/** Range selector for GET /api/tunnels/:id/metrics. */
-export type TunnelMetricsRange = "1h" | "6h" | "24h" | "48h" | "12mo";
-
-/** One throughput point. `bytes_tx`/`bytes_rx` are deltas over the interval ending at `ts`. */
-export interface TunnelMetricsPoint {
-  ts: string;
-  bytes_tx: number;
-  bytes_rx: number;
-}
-
-/** Response for GET /api/tunnels/:id/metrics. */
-export interface TunnelMetricsResponse {
-  range: TunnelMetricsRange;
-  /** Sample interval (5 min for intraday, 86400 for daily). */
-  interval_secs: number;
-  points: TunnelMetricsPoint[];
-}
-
 /** Response for GET /api/tunnels/:id/devices. */
 export interface TunnelDevicesResponse {
   devices: Device[];

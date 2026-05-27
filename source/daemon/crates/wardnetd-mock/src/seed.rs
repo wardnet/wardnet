@@ -8,12 +8,12 @@
 //! Admin credentials are **not** seeded — the setup wizard runs on every
 //! mock launch so developers can exercise that flow repeatedly.
 
-use chrono::{Datelike, Duration, Timelike, Utc};
+use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    AllowlistRow, CustomRuleRow, DailyMetricRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow,
-    IntradayMetricRow, IntradayStatRow, QueryLogRow, TunnelRow,
+    AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
+    QueryLogRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -32,7 +32,6 @@ pub struct SeededIds {
 pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededIds> {
     let device_repo = factory.device();
     let tunnel_repo = factory.tunnel();
-    let tunnel_metrics_repo = factory.tunnel_metrics();
     let dns_repo = factory.dns();
     let dns_filter_repo = factory.dns_filter();
     // Hardcoded id of the migration-seeded "Ad Blocking" builtin profile.
@@ -243,26 +242,6 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     }
 
     // ------------------------------------------------------------------
-    // Tunnel metrics history — generated for every seeded tunnel so the
-    // detail-page chart has data to render on each one. The down /
-    // custom tunnels reuse the same generator with their own tunnel_id
-    // as the RNG seed so each chart looks distinct.
-    // ------------------------------------------------------------------
-    for tunnel_id in &tunnel_ids {
-        let (intraday, daily) = generate_metrics_history(*tunnel_id, now);
-        tunnel_metrics_repo.insert_intraday_batch(&intraday).await?;
-        tunnel_metrics_repo.insert_daily_batch(&daily).await?;
-        tracing::debug!(
-            tunnel_id = %tunnel_id,
-            intraday = intraday.len(),
-            daily = daily.len(),
-            "seeded tunnel metrics history: tunnel_id={tunnel_id}, intraday={i}, daily={d}",
-            i = intraday.len(),
-            d = daily.len(),
-        );
-    }
-
-    // ------------------------------------------------------------------
     // Routing rules: route the first two seeded devices through the
     // "up" tunnel so the tunnel detail page's devices table has more
     // than one row to render. The "down" tunnel is left with no
@@ -343,6 +322,27 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
 
     let daily_rollup_days = seed_daily_stats(&*stats_repo, &dns_client_ips_for_stats, now).await?;
 
+    // ------------------------------------------------------------------
+    // Tunnel stats — throughput counters + latency gauge per tunnel.
+    // The down / custom tunnels reuse the same generator with their own
+    // `tunnel_id` as the RNG seed so each detail-page chart looks
+    // distinct. Both the 48 h intraday range and the 12 m daily rollups
+    // are seeded so every range tab has data on first launch.
+    // ------------------------------------------------------------------
+    for tunnel_id in &tunnel_ids {
+        let intraday = generate_tunnel_intraday_stats(*tunnel_id, now);
+        for chunk in intraday.chunks(256) {
+            stats_repo.upsert_intraday(chunk).await?;
+        }
+        seed_tunnel_daily_stats(&*stats_repo, *tunnel_id, now).await?;
+        tracing::debug!(
+            tunnel_id = %tunnel_id,
+            intraday = intraday.len(),
+            "seeded tunnel stats: tunnel_id={tunnel_id}, intraday={i}",
+            i = intraday.len(),
+        );
+    }
+
     tracing::info!(
         devices = device_ids.len(),
         tunnels = tunnel_ids.len(),
@@ -363,14 +363,14 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     })
 }
 
-/// Generate fixture throughput history for a single tunnel:
+/// Generate 48 h of per-minute intraday rows for a single tunnel:
+/// `tunnel.bytes.tx` and `tunnel.bytes.rx` counter increments plus
+/// `tunnel.latency.rtt_ms` gauge readings, all labelled by `tunnel_id`.
 ///
-/// - **Intraday**: 48 h × 12 samples/h = 576 rows with a diurnal sine
-///   shape (peak in the evening, low overnight) plus deterministic
-///   pseudo-jitter so the chart looks alive without flapping between
-///   `make run-dev` runs.
-/// - **Daily**: 365 rows with weekly variation (weekend spikes), so the
-///   `12mo` view is fully populated.
+/// The counter values follow a diurnal sine shape (peak in the evening,
+/// low overnight). Latency hovers in the 25–80 ms range with cheap
+/// deterministic jitter and occasional ~150 ms spikes — enough texture
+/// for the chart without looking synthetic.
 ///
 /// All math is integer-only and deterministic — the output depends only
 /// on `tunnel_id` and `now`, so seeding is reproducible.
@@ -381,73 +381,141 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )]
-fn generate_metrics_history(
+fn generate_tunnel_intraday_stats(
     tunnel_id: Uuid,
     now: chrono::DateTime<Utc>,
-) -> (Vec<IntradayMetricRow>, Vec<DailyMetricRow>) {
-    const INTERVAL_SECS: i64 = 300;
-    const POINTS_PER_HOUR: usize = 12;
-    const HOURS: usize = 48;
+) -> Vec<IntradayStatRow> {
+    const HOURS: i64 = 48;
 
-    let tid = tunnel_id.to_string();
+    let labels = format!(r#"{{"tunnel_id":"{tunnel_id}"}}"#);
+    let end_ts = (now.timestamp() / 60) * 60;
+    let start_ts = end_ts - HOURS * 3_600;
 
-    // -- Intraday: 48 h backwards from `now`, one row per 5 min. --------
-    let mut intraday = Vec::with_capacity(HOURS * POINTS_PER_HOUR);
-    let start = now - chrono::Duration::hours(HOURS as i64);
-    for i in 0..(HOURS * POINTS_PER_HOUR) {
-        let ts_dt = start + chrono::Duration::seconds(INTERVAL_SECS * (i as i64 + 1));
-        let ts = ts_dt.timestamp();
-
-        // Diurnal shape: hours-of-day in [0, 24) → sine peaking at 21:00.
-        let hour = ts_dt.hour() as f64 + (ts_dt.minute() as f64) / 60.0;
-        let phase = (hour - 21.0) / 24.0 * std::f64::consts::TAU;
+    let mut rows = Vec::with_capacity(((end_ts - start_ts) / 60) as usize * 3);
+    let mut bucket_ts = start_ts;
+    while bucket_ts <= end_ts {
+        let hour_of_day = ((bucket_ts % 86_400) as f64) / 3_600.0;
+        let phase = (hour_of_day - 21.0) / 24.0 * std::f64::consts::TAU;
         let diurnal = (phase.cos() * 0.4 + 0.6).clamp(0.1, 1.0);
 
-        // Cheap deterministic jitter ±15% derived from `i` and `tid`.
-        let jitter_seed = (i as u64).wrapping_mul(2_654_435_761) ^ tunnel_id.as_u128() as u64;
+        let jitter_seed =
+            (bucket_ts as u64).wrapping_mul(2_654_435_761) ^ (tunnel_id.as_u128() as u64);
         let jitter = ((jitter_seed % 31) as f64 - 15.0) / 100.0;
 
-        // Bytes per interval — pick base values that put bytes/sec in
-        // a plausible "consumer streaming" range (a few hundred KB/s).
-        let base_tx = 30_000_000.0_f64; // ~100 KB/s averaged
-        let base_rx = 90_000_000.0_f64; // ~300 KB/s averaged
-        let tx_delta = (base_tx * diurnal * (1.0 + jitter)).max(0.0) as i64;
-        let rx_delta = (base_rx * diurnal * (1.0 + jitter)).max(0.0) as i64;
+        // Bytes per minute — plausible "consumer streaming" range
+        // (~100 KB/s tx, ~300 KB/s rx averaged).
+        let tx_bpm = (6_000_000.0 * diurnal * (1.0 + jitter)).max(0.0);
+        let rx_bpm = (18_000_000.0 * diurnal * (1.0 + jitter)).max(0.0);
 
-        intraday.push(IntradayMetricRow {
-            tunnel_id: tid.clone(),
-            ts,
-            bytes_tx_delta: tx_delta,
-            bytes_rx_delta: rx_delta,
+        rows.push(IntradayStatRow {
+            metric: "tunnel.bytes.tx".to_owned(),
+            labels: labels.clone(),
+            bucket_ts,
+            value: tx_bpm,
+            kind: "counter".to_owned(),
         });
+        rows.push(IntradayStatRow {
+            metric: "tunnel.bytes.rx".to_owned(),
+            labels: labels.clone(),
+            bucket_ts,
+            value: rx_bpm,
+            kind: "counter".to_owned(),
+        });
+
+        // Latency: base 25–80 ms with ±5 ms jitter; a 1-in-60 chance of
+        // a ~150 ms spike (one every ~hour on average).
+        let base_latency = 25.0 + (((jitter_seed >> 5) % 56) as f64);
+        let latency_jitter = ((jitter_seed >> 11) % 11) as f64 - 5.0;
+        let spike = if (jitter_seed >> 17).is_multiple_of(60) {
+            150.0
+        } else {
+            0.0
+        };
+        let rtt_ms = (base_latency + latency_jitter + spike).max(5.0);
+        rows.push(IntradayStatRow {
+            metric: "tunnel.latency.rtt_ms".to_owned(),
+            labels: labels.clone(),
+            bucket_ts,
+            value: rtt_ms,
+            kind: "gauge".to_owned(),
+        });
+
+        bucket_ts += 60;
     }
 
-    // -- Daily: 365 rows with weekly variation. -------------------------
-    let mut daily = Vec::with_capacity(365);
-    for d in 1..=365 {
-        let day_dt = now - chrono::Duration::days(d);
-        let day = day_dt.format("%Y-%m-%d").to_string();
-        // Weekday vs weekend (chrono: Sat=5, Sun=6 in num_days_from_monday).
+    rows
+}
+
+/// Seed 13 months of daily rollups for a single tunnel — one row per
+/// day per metric. The values mirror the same diurnal/weekday shape as
+/// the intraday generator so the 12 m chart matches the 1 h/24 h
+/// chart's character. Counter rows roll up to daily totals; the
+/// latency gauge rolls up to a daily average.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+async fn seed_tunnel_daily_stats(
+    stats_repo: &dyn wardnetd_data::repository::StatsRepository,
+    tunnel_id: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> anyhow::Result<()> {
+    const DAILY_RETENTION_DAYS: i64 = 397;
+
+    let labels = format!(r#"{{"tunnel_id":"{tunnel_id}"}}"#);
+
+    for days_ago in 1..=DAILY_RETENTION_DAYS {
+        let day_dt = now - Duration::days(days_ago);
+        let day_str = day_dt.format("%Y-%m-%d").to_string();
+        let day_ts = day_dt.timestamp();
+        let midnight_ts = day_ts - (day_ts % 86_400);
+        let noon_ts = midnight_ts + 43_200;
+
         let dow = day_dt.weekday().num_days_from_monday();
         let weekend_boost = if dow >= 5 { 1.6 } else { 1.0 };
-        let jitter_seed = (d as u64).wrapping_mul(2_654_435_761) ^ tunnel_id.as_u128() as u64;
+        let jitter_seed =
+            (days_ago as u64).wrapping_mul(2_654_435_761) ^ (tunnel_id.as_u128() as u64);
         let jitter = ((jitter_seed % 21) as f64 - 10.0) / 100.0;
 
         // ~2 GB tx, ~6 GB rx on a typical weekday.
-        let base_tx = 2_000_000_000.0_f64;
-        let base_rx = 6_000_000_000.0_f64;
-        let tx_total = (base_tx * weekend_boost * (1.0 + jitter)).max(0.0) as i64;
-        let rx_total = (base_rx * weekend_boost * (1.0 + jitter)).max(0.0) as i64;
+        let tx_total = (2_000_000_000.0 * weekend_boost * (1.0 + jitter)).max(0.0);
+        let rx_total = (6_000_000_000.0 * weekend_boost * (1.0 + jitter)).max(0.0);
 
-        daily.push(DailyMetricRow {
-            tunnel_id: tid.clone(),
-            day,
-            bytes_tx_total: tx_total,
-            bytes_rx_total: rx_total,
-        });
+        // Daily average latency 30–70 ms with deterministic drift.
+        let avg_latency = 30.0 + ((jitter_seed >> 7) % 41) as f64;
+
+        let day_rows = vec![
+            IntradayStatRow {
+                metric: "tunnel.bytes.tx".to_owned(),
+                labels: labels.clone(),
+                bucket_ts: noon_ts,
+                value: tx_total,
+                kind: "counter".to_owned(),
+            },
+            IntradayStatRow {
+                metric: "tunnel.bytes.rx".to_owned(),
+                labels: labels.clone(),
+                bucket_ts: noon_ts,
+                value: rx_total,
+                kind: "counter".to_owned(),
+            },
+            IntradayStatRow {
+                metric: "tunnel.latency.rtt_ms".to_owned(),
+                labels: labels.clone(),
+                bucket_ts: noon_ts,
+                value: avg_latency,
+                kind: "gauge".to_owned(),
+            },
+        ];
+
+        stats_repo.upsert_intraday(&day_rows).await?;
+        stats_repo.rollup_daily(&day_str).await?;
     }
 
-    (intraday, daily)
+    Ok(())
 }
 
 // ── DNS query log fixture ─────────────────────────────────────────────────

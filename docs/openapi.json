@@ -9435,22 +9435,41 @@
         "tags": [
           "stats"
         ],
-        "description": "Query a time-series metric. Admin only.",
+        "description": "Query a time-series metric. Pass either `metric=<name>` for a single series, or repeat `metrics=<name>` to fetch multiple series in one round-trip — both share the same time range, bucket, and label filter. Admin only.",
         "operationId": "query",
         "parameters": [
           {
             "name": "metric",
-            "in": "query",
+            "in": "path",
+            "description": "Single metric name. Mutually exclusive with `metrics`.",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "metrics",
+            "in": "path",
+            "description": "Multiple metric names to fan out over in a single call. Mutually\nexclusive with `metric`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
             }
           },
           {
             "name": "label_filter",
-            "in": "query",
+            "in": "path",
             "description": "Exact labels JSON string to filter by. `None` returns all label combinations.",
-            "required": false,
+            "required": true,
             "schema": {
               "type": [
                 "string",
@@ -9460,7 +9479,7 @@
           },
           {
             "name": "from",
-            "in": "query",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
@@ -9469,7 +9488,7 @@
           },
           {
             "name": "to",
-            "in": "query",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
@@ -9478,7 +9497,7 @@
           },
           {
             "name": "bucket",
-            "in": "query",
+            "in": "path",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/StatsBucket"
@@ -11730,191 +11749,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UpdateTunnelDnsOverrideResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden — caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/tunnels/{id}/metrics": {
-      "get": {
-        "tags": [
-          "tunnels"
-        ],
-        "description": "Throughput history for a tunnel. The `1h..48h` ranges return one point per `interval_secs` (5 min by default) carrying the bytes-tx/bytes-rx delta over that interval. The `12mo` range returns one point per day with the daily totals. Admin only.",
-        "operationId": "get_tunnel_metrics",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Tunnel ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "range",
-            "in": "query",
-            "description": "Range selector. One of `1h`, `6h`, `24h`, `48h`, `12mo`. Defaults\nto `24h` when omitted.",
-            "required": false,
-            "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/TunnelMetricsRange"
-                }
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Throughput history",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TunnelMetricsResponse"
                 }
               }
             }
@@ -15904,17 +15738,34 @@
       },
       "StatsQueryResponse": {
         "type": "object",
-        "description": "Response for a time-series stats query.",
-        "required": [
-          "metric",
-          "series"
-        ],
+        "description": "Response for a time-series stats query.\n\nThe shape of the response mirrors the request: a single-metric\nquery returns `metric` + `series`; a multi-metric query returns\n`results` (metric name → series). Exactly one variant is populated.",
         "properties": {
           "metric": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "results": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/StatsSeriesPoint"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "series": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/StatsSeriesPoint"
             }
@@ -16167,66 +16018,6 @@
             "items": {
               "$ref": "#/components/schemas/Device"
             }
-          }
-        }
-      },
-      "TunnelMetricsPoint": {
-        "type": "object",
-        "description": "One point on the throughput chart.\n\n`bytes_tx` / `bytes_rx` are the *deltas* over the interval ending at\n`ts`. The client divides by the configured sample interval (or 86400\nfor daily points) to render bytes/sec. Daily points use the start of\nthe day (UTC) as `ts`.",
-        "required": [
-          "ts",
-          "bytes_tx",
-          "bytes_rx"
-        ],
-        "properties": {
-          "bytes_rx": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "bytes_tx": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "ts": {
-            "type": "string",
-            "description": "RFC 3339 timestamp."
-          }
-        }
-      },
-      "TunnelMetricsRange": {
-        "type": "string",
-        "description": "Range selector for `GET /api/tunnels/{id}/metrics`.\n\n`OneHour..FortyEightHours` are served from the intraday table at\nthe configured sample interval (5 min default). `TwelveMonths`\nreads from the daily rollup table.",
-        "enum": [
-          "1h",
-          "6h",
-          "24h",
-          "48h",
-          "12mo"
-        ]
-      },
-      "TunnelMetricsResponse": {
-        "type": "object",
-        "description": "Response for `GET /api/tunnels/{id}/metrics`.",
-        "required": [
-          "range",
-          "interval_secs",
-          "points"
-        ],
-        "properties": {
-          "interval_secs": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Sample interval in seconds (5 min for intraday, 86400 for daily).",
-            "minimum": 0
-          },
-          "points": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TunnelMetricsPoint"
-            }
-          },
-          "range": {
-            "$ref": "#/components/schemas/TunnelMetricsRange"
           }
         }
       },

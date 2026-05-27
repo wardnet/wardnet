@@ -278,14 +278,6 @@ impl TunnelService for MockTunnelService {
         unimplemented!("not used in routing tests")
     }
 
-    async fn get_metrics(
-        &self,
-        _id: Uuid,
-        _range: wardnet_common::api::TunnelMetricsRange,
-    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
-        unimplemented!("not used in routing tests")
-    }
-
     async fn list_tunnel_devices(
         &self,
         _id: Uuid,
@@ -334,7 +326,7 @@ impl TunnelService for MockTunnelService {
         Ok(())
     }
 
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
+    async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
 }

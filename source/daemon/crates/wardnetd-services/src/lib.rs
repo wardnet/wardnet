@@ -83,6 +83,11 @@ pub struct Backends {
     /// implementation in production and to a deterministic mock in
     /// `wardnetd-mock`.
     pub tunnel_exit_probe: Arc<dyn tunnel::TunnelExitProbe>,
+    /// Sends a single ICMP echo through a tunnel interface to measure
+    /// round-trip latency. Wired to a real surge-ping implementation in
+    /// production (Linux-only) and to a deterministic mock in
+    /// `wardnetd-mock`.
+    pub tunnel_latency_prober: Arc<dyn tunnel::TunnelLatencyProber>,
     pub policy_router: Arc<dyn routing::PolicyRouter>,
     pub firewall: Arc<dyn routing::FirewallManager>,
     pub packet_capture: Arc<dyn device::PacketCapture>,
@@ -352,7 +357,6 @@ fn create_services(
     let dns_filter_repo = repo_factory.dns_filter();
     let maintenance_repo = repo_factory.maintenance();
     let tunnel_repo = repo_factory.tunnel();
-    let tunnel_metrics_repo = repo_factory.tunnel_metrics();
     let update_repo = repo_factory.update();
     let stats_repo = repo_factory.stats();
 
@@ -360,7 +364,7 @@ fn create_services(
     let job_service: Arc<dyn JobService> = JobServiceImpl::new();
 
     let stats_buffer = StatsBuffer::new();
-    let stats_meter = Meter::new(stats_buffer.clone());
+    let stats_meter = Arc::new(Meter::new(stats_buffer.clone()));
     let stats_service: Arc<dyn StatsService> = Arc::new(StatsServiceImpl::new(stats_repo));
 
     let auth_service: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(
@@ -411,13 +415,13 @@ fn create_services(
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
         tunnel_repo.clone(),
-        tunnel_metrics_repo.clone(),
         device_repo.clone(),
         backends.tunnel_interface.clone(),
         backends.tunnel_exit_probe.clone(),
+        backends.tunnel_latency_prober.clone(),
         backends.secret_store.clone(),
         event_publisher.clone(),
-        config.tunnel.metrics_sample_interval_secs,
+        stats_meter.clone(),
     ));
 
     let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));

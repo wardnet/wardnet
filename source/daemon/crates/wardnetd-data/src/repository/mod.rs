@@ -10,7 +10,6 @@ pub mod sqlite;
 pub mod stats;
 pub mod system_config;
 pub mod tunnel;
-pub mod tunnel_metrics;
 pub mod update;
 
 pub use admin::AdminRepository;
@@ -28,12 +27,11 @@ pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
     SqliteDnsFilterRepository, SqliteDnsRepository, SqliteMaintenanceRepository,
     SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelMetricsRepository, SqliteTunnelRepository, SqliteUpdateRepository,
+    SqliteTunnelRepository, SqliteUpdateRepository,
 };
-pub use stats::{DailyStatRow, IntradayStatRow, StatsRepository};
+pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
-pub use tunnel_metrics::{DailyMetricRow, IntradayMetricRow, TunnelMetricsRepository};
 pub use update::{UpdateHistoryRow, UpdateRepository};
 
 #[cfg(test)]

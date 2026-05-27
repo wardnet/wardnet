@@ -1,90 +1,127 @@
 import { useMemo, useState } from "react";
-import { Brush, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
+import { ZoomableChartContainer } from "@/components/compound/ZoomableChartContainer";
+import { type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
-import { useDnsStatsDashboard } from "@/hooks/useStats";
+import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
+import { useDnsStatsDashboard, RANGE_HOURS, type StatsRange } from "@/hooks/useStats";
 import type { StatsTopEntry } from "@wardnet/js";
-
-const RANGES: { value: number; label: string }[] = [
-  { value: 1, label: "1h" },
-  { value: 24, label: "24h" },
-  { value: 168, label: "7d" },
-  { value: 8760, label: "12m" },
-];
 
 const chartConfig: ChartConfig = {
   total: { label: "Total", color: "var(--chart-1)" },
   blocked: { label: "Blocked", color: "var(--chart-2)" },
 };
 
-function formatXAxis(ts: string, hours: number): string {
-  const d = new Date(ts);
+function formatXAxis(tsMs: number, range: StatsRange): string {
+  const d = new Date(tsMs);
+  const hours = RANGE_HOURS[range];
   if (hours <= 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (hours <= 168)
     return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+interface Props {
+  range: StatsRange;
+}
+
 /** Stats panel for the DNS page: top cards, time series, top tables. */
-export function DnsStatsSection() {
-  const [hours, setHours] = useState<number>(24);
-  const { data, isLoading, isError, error } = useDnsStatsDashboard(hours);
+export function DnsStatsSection({ range }: Props) {
+  // Tag zoom with the range it was committed for so it auto-invalidates
+  // when the parent changes range without needing a useEffect reset.
+  const [storedZoom, setStoredZoom] = useState<{ range: StatsRange; zoom: ZoomRange } | null>(null);
+  const zoom = storedZoom?.range === range ? storedZoom.zoom : null;
+  const setZoom = (z: ZoomRange | null) => setStoredZoom(z ? { range, zoom: z } : null);
+  const topOverride = zoom
+    ? {
+        from: new Date(Number(zoom.start)).toISOString(),
+        to: new Date(Number(zoom.end)).toISOString(),
+      }
+    : undefined;
+  const { data, isLoading, isError, error } = useDnsStatsDashboard(range, topOverride);
 
-  const series = data?.series ?? [];
+  // Numeric-timestamp chart data lets Recharts XAxis use type="number"
+  // so the domain can be constrained to the zoom window, same pattern as
+  // TunnelThroughputChart.
+  const chartSeries = useMemo(
+    () => (data?.series ?? []).map((p) => ({ ...p, tsMs: new Date(p.ts).getTime() })),
+    [data?.series],
+  );
 
-  // Brush state — tagged with a dataset key so the selection auto-resets
-  // when the range changes. Same pattern as TunnelThroughputChart.
-  const datasetKey = `${hours}|${series.length}`;
-  const [stored, setStored] = useState<{ key: string; start: number; end: number } | null>(null);
-  const brush = stored?.key === datasetKey ? stored : null;
+  const datasetKey = `${range}|${chartSeries.length}`;
+  const { chartProps, previewRange, isZoomed, reset } = useChartZoom({
+    datasetKey,
+    zoom,
+    onZoomChange: setZoom,
+  });
 
   const windowTotals = useMemo(() => {
-    if (series.length === 0) return { total: 0, blocked: 0 };
-    const start = brush ? Math.max(0, brush.start) : 0;
-    const end = brush ? Math.min(series.length - 1, brush.end) : series.length - 1;
+    if (chartSeries.length === 0) return { total: 0, blocked: 0 };
+    const startMs = zoom ? Number(zoom.start) : -Infinity;
+    const endMs = zoom ? Number(zoom.end) : Infinity;
     let total = 0;
     let blocked = 0;
-    for (let i = start; i <= end; i++) {
-      total += series[i].total;
-      blocked += series[i].blocked;
+    for (const p of chartSeries) {
+      if (p.tsMs >= startMs && p.tsMs <= endMs) {
+        total += p.total;
+        blocked += p.blocked;
+      }
     }
     return { total, blocked };
-  }, [series, brush]);
+  }, [chartSeries, zoom]);
+
+  // When zoomed, show the window duration instead of the range label and
+  // replace query/blocked counts with the zoom-filtered totals. Top blocked
+  // domain and active clients can't be filtered client-side so they keep the
+  // full-range label and values.
+  const zoomLabel = zoom ? formatZoomDuration(zoom) : null;
+  const cardTotal = zoom ? windowTotals.total : data?.total;
+  const cardBlocked = zoom ? windowTotals.blocked : data?.blocked;
+  const cardBlockedPct = zoom
+    ? windowTotals.total > 0
+      ? (windowTotals.blocked / windowTotals.total) * 100
+      : 0
+    : data?.blockedPercent;
 
   const topBlockedDomain = data?.topDomains.entries[0];
   const topBlockedLabel = topBlockedDomain
     ? (parseLabels(topBlockedDomain.labels).domain ?? "—")
     : "—";
-  const rangeLabel = RANGES.find((r) => r.value === hours)?.label ?? `${hours}h`;
 
   if (isError) {
-    return (
-      <Card error={error instanceof Error ? error.message : "Failed to load DNS stats"} />
-    );
+    return <Card error={error instanceof Error ? error.message : "Failed to load DNS stats"} />;
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <DashboardStatCard
-          title={`Queries (${rangeLabel})`}
-          value={data ? data.total.toLocaleString() : "—"}
+          title={`Queries (${zoomLabel ?? range})`}
+          value={cardTotal != null ? cardTotal.toLocaleString() : "—"}
         />
         <DashboardStatCard
-          title={`Blocked (${rangeLabel})`}
-          value={data ? `${data.blockedPercent.toFixed(1)}%` : "—"}
+          title={`Blocked (${zoomLabel ?? range})`}
+          value={cardBlockedPct != null ? `${cardBlockedPct.toFixed(1)}%` : "—"}
           subtitle={
-            data
-              ? `${data.blocked.toLocaleString()} of ${data.total.toLocaleString()}`
+            cardTotal != null && cardBlocked != null
+              ? `${cardBlocked.toLocaleString()} of ${cardTotal.toLocaleString()}`
               : undefined
           }
-          usagePercent={data?.blockedPercent}
+          usagePercent={cardBlockedPct}
         />
         <DashboardStatCard
-          title={`Top blocked (${rangeLabel})`}
+          title={`Top blocked (${zoomLabel ?? range})`}
           value={topBlockedLabel}
           subtitle={
             topBlockedDomain
@@ -93,13 +130,13 @@ export function DnsStatsSection() {
           }
         />
         <DashboardStatCard
-          title={`Active clients (${rangeLabel})`}
+          title={`Active clients (${zoomLabel ?? range})`}
           value={data ? data.topClients.entries.length.toString() : "—"}
         />
       </div>
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 @md/card-header:flex-row @md/card-header:items-center @md/card-header:justify-between">
+        <CardHeader>
           <div>
             <CardTitle>Queries over time</CardTitle>
             <p className="mt-1 text-[10px] text-ink-3">
@@ -107,86 +144,86 @@ export function DnsStatsSection() {
               {windowTotals.blocked.toLocaleString()} blocked
             </p>
           </div>
-          <Tabs value={String(hours)} onValueChange={(v) => setHours(Number(v))}>
-            <TabsList>
-              {RANGES.map((r) => (
-                <TabsTrigger key={r.value} value={String(r.value)}>
-                  {r.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex h-64 items-center justify-center text-sm text-ink-3">
-              Loading…
-            </div>
-          ) : series.length === 0 ? (
+            <div className="flex h-64 items-center justify-center text-sm text-ink-3">Loading…</div>
+          ) : chartSeries.length === 0 ? (
             <div className="flex h-64 items-center justify-center text-sm text-ink-3">
               No data yet.
             </div>
           ) : (
-          <ChartContainer config={chartConfig} className="h-64 w-full">
-            <LineChart data={series} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="ts"
-                tick={{ fontSize: 10 }}
-                minTickGap={48}
-                tickMargin={10}
-                tickFormatter={(ts: string) => formatXAxis(ts, hours)}
-              />
-              <YAxis tick={{ fontSize: 10 }} width={42} />
-              <Tooltip
-                labelFormatter={(label) =>
-                  typeof label === "string" ? formatXAxis(label, hours) : String(label)
-                }
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="total"
-                stroke="var(--color-total)"
-                strokeWidth={2}
-                dot={false}
-                name="Total"
-              />
-              <Line
-                type="monotone"
-                dataKey="blocked"
-                stroke="var(--color-blocked)"
-                strokeWidth={2}
-                dot={false}
-                name="Blocked"
-              />
-              <Brush
-                dataKey="ts"
-                height={24}
-                travellerWidth={8}
-                stroke="var(--color-total)"
-                tickFormatter={() => ""}
-                onChange={(r) => {
-                  if (typeof r?.startIndex === "number" && typeof r?.endIndex === "number") {
-                    setStored({ key: datasetKey, start: r.startIndex, end: r.endIndex });
+            <ZoomableChartContainer
+              config={chartConfig}
+              className="h-64 w-full"
+              isZoomed={isZoomed}
+              onResetZoom={reset}
+            >
+              <LineChart
+                data={chartSeries}
+                margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+                {...chartProps}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="tsMs"
+                  type="number"
+                  domain={zoom ? [zoom.start, zoom.end] : ["dataMin", "dataMax"]}
+                  allowDataOverflow
+                  tick={{ fontSize: 10 }}
+                  minTickGap={48}
+                  tickMargin={10}
+                  tickFormatter={(tsMs: number) => formatXAxis(tsMs, range)}
+                />
+                <YAxis tick={{ fontSize: 10 }} width={42} />
+                <Tooltip
+                  labelFormatter={(tsMs) =>
+                    typeof tsMs === "number" ? new Date(tsMs).toLocaleString() : String(tsMs)
                   }
-                }}
-              />
-            </LineChart>
-          </ChartContainer>
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  stroke="var(--color-total)"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Total"
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="blocked"
+                  stroke="var(--color-blocked)"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Blocked"
+                  isAnimationActive={false}
+                />
+                {previewRange && (
+                  <ReferenceArea
+                    x1={previewRange.start}
+                    x2={previewRange.end}
+                    strokeOpacity={0}
+                    fill="var(--ink-3)"
+                    fillOpacity={0.12}
+                  />
+                )}
+              </LineChart>
+            </ZoomableChartContainer>
           )}
         </CardContent>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <TopList
-          title="Top blocked domains"
+          title={`Top blocked domains (${zoomLabel ?? range})`}
           entries={data?.topDomains.entries}
           labelKey="domain"
           valueLabel="blocks"
         />
         <TopList
-          title="Top clients"
+          title={`Top clients (${zoomLabel ?? range})`}
           entries={data?.topClients.entries}
           labelKey="client"
           valueLabel="queries"
@@ -194,6 +231,17 @@ export function DnsStatsSection() {
       </div>
     </div>
   );
+}
+
+function formatZoomDuration(zoom: ZoomRange): string {
+  const totalMins = Math.round((Number(zoom.end) - Number(zoom.start)) / 60_000);
+  if (totalMins < 60) return `${totalMins}m`;
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rem = h % 24;
+  return rem > 0 ? `${d}d ${rem}h` : `${d}d`;
 }
 
 function parseLabels(json: string): Record<string, string> {

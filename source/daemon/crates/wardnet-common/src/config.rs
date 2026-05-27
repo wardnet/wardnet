@@ -286,10 +286,15 @@ pub struct TunnelConfig {
     pub idle_timeout_secs: u64,
     pub health_check_interval_secs: u64,
     pub stats_interval_secs: u64,
-    /// Cadence (seconds) at which `collect_stats` writes a row to
-    /// `tunnel_metrics_intraday`. The 5-second poll loop decimates to
-    /// this interval, accumulating the delta.
-    pub metrics_sample_interval_secs: u64,
+    /// How often the per-tunnel ICMP latency probe runs. Defaults to 60s
+    /// so each active tunnel produces one `tunnel.latency.rtt_ms` gauge
+    /// sample per minute, lining up with the stats pipeline's minute
+    /// bucket without spamming the upstream.
+    pub latency_probe_interval_secs: u64,
+    /// IP address the latency prober pings through each tunnel. Defaults
+    /// to `1.1.1.1` (Cloudflare) — a stable, low-latency public anycast
+    /// endpoint that responds to ICMP echo.
+    pub latency_probe_target: String,
     /// URL probed by the tunnel test endpoint to determine the exit IP and
     /// country. The default is Cloudflare's `cdn-cgi/trace`, which returns a
     /// `key=value` document including `ip=` and `loc=`. Overriding this
@@ -303,7 +308,8 @@ impl Default for TunnelConfig {
             idle_timeout_secs: 600,
             health_check_interval_secs: 10,
             stats_interval_secs: 5,
-            metrics_sample_interval_secs: 300,
+            latency_probe_interval_secs: 60,
+            latency_probe_target: "1.1.1.1".to_owned(),
             test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
         }
     }

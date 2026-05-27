@@ -5,6 +5,7 @@ import type { Device } from "@wardnet/js";
  * MAC casing is canonical (lowercase) on the server (issue #312), so no
  * per-key normalisation is needed.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function buildDeviceIndex(devices: Device[]): Map<string, Device> {
   const map = new Map<string, Device>();
   for (const d of devices) map.set(d.mac, d);

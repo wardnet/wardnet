@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
 import { DnsStatsSection } from "@/components/features/DnsStatsSection";
+import { Tabs, TabsList, TabsTrigger } from "@wardnet/forge-web/tabs";
 import {
   useDnsStatus,
   useDnsConfig,
@@ -24,6 +25,7 @@ import {
   useFlushDnsCache,
   useUpdateDnsConfig,
 } from "@/hooks/useDns";
+import { RANGES, type StatsRange } from "@/hooks/useStats";
 
 /** DNS server configuration page (admin only). */
 export default function Dns() {
@@ -40,6 +42,7 @@ export default function Dns() {
   // Retention edit-mode state — follows DhcpConfigCard pattern. The
   // draft is reset when leaving edit mode so subsequent edits start
   // from the latest server value.
+  const [range, setRange] = useState<StatsRange>("24h");
   const [editingRetention, setEditingRetention] = useState(false);
   const [retentionDraft, setRetentionDraft] = useState<number>(7);
 
@@ -244,8 +247,22 @@ export default function Dns() {
             onUpdate={(servers) => updateConfig.mutate({ upstream_servers: servers })}
           />
 
-          {/* DNS query stats — config cards first, metrics below (TunnelDetail pattern). */}
-          <DnsStatsSection />
+          {/* DNS query stats — range tabs above the section; state lifted
+              here because the range controls cards, chart, and top lists. */}
+          <div className="col gap-4">
+            <div className="flex justify-end">
+              <Tabs value={range} onValueChange={(v) => setRange(v as StatsRange)}>
+                <TabsList>
+                  {RANGES.map((r) => (
+                    <TabsTrigger key={r.value} value={r.value}>
+                      {r.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
+            <DnsStatsSection range={range} />
+          </div>
         </div>
       )}
     </div>

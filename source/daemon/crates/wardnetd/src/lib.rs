@@ -10,6 +10,7 @@ pub mod packet_capture_pnet;
 pub mod policy_router_netlink;
 pub mod tunnel_exit_probe;
 pub mod tunnel_interface_wireguard;
+pub mod tunnel_latency_prober;
 
 // DHCP/DNS server implementations.
 pub mod dhcp;

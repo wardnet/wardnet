@@ -141,18 +141,6 @@ impl TunnelService for MockTunnelService {
             .ok_or_else(|| AppError::NotFound(format!("tunnel {id} not found")))
     }
 
-    async fn get_metrics(
-        &self,
-        _id: Uuid,
-        range: wardnet_common::api::TunnelMetricsRange,
-    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
-        Ok(wardnet_common::api::TunnelMetricsResponse {
-            range,
-            interval_secs: 300,
-            points: Vec::new(),
-        })
-    }
-
     async fn list_tunnel_devices(
         &self,
         _id: Uuid,
@@ -219,8 +207,7 @@ impl TunnelService for MockTunnelService {
     async fn run_health_check(&self) -> Result<(), AppError> {
         Ok(())
     }
-
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
+    async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -282,10 +269,6 @@ fn tunnel_router(state: AppState) -> Router {
         .route(
             "/api/tunnels/{id}",
             get(crate::api::tunnels::get_tunnel).delete(crate::api::tunnels::delete_tunnel),
-        )
-        .route(
-            "/api/tunnels/{id}/metrics",
-            get(crate::api::tunnels::get_tunnel_metrics),
         )
         .route(
             "/api/tunnels/{id}/devices",
@@ -632,83 +615,6 @@ async fn get_tunnel_unauthorized_without_session() {
         .oneshot(
             Request::builder()
                 .uri("/api/tunnels/00000000-0000-0000-0000-000000000010")
-                .extension(connect_info())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-}
-
-// ---------------------------------------------------------------------------
-// GET /api/tunnels/:id/metrics
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn get_metrics_default_range_is_24h() {
-    let state = build_state(MockTunnelService::empty());
-    let app = tunnel_router(state);
-
-    let (status, json) = get_json(
-        app,
-        "/api/tunnels/00000000-0000-0000-0000-000000000010/metrics",
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["range"], "24h");
-    assert_eq!(json["interval_secs"], 300);
-    assert!(json["points"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn get_metrics_explicit_range_is_passed_through() {
-    let state = build_state(MockTunnelService::empty());
-    let app = tunnel_router(state);
-
-    let (status, json) = get_json(
-        app,
-        "/api/tunnels/00000000-0000-0000-0000-000000000010/metrics?range=12mo",
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["range"], "12mo");
-}
-
-#[tokio::test]
-async fn get_metrics_invalid_range_returns_error() {
-    let state = build_state(MockTunnelService::empty());
-    let app = tunnel_router(state);
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/metrics?range=nope")
-                .header("Cookie", "wardnet_session=valid-token")
-                .extension(connect_info())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = resp.status();
-    assert!(
-        status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
-        "expected 400 or 422, got {status}"
-    );
-}
-
-#[tokio::test]
-async fn get_metrics_unauthorized_without_session() {
-    let state = build_state(MockTunnelService::empty());
-    let app = tunnel_router(state);
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/metrics")
                 .extension(connect_info())
                 .body(Body::empty())
                 .unwrap(),

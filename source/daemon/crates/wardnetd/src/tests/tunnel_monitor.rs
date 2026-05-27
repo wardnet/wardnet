@@ -19,8 +19,10 @@ use crate::tunnel_monitor::TunnelMonitor;
 struct MockTunnelService {
     collect_stats_count: AtomicU32,
     health_check_count: AtomicU32,
+    latency_probe_count: AtomicU32,
     collect_stats_error: AtomicBool,
     health_check_error: AtomicBool,
+    latency_probe_error: AtomicBool,
 }
 
 impl MockTunnelService {
@@ -28,8 +30,10 @@ impl MockTunnelService {
         Self {
             collect_stats_count: AtomicU32::new(0),
             health_check_count: AtomicU32::new(0),
+            latency_probe_count: AtomicU32::new(0),
             collect_stats_error: AtomicBool::new(false),
             health_check_error: AtomicBool::new(false),
+            latency_probe_error: AtomicBool::new(false),
         }
     }
 
@@ -42,6 +46,12 @@ impl MockTunnelService {
     fn with_health_check_error() -> Self {
         let svc = Self::new();
         svc.health_check_error.store(true, Ordering::SeqCst);
+        svc
+    }
+
+    fn with_latency_probe_error() -> Self {
+        let svc = Self::new();
+        svc.latency_probe_error.store(true, Ordering::SeqCst);
         svc
     }
 }
@@ -64,13 +74,6 @@ impl TunnelService for MockTunnelService {
         &self,
         _id: Uuid,
     ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
-        unimplemented!()
-    }
-    async fn get_metrics(
-        &self,
-        _id: Uuid,
-        _range: wardnet_common::api::TunnelMetricsRange,
-    ) -> Result<wardnet_common::api::TunnelMetricsResponse, AppError> {
         unimplemented!()
     }
     async fn list_tunnel_devices(
@@ -125,7 +128,13 @@ impl TunnelService for MockTunnelService {
         Ok(())
     }
 
-    async fn run_metrics_maintenance(&self) -> Result<(), AppError> {
+    async fn probe_latencies(&self) -> Result<(), AppError> {
+        self.latency_probe_count.fetch_add(1, Ordering::SeqCst);
+        if self.latency_probe_error.load(Ordering::SeqCst) {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "simulated probe_latencies error"
+            )));
+        }
         Ok(())
     }
 }
@@ -137,7 +146,7 @@ async fn stats_loop_calls_collect_stats() {
     let svc = Arc::new(MockTunnelService::new());
 
     let parent = tracing::info_span!("test");
-    let monitor = TunnelMonitor::start(svc.clone(), 1, 60, &parent);
+    let monitor = TunnelMonitor::start(svc.clone(), 1, 60, 600, &parent);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
     monitor.shutdown().await;
@@ -153,7 +162,7 @@ async fn health_loop_calls_run_health_check() {
     let svc = Arc::new(MockTunnelService::new());
 
     let parent = tracing::info_span!("test");
-    let monitor = TunnelMonitor::start(svc.clone(), 60, 1, &parent);
+    let monitor = TunnelMonitor::start(svc.clone(), 60, 1, 600, &parent);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
     monitor.shutdown().await;
@@ -169,7 +178,7 @@ async fn collect_stats_error_does_not_panic() {
     let svc = Arc::new(MockTunnelService::with_collect_stats_error());
 
     let parent = tracing::info_span!("test");
-    let monitor = TunnelMonitor::start(svc.clone(), 1, 60, &parent);
+    let monitor = TunnelMonitor::start(svc.clone(), 1, 60, 600, &parent);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
     monitor.shutdown().await;
@@ -183,7 +192,7 @@ async fn health_check_error_does_not_panic() {
     let svc = Arc::new(MockTunnelService::with_health_check_error());
 
     let parent = tracing::info_span!("test");
-    let monitor = TunnelMonitor::start(svc.clone(), 60, 1, &parent);
+    let monitor = TunnelMonitor::start(svc.clone(), 60, 1, 600, &parent);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
     monitor.shutdown().await;
@@ -192,11 +201,40 @@ async fn health_check_error_does_not_panic() {
 }
 
 #[tokio::test]
+async fn latency_loop_calls_probe_latencies() {
+    let svc = Arc::new(MockTunnelService::new());
+
+    let parent = tracing::info_span!("test");
+    let monitor = TunnelMonitor::start(svc.clone(), 60, 60, 1, &parent);
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+    monitor.shutdown().await;
+
+    assert!(
+        svc.latency_probe_count.load(Ordering::SeqCst) > 0,
+        "expected at least one probe_latencies call"
+    );
+}
+
+#[tokio::test]
+async fn latency_probe_error_does_not_panic() {
+    let svc = Arc::new(MockTunnelService::with_latency_probe_error());
+
+    let parent = tracing::info_span!("test");
+    let monitor = TunnelMonitor::start(svc.clone(), 60, 60, 1, &parent);
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+    monitor.shutdown().await;
+
+    assert!(svc.latency_probe_count.load(Ordering::SeqCst) > 0);
+}
+
+#[tokio::test]
 async fn shutdown_stops_both_loops() {
     let svc = Arc::new(MockTunnelService::new());
 
     let parent = tracing::info_span!("test");
-    let monitor = TunnelMonitor::start(svc, 1, 1, &parent);
+    let monitor = TunnelMonitor::start(svc, 1, 1, 1, &parent);
 
     // Shutdown immediately — should complete without hanging.
     monitor.shutdown().await;
