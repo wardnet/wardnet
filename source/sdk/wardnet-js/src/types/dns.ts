@@ -72,15 +72,21 @@ export interface DnsCacheFlushResponse {
 
 /** Result classification for a DNS query.
  *
+ *  Each value is the canonical snake_case string written by the DNS resolver to
+ *  the database. Both the paginated REST endpoint (`GET /api/dns/log`) and the
+ *  live-stream WebSocket (`/api/dns/log/stream`) serialise this enum, so a
+ *  given DB row will render the same badge regardless of which path served it.
+ *
  *  `blocked_skipped` is recorded when a query *would* have been blocked but the
  *  per-device kill switch (or global emergency stop) suppressed the block. */
 export type DnsQueryResult =
   | "forwarded"
-  | "cached"
+  | "cache_hit"
   | "blocked"
   | "blocked_skipped"
-  | "local"
+  | "rewritten"
   | "recursive"
+  | "upstream_error"
   | "error";
 
 /** A single entry in the persisted DNS query log. */
@@ -102,8 +108,7 @@ export interface QueryLogEvent {
   client_ip: string;
   domain: string;
   query_type: string;
-  /** Raw result string; superset of `DnsQueryResult` (includes `cache_hit`, `rewritten`, `upstream_error`). */
-  result: string;
+  result: DnsQueryResult;
   upstream?: string | null;
   latency_ms: number;
   device_id?: string | null;
@@ -114,7 +119,7 @@ export interface ListQueryLogParams {
   offset?: number;
   domain?: string;
   client_ip?: string;
-  result?: string;
+  result?: DnsQueryResult;
 }
 
 export interface ListQueryLogResponse {

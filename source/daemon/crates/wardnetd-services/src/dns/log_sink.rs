@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::{broadcast, mpsc};
 use wardnet_common::api::QueryLogEvent;
+use wardnet_common::dns::DnsQueryResult;
 use wardnetd_data::repository::QueryLogRow;
 
 use crate::stats::meter::{Counter, Gauge, Meter};
@@ -153,7 +154,7 @@ pub fn row_to_event(row: &QueryLogRow) -> QueryLogEvent {
         client_ip: row.client_ip.clone(),
         domain: row.domain.clone(),
         query_type: row.query_type.clone(),
-        result: row.result.clone(),
+        result: DnsQueryResult::parse(&row.result),
         upstream: row.upstream.clone(),
         latency_ms: row.latency_ms,
         device_id: row.device_id.clone(),

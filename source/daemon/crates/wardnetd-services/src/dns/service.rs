@@ -317,7 +317,7 @@ impl DnsService for DnsServiceImpl {
         let filter = QueryLogFilter {
             client_ip: params.client_ip,
             domain: params.domain,
-            result: params.result,
+            result: params.result, // already Option<DnsQueryResult>
         };
 
         let rows = self
@@ -345,7 +345,7 @@ impl DnsService for DnsServiceImpl {
                     client_ip: row.client_ip,
                     domain: row.domain,
                     query_type: row.query_type,
-                    result: parse_dns_query_result(&row.result),
+                    result: DnsQueryResult::parse(&row.result),
                     upstream: row.upstream,
                     latency_ms: row.latency_ms,
                     device_id,
@@ -376,16 +376,4 @@ fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>>
     use chrono::NaiveDateTime;
     let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?;
     Ok(chrono::TimeZone::from_utc_datetime(&chrono::Utc, &naive))
-}
-
-fn parse_dns_query_result(s: &str) -> DnsQueryResult {
-    match s {
-        "forwarded" => DnsQueryResult::Forwarded,
-        "cache_hit" | "cached" => DnsQueryResult::Cached,
-        "blocked" => DnsQueryResult::Blocked,
-        "blocked_skipped" => DnsQueryResult::BlockedSkipped,
-        "rewritten" | "local" => DnsQueryResult::Local,
-        "recursive" => DnsQueryResult::Recursive,
-        _ => DnsQueryResult::Error,
-    }
 }

@@ -68,7 +68,12 @@ impl ClientFilter {
         if !self.client_ip.is_empty() && event.client_ip != self.client_ip {
             return false;
         }
-        if !self.results.is_empty() && !self.results.iter().any(|r| r == &event.result) {
+        if !self.results.is_empty()
+            && !self
+                .results
+                .iter()
+                .any(|r| r.as_str() == event.result.as_str())
+        {
             return false;
         }
         true
@@ -144,6 +149,7 @@ async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<QueryL
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    use wardnet_common::dns::DnsQueryResult;
 
     fn event(domain: &str, ip: &str, result: &str) -> QueryLogEvent {
         QueryLogEvent {
@@ -151,7 +157,7 @@ mod unit_tests {
             client_ip: ip.to_owned(),
             domain: domain.to_owned(),
             query_type: "A".to_owned(),
-            result: result.to_owned(),
+            result: DnsQueryResult::parse(result),
             upstream: None,
             latency_ms: 0.0,
             device_id: None,

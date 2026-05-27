@@ -201,25 +201,131 @@ pub struct ConditionalForwardingRule {
 }
 
 /// Result classification for a DNS query.
+///
+/// Each variant's `snake_case` serialisation exactly matches the string the DNS
+/// resolver writes to the `dns_query_log.result` column, so no translation is
+/// needed between the DB and the API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsQueryResult {
     /// Answered by upstream server.
     Forwarded,
-    /// Answered from cache.
-    Cached,
+    /// Answered from cache — resolver string `"cache_hit"`.
+    CacheHit,
     /// Blocked by the DNS filter.
     Blocked,
     /// Filter would have blocked the query, but the per-device kill switch
     /// (or the global emergency stop) suppressed the block. Surfaced in the
     /// query log so admins can see what filtering would catch.
     BlockedSkipped,
-    /// Answered by a custom local record or zone.
-    Local,
+    /// Answered by a custom local record or zone — resolver string `"rewritten"`.
+    Rewritten,
     /// Resolved recursively from root servers.
     Recursive,
-    /// Resolution failed.
+    /// Upstream resolver returned an error — resolver string `"upstream_error"`.
+    UpstreamError,
+    /// Resolution failed (parse fallback for unrecognised strings).
     Error,
+}
+
+impl DnsQueryResult {
+    /// Return the canonical `snake_case` string that the DNS resolver writes to
+    /// the `dns_query_log.result` column. Inverse of [`DnsQueryResult::parse`].
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Forwarded => "forwarded",
+            Self::CacheHit => "cache_hit",
+            Self::Blocked => "blocked",
+            Self::BlockedSkipped => "blocked_skipped",
+            Self::Rewritten => "rewritten",
+            Self::Recursive => "recursive",
+            Self::UpstreamError => "upstream_error",
+            Self::Error => "error",
+        }
+    }
+
+    /// Parse a raw DB / resolver string into the correct variant.
+    ///
+    /// Every string the DNS resolver writes to the database is matched
+    /// exactly. Unknown strings emit a [`tracing::warn!`] and fall back to
+    /// [`DnsQueryResult::Error`] so callers always get a typed value.
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "forwarded" => Self::Forwarded,
+            "cache_hit" => Self::CacheHit,
+            "blocked" => Self::Blocked,
+            "blocked_skipped" => Self::BlockedSkipped,
+            "rewritten" => Self::Rewritten,
+            "recursive" => Self::Recursive,
+            "upstream_error" => Self::UpstreamError,
+            other => {
+                tracing::warn!(
+                    result = other,
+                    "unknown DNS result string; defaulting to Error"
+                );
+                Self::Error
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_all_resolver_strings() {
+        assert_eq!(
+            DnsQueryResult::parse("forwarded"),
+            DnsQueryResult::Forwarded
+        );
+        assert_eq!(DnsQueryResult::parse("cache_hit"), DnsQueryResult::CacheHit);
+        assert_eq!(DnsQueryResult::parse("blocked"), DnsQueryResult::Blocked);
+        assert_eq!(
+            DnsQueryResult::parse("blocked_skipped"),
+            DnsQueryResult::BlockedSkipped
+        );
+        assert_eq!(
+            DnsQueryResult::parse("rewritten"),
+            DnsQueryResult::Rewritten
+        );
+        assert_eq!(
+            DnsQueryResult::parse("recursive"),
+            DnsQueryResult::Recursive
+        );
+        assert_eq!(
+            DnsQueryResult::parse("upstream_error"),
+            DnsQueryResult::UpstreamError
+        );
+    }
+
+    #[test]
+    fn parse_unknown_falls_back_to_error() {
+        assert_eq!(DnsQueryResult::parse("gibberish"), DnsQueryResult::Error);
+        assert_eq!(DnsQueryResult::parse(""), DnsQueryResult::Error);
+        // Old aliases no longer accepted — the migration removes those rows.
+        assert_eq!(DnsQueryResult::parse("cached"), DnsQueryResult::Error);
+        assert_eq!(DnsQueryResult::parse("local"), DnsQueryResult::Error);
+    }
+
+    #[test]
+    fn as_str_round_trips_through_parse() {
+        let variants = [
+            DnsQueryResult::Forwarded,
+            DnsQueryResult::CacheHit,
+            DnsQueryResult::Blocked,
+            DnsQueryResult::BlockedSkipped,
+            DnsQueryResult::Rewritten,
+            DnsQueryResult::Recursive,
+            DnsQueryResult::UpstreamError,
+            DnsQueryResult::Error,
+        ];
+        for v in variants {
+            assert_eq!(DnsQueryResult::parse(v.as_str()), v);
+        }
+    }
 }
 
 /// A single entry in the DNS query log.
