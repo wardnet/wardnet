@@ -10,10 +10,10 @@ use axum::routing::get;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
-use wardnetd_services::AuthService;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -66,10 +66,7 @@ impl AuthService for AlwaysAuthService {
 
 fn logs_ws_app(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/api/system/logs/stream",
-            get(crate::api::logs_ws::logs_ws),
-        )
+        .route("/api/system/logs/stream", get(crate::api::logs_ws::logs_ws))
         .with_state(state)
 }
 
