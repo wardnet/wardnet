@@ -214,6 +214,31 @@ async fn flush_no_op_on_empty_buffer() {
     assert!(repo.inserts.lock().unwrap().is_empty());
 }
 
+/// Repo whose `cleanup_query_log` always returns Err — exercises the error
+/// branch of [`crate::dns::query_log_runner::cleanup`].
+struct CleanupFailingRepo;
+
+#[async_trait]
+impl DnsRepository for CleanupFailingRepo {
+    async fn insert_query_log_batch(&self, _entries: &[QueryLogRow]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn query_log_paginated(
+        &self,
+        _limit: u32,
+        _offset: u32,
+        _filter: &QueryLogFilter,
+    ) -> anyhow::Result<Vec<QueryLogRow>> {
+        Ok(Vec::new())
+    }
+    async fn query_log_count(&self, _filter: &QueryLogFilter) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn cleanup_query_log(&self, _retention_days: u32) -> anyhow::Result<u64> {
+        Err(anyhow::anyhow!("synthetic cleanup failure"))
+    }
+}
+
 /// Repo whose `insert_query_log_batch` always returns Err.
 struct InsertFailingRepo;
 
@@ -328,4 +353,15 @@ async fn cleanup_skips_when_disabled() {
     };
     crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
     assert!(repo.cleanups.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn cleanup_logs_error_on_repo_failure() {
+    let service: Arc<dyn DnsService> = Arc::new(MockService { enabled: true });
+    let repo = CleanupFailingRepo;
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    // Must not panic — the error is logged and swallowed.
+    crate::dns::query_log_runner::cleanup(&service, &repo, &admin_ctx).await;
 }
