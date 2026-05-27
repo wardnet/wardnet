@@ -16555,7 +16555,7 @@
               "string",
               "null"
             ],
-            "description": "`None` (omitted) = leave unchanged. `Some(None)` (`null`) = clear.\n`Some(Some(s))` = replace with `s` (max 200 characters)."
+            "description": "`undefined` / omitted = leave unchanged. `null` = clear. `string` = set.\n\nStandard serde cannot distinguish \"field absent\" from \"field: null\" for\n`Option<T>`. The custom deserializer below wraps the inner deserialize so\nthat `null` → `Some(None)` and absent → `None`, giving us three states."
           },
           "name": {
             "type": [

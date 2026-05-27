@@ -947,9 +947,16 @@ pub struct CreateProfileResponse {
 pub struct UpdateProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// `None` (omitted) = leave unchanged. `Some(None)` (`null`) = clear.
-    /// `Some(Some(s))` = replace with `s` (max 200 characters).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `undefined` / omitted = leave unchanged. `null` = clear. `string` = set.
+    ///
+    /// Standard serde cannot distinguish "field absent" from "field: null" for
+    /// `Option<T>`. The custom deserializer below wraps the inner deserialize so
+    /// that `null` → `Some(None)` and absent → `None`, giving us three states.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_field"
+    )]
     pub description: Option<Option<String>>,
 }
 
