@@ -11,6 +11,7 @@
 //! query log table.
 
 use async_trait::async_trait;
+use wardnet_common::dns::DnsQueryResult;
 
 #[async_trait]
 pub trait DnsRepository: Send + Sync {
@@ -52,5 +53,5 @@ pub struct QueryLogRow {
 pub struct QueryLogFilter {
     pub client_ip: Option<String>,
     pub domain: Option<String>,
-    pub result: Option<String>,
+    pub result: Option<DnsQueryResult>,
 }

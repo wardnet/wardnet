@@ -7374,9 +7374,13 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/DnsQueryResult"
+                }
               ]
             }
           }
@@ -14389,14 +14393,15 @@
       },
       "DnsQueryResult": {
         "type": "string",
-        "description": "Result classification for a DNS query.",
+        "description": "Result classification for a DNS query.\n\nEach variant's `snake_case` serialisation exactly matches the string the DNS\nresolver writes to the `dns_query_log.result` column, so no translation is\nneeded between the DB and the API.",
         "enum": [
           "forwarded",
-          "cached",
+          "cache_hit",
           "blocked",
           "blocked_skipped",
-          "local",
+          "rewritten",
           "recursive",
+          "upstream_error",
           "error"
         ]
       },

@@ -19,7 +19,7 @@ import { useDevices } from "@/hooks/useDevices";
 import { useDnsQueryLog } from "@/hooks/useDnsLogs";
 import { useDnsLogStore } from "@/stores/dnsLogStore";
 import { formatTime } from "@/lib/utils";
-import type { DnsQueryLogEntry, QueryLogEvent } from "@wardnet/js";
+import type { DnsQueryLogEntry, DnsQueryResult, QueryLogEvent } from "@wardnet/js";
 
 interface RowShape {
   timestamp: string;
@@ -38,10 +38,9 @@ const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> = 
   upstream_error: "down",
   forwarded: "ghost",
   cache_hit: "ghost",
-  cached: "ghost",
   rewritten: "info",
-  local: "info",
   recursive: "info",
+  error: "warn",
 };
 
 const RESULT_LABEL: Record<string, string> = {
@@ -107,7 +106,7 @@ export default function DnsLogs() {
       offset: page * PAGE_SIZE,
       domain: domain || undefined,
       client_ip: clientIp || undefined,
-      result: result === "any" ? undefined : result,
+      result: result === "any" ? undefined : (result as DnsQueryResult),
     }),
     [domain, clientIp, result, page],
   );

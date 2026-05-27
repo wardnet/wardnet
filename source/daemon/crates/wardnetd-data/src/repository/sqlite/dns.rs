@@ -140,9 +140,9 @@ fn build_where(filter: &QueryLogFilter) -> (String, Vec<String>) {
         conditions.push("domain LIKE ?");
         binds.push(format!("%{domain}%"));
     }
-    if let Some(ref result) = filter.result {
+    if let Some(result) = filter.result {
         conditions.push("result = ?");
-        binds.push(result.clone());
+        binds.push(result.as_str().to_owned());
     }
     let where_clause = if conditions.is_empty() {
         String::new()

@@ -2,6 +2,7 @@ use super::test_pool;
 use crate::repository::SqliteDnsRepository;
 use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 use chrono::Utc;
+use wardnet_common::dns::DnsQueryResult;
 
 fn ts_now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
@@ -102,7 +103,7 @@ async fn query_log_filter_by_result() {
     repo.insert_query_log_batch(&entries).await.unwrap();
 
     let filter = QueryLogFilter {
-        result: Some("blocked".to_owned()),
+        result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
     let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
@@ -146,7 +147,7 @@ async fn query_log_count_with_filter() {
     repo.insert_query_log_batch(&entries).await.unwrap();
 
     let filter = QueryLogFilter {
-        result: Some("blocked".to_owned()),
+        result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
     let count = repo.query_log_count(&filter).await.unwrap();
@@ -154,7 +155,7 @@ async fn query_log_count_with_filter() {
 
     let combined = QueryLogFilter {
         client_ip: Some("10.0.0.2".to_owned()),
-        result: Some("blocked".to_owned()),
+        result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
     let count2 = repo.query_log_count(&combined).await.unwrap();

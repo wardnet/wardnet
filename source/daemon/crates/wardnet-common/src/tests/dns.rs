@@ -122,10 +122,12 @@ fn dns_record_type_screaming_snake_rename() {
 fn dns_query_result_round_trip() {
     for result in [
         DnsQueryResult::Forwarded,
-        DnsQueryResult::Cached,
+        DnsQueryResult::CacheHit,
         DnsQueryResult::Blocked,
-        DnsQueryResult::Local,
+        DnsQueryResult::BlockedSkipped,
+        DnsQueryResult::Rewritten,
         DnsQueryResult::Recursive,
+        DnsQueryResult::UpstreamError,
         DnsQueryResult::Error,
     ] {
         let json = serde_json::to_string(&result).unwrap();

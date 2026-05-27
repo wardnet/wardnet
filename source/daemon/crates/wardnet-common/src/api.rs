@@ -6,7 +6,7 @@ use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, DnsQueryLogEntry,
-    UpstreamDns,
+    DnsQueryResult, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
@@ -1190,7 +1190,7 @@ pub struct ListQueryLogParams {
     #[serde(default)]
     pub client_ip: Option<String>,
     #[serde(default)]
-    pub result: Option<String>,
+    pub result: Option<DnsQueryResult>,
 }
 
 /// Response for `GET /api/dns/log`.
@@ -1209,7 +1209,7 @@ pub struct QueryLogEvent {
     pub client_ip: String,
     pub domain: String,
     pub query_type: String,
-    pub result: String,
+    pub result: DnsQueryResult,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<String>,
     pub latency_ms: f64,
