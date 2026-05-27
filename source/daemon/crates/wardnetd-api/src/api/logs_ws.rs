@@ -36,7 +36,7 @@ fn level_priority(level: &str) -> u8 {
 /// extractor refuses the upgrade when the caller has no admin session,
 /// so unauthenticated clients see 401 instead of an upgrade.
 ///
-/// Once connected the client can send filter commands at any time:
+/// Once connected, the client can send filter commands at any time:
 ///
 /// ```json
 /// {"type": "set_filter", "level": "warn", "target": "wardnetd::service"}
