@@ -927,6 +927,9 @@ pub struct GetProfileResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProfileRequest {
     pub name: String,
+    /// Optional free-text annotation (max 200 characters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Response for POST /api/dns/filter/profiles.
@@ -937,10 +940,17 @@ pub struct CreateProfileResponse {
 }
 
 /// Request body for PUT /api/dns/filter/profiles/{id}.
+///
+/// All fields are partial-update: omitting them from JSON leaves the stored
+/// value unchanged. Pass `description: null` to clear an existing description.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// `None` (omitted) = leave unchanged. `Some(None)` (`null`) = clear.
+    /// `Some(Some(s))` = replace with `s` (max 200 characters).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<Option<String>>,
 }
 
 /// Response for PUT /api/dns/filter/profiles/{id}.

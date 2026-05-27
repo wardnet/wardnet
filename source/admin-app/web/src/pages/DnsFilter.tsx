@@ -107,6 +107,9 @@ export default function DnsFilter() {
                   </Pill>
                 )}
               </div>
+              {row.original.description && (
+                <span className="truncate text-xs text-ink-3">{row.original.description}</span>
+              )}
             </div>
           </div>
         ),

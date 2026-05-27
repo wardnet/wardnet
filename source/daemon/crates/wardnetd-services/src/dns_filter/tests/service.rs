@@ -331,6 +331,7 @@ async fn create_profile_round_trips() {
             .service
             .create_profile(CreateProfileRequest {
                 name: "Custom".into(),
+                description: None,
             })
             .await
             .unwrap();
@@ -351,6 +352,7 @@ async fn create_profile_rejects_empty_name() {
             .service
             .create_profile(CreateProfileRequest {
                 name: String::new(),
+                description: None,
             })
             .await
             .unwrap_err();
@@ -388,6 +390,7 @@ async fn update_profile_renames() {
             .service
             .create_profile(CreateProfileRequest {
                 name: "Original".into(),
+                description: None,
             })
             .await
             .unwrap();
@@ -397,6 +400,7 @@ async fn update_profile_renames() {
                 created.profile.id,
                 UpdateProfileRequest {
                     name: Some("Renamed".into()),
+                    ..Default::default()
                 },
             )
             .await
@@ -849,6 +853,7 @@ async fn update_profile_rejects_empty_name() {
             .service
             .create_profile(CreateProfileRequest {
                 name: "Original".into(),
+                description: None,
             })
             .await
             .unwrap();
@@ -858,6 +863,7 @@ async fn update_profile_rejects_empty_name() {
                 created.profile.id,
                 UpdateProfileRequest {
                     name: Some(String::new()),
+                    ..Default::default()
                 },
             )
             .await
@@ -877,11 +883,159 @@ async fn update_profile_unknown_id_returns_not_found() {
                 Uuid::new_v4(),
                 UpdateProfileRequest {
                     name: Some("X".into()),
+                    ..Default::default()
                 },
             )
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_profile_with_description_round_trips() {
+    let h = build().await;
+    as_admin(async {
+        let resp = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "With Desc".into(),
+                description: Some("A test description".into()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.profile.description.as_deref(),
+            Some("A test description")
+        );
+        let fetched = h.service.get_profile(resp.profile.id).await.unwrap();
+        assert_eq!(
+            fetched.profile.description.as_deref(),
+            Some("A test description")
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_profile_rejects_description_over_200_chars() {
+    let h = build().await;
+    as_admin(async {
+        let err = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "Long".into(),
+                description: Some("x".repeat(201)),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_sets_description() {
+    let h = build().await;
+    as_admin(async {
+        let created = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "No Desc".into(),
+                description: None,
+            })
+            .await
+            .unwrap();
+        let updated = h
+            .service
+            .update_profile(
+                created.profile.id,
+                UpdateProfileRequest {
+                    description: Some(Some("Added later".into())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.profile.description.as_deref(), Some("Added later"));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_clears_description() {
+    let h = build().await;
+    as_admin(async {
+        let created = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "Has Desc".into(),
+                description: Some("Will be cleared".into()),
+            })
+            .await
+            .unwrap();
+        let updated = h
+            .service
+            .update_profile(
+                created.profile.id,
+                UpdateProfileRequest {
+                    description: Some(None), // explicit null = clear
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(updated.profile.description.is_none());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_on_builtin_returns_conflict() {
+    let h = build().await;
+    as_admin(async {
+        let id = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let err = h
+            .service
+            .update_profile(
+                id,
+                UpdateProfileRequest {
+                    name: Some("Hacked".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn update_profile_rejects_description_over_200_chars() {
+    let h = build().await;
+    as_admin(async {
+        let created = h
+            .service
+            .create_profile(CreateProfileRequest {
+                name: "Desc".into(),
+                description: None,
+            })
+            .await
+            .unwrap();
+        let err = h
+            .service
+            .update_profile(
+                created.profile.id,
+                UpdateProfileRequest {
+                    description: Some(Some("x".repeat(201))),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
     })
     .await;
 }
@@ -1082,6 +1236,7 @@ async fn delete_custom_profile_publishes_membership_event() {
             .service
             .create_profile(CreateProfileRequest {
                 name: "delete-me".into(),
+                description: None,
             })
             .await
             .unwrap();

@@ -6,6 +6,8 @@
 export interface DnsFilterProfile {
   id: string;
   name: string;
+  /** Optional operator-supplied annotation. Builtin profiles carry a seeded description; custom profiles default to `null`. */
+  description: string | null;
   builtin: boolean;
   created_at: string;
   updated_at: string;
@@ -89,6 +91,8 @@ export interface GetProfileResponse {
 
 export interface CreateProfileRequest {
   name: string;
+  /** Optional free-text annotation (max 200 characters). */
+  description?: string;
 }
 
 export interface CreateProfileResponse {
@@ -98,6 +102,8 @@ export interface CreateProfileResponse {
 
 export interface UpdateProfileRequest {
   name?: string;
+  /** `undefined` = leave unchanged. `null` = clear. `string` = set to new value (max 200 characters). */
+  description?: string | null;
 }
 
 export interface UpdateProfileResponse {

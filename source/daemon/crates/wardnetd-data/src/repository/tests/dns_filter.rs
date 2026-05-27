@@ -100,18 +100,43 @@ async fn migration_sets_default_profile_to_ad_blocking() {
 // ── Profile CRUD ──────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn create_and_rename_user_profile() {
+async fn create_and_update_user_profile() {
     let pool = test_pool().await;
     let repo = SqliteDnsFilterRepository::new(pool);
 
     let id = Uuid::new_v4();
-    let p = repo.create_profile(id, "Kids").await.unwrap();
+    let p = repo.create_profile(id, "Kids", None).await.unwrap();
     assert_eq!(p.id, id);
     assert!(!p.builtin);
+    assert!(p.description.is_none());
 
-    assert!(repo.rename_profile(id, "Family").await.unwrap());
+    // Rename only.
+    assert!(
+        repo.update_profile_fields(id, Some("Family"), None)
+            .await
+            .unwrap()
+    );
     let fetched = repo.get_profile(id).await.unwrap().unwrap();
     assert_eq!(fetched.name, "Family");
+    assert!(fetched.description.is_none());
+
+    // Set description.
+    assert!(
+        repo.update_profile_fields(id, None, Some(Some("A family profile")))
+            .await
+            .unwrap()
+    );
+    let fetched = repo.get_profile(id).await.unwrap().unwrap();
+    assert_eq!(fetched.description.as_deref(), Some("A family profile"));
+
+    // Clear description.
+    assert!(
+        repo.update_profile_fields(id, None, Some(None))
+            .await
+            .unwrap()
+    );
+    let fetched = repo.get_profile(id).await.unwrap().unwrap();
+    assert!(fetched.description.is_none());
 }
 
 #[tokio::test]
@@ -133,7 +158,7 @@ async fn delete_user_profile_succeeds() {
     let repo = SqliteDnsFilterRepository::new(pool);
 
     let id = Uuid::new_v4();
-    repo.create_profile(id, "Temp").await.unwrap();
+    repo.create_profile(id, "Temp", None).await.unwrap();
 
     assert!(repo.delete_profile(id).await.unwrap());
     assert!(repo.get_profile(id).await.unwrap().is_none());
@@ -147,7 +172,7 @@ async fn blocklists_are_scoped_to_their_profile() {
     let repo = SqliteDnsFilterRepository::new(pool);
 
     let custom = Uuid::new_v4();
-    repo.create_profile(custom, "Custom").await.unwrap();
+    repo.create_profile(custom, "Custom", None).await.unwrap();
 
     let bl_id = Uuid::new_v4();
     repo.create_blocklist(&BlocklistRow {
@@ -502,8 +527,8 @@ async fn set_dns_filter_config_round_trip() {
 
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
-    repo.create_profile(a, "First").await.unwrap();
-    repo.create_profile(b, "Second").await.unwrap();
+    repo.create_profile(a, "First", None).await.unwrap();
+    repo.create_profile(b, "Second", None).await.unwrap();
 
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: false,
@@ -528,8 +553,8 @@ async fn set_dns_filter_config_replaces_default_set() {
 
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
-    repo.create_profile(a, "A").await.unwrap();
-    repo.create_profile(b, "B").await.unwrap();
+    repo.create_profile(a, "A", None).await.unwrap();
+    repo.create_profile(b, "B", None).await.unwrap();
 
     // Seed a multi-profile default, then replace it with a single id.
     repo.set_dns_filter_config(&DnsFilterConfig {
@@ -572,7 +597,7 @@ async fn deleting_profile_cascades_default_membership() {
     let repo = SqliteDnsFilterRepository::new(pool);
 
     let p = Uuid::new_v4();
-    repo.create_profile(p, "Doomed").await.unwrap();
+    repo.create_profile(p, "Doomed", None).await.unwrap();
 
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,

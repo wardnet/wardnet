@@ -95,8 +95,20 @@ pub trait DnsFilterRepository: Send + Sync {
 
     async fn list_profiles(&self) -> anyhow::Result<Vec<DnsFilterProfile>>;
     async fn get_profile(&self, id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>>;
-    async fn create_profile(&self, id: Uuid, name: &str) -> anyhow::Result<DnsFilterProfile>;
-    async fn rename_profile(&self, id: Uuid, name: &str) -> anyhow::Result<bool>;
+    async fn create_profile(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> anyhow::Result<DnsFilterProfile>;
+    /// Update mutable fields on a profile. Pass `None` to leave a field
+    /// unchanged; pass `Some(None)` for `description` to clear it to NULL.
+    async fn update_profile_fields(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        description: Option<Option<&str>>,
+    ) -> anyhow::Result<bool>;
     /// Delete a non-builtin profile. Returns `Ok(false)` if no row matched.
     /// Builtin protection is enforced at the service layer (returns 409).
     async fn delete_profile(&self, id: Uuid) -> anyhow::Result<bool>;

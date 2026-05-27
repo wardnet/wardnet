@@ -13,9 +13,13 @@ export default function DnsFilterProfileNew() {
   const navigate = useNavigate();
   const create = useCreateDnsFilterProfile();
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
 
   async function handleSave() {
-    const res = await create.mutateAsync({ name: name.trim() });
+    const res = await create.mutateAsync({
+      name: name.trim(),
+      description: description.trim() || undefined,
+    });
     void navigate(`/dns/filter/profiles/${res.profile.id}`);
   }
 
@@ -47,6 +51,15 @@ export default function DnsFilterProfileNew() {
               onChange={(e) => setName(e.target.value)}
               placeholder="Parental Controls"
               autoFocus
+            />
+          </Field>
+
+          <Field label="Description (optional)" htmlFor="profile-desc">
+            <Input
+              id="profile-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Strict — for kids' devices"
             />
           </Field>
 

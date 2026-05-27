@@ -258,10 +258,20 @@ impl DnsFilterRepository for EmptyRepo {
     async fn get_profile(&self, _id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>> {
         Ok(None)
     }
-    async fn create_profile(&self, _id: Uuid, _name: &str) -> anyhow::Result<DnsFilterProfile> {
+    async fn create_profile(
+        &self,
+        _id: Uuid,
+        _name: &str,
+        _description: Option<&str>,
+    ) -> anyhow::Result<DnsFilterProfile> {
         unimplemented!()
     }
-    async fn rename_profile(&self, _id: Uuid, _name: &str) -> anyhow::Result<bool> {
+    async fn update_profile_fields(
+        &self,
+        _id: Uuid,
+        _name: Option<&str>,
+        _description: Option<Option<&str>>,
+    ) -> anyhow::Result<bool> {
         unimplemented!()
     }
     async fn delete_profile(&self, _id: Uuid) -> anyhow::Result<bool> {
@@ -567,6 +577,7 @@ impl DnsFilterRepository for CronRepo {
         Ok(vec![DnsFilterProfile {
             id: Uuid::nil(),
             name: "Ad Blocking".into(),
+            description: None,
             builtin: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -613,10 +624,20 @@ impl DnsFilterRepository for CronRepo {
     async fn get_profile(&self, _id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>> {
         unimplemented!()
     }
-    async fn create_profile(&self, _id: Uuid, _name: &str) -> anyhow::Result<DnsFilterProfile> {
+    async fn create_profile(
+        &self,
+        _id: Uuid,
+        _name: &str,
+        _description: Option<&str>,
+    ) -> anyhow::Result<DnsFilterProfile> {
         unimplemented!()
     }
-    async fn rename_profile(&self, _id: Uuid, _name: &str) -> anyhow::Result<bool> {
+    async fn update_profile_fields(
+        &self,
+        _id: Uuid,
+        _name: Option<&str>,
+        _description: Option<Option<&str>>,
+    ) -> anyhow::Result<bool> {
         unimplemented!()
     }
     async fn delete_profile(&self, _id: Uuid) -> anyhow::Result<bool> {
