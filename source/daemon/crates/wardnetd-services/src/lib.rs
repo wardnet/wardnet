@@ -1,6 +1,7 @@
 pub mod auth_context;
 pub mod command;
 pub mod db_busy;
+pub mod db_maintenance_runner;
 pub mod error;
 pub mod event;
 pub mod jobs;

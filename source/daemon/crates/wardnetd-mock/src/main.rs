@@ -33,6 +33,7 @@ use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRoute
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
+use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::logging::{
@@ -293,11 +294,12 @@ async fn run(
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
         services.dns_repo.clone(),
-        services.maintenance_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &tracing::Span::current(),
     );
+    let db_maintenance_runner =
+        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &tracing::Span::current());
 
     // Drain the in-memory stats buffer into stats_intraday so the fake DNS
     // queries emitted by FakeEventEmitter show up in the live stats charts.
@@ -349,6 +351,7 @@ async fn run(
         emitter.shutdown().await;
     }
     dns_query_log_runner.shutdown().await;
+    db_maintenance_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
 
     Ok(())
