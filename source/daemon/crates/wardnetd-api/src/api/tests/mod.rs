@@ -5,6 +5,7 @@ mod dhcp;
 mod dns_filter;
 mod info;
 mod jobs;
+mod logs_ws;
 mod middleware;
 mod network;
 mod openapi;
