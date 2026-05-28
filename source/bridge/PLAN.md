@@ -1,8 +1,9 @@
 # Bridge traffic forwarding — implementation plan
 
 Covers everything discussed: MySQL migration, active/active topology, SNI demuxer,
-and the reverse-tunnel layer. Wardnetd daemon changes (tunnel client, ACME ownership)
-are explicitly out of scope here and need their own issue.
+reverse-tunnel layer, and Android Private DNS (DoT) passthrough. Wardnetd daemon
+changes (tunnel client, ACME ownership, DoT server) are explicitly out of scope
+here and need their own issue.
 
 ---
 
@@ -12,18 +13,18 @@ The merged bridge (`source/bridge/`) is a control-plane-only service: DDNS
 registration, IP updates, ACME TXT record management, and installation lifecycle.
 It has no traffic-forwarding capability. The Cloudflare A record for
 `<slug>.my.<region>.wardnet.network` points at the bridge VM/LBS, but arriving
-HTTPS connections go nowhere — there is no path from the bridge to the Pi.
+connections go nowhere — there is no path from the bridge to the Pi.
 
 Three work streams fix this:
 
 1. **Database** — SQLite + Litestream → OCI MySQL (simplifies multi-writer,
    drops Litestream complexity).
 2. **Tunnel layer** — Pi dials the bridge over an authenticated WebSocket;
-   bridge splices inbound HTTPS streams into that tunnel (TLS passthrough, so
+   bridge splices inbound streams into that tunnel (TLS passthrough, so
    the private key never leaves the Pi).
-3. **SNI demuxer** — single port 443 entry point on each bridge node that routes
-   `bridge.<REGION>.*` to Caddy (for the API cert) and `*.my.<REGION>.*` to the
-   tunnel router.
+3. **SNI demuxer** — port 443 and port 853 entry points on each bridge node
+   that route `bridge.<REGION>.*` to Caddy (API cert) and `*.my.<REGION>.*`
+   to the tunnel router.  Port 853 enables Android Private DNS (DoT).
 
 Infrastructure decisions (active/active, sticky sessions, OCI LBS config) are
 documented here but are ops work, not code changes in this repo.
@@ -190,41 +191,61 @@ target gains a Docker availability check.
 
 ### Problem
 
-Both `bridge.<REGION>.wardnet.network` (API) and `*.my.<REGION>.wardnet.network`
-(Pi traffic) arrive on port 443. The OCI NLB in TCP mode is L4-only — it cannot
-route by SNI. Caddy terminates TLS for the bridge's own cert but cannot do TLS
-passthrough to the tunnel router in its standard configuration.
+`bridge.<REGION>.wardnet.network` (API), `*.my.<REGION>.wardnet.network` (Pi
+HTTPS), and `*.my.<REGION>.wardnet.network:853` (Pi DNS-over-TLS) all arrive at
+the same bridge nodes. The OCI NLB in TCP mode is L4-only — it cannot route by
+SNI. Caddy terminates TLS for the bridge's own cert but cannot do TLS passthrough
+to the tunnel router in its standard configuration.
 
 ### Solution
 
-The bridge service spawns a second tokio task that listens on port 443 (the
-`SNI_LISTEN_ADDR` variable), peeks the TLS ClientHello, and dispatches:
+The bridge service spawns SNI demuxer tasks for **port 443** and **port 853**.
+Both listeners share identical routing logic (peek SNI → dispatch); only the
+destination port carried in the CONNECT frame differs.
 
 ```
-OCI NLB TCP :443
-      │
-      ▼
-[SNI demuxer  — new src/sni/mod.rs]
-      │
-  ┌───┴─────────────────────────┐
-  │ SNI == BRIDGE_HOSTNAME      │ SNI matches *.SUBDOMAIN_PARENT
-  ▼                             ▼
-[Caddy :CADDY_ADDR]     [TunnelRouter  — new src/tunnel/router.rs]
- terminates TLS           extracts slug → TunnelRegistry lookup
- reverse-proxies          splices raw TCP stream into Pi tunnel
- to API :8080
+OCI NLB TCP :443          OCI NLB TCP :853
+      │                         │
+      ▼                         ▼
+[SNI demuxer :443]        [SNI demuxer :853]
+      │                         │
+  ┌───┴──────────┐          ┌───┴────────────┐
+  │ BRIDGE_HOST  │ *.my.*   │ (always *.my.*)│
+  ▼              ▼          ▼                │
+[Caddy]   [TunnelRouter]  [TunnelRouter]     │
+ API        dest_port=443   dest_port=853    │
+            (HTTPS)         (DoT)            │
 ```
+
+Port 853 connections are always `*.my.<REGION>.*` — the bridge's own hostname is
+never used for DNS. Unknown SNI on port 853 is dropped immediately.
+
+### Android Private DNS (DoT) user flow
+
+1. User opens Android Settings → Network → Private DNS → enter hostname.
+2. Hostname: `<slug>.my.<region>.wardnet.network`  (shown in the wardnet setup UI).
+3. Android connects to port 853, presents the hostname in the TLS SNI.
+4. SNI demuxer routes to the Pi's wardnetd DNS-over-TLS server via the tunnel.
+5. wardnetd serves DNS responses with ad-blocking, custom rules, etc. applied.
+6. No VPN required. Works system-wide on Android 9+.
+
+This is complementary to WireGuard inbound (issue #266): DoT gives DNS-only
+access without a VPN; WireGuard gives full network access.
 
 ### New config fields
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SNI_LISTEN_ADDR` | — | `0.0.0.0:443` | Where the SNI demuxer binds |
+| `SNI_LISTEN_ADDR` | — | `0.0.0.0:443` | Where the HTTPS SNI demuxer binds |
+| `DOT_LISTEN_ADDR` | — | `0.0.0.0:853` | Where the DoT SNI demuxer binds |
 | `CADDY_ADDR` | — | `127.0.0.1:8443` | Where Caddy listens for API traffic |
 | `BRIDGE_HOSTNAME` | ✓ | — | e.g. `bridge.use1.wardnet.network` |
 
 `SUBDOMAIN_PARENT` (existing) is used as the wildcard pattern for Pi traffic
 (`*.my.use1.wardnet.network`).
+
+`DOT_LISTEN_ADDR` can be set to empty string `""` to disable DoT passthrough if
+not yet needed.
 
 ### `src/sni/mod.rs` — implementation sketch
 
@@ -278,7 +299,7 @@ multiplexing protocol.
 Pi  ──WSS──▶  bridge  GET /v1/installs/:id/tunnel
               (existing Bearer + Ed25519 auth applies)
 
-Bridge ──▶ Pi : CONNECT  conn_id:u32
+Bridge ──▶ Pi : CONNECT  conn_id:u32  dest_port:u16
 Pi     ──▶ Bridge : READY  conn_id:u32
 Bridge ↔  Pi : DATA    conn_id:u32  payload:bytes
 Bridge ↔  Pi : CLOSE   conn_id:u32
@@ -286,13 +307,23 @@ Pi     ──▶ Bridge : PING (every 30 s)
 Bridge ──▶ Pi : PONG
 ```
 
-Message framing: 5-byte header `[type:u8, conn_id:u32_be]` + variable-length
-payload for DATA frames; fixed 5 bytes for CONNECT / READY / CLOSE / PING /
-PONG. This is intentionally minimal — if the codebase later needs stream
-multiplexing with flow control, replace with yamux.
+Message framing: 7-byte header for CONNECT `[type:u8, conn_id:u32_be,
+dest_port:u16_be]`; 5-byte header `[type:u8, conn_id:u32_be]` for all other
+fixed-size frames; variable-length payload appended for DATA frames.
+
+`dest_port` tells the Pi which local port to connect to:
+- `443` → wardnetd HTTPS server (TLS terminated by wardnetd)
+- `853` → wardnetd DoT DNS server (TLS terminated by wardnetd)
+
+Adding a port here costs 2 bytes on the CONNECT frame and avoids any need for
+separate tunnel connections or out-of-band negotiation. Future ports (e.g. a
+future SOCKS5 or admin port) are additive.
 
 `conn_id` is a `u32` counter maintained per tunnel connection (wraps at
 `u32::MAX`; at realistic load this is fine).
+
+This framing is intentionally minimal — if the codebase later needs stream
+multiplexing with flow control, replace with yamux.
 
 ### New files
 
@@ -386,13 +417,15 @@ Tunnel connections are purely in-memory. The `installs` table already has the
 
 ### OCI NLB (TCP mode)
 
-- One listener on **:443**, backend set = bridge node private IPs, health check
-  = `TCP :8080` (or HTTP `GET /health`).
+- Two listeners: **:443** and **:853**, both targeting the same backend set
+  (bridge node private IPs). Health check = `TCP :8080` (or HTTP `GET /health`).
 - **Source IP affinity (sticky sessions)**: required so each Pi's API calls and
   tunnel connection always hit the same backend node (which holds the in-memory
   tunnel state). Enable on the NLB backend set.
 - NLB idle connection timeout: raise to **3600 s** (1 h). Pi-side heartbeat
   (PING every 30 s) keeps tunnels alive; this gives generous headroom.
+- Android DoT connections are short-lived (query/response, a few seconds each);
+  no special timeout tuning needed for port 853.
 
 ### Active/active
 
@@ -429,14 +462,25 @@ These are **wardnetd** (Pi daemon) changes, not bridge changes:
 
 1. **Tunnel client** — wardnetd establishes and maintains the WebSocket tunnel to
    `bridge.<REGION>.wardnet.network` after registration. Exponential backoff on
-   disconnect. Accepts CONNECT frames from the bridge and opens a local
-   connection to `127.0.0.1:7411` for each.
+   disconnect. Accepts CONNECT frames from the bridge, reads `dest_port`, and
+   opens a local connection to `127.0.0.1:<dest_port>` for each stream.
 
 2. **wardnetd-managed TLS** — wardnetd drives the ACME DNS-01 dance using the
    bridge's existing `/v1/installs/:id/acme` endpoints. Cert private key lives in
    wardnetd's `SecretStore`. wardnetd handles TLS termination directly (replacing
    Caddy on the Pi), so the private key never leaves the Pi's security boundary.
    Issue #436 (Caddy on Pi) is superseded by this.
+
+3. **DNS-over-TLS server in wardnetd** — wardnetd's existing DNS server gains a
+   TLS listener on port 853. Wraps the same resolver and filter pipeline as the
+   LAN DNS server. Uses the same cert managed under point 2 above. No new cert
+   infrastructure needed — `<slug>.my.<region>.wardnet.network` already covers
+   port 853 (certs are hostname-scoped, not port-scoped). Android Private DNS
+   users enter this hostname in Settings → Network → Private DNS.
+
+4. **Android setup UX** — the wardnet setup wizard / admin UI surfaces the
+   Private DNS hostname (`<slug>.my.<region>.wardnet.network`) with a "Copy"
+   button and instructions for Android Settings → Network → Private DNS.
 
 ---
 
