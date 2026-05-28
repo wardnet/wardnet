@@ -33,9 +33,16 @@ const MAX_BACKOFF: Duration = Duration::from_secs(10);
 /// exponential back-off on network errors, 5xx server errors, and 429
 /// rate-limit responses. 4xx client errors are returned immediately
 /// without retrying.
+#[derive(Debug)]
 pub struct CloudflareDnsProvider {
     zone_id: String,
     http: reqwest::Client,
+    /// Base URL for the Cloudflare REST API.
+    /// Overridden in tests to point at a local mock server.
+    base_url: String,
+    /// Initial back-off duration before the first retry.
+    /// Set to zero in tests so retry paths don't sleep.
+    initial_backoff: Duration,
 }
 
 impl CloudflareDnsProvider {
@@ -61,17 +68,44 @@ impl CloudflareDnsProvider {
         Ok(Self {
             zone_id: zone_id.to_string(),
             http,
+            base_url: CF_API_BASE.to_string(),
+            initial_backoff: INITIAL_BACKOFF,
+        })
+    }
+
+    /// Test-only constructor: points requests at `base_url` (a mock server)
+    /// and uses zero back-off so retry paths run without sleeping.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        api_token: &str,
+        zone_id: &str,
+        base_url: &str,
+    ) -> anyhow::Result<Self> {
+        use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+
+        let mut headers = HeaderMap::new();
+        let auth_value = HeaderValue::from_str(&format!("Bearer {api_token}"))
+            .map_err(|_| anyhow::anyhow!("invalid header value"))?;
+        headers.insert(AUTHORIZATION, auth_value);
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()?;
+        Ok(Self {
+            zone_id: zone_id.to_string(),
+            http,
+            base_url: base_url.to_string(),
+            initial_backoff: Duration::ZERO,
         })
     }
 
     fn records_url(&self) -> String {
-        format!("{CF_API_BASE}/zones/{}/dns_records", self.zone_id)
+        format!("{}/zones/{}/dns_records", self.base_url, self.zone_id)
     }
 
     fn record_url(&self, record_id: &str) -> String {
         format!(
-            "{CF_API_BASE}/zones/{}/dns_records/{record_id}",
-            self.zone_id
+            "{}/zones/{}/dns_records/{record_id}",
+            self.base_url, self.zone_id
         )
     }
 
@@ -92,7 +126,7 @@ impl CloudflareDnsProvider {
     where
         F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
     {
-        let mut backoff = INITIAL_BACKOFF;
+        let mut backoff = self.initial_backoff;
         let mut last_err: anyhow::Error =
             anyhow::anyhow!("BUG: retry loop exited without setting last_err");
 
