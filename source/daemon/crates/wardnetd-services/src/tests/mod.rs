@@ -1,3 +1,4 @@
+mod db_maintenance_runner;
 mod error;
 mod event;
 mod init;

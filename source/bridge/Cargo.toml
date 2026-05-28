@@ -1,0 +1,86 @@
+[package]
+name = "wardnet-bridge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Wardnet DDNS + ACME bridge service — credential proxy for Cloudflare DNS"
+
+[lib]
+name = "wardnet_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wardnet-bridge"
+path = "src/main.rs"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[dependencies]
+# https://crates.io/crates/axum
+axum = { version = "0.8", features = ["macros"] }
+# https://crates.io/crates/tokio
+tokio = { version = "1", features = ["full"] }
+# https://crates.io/crates/tower
+tower = { version = "0.5", features = ["util"] }
+# https://crates.io/crates/tower-http
+tower-http = { version = "0.6", features = ["trace"] }
+
+# https://crates.io/crates/sqlx
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
+
+# https://crates.io/crates/serde
+serde = { version = "1.0", features = ["derive"] }
+# https://crates.io/crates/serde_json
+serde_json = "1.0"
+
+# https://crates.io/crates/tracing
+tracing = "0.1"
+# https://crates.io/crates/tracing-subscriber
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# https://crates.io/crates/uuid
+uuid = { version = "1", features = ["v4"] }
+# https://crates.io/crates/chrono
+chrono = { version = "0.4", features = ["serde"] }
+
+# https://crates.io/crates/thiserror
+thiserror = "2"
+# https://crates.io/crates/anyhow
+anyhow = "1"
+
+# https://crates.io/crates/reqwest
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# https://crates.io/crates/ed25519-dalek — Ed25519 signature verification (bridge-side only; private key never leaves Pi)
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# https://crates.io/crates/sha2 — SHA-256 for bearer-token hashing and signature payload construction
+sha2 = "0.11"
+# https://crates.io/crates/hex — hex encoding for token hashes and body digests
+hex = "0.4"
+# https://crates.io/crates/base64 — base64 decoding for public keys and signatures sent over HTTP headers
+base64 = "0.22"
+# https://crates.io/crates/rand — CSPRNG for bearer-token generation
+rand = "0.10"
+
+# https://crates.io/crates/async-trait
+async-trait = "0.1"
+
+# https://crates.io/crates/utoipa
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+# https://crates.io/crates/utoipa-axum
+utoipa-axum = "0.2"
+
+[dev-dependencies]
+# https://crates.io/crates/http-body-util
+http-body-util = "0.1"
+# https://crates.io/crates/ed25519-dalek — signing for test keypair generation (std implies signature)
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# https://crates.io/crates/serde_json — JSON helpers in integration tests
+serde_json = "1.0"
+# https://crates.io/crates/wiremock — mock HTTP server for Cloudflare provider tests
+wiremock = "0.6"

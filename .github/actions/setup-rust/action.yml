@@ -23,6 +23,12 @@ inputs:
       workflows that build different crates/profiles (e.g. "release-aarch64").
     required: false
     default: ""
+  workspaces:
+    description: >
+      Space-separated list of Cargo workspace roots relative to the repo root.
+      Passed directly to Swatinem/rust-cache. Defaults to the daemon workspace.
+    required: false
+    default: "source/daemon"
 
 runs:
   using: composite
@@ -36,5 +42,5 @@ runs:
 
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
-        workspaces: source/daemon
+        workspaces: ${{ inputs.workspaces }}
         key: ${{ inputs.cache-key }}

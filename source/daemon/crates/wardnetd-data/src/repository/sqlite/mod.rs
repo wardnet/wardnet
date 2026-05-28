@@ -28,3 +28,6 @@ pub use stats::SqliteStatsRepository;
 pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;
 pub use update::SqliteUpdateRepository;
+
+#[cfg(test)]
+mod tests;
