@@ -37,8 +37,9 @@ impl ChallengeRow {
         Ok(RegistrationChallenge {
             id: self.id,
             nonce: self.nonce,
-                difficulty: u32::try_from(self.difficulty)
-                .map_err(|_| anyhow::anyhow!("difficulty {} out of range for u32", self.difficulty))?,
+            difficulty: u32::try_from(self.difficulty).map_err(|_| {
+                anyhow::anyhow!("difficulty {} out of range for u32", self.difficulty)
+            })?,
             remote_ip: self.remote_ip,
             created_at: self.created_at.parse()?,
             expires_at: self.expires_at.parse()?,
@@ -49,8 +50,7 @@ impl ChallengeRow {
 
 // Constant query string avoids a heap allocation per call when compared to
 // `format!("SELECT {SELECT_COLS} FROM registration_challenges WHERE id = ?")`.
-const FIND_BY_ID: &str =
-    "SELECT id, nonce, difficulty, remote_ip, created_at, expires_at, used_at \
+const FIND_BY_ID: &str = "SELECT id, nonce, difficulty, remote_ip, created_at, expires_at, used_at \
      FROM registration_challenges WHERE id = ?";
 
 /// Data access for `registration_challenges`.
@@ -82,7 +82,9 @@ pub struct SqliteChallengeRepository {
 impl SqliteChallengeRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pools: DbPools::single(pool) }
+        Self {
+            pools: DbPools::single(pool),
+        }
     }
 
     #[must_use]

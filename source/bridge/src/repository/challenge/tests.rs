@@ -50,7 +50,10 @@ async fn consume_marks_used() {
 #[tokio::test]
 async fn consume_missing_returns_false() {
     let repo = repo().await;
-    let consumed = repo.consume("no-such-id", &Utc::now().to_rfc3339()).await.unwrap();
+    let consumed = repo
+        .consume("no-such-id", &Utc::now().to_rfc3339())
+        .await
+        .unwrap();
     assert!(!consumed);
 }
 

@@ -12,9 +12,8 @@ use crate::error::ApiError;
 /// Includes DNS infrastructure names, well-known service labels, and region
 /// codes used as top-level subdomain components.
 pub(crate) const RESERVED_NAMES: &[&str] = &[
-    "www", "mail", "api", "ddns", "my", "admin", "bridge", "static",
-    "wildcard", "wardnet", "support", "help", "ns", "ns1", "ns2",
-    "ftp", "smtp", "imap", "pop3", "us", "eu",
+    "www", "mail", "api", "ddns", "my", "admin", "bridge", "static", "wildcard", "wardnet",
+    "support", "help", "ns", "ns1", "ns2", "ftp", "smtp", "imap", "pop3", "us", "eu",
 ];
 
 /// Returns `true` when `name` satisfies all naming constraints.
@@ -29,7 +28,10 @@ pub(crate) fn is_valid_name(name: &str) -> bool {
     if name.starts_with('-') || name.ends_with('-') {
         return false;
     }
-    if !name.chars().all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-')) {
+    if !name
+        .chars()
+        .all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+    {
         return false;
     }
     !RESERVED_NAMES.contains(&name)
@@ -70,7 +72,10 @@ pub(crate) fn validate_name(name: &str) -> Result<(), ApiError> {
             "name must not start or end with a hyphen".to_string(),
         ));
     }
-    if !name.chars().all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-')) {
+    if !name
+        .chars()
+        .all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+    {
         return Err(ApiError::BadRequest(
             "name may only contain lowercase letters, digits, and hyphens".to_string(),
         ));

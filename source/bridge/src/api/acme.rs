@@ -108,14 +108,10 @@ pub async fn delete_acme_challenge(
     }
 
     if let Some(record_id) = &install.cf_acme_record_id {
-        state
-            .dns()
-            .delete_record(record_id)
-            .await
-            .map_err(|e| {
-                tracing::error!(install_id = %id, error = %e, "Cloudflare ACME TXT delete failed");
-                ApiError::Internal(e)
-            })?;
+        state.dns().delete_record(record_id).await.map_err(|e| {
+            tracing::error!(install_id = %id, error = %e, "Cloudflare ACME TXT delete failed");
+            ApiError::Internal(e)
+        })?;
 
         state
             .installs()

@@ -53,10 +53,15 @@ impl InstallRow {
     fn into_install(self) -> anyhow::Result<Install> {
         let pk_bytes = base64::engine::general_purpose::STANDARD
             .decode(&self.public_key)
-            .map_err(|e| anyhow::anyhow!("base64-decode public_key for install {}: {e}", self.id))?;
-        let pub_key_bytes: [u8; 32] = pk_bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("Ed25519 public key for install {} must be 32 bytes", self.id))?;
+            .map_err(|e| {
+                anyhow::anyhow!("base64-decode public_key for install {}: {e}", self.id)
+            })?;
+        let pub_key_bytes: [u8; 32] = pk_bytes.try_into().map_err(|_| {
+            anyhow::anyhow!(
+                "Ed25519 public key for install {} must be 32 bytes",
+                self.id
+            )
+        })?;
 
         Ok(Install {
             id: self.id,
@@ -75,16 +80,13 @@ impl InstallRow {
 
 // Constant query strings avoid a heap allocation per call when
 // compared to `format!("SELECT {SELECT_COLS} FROM installs WHERE ...")`.
-const FIND_BY_ID: &str =
-    "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
      created_at, updated_at FROM installs WHERE id = ?";
 
-const FIND_BY_NAME: &str =
-    "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
      created_at, updated_at FROM installs WHERE name = ?";
 
-const FIND_BY_TOKEN_HASH: &str =
-    "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
      created_at, updated_at FROM installs WHERE token_hash = ?";
 
 /// Data access for the `installs` and `registration_log` tables.
@@ -148,7 +150,9 @@ impl SqliteInstallRepository {
     /// Create a repository backed by a single pool (tests / in-memory).
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pools: DbPools::single(pool) }
+        Self {
+            pools: DbPools::single(pool),
+        }
     }
 
     /// Create a repository with split reader / writer pools.
@@ -215,15 +219,13 @@ impl InstallRepository for SqliteInstallRepository {
         cf_a_record_id: &str,
         updated_at: &str,
     ) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE installs SET ip = ?, cf_a_record_id = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(ip)
-        .bind(cf_a_record_id)
-        .bind(updated_at)
-        .bind(id)
-        .execute(&self.pools.write)
-        .await?;
+        sqlx::query("UPDATE installs SET ip = ?, cf_a_record_id = ?, updated_at = ? WHERE id = ?")
+            .bind(ip)
+            .bind(cf_a_record_id)
+            .bind(updated_at)
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
         Ok(())
     }
 
@@ -233,14 +235,12 @@ impl InstallRepository for SqliteInstallRepository {
         cf_acme_record_id: Option<&str>,
         updated_at: &str,
     ) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE installs SET cf_acme_record_id = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(cf_acme_record_id)
-        .bind(updated_at)
-        .bind(id)
-        .execute(&self.pools.write)
-        .await?;
+        sqlx::query("UPDATE installs SET cf_acme_record_id = ?, updated_at = ? WHERE id = ?")
+            .bind(cf_acme_record_id)
+            .bind(updated_at)
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
         Ok(())
     }
 
@@ -268,13 +268,11 @@ impl InstallRepository for SqliteInstallRepository {
     }
 
     async fn log_registration(&self, remote_ip: &str, created_at: &str) -> anyhow::Result<()> {
-        sqlx::query(
-            "INSERT INTO registration_log (remote_ip, created_at) VALUES (?, ?)",
-        )
-        .bind(remote_ip)
-        .bind(created_at)
-        .execute(&self.pools.write)
-        .await?;
+        sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES (?, ?)")
+            .bind(remote_ip)
+            .bind(created_at)
+            .execute(&self.pools.write)
+            .await?;
         Ok(())
     }
 }

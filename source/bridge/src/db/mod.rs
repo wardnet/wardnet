@@ -31,7 +31,10 @@ impl DbPools {
     /// at different unnamed in-memory databases.
     #[must_use]
     pub fn single(pool: SqlitePool) -> Self {
-        Self { read: pool.clone(), write: pool }
+        Self {
+            read: pool.clone(),
+            write: pool,
+        }
     }
 }
 
@@ -43,7 +46,10 @@ impl DbPools {
 pub async fn init(database_url: &str) -> anyhow::Result<DbPools> {
     let pools = if database_url == ":memory:" {
         // Unique shared-memory URI so parallel test runs don't collide.
-        let uri = format!("file:wnb_{}?mode=memory&cache=shared", Uuid::new_v4().simple());
+        let uri = format!(
+            "file:wnb_{}?mode=memory&cache=shared",
+            Uuid::new_v4().simple()
+        );
         let opts = SqliteConnectOptions::new()
             .filename(&uri)
             .journal_mode(SqliteJournalMode::Memory)

@@ -55,6 +55,12 @@ impl IntoResponse for ApiError {
             tracing::error!(error = %err, "unhandled internal error");
         }
 
-        (status, Json(ErrorBody { error: message.to_string() })).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: message.to_string(),
+            }),
+        )
+            .into_response()
     }
 }

@@ -1,3 +1,4 @@
+use axum::http::request::Parts;
 use axum::{
     Json,
     extract::{FromRequestParts, Request, State},
@@ -5,7 +6,6 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use axum::http::request::Parts;
 use base64::Engine as _;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
@@ -60,7 +60,9 @@ where
             .ok_or_else(|| {
                 (
                     StatusCode::UNAUTHORIZED,
-                    Json(ErrorBody { error: "authentication required".to_string() }),
+                    Json(ErrorBody {
+                        error: "authentication required".to_string(),
+                    }),
                 )
             })
     }
@@ -104,18 +106,16 @@ where
 ///
 /// The buffered body is always reconstituted into the request so downstream
 /// `Json<T>` extractors work normally.
-pub async fn auth_layer(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
+pub async fn auth_layer(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let (mut parts, body) = request.into_parts();
 
     // ── Body-size guard (runs for ALL requests) ───────────────────────────
     let Ok(body_bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES).await else {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorBody { error: "request body exceeds 1 MiB limit".to_string() }),
+            Json(ErrorBody {
+                error: "request body exceeds 1 MiB limit".to_string(),
+            }),
         )
             .into_response();
     };
@@ -181,8 +181,7 @@ pub async fn auth_layer(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
-        if let Err(e) =
-            verify_signature_bytes(&install.pub_key_bytes, payload.as_bytes(), sig_b64)
+        if let Err(e) = verify_signature_bytes(&install.pub_key_bytes, payload.as_bytes(), sig_b64)
         {
             tracing::warn!(
                 install_id = %install.id,
@@ -238,13 +237,21 @@ fn verify_signature_bytes(
 // ── Error helpers ─────────────────────────────────────────────────────────────
 
 fn unauthorized(msg: &str) -> Response {
-    (StatusCode::UNAUTHORIZED, Json(ErrorBody { error: msg.to_string() })).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorBody {
+            error: msg.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 fn internal_error() -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorBody { error: "internal server error".to_string() }),
+        Json(ErrorBody {
+            error: "internal server error".to_string(),
+        }),
     )
         .into_response()
 }

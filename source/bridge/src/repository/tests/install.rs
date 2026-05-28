@@ -33,7 +33,11 @@ async fn insert_and_find_by_id() {
     let install = sample_install("id-1", "happy-einstein");
     repo.insert(&install).await.unwrap();
 
-    let found = repo.find_by_id("id-1").await.unwrap().expect("should exist");
+    let found = repo
+        .find_by_id("id-1")
+        .await
+        .unwrap()
+        .expect("should exist");
     assert_eq!(found.name, "happy-einstein");
     assert_eq!(found.token_hash, "hash_id-1");
 }
@@ -41,18 +45,30 @@ async fn insert_and_find_by_id() {
 #[tokio::test]
 async fn find_by_name() {
     let repo = repo().await;
-    repo.insert(&sample_install("id-2", "brave-newton")).await.unwrap();
+    repo.insert(&sample_install("id-2", "brave-newton"))
+        .await
+        .unwrap();
 
-    let found = repo.find_by_name("brave-newton").await.unwrap().expect("should exist");
+    let found = repo
+        .find_by_name("brave-newton")
+        .await
+        .unwrap()
+        .expect("should exist");
     assert_eq!(found.id, "id-2");
 }
 
 #[tokio::test]
 async fn find_by_token_hash() {
     let repo = repo().await;
-    repo.insert(&sample_install("id-3", "calm-darwin")).await.unwrap();
+    repo.insert(&sample_install("id-3", "calm-darwin"))
+        .await
+        .unwrap();
 
-    let found = repo.find_by_token_hash("hash_id-3").await.unwrap().expect("should exist");
+    let found = repo
+        .find_by_token_hash("hash_id-3")
+        .await
+        .unwrap()
+        .expect("should exist");
     assert_eq!(found.id, "id-3");
 }
 
@@ -65,7 +81,9 @@ async fn find_missing_returns_none() {
 #[tokio::test]
 async fn update_ip() {
     let repo = repo().await;
-    repo.insert(&sample_install("id-4", "eager-curie")).await.unwrap();
+    repo.insert(&sample_install("id-4", "eager-curie"))
+        .await
+        .unwrap();
 
     let now = Utc::now().to_rfc3339();
     repo.update_ip("id-4", "203.0.113.1", "cf-record-abc", &now)
@@ -80,7 +98,9 @@ async fn update_ip() {
 #[tokio::test]
 async fn update_acme_record_set_and_clear() {
     let repo = repo().await;
-    repo.insert(&sample_install("id-5", "fair-turing")).await.unwrap();
+    repo.insert(&sample_install("id-5", "fair-turing"))
+        .await
+        .unwrap();
 
     let now = Utc::now().to_rfc3339();
     repo.update_acme_record("id-5", Some("cf-txt-xyz"), &now)
@@ -97,7 +117,9 @@ async fn update_acme_record_set_and_clear() {
 #[tokio::test]
 async fn delete() {
     let repo = repo().await;
-    repo.insert(&sample_install("id-6", "gentle-tesla")).await.unwrap();
+    repo.insert(&sample_install("id-6", "gentle-tesla"))
+        .await
+        .unwrap();
 
     repo.delete("id-6").await.unwrap();
     assert!(repo.find_by_id("id-6").await.unwrap().is_none());

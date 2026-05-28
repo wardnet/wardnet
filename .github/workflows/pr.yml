@@ -107,6 +107,7 @@ jobs:
     if: |
       github.event.pull_request.user.type != 'Bot' && (
         needs.preflight.outputs.daemon == 'true' ||
+        needs.preflight.outputs.bridge == 'true' ||
         needs.preflight.outputs.site == 'true' ||
         needs.preflight.outputs.ci == 'true'
       )

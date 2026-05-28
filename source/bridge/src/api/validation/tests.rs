@@ -1,4 +1,4 @@
-use super::{is_valid_name, validate_name, RESERVED_NAMES};
+use super::{RESERVED_NAMES, is_valid_name, validate_name};
 
 // ── is_valid_name ─────────────────────────────────────────────────────────────
 

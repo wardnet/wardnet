@@ -47,8 +47,9 @@ impl CloudflareDnsProvider {
         use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
         let mut headers = HeaderMap::new();
-        let auth_value = HeaderValue::from_str(&format!("Bearer {api_token}"))
-            .map_err(|_| anyhow::anyhow!("Cloudflare API token contains invalid header characters"))?;
+        let auth_value = HeaderValue::from_str(&format!("Bearer {api_token}")).map_err(|_| {
+            anyhow::anyhow!("Cloudflare API token contains invalid header characters")
+        })?;
         headers.insert(AUTHORIZATION, auth_value);
 
         let http = reqwest::Client::builder()
@@ -57,7 +58,10 @@ impl CloudflareDnsProvider {
             .timeout(REQUEST_TIMEOUT)
             .build()?;
 
-        Ok(Self { zone_id: zone_id.to_string(), http })
+        Ok(Self {
+            zone_id: zone_id.to_string(),
+            http,
+        })
     }
 
     fn records_url(&self) -> String {
@@ -65,7 +69,10 @@ impl CloudflareDnsProvider {
     }
 
     fn record_url(&self, record_id: &str) -> String {
-        format!("{CF_API_BASE}/zones/{}/dns_records/{record_id}", self.zone_id)
+        format!(
+            "{CF_API_BASE}/zones/{}/dns_records/{record_id}",
+            self.zone_id
+        )
     }
 
     /// Execute an HTTP request with retry + exponential back-off.
@@ -91,7 +98,11 @@ impl CloudflareDnsProvider {
 
         for attempt in 0..=MAX_RETRIES {
             if attempt > 0 {
-                tracing::debug!(attempt, backoff_ms = backoff.as_millis(), "retrying Cloudflare API call");
+                tracing::debug!(
+                    attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "retrying Cloudflare API call"
+                );
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(MAX_BACKOFF);
             }
@@ -112,7 +123,11 @@ impl CloudflareDnsProvider {
                     }
 
                     if status.is_server_error() {
-                        tracing::warn!(attempt, status = status.as_u16(), "Cloudflare API server error");
+                        tracing::warn!(
+                            attempt,
+                            status = status.as_u16(),
+                            "Cloudflare API server error"
+                        );
                         last_err = anyhow::anyhow!("Cloudflare API: server error {status}");
                         if attempt < MAX_RETRIES {
                             continue;
@@ -135,11 +150,7 @@ impl CloudflareDnsProvider {
         parse_cf_response(resp).await
     }
 
-    async fn update_record(
-        &self,
-        record_id: &str,
-        body: &DnsRecordBody,
-    ) -> anyhow::Result<String> {
+    async fn update_record(&self, record_id: &str, body: &DnsRecordBody) -> anyhow::Result<String> {
         let url = self.record_url(record_id);
         let resp = self.call(|c| c.put(&url).json(body)).await?;
         parse_cf_response(resp).await
@@ -231,10 +242,9 @@ struct CfResponse {
 
 async fn parse_cf_response(resp: reqwest::Response) -> anyhow::Result<String> {
     let status = resp.status();
-    let body: CfResponse = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Cloudflare API returned non-JSON body (HTTP {status}): {e}"))?;
+    let body: CfResponse = resp.json().await.map_err(|e| {
+        anyhow::anyhow!("Cloudflare API returned non-JSON body (HTTP {status}): {e}")
+    })?;
 
     if !body.success {
         let msgs: Vec<_> = body.errors.iter().map(|e| e.message.as_str()).collect();

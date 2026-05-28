@@ -14,7 +14,10 @@ fn test_config() -> Config {
 #[test]
 fn install_fqdn() {
     let cfg = test_config();
-    assert_eq!(cfg.install_fqdn("happy-einstein"), "happy-einstein.my.us.wardnet.network");
+    assert_eq!(
+        cfg.install_fqdn("happy-einstein"),
+        "happy-einstein.my.us.wardnet.network"
+    );
 }
 
 #[test]
@@ -33,7 +36,10 @@ fn eu_region_fqdns() {
         subdomain_parent: "my.eu.wardnet.network".to_string(),
         ..test_config()
     };
-    assert_eq!(cfg.install_fqdn("bold-newton"), "bold-newton.my.eu.wardnet.network");
+    assert_eq!(
+        cfg.install_fqdn("bold-newton"),
+        "bold-newton.my.eu.wardnet.network"
+    );
     assert_eq!(
         cfg.acme_fqdn("bold-newton"),
         "_acme-challenge.bold-newton.my.eu.wardnet.network"

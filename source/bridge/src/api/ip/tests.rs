@@ -20,11 +20,11 @@ fn private_addresses_rejected() {
         "127.0.0.1",
         "169.254.1.1",
         "255.255.255.255",
-        "192.0.2.1",      // TEST-NET-1
-        "198.51.100.1",   // TEST-NET-2
-        "203.0.113.1",    // TEST-NET-3
+        "192.0.2.1",    // TEST-NET-1
+        "198.51.100.1", // TEST-NET-2
+        "203.0.113.1",  // TEST-NET-3
         "0.0.0.0",
-        "100.64.0.1",     // Shared address space
+        "100.64.0.1", // Shared address space
     ] {
         let ip: std::net::Ipv4Addr = addr.parse().unwrap();
         assert!(is_reserved_ipv4(ip), "{addr} should be reserved");

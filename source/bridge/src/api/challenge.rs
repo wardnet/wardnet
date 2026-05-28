@@ -109,7 +109,11 @@ pub async fn get_challenge(
         used_at: None,
     };
 
-    state.challenges().insert(&challenge).await.map_err(ApiError::Internal)?;
+    state
+        .challenges()
+        .insert(&challenge)
+        .await
+        .map_err(ApiError::Internal)?;
 
     Ok(Json(ChallengeResponse {
         challenge_id: challenge.id,

@@ -1,5 +1,5 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use axum::http::{HeaderMap, HeaderValue};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use super::{client_ip, verify_pow};
 
@@ -37,7 +37,13 @@ fn pow_round_trip() {
 
     assert!(verify_pow(nonce, name, public_key, proof, difficulty));
     // Wrong proof must fail.
-    assert!(!verify_pow(nonce, name, public_key, proof.wrapping_add(1), difficulty + 16));
+    assert!(!verify_pow(
+        nonce,
+        name,
+        public_key,
+        proof.wrapping_add(1),
+        difficulty + 16
+    ));
 }
 
 // ── client_ip ─────────────────────────────────────────────────────────────────

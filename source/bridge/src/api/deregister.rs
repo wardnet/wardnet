@@ -58,7 +58,11 @@ pub async fn deregister(
         })?;
     }
 
-    state.installs().delete(&id).await.map_err(ApiError::Internal)?;
+    state
+        .installs()
+        .delete(&id)
+        .await
+        .map_err(ApiError::Internal)?;
 
     tracing::info!(install_id = %id, name = %install.name, "installation deregistered");
     Ok(StatusCode::NO_CONTENT)

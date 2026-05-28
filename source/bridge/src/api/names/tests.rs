@@ -12,12 +12,12 @@ fn valid_name_is_valid() {
 
 #[test]
 fn invalid_names_rejected() {
-    assert!(!crate::api::validation::is_valid_name("ab"));            // too short
+    assert!(!crate::api::validation::is_valid_name("ab")); // too short
     assert!(!crate::api::validation::is_valid_name(&"a".repeat(33))); // too long
-    assert!(!crate::api::validation::is_valid_name("-foo"));           // leading hyphen
-    assert!(!crate::api::validation::is_valid_name("foo-"));           // trailing hyphen
-    assert!(!crate::api::validation::is_valid_name("Foo"));            // uppercase
-    assert!(!crate::api::validation::is_valid_name("foo bar"));        // space
-    assert!(!crate::api::validation::is_valid_name("www"));            // reserved
-    assert!(!crate::api::validation::is_valid_name("admin"));          // reserved
+    assert!(!crate::api::validation::is_valid_name("-foo")); // leading hyphen
+    assert!(!crate::api::validation::is_valid_name("foo-")); // trailing hyphen
+    assert!(!crate::api::validation::is_valid_name("Foo")); // uppercase
+    assert!(!crate::api::validation::is_valid_name("foo bar")); // space
+    assert!(!crate::api::validation::is_valid_name("www")); // reserved
+    assert!(!crate::api::validation::is_valid_name("admin")); // reserved
 }

@@ -106,7 +106,10 @@ pub async fn register_install(
         .map_err(ApiError::Internal)?
         .is_some()
     {
-        return Err(ApiError::Conflict(format!("name '{}' is already taken", body.name)));
+        return Err(ApiError::Conflict(format!(
+            "name '{}' is already taken",
+            body.name
+        )));
     }
 
     // ── Atomically burn the challenge (prevents replay) ───────────────────
@@ -117,7 +120,9 @@ pub async fn register_install(
         .map_err(ApiError::Internal)?;
 
     if !consumed {
-        return Err(ApiError::BadRequest("challenge has already been used".to_string()));
+        return Err(ApiError::BadRequest(
+            "challenge has already been used".to_string(),
+        ));
     }
 
     // ── Generate install ID and bearer token ──────────────────────────────
@@ -141,7 +146,11 @@ pub async fn register_install(
         updated_at: now,
     };
 
-    state.installs().insert(&install).await.map_err(ApiError::Internal)?;
+    state
+        .installs()
+        .insert(&install)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Record registration for rate-limit accounting (after insert so a DB
     // failure doesn't consume a rate-limit slot).
@@ -222,7 +231,9 @@ async fn validate_challenge(
         body.proof,
         challenge.difficulty,
     ) {
-        return Err(ApiError::BadRequest("proof-of-work verification failed".to_string()));
+        return Err(ApiError::BadRequest(
+            "proof-of-work verification failed".to_string(),
+        ));
     }
 
     Ok(challenge)

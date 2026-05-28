@@ -38,7 +38,9 @@ impl ReplayCache {
     /// Create an empty cache.
     #[must_use]
     pub fn new() -> Self {
-        Self { inner: Mutex::new(HashMap::new()) }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Check whether `key` is already present; if not, insert it.

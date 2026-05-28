@@ -1,11 +1,11 @@
 name: Coverage
 
-# Reusable leaf for daemon + site coverage.
+# Reusable leaf for daemon + bridge + site coverage.
 #
 # Called only from pr.yml (coverage doesn't run on push-to-main —
-# Codecov's patch-coverage feature keys off PRs). Daemon and site
-# coverage run in parallel jobs, and a single `upload` job combines
-# both LCOV/JUnit files into ONE Codecov invocation per PR so we get a
+# Codecov's patch-coverage feature keys off PRs). Daemon, bridge, and
+# site coverage run in parallel jobs, and a single `upload` job combines
+# all LCOV/JUnit files into ONE Codecov invocation per PR so we get a
 # single PR comment with a coherent base comparison rather than
 # dueling uploads from separate leaves.
 
@@ -82,6 +82,52 @@ jobs:
           path: coverage/
           retention-days: 1
 
+  bridge-coverage:
+    name: Bridge coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: source/bridge
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@6c1f7cf125e42770ff087ea443901b487cc5471a # v2.75.21
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@6c1f7cf125e42770ff087ea443901b487cc5471a # v2.75.21
+        with:
+          tool: cargo-nextest
+
+      - name: Generate bridge coverage + test results
+        run: |
+          mkdir -p coverage
+          make coverage-bridge \
+            COV_RUNNER="nextest --profile ci" \
+            COV_FMT="--lcov --output-path ../../coverage/bridge-lcov.info"
+          cp source/bridge/target/nextest/ci/junit.xml coverage/bridge-junit.xml
+
+      - name: Upload bridge coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-bridge
+          path: coverage/
+          retention-days: 1
+
   site-coverage:
     name: Site coverage
     runs-on: ubuntu-latest
@@ -121,12 +167,17 @@ jobs:
 
   upload:
     name: Upload to Codecov
-    needs: [daemon-coverage, site-coverage]
+    needs: [daemon-coverage, bridge-coverage, site-coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Run even if one side failed so partial coverage still uploads —
-    # a failing daemon test shouldn't hide a site coverage regression.
-    if: always() && (needs.daemon-coverage.result == 'success' || needs.site-coverage.result == 'success')
+    # a failing daemon test shouldn't hide a bridge or site coverage regression.
+    if: |
+      always() && (
+        needs.daemon-coverage.result == 'success' ||
+        needs.bridge-coverage.result == 'success' ||
+        needs.site-coverage.result == 'success'
+      )
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -140,6 +191,13 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-daemon
+          path: coverage/
+
+      - name: Download bridge coverage
+        if: needs.bridge-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-bridge
           path: coverage/
 
       - name: Download site coverage
@@ -156,8 +214,10 @@ jobs:
           LCOV=""
           JUNIT=""
           [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
+          [[ -f coverage/bridge-lcov.info ]] && LCOV="${LCOV}coverage/bridge-lcov.info,"
           [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
           [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
+          [[ -f coverage/bridge-junit.xml ]] && JUNIT="${JUNIT}coverage/bridge-junit.xml,"
           [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
           echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
           echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
