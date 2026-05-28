@@ -109,3 +109,43 @@ Both endpoints require admin auth. `StatsService` enforces this via `auth_contex
 ### DNS stats migration from `DnsRepository`
 
 `DnsRepository` previously exposed `query_stats`, `top_domains`, `top_clients`, and `series_buckets`. These on-the-fly aggregation methods were removed in PR 2. DNS stats are now served entirely through the generic `StatsService` + `/api/stats` / `/api/stats/top` endpoints using the four `dns.*` metrics recorded by `DnsLogSink`.
+
+## Bridge service (issue #435)
+
+Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).
+
+### Security invariants
+
+These rules are hard requirements — violating any of them opens a specific attack vector.
+
+| Rule | What it prevents | Where it lives |
+|---|---|---|
+| **Default to loopback (`127.0.0.1:8080`)** | Exposes unauthenticated endpoints on every interface if set to `0.0.0.0` | `config.rs` `LISTEN_ADDR` default |
+| **X-Forwarded-For only trusted from loopback peers** | IP spoofing in rate-limit and challenge-binding checks from direct connections | `api/challenge.rs` `client_ip()` |
+| **Canonical payload includes `path_and_query`** | Attacker replaces query params without invalidating signature if only `path` is covered | `auth/middleware.rs` `auth_layer` |
+| **Challenge IP binding** | A challenge solved by attacker on their IP cannot be replayed from victim's IP | `api/register.rs` |
+| **Name uniqueness check BEFORE burning challenge** | Avoids wasting the caller's PoW work on a taken name | `api/register.rs` `register_install` |
+| **In-memory replay cache** | Replays of valid signed requests within the ±60 s timestamp window | `replay_cache.rs`, wired in `auth_layer` |
+| **Reject private/reserved IPv4 ranges** | SSRF via DNS A record pointing at RFC 1918 / loopback addresses | `api/ip.rs` `is_reserved_ipv4()` |
+| **SHA-256(bearer_token) stored** | Bearer token never exposed at rest even if DB is compromised | `repository/install.rs` `token_hash` column |
+| **`pub_key_bytes: [u8; 32]` on `Install`** | Avoids per-request base64 decode + allocation; key decoded once at DB row load | `repository/install.rs` `InstallRow::into_install` |
+
+### Rate limits
+
+| Limit | Scope | Endpoint |
+|---|---|---|
+| 3 registrations / IP / 24 h | IP address | `POST /v1/register` |
+| 20 challenges / IP / hour | IP address | `GET /v1/register/challenge` |
+
+### Auth model
+
+Every request to `/v1/installs/*` must carry:
+- `Authorization: Bearer <token>`
+- `X-Wardnet-Timestamp: <unix_ts>` — rejected if `|now - ts| > 60 s`
+- `X-Wardnet-Signature: <base64>` — Ed25519 over `"<METHOD>\n<path_and_query>\n<ts>\n<hex-sha256(body)>"`
+
+Unauthenticated endpoints (`GET /v1/health`, `GET /v1/register/challenge`, `POST /v1/register`, `GET /v1/names/{name}/available`) never trigger a DB token lookup regardless of whether an `Authorization` header is present.
+
+### Shared validation (`api/validation.rs`)
+
+`RESERVED_NAMES`, `is_valid_name()`, `validate_name()`, and `validate_public_key()` live in one place. Do **not** duplicate them in handler modules — the name availability check and the registration handler must apply identical rules.

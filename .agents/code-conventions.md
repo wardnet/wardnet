@@ -47,6 +47,19 @@
 - DTOs in `wardnet-common::api` derive `utoipa::ToSchema`.
 - `#[schema(value_type = String)]` required for `Ipv4Addr` / `IpAddr` fields — utoipa 5.4 doesn't ship `ToSchema` impls for them.
 
+## SQL query strings
+
+- **Use `const` query strings** for fixed SQL statements — avoids a heap allocation per call that `format!()` would incur.
+  ```rust
+  // ✓ — allocated once at program start
+  const FIND_BY_ID: &str = "SELECT … FROM installs WHERE id = ?";
+
+  // ✗ — heap allocates on every call
+  let q = format!("SELECT {SELECT_COLS} FROM installs WHERE id = ?");
+  ```
+- **Parameterised queries only** (`.bind()`) — never string-interpolate user input into SQL.
+- `format!()` is acceptable for `PRAGMA` statements with **numeric constants** (e.g. `PRAGMA incremental_vacuum({N})`), not for WHERE clauses or column lists.
+
 ## Dependencies
 
 - Always add a comment with the crates.io or npmjs URL before each dependency in `Cargo.toml` / `package.json`.
