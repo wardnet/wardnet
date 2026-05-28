@@ -1,4 +1,5 @@
 source/daemon/target/
+source/bridge/target/
 node_modules/
 source/admin-app/web/dist/
 !source/admin-app/web/dist/index.html
