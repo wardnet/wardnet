@@ -1,13 +1,14 @@
 use chrono::Utc;
 
-use crate::db;
+use crate::db::DbPools;
 use crate::repository::challenge::{
-    ChallengeRepository, RegistrationChallenge, SqliteChallengeRepository,
+    ChallengeRepository, MySqlChallengeRepository, RegistrationChallenge,
 };
+use crate::test_helpers::test_pool;
 
-async fn repo() -> SqliteChallengeRepository {
-    let pools = db::init(":memory:").await.expect("in-memory db");
-    SqliteChallengeRepository::new_pools(pools)
+async fn repo() -> MySqlChallengeRepository {
+    let pool = test_pool().await;
+    MySqlChallengeRepository::new_pools(DbPools::single(pool))
 }
 
 fn sample(id: &str, ip: &str) -> RegistrationChallenge {
@@ -24,6 +25,7 @@ fn sample(id: &str, ip: &str) -> RegistrationChallenge {
 }
 
 #[tokio::test]
+#[ignore = "requires Docker"]
 async fn insert_and_find() {
     let repo = repo().await;
     repo.insert(&sample("c-1", "1.2.3.4")).await.unwrap();
@@ -34,39 +36,36 @@ async fn insert_and_find() {
 }
 
 #[tokio::test]
+#[ignore = "requires Docker"]
 async fn consume_marks_used() {
     let repo = repo().await;
     repo.insert(&sample("c-2", "1.2.3.4")).await.unwrap();
 
-    let now = Utc::now().to_rfc3339();
-    let consumed = repo.consume("c-2", &now).await.unwrap();
+    let consumed = repo.consume("c-2", Utc::now()).await.unwrap();
     assert!(consumed, "first consume should succeed");
 
-    // Second consume must fail — already used.
-    let second = repo.consume("c-2", &now).await.unwrap();
+    let second = repo.consume("c-2", Utc::now()).await.unwrap();
     assert!(!second, "second consume should be rejected");
 }
 
 #[tokio::test]
+#[ignore = "requires Docker"]
 async fn consume_missing_returns_false() {
     let repo = repo().await;
-    let consumed = repo
-        .consume("no-such-id", &Utc::now().to_rfc3339())
-        .await
-        .unwrap();
+    let consumed = repo.consume("no-such-id", Utc::now()).await.unwrap();
     assert!(!consumed);
 }
 
 #[tokio::test]
+#[ignore = "requires Docker"]
 async fn count_from_ip() {
     let repo = repo().await;
-    let now = Utc::now().to_rfc3339();
     repo.insert(&sample("c-3", "10.0.0.1")).await.unwrap();
     repo.insert(&sample("c-4", "10.0.0.1")).await.unwrap();
     repo.insert(&sample("c-5", "10.0.0.2")).await.unwrap();
 
-    let since = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
-    assert_eq!(repo.count_from_ip("10.0.0.1", &since).await.unwrap(), 2);
-    assert_eq!(repo.count_from_ip("10.0.0.2", &since).await.unwrap(), 1);
-    assert_eq!(repo.count_from_ip("9.9.9.9", &now).await.unwrap(), 0);
+    let since = Utc::now() - chrono::Duration::hours(1);
+    assert_eq!(repo.count_from_ip("10.0.0.1", since).await.unwrap(), 2);
+    assert_eq!(repo.count_from_ip("10.0.0.2", since).await.unwrap(), 1);
+    assert_eq!(repo.count_from_ip("9.9.9.9", since).await.unwrap(), 0);
 }

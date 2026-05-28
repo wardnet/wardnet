@@ -22,7 +22,7 @@ missing_panics_doc = "allow"
 
 [dependencies]
 # https://crates.io/crates/axum
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
 # https://crates.io/crates/tokio
 tokio = { version = "1", features = ["full"] }
 # https://crates.io/crates/tower
@@ -31,7 +31,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
 
 # https://crates.io/crates/sqlx
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "uuid", "chrono", "migrate"] }
 
 # https://crates.io/crates/serde
 serde = { version = "1.0", features = ["derive"] }
@@ -70,6 +70,12 @@ rand = "0.10"
 # https://crates.io/crates/async-trait
 async-trait = "0.1"
 
+# https://crates.io/crates/dashmap — concurrent hash map for the tunnel registry
+dashmap = "6"
+
+# https://crates.io/crates/futures-util — split WebSocket into send/recv halves
+futures-util = { version = "0.3", default-features = false, features = ["sink", "alloc"] }
+
 # https://crates.io/crates/utoipa
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # https://crates.io/crates/utoipa-axum
@@ -84,3 +90,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 serde_json = "1.0"
 # https://crates.io/crates/wiremock — mock HTTP server for Cloudflare provider tests
 wiremock = "0.6"
+# https://crates.io/crates/testcontainers — Docker-based integration test containers
+testcontainers = "0.23"
+# https://crates.io/crates/testcontainers-modules — MySQL container for repository tests
+testcontainers-modules = { version = "0.11", features = ["mysql"] }

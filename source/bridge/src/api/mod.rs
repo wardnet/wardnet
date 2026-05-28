@@ -5,6 +5,7 @@ pub mod health;
 pub mod ip;
 pub mod names;
 pub mod register;
+pub mod tunnel;
 pub(crate) mod validation;
 
 use axum::Router;
@@ -23,11 +24,12 @@ use crate::state::AppState;
     info(
         title = "Wardnet Bridge API",
         description = "DDNS + ACME credential proxy for wardnet installations.",
-        version = "0.1.0",
+        version = "0.2.0",
     ),
     tags(
         (name = "health",   description = "Liveness probes"),
         (name = "installs", description = "Registration, IP updates, and ACME challenge lifecycle"),
+        (name = "tunnel",   description = "Reverse-tunnel WebSocket endpoint"),
     ),
     components(schemas(ErrorBody)),
 )]
@@ -43,6 +45,7 @@ fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = ip::register(r);
     r = acme::register(r);
     r = deregister::register(r);
+    r = tunnel::register(r);
     r
 }
 

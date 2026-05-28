@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::MySqlPool;
 
 use crate::db::DbPools;
 
@@ -35,7 +35,7 @@ pub struct Install {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Raw `SQLite` row — used for `sqlx::query_as` mapping.
+/// Raw `MySQL` row — used for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct InstallRow {
     id: String,
@@ -45,8 +45,8 @@ struct InstallRow {
     ip: Option<String>,
     cf_a_record_id: Option<String>,
     cf_acme_record_id: Option<String>,
-    created_at: String,
-    updated_at: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 impl InstallRow {
@@ -72,14 +72,12 @@ impl InstallRow {
             ip: self.ip,
             cf_a_record_id: self.cf_a_record_id,
             cf_acme_record_id: self.cf_acme_record_id,
-            created_at: self.created_at.parse()?,
-            updated_at: self.updated_at.parse()?,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
         })
     }
 }
 
-// Constant query strings avoid a heap allocation per call when
-// compared to `format!("SELECT {SELECT_COLS} FROM installs WHERE ...")`.
 const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
      created_at, updated_at FROM installs WHERE id = ?";
 
@@ -113,7 +111,7 @@ pub trait InstallRepository: Send + Sync {
         id: &str,
         ip: &str,
         cf_a_record_id: &str,
-        updated_at: &str,
+        updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
     /// Update (or clear) the Cloudflare ACME TXT-record ID.
@@ -123,33 +121,36 @@ pub trait InstallRepository: Send + Sync {
         &self,
         id: &str,
         cf_acme_record_id: Option<&str>,
-        updated_at: &str,
+        updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
     /// Delete an installation record.
     async fn delete(&self, id: &str) -> anyhow::Result<()>;
 
-    /// Count how many registrations have been attempted from `remote_ip`
-    /// since `since` (ISO 8601 UTC).
+    /// Count how many registrations have been attempted from `remote_ip` since `since`.
     async fn count_registrations_from_ip(
         &self,
         remote_ip: &str,
-        since: &str,
+        since: DateTime<Utc>,
     ) -> anyhow::Result<i64>;
 
     /// Append a row to `registration_log` for rate-limit tracking.
-    async fn log_registration(&self, remote_ip: &str, created_at: &str) -> anyhow::Result<()>;
+    async fn log_registration(
+        &self,
+        remote_ip: &str,
+        created_at: DateTime<Utc>,
+    ) -> anyhow::Result<()>;
 }
 
-/// SQLite-backed [`InstallRepository`].
-pub struct SqliteInstallRepository {
+/// MySQL-backed [`InstallRepository`].
+pub struct MySqlInstallRepository {
     pools: DbPools,
 }
 
-impl SqliteInstallRepository {
-    /// Create a repository backed by a single pool (tests / in-memory).
+impl MySqlInstallRepository {
+    /// Create a repository backed by a single pool (tests).
     #[must_use]
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: MySqlPool) -> Self {
         Self {
             pools: DbPools::single(pool),
         }
@@ -163,7 +164,7 @@ impl SqliteInstallRepository {
 }
 
 #[async_trait]
-impl InstallRepository for SqliteInstallRepository {
+impl InstallRepository for MySqlInstallRepository {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Install>> {
         sqlx::query_as::<_, InstallRow>(FIND_BY_ID)
             .bind(id)
@@ -205,8 +206,8 @@ impl InstallRepository for SqliteInstallRepository {
         .bind(&install.ip)
         .bind(&install.cf_a_record_id)
         .bind(&install.cf_acme_record_id)
-        .bind(install.created_at.to_rfc3339())
-        .bind(install.updated_at.to_rfc3339())
+        .bind(install.created_at)
+        .bind(install.updated_at)
         .execute(&self.pools.write)
         .await?;
         Ok(())
@@ -217,7 +218,7 @@ impl InstallRepository for SqliteInstallRepository {
         id: &str,
         ip: &str,
         cf_a_record_id: &str,
-        updated_at: &str,
+        updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         sqlx::query("UPDATE installs SET ip = ?, cf_a_record_id = ?, updated_at = ? WHERE id = ?")
             .bind(ip)
@@ -233,7 +234,7 @@ impl InstallRepository for SqliteInstallRepository {
         &self,
         id: &str,
         cf_acme_record_id: Option<&str>,
-        updated_at: &str,
+        updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         sqlx::query("UPDATE installs SET cf_acme_record_id = ?, updated_at = ? WHERE id = ?")
             .bind(cf_acme_record_id)
@@ -255,7 +256,7 @@ impl InstallRepository for SqliteInstallRepository {
     async fn count_registrations_from_ip(
         &self,
         remote_ip: &str,
-        since: &str,
+        since: DateTime<Utc>,
     ) -> anyhow::Result<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM registration_log WHERE remote_ip = ? AND created_at > ?",
@@ -267,7 +268,11 @@ impl InstallRepository for SqliteInstallRepository {
         Ok(count)
     }
 
-    async fn log_registration(&self, remote_ip: &str, created_at: &str) -> anyhow::Result<()> {
+    async fn log_registration(
+        &self,
+        remote_ip: &str,
+        created_at: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
         sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES (?, ?)")
             .bind(remote_ip)
             .bind(created_at)

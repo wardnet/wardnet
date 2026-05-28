@@ -115,7 +115,7 @@ pub async fn register_install(
     // ── Atomically burn the challenge (prevents replay) ───────────────────
     let consumed = state
         .challenges()
-        .consume(&body.challenge_id, &Utc::now().to_rfc3339())
+        .consume(&body.challenge_id, Utc::now())
         .await
         .map_err(ApiError::Internal)?;
 
@@ -156,7 +156,7 @@ pub async fn register_install(
     // failure doesn't consume a rate-limit slot).
     state
         .installs()
-        .log_registration(&remote_ip, &now.to_rfc3339())
+        .log_registration(&remote_ip, now)
         .await
         .map_err(ApiError::Internal)?;
 
@@ -182,10 +182,10 @@ pub async fn register_install(
 
 /// Enforce the per-IP registration rate limit (3 per IP per 24 h).
 async fn check_registration_rate_limit(state: &AppState, remote_ip: &str) -> Result<(), ApiError> {
-    let since_24h = (Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    let since_24h = Utc::now() - chrono::Duration::days(1);
     let reg_count = state
         .installs()
-        .count_registrations_from_ip(remote_ip, &since_24h)
+        .count_registrations_from_ip(remote_ip, since_24h)
         .await
         .map_err(ApiError::Internal)?;
 
