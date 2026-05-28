@@ -1,9 +1,9 @@
-use sqlx::sqlite::{SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode};
 use uuid::Uuid;
 
-use crate::repository::sqlite::maintenance::SqliteMaintenanceRepository;
 use crate::repository::MaintenanceRepository;
+use crate::repository::sqlite::maintenance::SqliteMaintenanceRepository;
 
 /// Open a temporary file-backed `SQLite` database with
 /// `auto_vacuum=INCREMENTAL`. Returns the pool and the path so the
