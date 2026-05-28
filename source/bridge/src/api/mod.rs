@@ -17,7 +17,7 @@ use crate::auth::middleware::auth_layer;
 use crate::error::ErrorBody;
 use crate::state::AppState;
 
-/// OpenAPI document metadata.
+/// `OpenAPI` document metadata.
 #[derive(OpenApi)]
 #[openapi(
     info(

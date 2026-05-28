@@ -20,7 +20,7 @@ const TIMESTAMP_WINDOW_SECS: i64 = 60;
 /// Hard body-size limit applied to **every** incoming request, regardless of
 /// whether it carries an `Authorization` header.
 ///
-/// This is a DoS guard — it runs before any auth check so an attacker cannot
+/// This is a `DoS` guard — it runs before any auth check so an attacker cannot
 /// exhaust server memory by streaming a large body to an unauthenticated
 /// endpoint. Authenticated endpoints are equally protected.
 const MAX_BODY_BYTES: usize = 1024 * 1024; // 1 MiB
@@ -30,7 +30,7 @@ const MAX_BODY_BYTES: usize = 1024 * 1024; // 1 MiB
 /// The auth middleware only attempts a DB token lookup when the request path
 /// starts with this prefix. Requests to unauthenticated endpoints (health,
 /// challenge, register, names) never incur a DB round-trip regardless of
-/// whether they carry an `Authorization` header — this closes a DoS vector
+/// whether they carry an `Authorization` header — this closes a `DoS` vector
 /// where an attacker could force a DB query by sending a bearer token to
 /// any endpoint.
 const AUTHENTICATED_PATH_PREFIX: &str = "/v1/installs/";
@@ -86,13 +86,13 @@ where
 /// 1. The request path starts with `/v1/installs/`, **and**
 /// 2. An `Authorization: Bearer` header is present.
 ///
-/// This avoids a DoS vector where an attacker sends a bearer token to an
+/// This avoids a `DoS` vector where an attacker sends a bearer token to an
 /// unauthenticated endpoint (health, challenge, register, names) and forces a
 /// DB query on every request.
 ///
 /// When both conditions are met:
 ///
-/// 1. Parse `Bearer <token>`, SHA-256 hash it, look up the install.
+/// 1. Parse `Bearer <token>`, `SHA-256` hash it, look up the install.
 /// 2. Validate `X-Wardnet-Timestamp` — must be within ±60 s of now.
 /// 3. Compute `canonical_payload = "<METHOD>\n<path_and_query>\n<ts>\n<hex-sha256(body)>"`.
 /// 4. Verify the Ed25519 signature over the canonical payload using the
@@ -112,15 +112,12 @@ pub async fn auth_layer(
     let (mut parts, body) = request.into_parts();
 
     // ── Body-size guard (runs for ALL requests) ───────────────────────────
-    let body_bytes = match axum::body::to_bytes(body, MAX_BODY_BYTES).await {
-        Ok(b) => b,
-        Err(_) => {
-            return (
-                StatusCode::PAYLOAD_TOO_LARGE,
-                Json(ErrorBody { error: "request body exceeds 1 MiB limit".to_string() }),
-            )
-                .into_response();
-        }
+    let Ok(body_bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES).await else {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorBody { error: "request body exceeds 1 MiB limit".to_string() }),
+        )
+            .into_response();
     };
 
     // ── Auth (only for /v1/installs/* when Authorization header is present) ─
@@ -129,87 +126,81 @@ pub async fn auth_layer(
         .headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
+        .map(str::to_owned);
 
-    if path.starts_with(AUTHENTICATED_PATH_PREFIX) {
-        if let Some(auth_str) = auth_header {
-            let Some(token) = auth_str.strip_prefix("Bearer ") else {
-                return unauthorized("invalid Authorization header format");
-            };
-            let token = token.to_string();
+    if path.starts_with(AUTHENTICATED_PATH_PREFIX)
+        && let Some(auth_str) = auth_header
+    {
+        let Some(token) = auth_str.strip_prefix("Bearer ") else {
+            return unauthorized("invalid Authorization header format");
+        };
+        let token = token.to_string();
 
-            // Step 1: look up install by SHA-256(token).
-            let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
-            let install = match state.installs().find_by_token_hash(&token_hash).await {
-                Ok(Some(i)) => i,
-                Ok(None) => return unauthorized("unknown bearer token"),
-                Err(e) => {
-                    tracing::error!(error = %e, "database error during auth");
-                    return internal_error();
-                }
-            };
-
-            // Step 2: validate timestamp.
-            let timestamp_str = parts
-                .headers
-                .get("X-Wardnet-Timestamp")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-
-            let timestamp: i64 = match timestamp_str.parse() {
-                Ok(t) => t,
-                Err(_) => return unauthorized("missing or invalid X-Wardnet-Timestamp"),
-            };
-
-            let now = chrono::Utc::now().timestamp();
-            if (now - timestamp).abs() > TIMESTAMP_WINDOW_SECS {
-                return unauthorized("X-Wardnet-Timestamp outside ±60 s window");
+        // Step 1: look up install by SHA-256(token).
+        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let install = match state.installs().find_by_token_hash(&token_hash).await {
+            Ok(Some(i)) => i,
+            Ok(None) => return unauthorized("unknown bearer token"),
+            Err(e) => {
+                tracing::error!(error = %e, "database error during auth");
+                return internal_error();
             }
+        };
 
-            // Step 3: canonical payload — include path AND query string so
-            // query parameters are covered by the signature.
-            let method = parts.method.as_str();
-            let path_and_query = parts
-                .uri
-                .path_and_query()
-                .map(|pq| pq.as_str())
-                .unwrap_or(path);
-            let body_hash = hex::encode(Sha256::digest(&body_bytes));
-            let payload =
-                format!("{method}\n{path_and_query}\n{timestamp}\n{body_hash}");
+        // Step 2: validate timestamp.
+        let timestamp_str = parts
+            .headers
+            .get("X-Wardnet-Timestamp")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
 
-            // Step 4: Ed25519 signature using the pre-decoded key bytes.
-            let sig_b64 = parts
-                .headers
-                .get("X-Wardnet-Signature")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
+        let timestamp: i64 = match timestamp_str.parse() {
+            Ok(t) => t,
+            Err(_) => return unauthorized("missing or invalid X-Wardnet-Timestamp"),
+        };
 
-            if let Err(e) =
-                verify_signature_bytes(&install.pub_key_bytes, payload.as_bytes(), sig_b64)
-            {
-                tracing::warn!(
-                    install_id = %install.id,
-                    error = %e,
-                    "Ed25519 signature verification failed"
-                );
-                return unauthorized("invalid request signature");
-            }
-
-            // Step 5: replay check.
-            let replay_key =
-                format!("{}:{}:{}", install.id, timestamp, body_hash);
-            if state.replay_cache().contains_or_insert(&replay_key, now) {
-                tracing::warn!(
-                    install_id = %install.id,
-                    "replayed signed request rejected"
-                );
-                return unauthorized("replayed request");
-            }
-
-            // Step 6: stamp the verified install onto the request.
-            parts.extensions.insert(install);
+        let now = chrono::Utc::now().timestamp();
+        if (now - timestamp).abs() > TIMESTAMP_WINDOW_SECS {
+            return unauthorized("X-Wardnet-Timestamp outside ±60 s window");
         }
+
+        // Step 3: canonical payload — include path AND query string so
+        // query parameters are covered by the signature.
+        let method = parts.method.as_str();
+        let path_and_query = parts
+            .uri
+            .path_and_query()
+            .map_or(path, axum::http::uri::PathAndQuery::as_str);
+        let body_hash = hex::encode(Sha256::digest(&body_bytes));
+        let payload = format!("{method}\n{path_and_query}\n{timestamp}\n{body_hash}");
+
+        // Step 4: Ed25519 signature using the pre-decoded key bytes.
+        let sig_b64 = parts
+            .headers
+            .get("X-Wardnet-Signature")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        if let Err(e) =
+            verify_signature_bytes(&install.pub_key_bytes, payload.as_bytes(), sig_b64)
+        {
+            tracing::warn!(
+                install_id = %install.id,
+                error = %e,
+                "Ed25519 signature verification failed"
+            );
+            return unauthorized("invalid request signature");
+        }
+
+        // Step 5: replay check.
+        let replay_key = format!("{}:{}:{}", install.id, timestamp, body_hash);
+        if state.replay_cache().contains_or_insert(&replay_key, now) {
+            tracing::warn!(install_id = %install.id, "replayed signed request rejected");
+            return unauthorized("replayed request");
+        }
+
+        // Step 6: stamp the verified install onto the request.
+        parts.extensions.insert(install);
     }
 
     // Reconstitute the request with the buffered body so downstream

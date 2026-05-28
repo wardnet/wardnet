@@ -8,16 +8,16 @@ use sqlx::sqlite::{
 use uuid::Uuid;
 
 const READ_MAX_CONNECTIONS: u32 = 5;
-/// Single writer serialises mutations at the pool layer rather than busy-spinning inside SQLite.
+/// Single writer serialises mutations at the pool layer rather than busy-spinning inside `SQLite`.
 const WRITE_MAX_CONNECTIONS: u32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Reader / writer pool pair backed by SQLite.
+/// Reader / writer pool pair backed by `SQLite`.
 ///
 /// `read` and `write` point at the same on-disk database but differ in pool
 /// size. Callers must use `write` for all mutations and `read` for
 /// `SELECT`-only traffic so the single-writer rule is enforced at the
-/// connection layer rather than inside SQLite's lock.
+/// connection layer rather than inside `SQLite`'s lock.
 #[derive(Clone)]
 pub struct DbPools {
     pub read: SqlitePool,

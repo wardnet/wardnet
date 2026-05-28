@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::api::challenge::client_ip;
 use crate::api::validation::{validate_name, validate_public_key};
 use crate::error::ApiError;
-use crate::repository::Install;
+use crate::repository::{Install, RegistrationChallenge};
 use crate::state::AppState;
 
 /// Maximum registrations from the same remote IP per 24 hours.
@@ -19,7 +19,7 @@ use crate::state::AppState;
 /// A legitimate Pi registers exactly once during initial setup.
 /// 3 allows for one retry if the first name is taken and one more in case of
 /// a transient error, without handing a meaningful budget to an attacker who
-/// has already exhausted their PoW challenges.
+/// has already exhausted their `PoW` challenges.
 const REGISTRATIONS_PER_IP_PER_DAY: i64 = 3;
 
 /// Register the `POST /v1/register` route.
@@ -37,7 +37,7 @@ pub struct RegisterRequest {
     pub public_key: String,
     /// Challenge UUID obtained from `GET /v1/register/challenge`.
     pub challenge_id: String,
-    /// PoW proof: a u64 such that
+    /// `PoW` proof: a `u64` such that
     /// `SHA256(nonce\nname\npublic_key\nproof_decimal)` has at least
     /// `difficulty` leading zero bits.
     pub proof: u64,
@@ -89,63 +89,16 @@ pub async fn register_install(
 ) -> Result<(StatusCode, Json<RegisterResponse>), ApiError> {
     let remote_ip = client_ip(&headers, addr);
 
-    // ── Validate name and public key ─────────────────────────────────────
     validate_name(&body.name)?;
     validate_public_key(&body.public_key)?;
 
-    // ── Registration rate limit: 3/IP/24 h ───────────────────────────────
-    let since_24h = (Utc::now() - chrono::Duration::days(1)).to_rfc3339();
-    let reg_count = state
-        .installs()
-        .count_registrations_from_ip(&remote_ip, &since_24h)
-        .await
-        .map_err(ApiError::Internal)?;
-
-    if reg_count >= REGISTRATIONS_PER_IP_PER_DAY {
-        return Err(ApiError::TooManyRequests(
-            "registration rate limit exceeded (3 per IP per 24 h)".to_string(),
-        ));
-    }
-
-    // ── Resolve and validate the PoW challenge ────────────────────────────
-    let challenge = state
-        .challenges()
-        .find_by_id(&body.challenge_id)
-        .await
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::BadRequest("unknown challenge_id".to_string()))?;
-
-    if Utc::now() > challenge.expires_at {
-        return Err(ApiError::BadRequest(
-            "challenge has expired — fetch a new one from GET /v1/register/challenge".to_string(),
-        ));
-    }
-
-    // ── Bind challenge to requester IP ────────────────────────────────────
-    // Prevents a challenge obtained by one host from being used by another.
-    if challenge.remote_ip != remote_ip {
-        return Err(ApiError::BadRequest(
-            "challenge was issued to a different IP address".to_string(),
-        ));
-    }
-
-    // ── Verify PoW proof ──────────────────────────────────────────────────
-    if !crate::api::challenge::verify_pow(
-        &challenge.nonce,
-        &body.name,
-        &body.public_key,
-        body.proof,
-        challenge.difficulty,
-    ) {
-        return Err(ApiError::BadRequest(
-            "proof-of-work verification failed".to_string(),
-        ));
-    }
+    check_registration_rate_limit(&state, &remote_ip).await?;
+    validate_challenge(&state, &body, &remote_ip).await?;
 
     // ── Uniqueness check BEFORE burning the challenge ─────────────────────
     // Check name availability first so a taken name doesn't consume the
     // challenge, leaving the client with no recourse other than fetching a
-    // new one and solving PoW again.
+    // new one and solving `PoW` again.
     if state
         .installs()
         .find_by_name(&body.name)
@@ -164,10 +117,7 @@ pub async fn register_install(
         .map_err(ApiError::Internal)?;
 
     if !consumed {
-        // Another concurrent request beat us to it.
-        return Err(ApiError::BadRequest(
-            "challenge has already been used".to_string(),
-        ));
+        return Err(ApiError::BadRequest("challenge has already been used".to_string()));
     }
 
     // ── Generate install ID and bearer token ──────────────────────────────
@@ -176,15 +126,7 @@ pub async fn register_install(
 
     // ── Persist ───────────────────────────────────────────────────────────
     let now = Utc::now();
-    let pk_bytes = {
-        use base64::Engine as _;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&body.public_key)
-            .expect("already validated above");
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        arr
-    };
+    let pk_bytes = decode_public_key(&body.public_key);
 
     let install = Install {
         id: id.clone(),
@@ -228,6 +170,78 @@ pub async fn register_install(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Enforce the per-IP registration rate limit (3 per IP per 24 h).
+async fn check_registration_rate_limit(state: &AppState, remote_ip: &str) -> Result<(), ApiError> {
+    let since_24h = (Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    let reg_count = state
+        .installs()
+        .count_registrations_from_ip(remote_ip, &since_24h)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    if reg_count >= REGISTRATIONS_PER_IP_PER_DAY {
+        return Err(ApiError::TooManyRequests(
+            "registration rate limit exceeded (3 per IP per 24 h)".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Resolve the `PoW` challenge and verify expiry, IP binding, and proof.
+///
+/// Does **not** consume the challenge — that happens after the uniqueness check.
+async fn validate_challenge(
+    state: &AppState,
+    body: &RegisterRequest,
+    remote_ip: &str,
+) -> Result<RegistrationChallenge, ApiError> {
+    let challenge = state
+        .challenges()
+        .find_by_id(&body.challenge_id)
+        .await
+        .map_err(ApiError::Internal)?
+        .ok_or_else(|| ApiError::BadRequest("unknown challenge_id".to_string()))?;
+
+    if Utc::now() > challenge.expires_at {
+        return Err(ApiError::BadRequest(
+            "challenge has expired — fetch a new one from GET /v1/register/challenge".to_string(),
+        ));
+    }
+
+    if challenge.remote_ip != remote_ip {
+        return Err(ApiError::BadRequest(
+            "challenge was issued to a different IP address".to_string(),
+        ));
+    }
+
+    if !crate::api::challenge::verify_pow(
+        &challenge.nonce,
+        &body.name,
+        &body.public_key,
+        body.proof,
+        challenge.difficulty,
+    ) {
+        return Err(ApiError::BadRequest("proof-of-work verification failed".to_string()));
+    }
+
+    Ok(challenge)
+}
+
+/// Decode a validated base64 public key into raw bytes.
+///
+/// # Panics
+/// Panics if `public_key` is not valid base64 or not exactly 32 bytes.
+/// This should never happen because `validate_public_key` is called first.
+fn decode_public_key(public_key: &str) -> [u8; 32] {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(public_key)
+        .expect("public_key is valid base64 — validated above");
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    arr
+}
 
 /// Generate a random 32-byte bearer token.
 ///

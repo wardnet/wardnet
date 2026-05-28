@@ -1,0 +1,175 @@
+name: Build Bridge
+
+# Reusable leaf for bridge service lint + test + aarch64 release build.
+#
+# Callers: ci.yml (push to main), pr.yml (PRs).
+# Produces one artifact:
+#
+#   wardnet-bridge-aarch64-unsigned — stripped binary tarball
+#
+# The `deploy` job only runs on pushes to main. It SCPs the binary to the
+# bridge VM and restarts the systemd unit. The VM address and SSH key are
+# stored as repository secrets:
+#
+#   BRIDGE_DEPLOY_HOST  — IP or hostname of the bridge VM
+#   BRIDGE_DEPLOY_KEY   — private SSH key (ed25519, no passphrase)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check-bridge:
+    name: Check Bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # Upload clippy SARIF to Code Scanning.
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: clippy, rustfmt
+          workspaces: source/bridge
+          cache-key: bridge
+
+      - name: Install clippy SARIF tooling
+        uses: taiki-e/install-action@6c1f7cf125e42770ff087ea443901b487cc5471a # v2
+        with:
+          tool: clippy-sarif,sarif-fmt
+
+      - name: Format check
+        run: cargo fmt --check --manifest-path source/bridge/Cargo.toml
+
+      - name: Clippy
+        # Pipe clippy JSON output through clippy-sarif so CI gets a SARIF
+        # report for Code Scanning while still printing human-readable output.
+        # `-D warnings` is enforced; any warning becomes a build failure.
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path source/bridge/Cargo.toml \
+            --all-targets --message-format=json -- -D warnings \
+            | clippy-sarif | tee rust-clippy-bridge.sarif | sarif-fmt
+
+      - name: Upload clippy findings to Code Scanning
+        # Upload even if Clippy failed (captures the warnings that caused
+        # the failure). Skipped when SARIF was not written (e.g. fmt fails
+        # before clippy runs).
+        if: always() && hashFiles('rust-clippy-bridge.sarif') != ''
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        with:
+          sarif_file: rust-clippy-bridge.sarif
+          category: rust-clippy-bridge
+          wait-for-processing: true
+
+      - name: Tests
+        run: cargo test --manifest-path source/bridge/Cargo.toml --all-targets
+
+  build-bridge:
+    name: Build Bridge (aarch64)
+    needs: check-bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: aarch64-unknown-linux-gnu
+          workspaces: source/bridge
+          cache-key: bridge-aarch64
+
+      - name: Install aarch64 cross-compilation toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build (aarch64-unknown-linux-gnu)
+        run: >
+          cargo build --manifest-path source/bridge/Cargo.toml
+          --release --target aarch64-unknown-linux-gnu
+
+      - name: Strip binary
+        run: >
+          aarch64-linux-gnu-strip
+          source/bridge/target/aarch64-unknown-linux-gnu/release/wardnet-bridge
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p build-artefacts
+          cp source/bridge/target/aarch64-unknown-linux-gnu/release/wardnet-bridge \
+             build-artefacts/wardnet-bridge
+          chmod 0755 build-artefacts/wardnet-bridge
+          tar -C build-artefacts -czf build-artefacts/wardnet-bridge-aarch64.tar.gz \
+              wardnet-bridge
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wardnet-bridge-aarch64-unsigned
+          path: build-artefacts/wardnet-bridge-aarch64.tar.gz
+          retention-days: 7
+
+  deploy-bridge:
+    name: Deploy Bridge
+    needs: build-bridge
+    # Only deploy on pushes to main — never on PRs.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Download artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wardnet-bridge-aarch64-unsigned
+          path: dist/
+
+      - name: Extract binary
+        run: tar -C dist/ -xzf dist/wardnet-bridge-aarch64.tar.gz
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@d4fffb50872869abe2d9a9098a6d9c5aa7d16be4 # v2
+        with:
+          key: ${{ secrets.BRIDGE_DEPLOY_KEY }}
+          known_hosts: unnecessary
+          if_key_exists: replace
+
+      - name: SCP binary to VM
+        run: >
+          scp -o StrictHostKeyChecking=no
+          dist/wardnet-bridge
+          deploy@${{ secrets.BRIDGE_DEPLOY_HOST }}:/tmp/wardnet-bridge-new
+
+      - name: Install and restart on VM
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+              deploy@${{ secrets.BRIDGE_DEPLOY_HOST }} \
+              'set -euo pipefail
+               sudo mv /tmp/wardnet-bridge-new /usr/local/bin/wardnet-bridge
+               sudo chmod 0755 /usr/local/bin/wardnet-bridge
+               sudo systemctl restart wardnet-bridge
+               echo "deploy complete: $(wardnet-bridge --version 2>/dev/null || echo unknown)"'

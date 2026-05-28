@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 
 use crate::db::DbPools;
 
-/// A single-use PoW challenge gating `POST /v1/register`.
+/// A single-use `PoW` challenge gating `POST /v1/register`.
 #[derive(Debug, Clone)]
 pub struct RegistrationChallenge {
     pub id: String,
@@ -20,7 +20,7 @@ pub struct RegistrationChallenge {
     pub used_at: Option<DateTime<Utc>>,
 }
 
-/// Raw SQLite row for `sqlx::query_as` mapping.
+/// Raw `SQLite` row for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct ChallengeRow {
     id: String,
@@ -37,8 +37,8 @@ impl ChallengeRow {
         Ok(RegistrationChallenge {
             id: self.id,
             nonce: self.nonce,
-            #[allow(clippy::cast_sign_loss)]
-            difficulty: self.difficulty as u32,
+                difficulty: u32::try_from(self.difficulty)
+                .map_err(|_| anyhow::anyhow!("difficulty {} out of range for u32", self.difficulty))?,
             remote_ip: self.remote_ip,
             created_at: self.created_at.parse()?,
             expires_at: self.expires_at.parse()?,
@@ -101,11 +101,11 @@ impl ChallengeRepository for SqliteChallengeRepository {
         )
         .bind(&c.id)
         .bind(&c.nonce)
-        .bind(c.difficulty as i64)
+        .bind(i64::from(c.difficulty))
         .bind(&c.remote_ip)
         .bind(c.created_at.to_rfc3339())
         .bind(c.expires_at.to_rfc3339())
-        .bind(c.used_at.as_ref().map(|t| t.to_rfc3339()))
+        .bind(c.used_at.as_ref().map(chrono::DateTime::to_rfc3339))
         .execute(&self.pools.write)
         .await?;
         Ok(())

@@ -16,25 +16,24 @@ fn pow_round_trip() {
     let public_key = "dGVzdA==";
     let difficulty = 8u32; // low difficulty for test speed
 
-    // Find a valid proof.
-    let proof = (0u64..)
+    // Find a valid proof. The search is bounded by the u64 range; at difficulty
+    // 8 (1-in-256 chance), we expect to succeed within the first ~256 tries.
+    let proof = (0u64..=1_000_000)
         .find(|&p| {
             let payload = format!("{nonce}\n{name}\n{public_key}\n{p}");
             let hash = Sha256::digest(payload.as_bytes());
-            let bits: u32 = hash
+            let leading: u32 = hash
                 .iter()
                 .map(|b| b.leading_zeros())
                 .take_while(|&z| z == 8)
                 .sum::<u32>()
                 + hash
                     .iter()
-                    .skip_while(|&&b| b == 0)
-                    .next()
-                    .map(|b| b.leading_zeros())
-                    .unwrap_or(0);
-            bits >= difficulty
+                    .find(|&&b| b != 0)
+                    .map_or(0, |b| b.leading_zeros());
+            leading >= difficulty
         })
-        .expect("should find proof within u64");
+        .expect("should find proof within 1 M iterations at difficulty 8");
 
     assert!(verify_pow(nonce, name, public_key, proof, difficulty));
     // Wrong proof must fail.

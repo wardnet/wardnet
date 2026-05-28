@@ -26,7 +26,7 @@ pub struct Config {
     /// unauthenticated endpoints directly on every interface.
     pub listen_addr: String,
 
-    /// SQLite database path (file) or `":memory:"` for tests.
+    /// `SQLite` database path (file) or `":memory:"` for tests.
     pub database_url: String,
 
     /// Cloudflare API token scoped to DNS:Edit on the `cloudflare_zone_id` zone only.

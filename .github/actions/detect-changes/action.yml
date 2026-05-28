@@ -11,6 +11,9 @@ outputs:
   daemon:
     description: "'true' when daemon code, Makefile, or VERSION changed."
     value: ${{ steps.filter.outputs.daemon }}
+  bridge:
+    description: "'true' when bridge service code changed."
+    value: ${{ steps.filter.outputs.bridge }}
   site:
     description: "'true' when marketing-site code or the Makefile changed."
     value: ${{ steps.filter.outputs.site }}
@@ -33,6 +36,8 @@ runs:
             - 'source/end2end-tests/**'
             - 'Makefile'
             - 'VERSION'
+          bridge:
+            - 'source/bridge/**'
           site:
             - 'source/marketing-site/**'
             - 'Makefile'

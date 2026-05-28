@@ -15,7 +15,6 @@ pub struct AppState(Arc<Inner>);
 
 struct Inner {
     config: Config,
-    db: DbPools,
     installs: Arc<dyn InstallRepository>,
     challenges: Arc<dyn ChallengeRepository>,
     dns: Arc<dyn DnsProvider>,
@@ -30,14 +29,13 @@ impl AppState {
     #[must_use]
     pub fn new(
         config: Config,
-        db: DbPools,
+        _db: DbPools,
         installs: Arc<dyn InstallRepository>,
         challenges: Arc<dyn ChallengeRepository>,
         dns: Arc<dyn DnsProvider>,
     ) -> Self {
         Self(Arc::new(Inner {
             config,
-            db,
             installs,
             challenges,
             dns,
@@ -48,11 +46,6 @@ impl AppState {
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.0.config
-    }
-
-    #[must_use]
-    pub(crate) fn db(&self) -> &DbPools {
-        &self.0.db
     }
 
     #[must_use]

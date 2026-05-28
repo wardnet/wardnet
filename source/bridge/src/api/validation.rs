@@ -23,7 +23,7 @@ pub(crate) const RESERVED_NAMES: &[&str] = &[
 /// error) so it can return `{ "available": false }` for invalid names.
 pub(crate) fn is_valid_name(name: &str) -> bool {
     let len = name.len();
-    if len < 3 || len > 32 {
+    if !(3..=32).contains(&len) {
         return false;
     }
     if name.starts_with('-') || name.ends_with('-') {
@@ -60,7 +60,7 @@ pub(crate) fn validate_public_key(public_key: &str) -> Result<(), ApiError> {
 /// messages so the client knows exactly what was wrong.
 pub(crate) fn validate_name(name: &str) -> Result<(), ApiError> {
     let len = name.len();
-    if len < 3 || len > 32 {
+    if !(3..=32).contains(&len) {
         return Err(ApiError::BadRequest(
             "name must be between 3 and 32 characters".to_string(),
         ));

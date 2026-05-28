@@ -12,7 +12,7 @@ use crate::error::ApiError;
 use crate::repository::RegistrationChallenge;
 use crate::state::AppState;
 
-/// PoW difficulty: number of leading zero bits required in
+/// `PoW` difficulty: number of leading zero bits required in
 /// `SHA256(nonce\nname\npublic_key\nproof)`.
 ///
 /// 24 bits → ~16 M expected hashes → ~160 ms on a Pi 4 (acceptable for a
@@ -42,9 +42,9 @@ pub struct ChallengeResponse {
     /// Opaque challenge UUID. Pass this as `challenge_id` in
     /// `POST /v1/register`.
     pub challenge_id: String,
-    /// 32 random bytes as lowercase hex. Include verbatim in the PoW input.
+    /// 32 random bytes as lowercase hex. Include verbatim in the `PoW` input.
     pub nonce: String,
-    /// Number of leading zero bits the SHA256 output must have.
+    /// Number of leading zero bits the `SHA256` output must have.
     pub difficulty: u32,
     /// ISO 8601 UTC timestamp after which the challenge is invalid.
     pub expires_at: String,
@@ -132,16 +132,16 @@ pub async fn get_challenge(
 /// TCP peer address is used as-is — trusting a client-supplied
 /// `X-Forwarded-For` would allow IP spoofing for the rate-limit and challenge
 /// binding checks.
+#[must_use]
 pub fn client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
-    if addr.ip().is_loopback() {
-        if let Some(forwarded_for) = headers
+    if addr.ip().is_loopback()
+        && let Some(forwarded_for) = headers
             .get("X-Forwarded-For")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.split(',').next())
-            .map(|s| s.trim())
-        {
-            return forwarded_for.to_string();
-        }
+            .map(str::trim)
+    {
+        return forwarded_for.to_string();
     }
     addr.ip().to_string()
 }
@@ -154,13 +154,14 @@ pub fn client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
 /// The canonical payload uses `\n` separators — the same convention as the
 /// request-signing scheme — so the derivation is unambiguous regardless of
 /// field lengths.
+#[must_use]
 pub fn verify_pow(nonce: &str, name: &str, public_key: &str, proof: u64, difficulty: u32) -> bool {
     use sha2::{Digest, Sha256};
     let payload = format!("{nonce}\n{name}\n{public_key}\n{proof}");
     let hash = Sha256::digest(payload.as_bytes());
 
     let mut bits = 0u32;
-    for byte in hash.iter() {
+    for byte in &hash {
         let z = byte.leading_zeros();
         bits += z;
         if z < 8 {

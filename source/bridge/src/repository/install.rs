@@ -9,7 +9,7 @@ use crate::db::DbPools;
 ///
 /// One row per Pi that has completed the DDNS setup step. The `name` field
 /// is the user-chosen subdomain slug (e.g. `happy-einstein`); the `id` is a
-/// server-assigned UUIDv4 used in all subsequent API paths.
+/// server-assigned `UUIDv4` used in all subsequent API paths.
 #[derive(Debug, Clone)]
 pub struct Install {
     pub id: String,
@@ -35,7 +35,7 @@ pub struct Install {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Raw SQLite row — used for `sqlx::query_as` mapping.
+/// Raw `SQLite` row — used for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct InstallRow {
     id: String,
