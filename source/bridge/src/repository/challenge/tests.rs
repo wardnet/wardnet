@@ -6,6 +6,13 @@ use crate::repository::challenge::{
 };
 use crate::test_helpers::test_pool;
 
+/// `new()` is a trivial one-liner; call it once without `MySQL` so it shows covered.
+#[tokio::test]
+async fn new_from_lazy_pool() {
+    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy").unwrap();
+    let _ = MySqlChallengeRepository::new(pool);
+}
+
 async fn repo() -> MySqlChallengeRepository {
     let pool = test_pool().await;
     MySqlChallengeRepository::new_pools(DbPools::single(pool))

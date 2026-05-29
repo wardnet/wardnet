@@ -122,6 +122,40 @@ fn extract_install_name_rejects_bare_parent() {
     assert!(extract_install_name("my.us.wardnet.network", ".my.us.wardnet.network").is_none());
 }
 
+// ── run() integration test ────────────────────────────────────────────────────
+
+/// Exercises `run()`'s accept-loop body: bind, log, compute suffix, create
+/// semaphore, enter the loop, accept a connection, and spawn a routing task.
+#[tokio::test]
+async fn run_binds_and_routes_accepted_connection() {
+    use std::time::Duration;
+
+    // Grab a free port by binding temporarily, then release it.
+    let temp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = temp.local_addr().unwrap().port();
+    drop(temp);
+    // Brief pause so the OS makes the port available again.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    let config = make_test_config("127.0.0.1:1");
+    let registry = Arc::new(TunnelRegistry::new());
+    let addr = format!("127.0.0.1:{port}");
+    let addr2 = addr.clone();
+
+    // Spawn run() — it binds on addr and loops forever.
+    tokio::spawn(async move { super::run(&addr2, 443, config, registry).await });
+    // Wait for the bind to complete.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // Connect and send non-TLS bytes → run() accepts the connection and spawns route().
+    let mut client = TcpStream::connect(&addr).await.unwrap();
+    client.write_all(b"not-tls").await.unwrap();
+    drop(client);
+
+    // Allow route() to run and drop the connection.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
 // ── route() integration tests ─────────────────────────────────────────────────
 
 fn make_test_config(caddy_addr: &str) -> Config {

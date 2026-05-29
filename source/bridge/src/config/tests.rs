@@ -16,6 +16,57 @@ fn test_config() -> Config {
 }
 
 #[test]
+fn from_env_reads_required_and_optional_vars() {
+    // Save current values so we can restore them after the test.
+    let keys = [
+        "DATABASE_URL",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE_ID",
+        "REGION",
+        "SUBDOMAIN_PARENT",
+        "BRIDGE_HOSTNAME",
+        "LISTEN_ADDR",
+        "SNI_LISTEN_ADDR",
+        "DOT_LISTEN_ADDR",
+        "CADDY_ADDR",
+    ];
+    let originals: Vec<_> = keys.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+
+    // SAFETY: single-threaded test binary; no concurrent env access.
+    unsafe {
+        std::env::set_var("DATABASE_URL", "mysql://test:test@localhost/db");
+        std::env::set_var("CLOUDFLARE_API_TOKEN", "cf-token");
+        std::env::set_var("CLOUDFLARE_ZONE_ID", "cf-zone");
+        std::env::set_var("REGION", "us");
+        std::env::set_var("SUBDOMAIN_PARENT", "my.us.wardnet.network");
+        std::env::set_var("BRIDGE_HOSTNAME", "bridge.us.wardnet.network");
+        std::env::remove_var("LISTEN_ADDR");
+        std::env::remove_var("SNI_LISTEN_ADDR");
+        std::env::remove_var("DOT_LISTEN_ADDR");
+        std::env::remove_var("CADDY_ADDR");
+    }
+
+    let cfg = Config::from_env().expect("from_env should succeed with all required vars set");
+
+    assert_eq!(cfg.region, "us");
+    assert_eq!(cfg.bridge_hostname, "bridge.us.wardnet.network");
+    assert_eq!(cfg.listen_addr, "127.0.0.1:8080"); // default
+    assert_eq!(cfg.sni_listen_addr, "0.0.0.0:443"); // default
+    assert_eq!(cfg.dot_listen_addr, "0.0.0.0:853"); // default
+    assert_eq!(cfg.caddy_addr, "127.0.0.1:8443"); // default
+
+    // SAFETY: restoring original values; same single-threaded context.
+    unsafe {
+        for (key, val) in &originals {
+            match val {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+#[test]
 fn install_fqdn() {
     let cfg = test_config();
     assert_eq!(

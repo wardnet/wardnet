@@ -59,6 +59,63 @@ async fn forward_returns_not_connected_when_unregistered() {
 }
 
 #[tokio::test]
+async fn forward_returns_buffer_full_when_channel_saturated() {
+    let reg = TunnelRegistry::new();
+    let rx = reg.register("install-full", "frank");
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    // Fill the channel to capacity (64 slots).
+    for _ in 0..64 {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let result = reg.forward(
+            "frank",
+            ForwardRequest {
+                stream,
+                dest_port: 443,
+            },
+        );
+        assert!(matches!(result, ForwardResult::Accepted));
+    }
+
+    // The 65th forward must fail because the buffer is full.
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let result = reg.forward(
+        "frank",
+        ForwardRequest {
+            stream,
+            dest_port: 443,
+        },
+    );
+    assert!(matches!(result, ForwardResult::BufferFull));
+
+    drop(rx);
+}
+
+#[tokio::test]
+async fn forward_returns_not_connected_when_receiver_dropped() {
+    let reg = TunnelRegistry::new();
+    // Register and immediately drop the receiver — the sender stays in by_name
+    // but try_send will return TrySendError::Closed.
+    let rx = reg.register("install-closed", "grace");
+    drop(rx);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stream = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let result = reg.forward(
+        "grace",
+        ForwardRequest {
+            stream,
+            dest_port: 443,
+        },
+    );
+    assert!(matches!(result, ForwardResult::NotConnected));
+}
+
+#[tokio::test]
 async fn second_register_replaces_first() {
     let reg = TunnelRegistry::new();
     let _rx1 = reg.register("install-3", "carol");

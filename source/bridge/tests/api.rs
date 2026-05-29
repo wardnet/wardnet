@@ -1495,3 +1495,110 @@ async fn tunnel_connect_establishes_websocket_and_handler_runs() {
 
     ws.close(None).await.ok();
 }
+
+/// Exercises `handler::run()`'s `forward_rx` arm (inbound TCP from SNI demuxer)
+/// and `tcp_out_rx` arms (DATA and EOF from the active TCP connection).
+#[tokio::test]
+async fn tunnel_handler_forward_and_tcp_data_flow() {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+    use wardnet_bridge::tunnel::ForwardRequest;
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+    let registry = state.tunnel_registry();
+
+    let server_listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = server_listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(server_listener, router).into_future());
+
+    // Connect Pi via WebSocket.
+    let path = format!("/v1/installs/{}/tunnel", install.id);
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    let (mut ws, _) = connect_async(req).await.expect("WS connect failed");
+
+    // Wait for handler::run() to call registry.register().
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Set up a "Pi-local server" that the Pi will connect to when it gets READY.
+    let pi_local = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let pi_local_addr = pi_local.local_addr().unwrap();
+
+    // Forward a fake inbound TCP stream to the Pi — exercises the forward_rx arm.
+    let inbound = tokio::net::TcpStream::connect(pi_local_addr).await.unwrap();
+    let _ = registry.forward(
+        &install.name,
+        ForwardRequest {
+            stream: inbound,
+            dest_port: 443,
+        },
+    );
+
+    // Pi receives CONNECT frame.
+    let conn_id = if let Some(Ok(WsMessage::Binary(bytes))) = ws.next().await {
+        assert_eq!(bytes[0], 0x01, "expected FRAME_CONNECT");
+        u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
+    } else {
+        panic!("expected CONNECT frame");
+    };
+
+    // Pi sends READY — exercises handle_pi_frame READY branch and spawns tcp tasks.
+    let mut ready = vec![0x02u8, 0, 0, 0, 0];
+    ready[1..5].copy_from_slice(&conn_id.to_be_bytes());
+    ws.send(WsMessage::Binary(ready.into())).await.unwrap();
+
+    // Accept the Pi-side TCP connection and write some data + close.
+    let (mut pi_conn, _) = pi_local.accept().await.unwrap();
+    pi_conn.write_all(b"hello").await.unwrap();
+    drop(pi_conn); // EOF → tcp_reader sends empty Bytes → bridge sends CLOSE
+
+    // Pi receives DATA frame then CLOSE frame — exercises the tcp_out_rx arms.
+    let mut saw_data = false;
+    let mut saw_close = false;
+    while let Ok(Some(Ok(WsMessage::Binary(bytes)))) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await
+    {
+        match bytes[0] {
+            0x03 => saw_data = true,
+            0x04 => {
+                saw_close = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_data, "expected DATA frame from bridge");
+    assert!(saw_close, "expected CLOSE frame from bridge");
+
+    ws.close(None).await.ok();
+}
