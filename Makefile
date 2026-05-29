@@ -299,7 +299,7 @@ coverage-bridge:
 # coverage-bridge-ci: nextest variant used by CI (produces JUnit + LCOV).
 # Requires BRIDGE_TEST_DATABASE_URL to be set (GitHub Actions service container).
 coverage-bridge-ci:
-	cd $(BRIDGE_DIR) && cargo llvm-cov nextest --run-ignored all $(COV_FMT) \
+	cd $(BRIDGE_DIR) && cargo llvm-cov nextest --run-ignored all --profile ci $(COV_FMT) \
 		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)'
 
 # ---------- OpenAPI spec ----------
