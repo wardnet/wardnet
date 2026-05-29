@@ -150,6 +150,9 @@ impl VpnProviderService for MockProviderService {
             bytes_rx: 0,
             created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
             override_default_dns: false,
+            server_selector: None,
+            resolved_server_name: None,
+            endpoint_resolved_at: None,
         };
         Ok(SetupProviderResponse {
             tunnel,

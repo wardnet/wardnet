@@ -31,6 +31,12 @@ pub struct TunnelRow {
     pub listen_port: Option<u16>,
     /// See [`wardnet_common::tunnel::Tunnel::override_default_dns`].
     pub override_default_dns: bool,
+    /// ISO country code for "best server" tunnels; `None` for specific-server or manual.
+    pub server_selector_country: Option<String>,
+    /// Human-readable name of the server resolved at creation time.
+    pub resolved_server_name: Option<String>,
+    /// ISO 8601 timestamp of the initial endpoint resolution.
+    pub endpoint_resolved_at: Option<String>,
 }
 
 /// Data access for `WireGuard` tunnel records.
@@ -69,6 +75,18 @@ pub trait TunnelRepository: Send + Sync {
         bytes_tx: i64,
         bytes_rx: i64,
         last_handshake: Option<&str>,
+    ) -> anyhow::Result<()>;
+
+    /// Persist a re-resolved endpoint after a successful best-server lookup at
+    /// bring-up time. Updates the `endpoint` column, the `peer_config` JSON,
+    /// `resolved_server_name`, and `endpoint_resolved_at`.
+    async fn update_endpoint(
+        &self,
+        id: &str,
+        endpoint: &str,
+        peer_config_json: &str,
+        server_name: &str,
+        resolved_at: &str,
     ) -> anyhow::Result<()>;
 
     /// Delete a tunnel by ID.

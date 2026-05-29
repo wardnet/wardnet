@@ -178,6 +178,17 @@ impl TunnelRepository for MockTunnelRepo {
         Ok(())
     }
 
+    async fn update_endpoint(
+        &self,
+        _id: &str,
+        _endpoint: &str,
+        _peer_config_json: &str,
+        _server_name: &str,
+        _resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn delete(&self, _id: &str) -> anyhow::Result<()> {
         Ok(())
     }
@@ -598,6 +609,9 @@ fn sample_tunnel(id: Uuid, interface_name: &str, status: TunnelStatus) -> Tunnel
         bytes_rx: 0,
         created_at: chrono::Utc::now(),
         override_default_dns: true,
+        server_selector: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     }
 }
 

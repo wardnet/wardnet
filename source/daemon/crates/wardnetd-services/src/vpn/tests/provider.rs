@@ -173,6 +173,9 @@ impl TunnelService for MockTunnelService {
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
             override_default_dns: false,
+            server_selector: req.server_selector.clone(),
+            resolved_server_name: req.resolved_server_name.clone(),
+            endpoint_resolved_at: None,
         };
         self.imported.lock().unwrap().push(req);
         Ok(CreateTunnelResponse {

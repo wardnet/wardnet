@@ -23,6 +23,13 @@ pub enum TunnelStatus {
     Reconnecting,
 }
 
+/// Selector persisted when a tunnel was created via country-scoped auto-select.
+/// Present only on "best server" tunnels; `None` for specific-server or manual.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BestServerSelector {
+    pub country: String,
+}
+
 /// A `WireGuard` tunnel configuration and its live state.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Tunnel {
@@ -43,6 +50,13 @@ pub struct Tunnel {
     /// `SO_BINDTODEVICE`. When `false`, the per-tunnel DNS server (if
     /// any) is ignored and the system-wide upstream pool is used.
     pub override_default_dns: bool,
+    /// Set when the tunnel was created via country-scoped auto-select ("best server").
+    /// `None` for specific-server or manually imported tunnels.
+    pub server_selector: Option<BestServerSelector>,
+    /// Human-readable name of the last resolved server (e.g. "United States #8395").
+    pub resolved_server_name: Option<String>,
+    /// ISO 8601 timestamp of the last endpoint re-resolution.
+    pub endpoint_resolved_at: Option<DateTime<Utc>>,
 }
 
 use crate::wireguard_config::WgPeerConfig;

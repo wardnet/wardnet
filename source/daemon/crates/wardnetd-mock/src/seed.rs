@@ -227,6 +227,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             peer_config: peer_json,
             listen_port: None,
             override_default_dns: true,
+            server_selector_country: None,
+            resolved_server_name: None,
+            endpoint_resolved_at: None,
         };
         tunnel_repo.insert(&row).await?;
         if status == "up" {

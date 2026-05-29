@@ -17,6 +17,9 @@ fn sample_row(id: &str, interface_name: &str) -> TunnelRow {
         peer_config: "{\"public_key\":\"abc123\",\"endpoint\":\"198.51.100.1:51820\",\"allowed_ips\":[\"0.0.0.0/0\"],\"preshared_key\":null,\"persistent_keepalive\":25}".to_owned(),
         listen_port: None,
         override_default_dns: true,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     }
 }
 

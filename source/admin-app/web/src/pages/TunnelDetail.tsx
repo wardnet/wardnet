@@ -115,6 +115,29 @@ export default function TunnelDetail() {
               value={<span className="mono">{tunnel.interface_name}</span>}
             />
           </div>
+          {tunnel.server_selector && (
+            <div className="grid grid-cols-2 gap-x-6 md:grid-cols-3">
+              <Field
+                label="Server selector"
+                editing={false}
+                value={`Best ${tunnel.server_selector.country.toUpperCase()}`}
+              />
+              {tunnel.resolved_server_name && (
+                <Field
+                  label="Resolved server"
+                  editing={false}
+                  value={tunnel.resolved_server_name}
+                />
+              )}
+              {tunnel.endpoint_resolved_at && (
+                <Field
+                  label="Last resolved"
+                  editing={false}
+                  value={timeAgo(tunnel.endpoint_resolved_at)}
+                />
+              )}
+            </div>
+          )}
           <Field
             direction="row"
             label="Filter and route DNS through this tunnel"

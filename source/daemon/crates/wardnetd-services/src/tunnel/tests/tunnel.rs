@@ -22,7 +22,9 @@ use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::key_store::KeyStore;
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::vpn::resolver::ServerResolver;
 use crate::{TunnelService, TunnelServiceImpl};
+use wardnet_common::tunnel::BestServerSelector;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
 
@@ -149,6 +151,24 @@ impl TunnelRepository for MockTunnelRepo {
         Ok(())
     }
 
+    async fn update_endpoint(
+        &self,
+        id: &str,
+        endpoint: &str,
+        peer_config_json: &str,
+        server_name: &str,
+        resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        let mut rows = self.rows.lock().unwrap();
+        if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
+            r.endpoint = endpoint.to_owned();
+            r.peer_config = peer_config_json.to_owned();
+            r.resolved_server_name = Some(server_name.to_owned());
+            r.endpoint_resolved_at = Some(resolved_at.to_owned());
+        }
+        Ok(())
+    }
+
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         self.rows.lock().unwrap().retain(|r| r.id != id);
         Ok(())
@@ -202,6 +222,15 @@ fn row_to_tunnel(
         bytes_rx: s.bytes_rx.cast_unsigned(),
         created_at: chrono::Utc::now(),
         override_default_dns: r.override_default_dns,
+        server_selector: r
+            .server_selector_country
+            .as_ref()
+            .map(|c| BestServerSelector { country: c.clone() }),
+        resolved_server_name: r.resolved_server_name.clone(),
+        endpoint_resolved_at: r
+            .endpoint_resolved_at
+            .as_deref()
+            .and_then(|s| s.parse().ok()),
     })
 }
 
@@ -638,6 +667,22 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
 
 // -- Helpers --------------------------------------------------------------
 
+// -- Mock ServerResolver --------------------------------------------------
+
+struct MockServerResolver;
+
+#[async_trait]
+impl ServerResolver for MockServerResolver {
+    async fn resolve(
+        &self,
+        _provider_id: &str,
+        _selector: &BestServerSelector,
+        _port: u16,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        Ok(None)
+    }
+}
+
 struct TestHarness {
     svc: TunnelServiceImpl,
     tunnels: Arc<MockTunnelRepo>,
@@ -659,6 +704,7 @@ fn build_harness() -> TestHarness {
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
+    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
@@ -669,6 +715,7 @@ fn build_harness() -> TestHarness {
         keys.clone(),
         events.clone(),
         meter,
+        server_resolver,
     );
 
     TestHarness {
@@ -692,6 +739,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
+    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
@@ -702,6 +750,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         keys.clone(),
         events.clone(),
         meter,
+        server_resolver,
     );
 
     TestHarness {
@@ -722,6 +771,8 @@ fn sample_request() -> CreateTunnelRequest {
         country_code: "SE".to_owned(),
         provider: Some("Mullvad".to_owned()),
         config: SAMPLE_CONF.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     }
 }
 
@@ -764,6 +815,8 @@ async fn import_tunnel_invalid_config() {
         country_code: "XX".to_owned(),
         provider: None,
         config: "this is not a valid config".to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
 
     let result = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req)).await;
@@ -1815,6 +1868,8 @@ async fn bring_up_with_no_endpoint_uses_none_branch() {
         country_code: "SE".to_owned(),
         provider: None,
         config: SAMPLE_CONF_NO_ENDPOINT.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req))
         .await
@@ -1837,6 +1892,8 @@ async fn bring_up_with_preshared_key_and_multiple_allowed_ips() {
         country_code: "NO".to_owned(),
         provider: None,
         config: SAMPLE_CONF_WITH_PRESHARED.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req))
         .await
@@ -1937,6 +1994,9 @@ fn insert_up_tunnel(h: &TestHarness, id: Uuid, interface_name: &str) {
         peer_config: "{}".to_owned(),
         listen_port: None,
         override_default_dns: false,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     });
 }
 
@@ -1981,6 +2041,9 @@ async fn probe_latencies_skips_down_tunnels() {
         peer_config: "{}".to_owned(),
         listen_port: None,
         override_default_dns: false,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     });
 
     h.svc.probe_latencies().await.unwrap();

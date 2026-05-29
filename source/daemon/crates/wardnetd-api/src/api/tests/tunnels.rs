@@ -120,6 +120,9 @@ impl TunnelService for MockTunnelService {
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
             override_default_dns: false,
+            server_selector: req.server_selector.clone(),
+            resolved_server_name: req.resolved_server_name.clone(),
+            endpoint_resolved_at: None,
         };
         Ok(CreateTunnelResponse {
             tunnel,
@@ -230,6 +233,9 @@ fn sample_tunnel() -> Tunnel {
         bytes_rx: 0,
         created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
         override_default_dns: false,
+        server_selector: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     }
 }
 

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
+use wardnet_common::tunnel::{BestServerSelector, Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_common::wireguard_config::WgPeerConfig;
 
 use super::super::TunnelRepository;
@@ -41,6 +41,9 @@ struct DbTunnelRow {
     bytes_rx: i64,
     created_at: String,
     override_default_dns: i64,
+    server_selector_country: Option<String>,
+    resolved_server_name: Option<String>,
+    endpoint_resolved_at: Option<String>,
 }
 
 impl DbTunnelRow {
@@ -54,6 +57,14 @@ impl DbTunnelRow {
         };
 
         let last_handshake = self.last_handshake.as_deref().map(str::parse).transpose()?;
+        let endpoint_resolved_at = self
+            .endpoint_resolved_at
+            .as_deref()
+            .map(str::parse)
+            .transpose()?;
+        let server_selector = self
+            .server_selector_country
+            .map(|country| BestServerSelector { country });
 
         Ok(Tunnel {
             id: self.id.parse()?,
@@ -68,6 +79,9 @@ impl DbTunnelRow {
             bytes_rx: self.bytes_rx.cast_unsigned(),
             created_at: self.created_at.parse()?,
             override_default_dns: self.override_default_dns != 0,
+            server_selector,
+            resolved_server_name: self.resolved_server_name,
+            endpoint_resolved_at,
         })
     }
 }
@@ -108,7 +122,8 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn find_all(&self) -> anyhow::Result<Vec<Tunnel>> {
         let rows = sqlx::query_as::<_, DbTunnelRow>(
             "SELECT id, label, country_code, provider, interface_name, endpoint, \
-             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns \
+             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns, \
+             server_selector_country, resolved_server_name, endpoint_resolved_at \
              FROM tunnels",
         )
         .fetch_all(&self.pools.read)
@@ -120,7 +135,8 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Tunnel>> {
         let row = sqlx::query_as::<_, DbTunnelRow>(
             "SELECT id, label, country_code, provider, interface_name, endpoint, \
-             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns \
+             status, last_handshake, bytes_tx, bytes_rx, created_at, override_default_dns, \
+             server_selector_country, resolved_server_name, endpoint_resolved_at \
              FROM tunnels WHERE id = ?",
         )
         .bind(id)
@@ -145,8 +161,9 @@ impl TunnelRepository for SqliteTunnelRepository {
     async fn insert(&self, row: &TunnelRow) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO tunnels (id, label, country_code, provider, interface_name, \
-             endpoint, status, address, dns, peer_config, listen_port, override_default_dns) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             endpoint, status, address, dns, peer_config, listen_port, override_default_dns, \
+             server_selector_country, resolved_server_name, endpoint_resolved_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.label)
@@ -160,6 +177,33 @@ impl TunnelRepository for SqliteTunnelRepository {
         .bind(&row.peer_config)
         .bind(row.listen_port)
         .bind(i64::from(row.override_default_dns))
+        .bind(&row.server_selector_country)
+        .bind(&row.resolved_server_name)
+        .bind(&row.endpoint_resolved_at)
+        .execute(&self.pools.write)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_endpoint(
+        &self,
+        id: &str,
+        endpoint: &str,
+        peer_config_json: &str,
+        server_name: &str,
+        resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE tunnels \
+             SET endpoint = ?, peer_config = ?, \
+                 resolved_server_name = ?, endpoint_resolved_at = ? \
+             WHERE id = ?",
+        )
+        .bind(endpoint)
+        .bind(peer_config_json)
+        .bind(server_name)
+        .bind(resolved_at)
+        .bind(id)
         .execute(&self.pools.write)
         .await?;
         Ok(())

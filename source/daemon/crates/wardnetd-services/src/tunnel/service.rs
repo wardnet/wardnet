@@ -22,6 +22,7 @@ use crate::tunnel::interface::{
     CreateTunnelParams, TunnelConfig as TiTunnelConfig, TunnelInterface,
 };
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::secret_store::SecretStore;
@@ -124,6 +125,7 @@ pub struct TunnelServiceImpl {
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
     meter: Arc<Meter>,
+    server_resolver: Arc<dyn ServerResolver>,
     /// Last cumulative `(bytes_tx, bytes_rx)` observed per tunnel.
     /// Used by `collect_stats` to compute positive deltas to feed into
     /// the generic stats pipeline. A counter that goes *down* means the
@@ -135,6 +137,15 @@ pub struct TunnelServiceImpl {
     /// guard. Concurrent calls for the same id return
     /// `AppError::Conflict`.
     tests_in_flight: Arc<std::sync::Mutex<HashSet<Uuid>>>,
+}
+
+/// Parse the port from a `host:port` endpoint string. Defaults to `51820`
+/// if the endpoint is absent, malformed, or the port cannot be parsed.
+fn parse_port(endpoint: Option<&str>) -> u16 {
+    endpoint
+        .and_then(|ep| ep.rsplit(':').next())
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(51820)
 }
 
 impl TunnelServiceImpl {
@@ -154,6 +165,7 @@ impl TunnelServiceImpl {
         secret_store: Arc<dyn SecretStore>,
         events: Arc<dyn EventPublisher>,
         meter: Arc<Meter>,
+        server_resolver: Arc<dyn ServerResolver>,
     ) -> Self {
         let keys: Arc<dyn KeyStore> = Arc::new(KeyStoreAdapter::new(secret_store));
         Self {
@@ -165,6 +177,7 @@ impl TunnelServiceImpl {
             keys,
             events,
             meter,
+            server_resolver,
             last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
@@ -186,6 +199,7 @@ impl TunnelServiceImpl {
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
         meter: Arc<Meter>,
+        server_resolver: Arc<dyn ServerResolver>,
     ) -> Self {
         Self {
             tunnels,
@@ -196,6 +210,7 @@ impl TunnelServiceImpl {
             keys,
             events,
             meter,
+            server_resolver,
             last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
@@ -238,6 +253,67 @@ impl TunnelServiceImpl {
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::NotFound(format!("tunnel config {id} not found")))?;
+
+        // Re-resolve endpoint for "best server" tunnels on each bring-up.
+        let tunnel_config = match &tunnel.server_selector {
+            Some(selector) if tunnel.provider.is_some() => {
+                let provider_id = tunnel.provider.as_deref().expect("checked above");
+                let port = parse_port(tunnel_config.peer.endpoint.as_deref());
+                match self
+                    .server_resolver
+                    .resolve(provider_id, selector, port)
+                    .await
+                {
+                    Ok(Some((new_ep, server_name))) => {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let mut updated_peer = tunnel_config.peer.clone();
+                        updated_peer.endpoint = Some(new_ep.clone());
+                        let peer_json = serde_json::to_string(&updated_peer)
+                            .map_err(|e| AppError::Internal(e.into()))?;
+                        if let Err(e) = self
+                            .tunnels
+                            .update_endpoint(
+                                &id.to_string(),
+                                &new_ep,
+                                &peer_json,
+                                &server_name,
+                                &now,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                tunnel_id = %id,
+                                error = %e,
+                                "endpoint re-resolution: failed to persist updated endpoint: {e}",
+                            );
+                        }
+                        wardnet_common::tunnel::TunnelConfig {
+                            peer: updated_peer,
+                            ..tunnel_config
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::warn!(
+                            tunnel_id = %id,
+                            "no provider registered for re-resolution, using stored endpoint",
+                        );
+                        tunnel_config
+                    }
+                    Err(e) => {
+                        if e.downcast_ref::<EmptyServerListError>().is_some() {
+                            return Err(AppError::Internal(e));
+                        }
+                        tracing::warn!(
+                            tunnel_id = %id,
+                            error = %e,
+                            "endpoint re-resolution failed (transient), using stored endpoint: {e}",
+                        );
+                        tunnel_config
+                    }
+                }
+            }
+            _ => tunnel_config,
+        };
 
         // Load and decode private key from key store.
         let private_key_b64 = self.keys.load_key(&id).await.map_err(AppError::Internal)?;
@@ -679,6 +755,16 @@ impl TunnelService for TunnelServiceImpl {
         // and the system-wide upstream pool is the right choice.
         let override_default_dns = !config.interface.dns.is_empty();
 
+        let endpoint_resolved_at = if req.server_selector.is_some() {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+        let server_selector_country = req
+            .server_selector
+            .as_ref()
+            .map(|s| s.country.clone());
+
         let row = TunnelRow {
             id: id.to_string(),
             label: req.label.clone(),
@@ -692,6 +778,9 @@ impl TunnelService for TunnelServiceImpl {
             peer_config: peer_config_json,
             listen_port: config.interface.listen_port,
             override_default_dns,
+            server_selector_country,
+            resolved_server_name: req.resolved_server_name.clone(),
+            endpoint_resolved_at: endpoint_resolved_at.clone(),
         };
 
         self.tunnels
@@ -713,6 +802,11 @@ impl TunnelService for TunnelServiceImpl {
             bytes_rx: 0,
             created_at: now,
             override_default_dns,
+            server_selector: req.server_selector,
+            resolved_server_name: req.resolved_server_name,
+            endpoint_resolved_at: endpoint_resolved_at
+                .as_deref()
+                .and_then(|s| s.parse().ok()),
         };
 
         Ok(CreateTunnelResponse {

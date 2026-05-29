@@ -13226,6 +13226,18 @@
           }
         }
       },
+      "BestServerSelector": {
+        "type": "object",
+        "description": "Selector persisted when a tunnel was created via country-scoped auto-select.\nPresent only on \"best server\" tunnels; `None` for specific-server or manual.",
+        "required": [
+          "country"
+        ],
+        "properties": {
+          "country": {
+            "type": "string"
+          }
+        }
+      },
       "Blocklist": {
         "type": "object",
         "description": "A URL-sourced domain blocklist scoped to a DNS filter profile.",
@@ -13574,6 +13586,24 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "resolved_server_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable name of the server resolved at creation time."
+          },
+          "server_selector": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BestServerSelector",
+                "description": "Set when the tunnel was created via country-scoped auto-select."
+              }
             ]
           }
         }
@@ -15981,6 +16011,14 @@
           "endpoint": {
             "type": "string"
           },
+          "endpoint_resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of the last endpoint re-resolution."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -16006,6 +16044,24 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "resolved_server_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable name of the last resolved server (e.g. \"United States #8395\")."
+          },
+          "server_selector": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BestServerSelector",
+                "description": "Set when the tunnel was created via country-scoped auto-select (\"best server\").\n`None` for specific-server or manually imported tunnels."
+              }
             ]
           },
           "status": {
