@@ -25,7 +25,7 @@ pub enum TunnelStatus {
 
 /// Selector persisted when a tunnel was created via country-scoped auto-select.
 /// Present only on "best server" tunnels; `None` for specific-server or manual.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BestServerSelector {
     pub country: String,
 }

@@ -142,10 +142,16 @@ pub struct TunnelServiceImpl {
 /// Parse the port from a `host:port` endpoint string. Defaults to `51820`
 /// if the endpoint is absent, malformed, or the port cannot be parsed.
 fn parse_port(endpoint: Option<&str>) -> u16 {
-    endpoint
-        .and_then(|ep| ep.rsplit(':').next())
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(51820)
+    let port_str = endpoint.and_then(|ep| ep.rsplit(':').next());
+    match port_str.and_then(|p| p.parse::<u16>().ok()) {
+        Some(p) => p,
+        None => {
+            if endpoint.is_some() {
+                tracing::warn!(endpoint = ?endpoint, "could not parse port from endpoint, using default 51820");
+            }
+            51820
+        }
+    }
 }
 
 impl TunnelServiceImpl {
@@ -267,14 +273,14 @@ impl TunnelServiceImpl {
                     Ok(Some((new_ep, server_name))) => {
                         let now = chrono::Utc::now().to_rfc3339();
                         let mut updated_peer = tunnel_config.peer.clone();
-                        updated_peer.endpoint = Some(new_ep.clone());
+                        updated_peer.endpoint = Some(new_ep);
                         let peer_json = serde_json::to_string(&updated_peer)
                             .map_err(|e| AppError::Internal(e.into()))?;
                         if let Err(e) = self
                             .tunnels
                             .update_endpoint(
                                 &id.to_string(),
-                                &new_ep,
+                                updated_peer.endpoint.as_deref().unwrap_or_default(),
                                 &peer_json,
                                 &server_name,
                                 &now,
@@ -284,7 +290,7 @@ impl TunnelServiceImpl {
                             tracing::warn!(
                                 tunnel_id = %id,
                                 error = %e,
-                                "endpoint re-resolution: failed to persist updated endpoint: {e}",
+                                "endpoint re-resolution: failed to persist updated endpoint",
                             );
                         }
                         wardnet_common::tunnel::TunnelConfig {
@@ -306,7 +312,7 @@ impl TunnelServiceImpl {
                         tracing::warn!(
                             tunnel_id = %id,
                             error = %e,
-                            "endpoint re-resolution failed (transient), using stored endpoint: {e}",
+                            "endpoint re-resolution failed (transient), using stored endpoint",
                         );
                         tunnel_config
                     }
@@ -755,11 +761,12 @@ impl TunnelService for TunnelServiceImpl {
         // and the system-wide upstream pool is the right choice.
         let override_default_dns = !config.interface.dns.is_empty();
 
-        let endpoint_resolved_at = if req.server_selector.is_some() {
-            Some(chrono::Utc::now().to_rfc3339())
-        } else {
-            None
-        };
+        let endpoint_resolved_at_dt: Option<chrono::DateTime<chrono::Utc>> =
+            if req.server_selector.is_some() {
+                Some(chrono::Utc::now())
+            } else {
+                None
+            };
         let server_selector_country = req
             .server_selector
             .as_ref()
@@ -780,7 +787,7 @@ impl TunnelService for TunnelServiceImpl {
             override_default_dns,
             server_selector_country,
             resolved_server_name: req.resolved_server_name.clone(),
-            endpoint_resolved_at: endpoint_resolved_at.clone(),
+            endpoint_resolved_at: endpoint_resolved_at_dt.as_ref().map(|dt| dt.to_rfc3339()),
         };
 
         self.tunnels
@@ -804,9 +811,7 @@ impl TunnelService for TunnelServiceImpl {
             override_default_dns,
             server_selector: req.server_selector,
             resolved_server_name: req.resolved_server_name,
-            endpoint_resolved_at: endpoint_resolved_at
-                .as_deref()
-                .and_then(|s| s.parse().ok()),
+            endpoint_resolved_at: endpoint_resolved_at_dt,
         };
 
         Ok(CreateTunnelResponse {

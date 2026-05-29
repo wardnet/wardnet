@@ -66,6 +66,15 @@ impl VpnProviderRegistry {
     }
 }
 
+/// Reject hostnames that could be used for endpoint injection (e.g. containing
+/// a colon that would override the port, or whitespace from a malformed response).
+fn validate_hostname(hostname: &str) -> anyhow::Result<()> {
+    if hostname.is_empty() || hostname.chars().any(|c| c == ':' || c.is_whitespace()) {
+        anyhow::bail!("provider returned invalid hostname: {:?}", hostname);
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ServerResolver for VpnProviderRegistry {
     async fn resolve(
@@ -78,6 +87,11 @@ impl ServerResolver for VpnProviderRegistry {
             return Ok(None);
         };
 
+        // NordVPN's recommendations endpoint is unauthenticated (public API).
+        // The `list_servers` trait signature accepts credentials for providers
+        // that require auth; we pass an empty token here because NordVPN ignores
+        // it. A future provider that requires auth for listing must not use this
+        // path — extend the trait with a credential-free method instead.
         let dummy = ProviderCredentials::Token {
             token: String::new(),
         };
@@ -96,6 +110,7 @@ impl ServerResolver for VpnProviderRegistry {
         }
 
         let server = servers.iter().min_by_key(|s| s.load).expect("non-empty");
+        validate_hostname(&server.hostname)?;
         let endpoint = format!("{}:{port}", server.hostname);
         Ok(Some((endpoint, server.name.clone())))
     }
