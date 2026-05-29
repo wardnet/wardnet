@@ -19,14 +19,10 @@
 /// region at setup time and remains bound to that bridge instance.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// TCP address to listen on. Defaults to `127.0.0.1:8080`.
-    ///
-    /// Defaults to loopback — the bridge should always sit behind a reverse
-    /// proxy (Caddy in production). Binding to `0.0.0.0` would expose the
-    /// unauthenticated endpoints directly on every interface.
+    /// TCP address to listen on for the HTTP API. Defaults to `127.0.0.1:8080`.
     pub listen_addr: String,
 
-    /// `SQLite` database path (file) or `":memory:"` for tests.
+    /// `MySQL` DSN, e.g. `mysql://user:pass@host:3306/wardnet`.
     pub database_url: String,
 
     /// Cloudflare API token scoped to DNS:Edit on the `cloudflare_zone_id` zone only.
@@ -45,6 +41,31 @@ pub struct Config {
     /// e.g. `"my.us.wardnet.network"`. Must be inside the zone owned by
     /// `cloudflare_zone_id`.
     pub subdomain_parent: String,
+
+    /// TCP address for the SNI-routing HTTPS listener. Defaults to `0.0.0.0:443`.
+    ///
+    /// The SNI demuxer reads the TLS `ClientHello` without terminating TLS and
+    /// routes connections to either Caddy (for the bridge hostname) or to the
+    /// reverse-tunnel router (for install subdomains).
+    pub sni_listen_addr: String,
+
+    /// TCP address for the SNI-routing DNS-over-TLS listener. Defaults to `0.0.0.0:853`.
+    ///
+    /// Same SNI passthrough logic as the HTTPS listener; used for Android
+    /// Private DNS.
+    pub dot_listen_addr: String,
+
+    /// Local address of the Caddy reverse-proxy, e.g. `127.0.0.1:8443`.
+    ///
+    /// TLS connections whose SNI hostname matches `bridge_hostname` are
+    /// forwarded here unchanged (TLS passthrough); Caddy handles the
+    /// `bridge.<region>.wardnet.network` certificate.
+    pub caddy_addr: String,
+
+    /// Public hostname of this bridge instance,
+    /// e.g. `"bridge.us.wardnet.network"`. Connections with this SNI are
+    /// routed to Caddy; all others are assumed to be install traffic.
+    pub bridge_hostname: String,
 }
 
 impl Config {
@@ -61,6 +82,13 @@ impl Config {
             cloudflare_zone_id: required("CLOUDFLARE_ZONE_ID")?,
             region: required("REGION")?,
             subdomain_parent: required("SUBDOMAIN_PARENT")?,
+            sni_listen_addr: std::env::var("SNI_LISTEN_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:443".to_string()),
+            dot_listen_addr: std::env::var("DOT_LISTEN_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:853".to_string()),
+            caddy_addr: std::env::var("CADDY_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:8443".to_string()),
+            bridge_hostname: required("BRIDGE_HOSTNAME")?,
         })
     }
 

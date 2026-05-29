@@ -50,7 +50,7 @@ COV_RUNNER ?=
         check check-sdk check-web check-site check-daemon check-daemon-native check-daemon-container \
         check-bridge \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
-        coverage-bridge \
+        coverage-bridge coverage-bridge-ci \
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
@@ -288,12 +288,18 @@ check-bridge:
 	fi
 	cd $(BRIDGE_DIR) && cargo test
 
-# coverage-bridge: generate a line-coverage summary for the bridge.
-# Requires cargo-llvm-cov.
-# CI overrides COV_FMT for LCOV and COV_RUNNER for nextest+JUnit output.
-COV_IGNORE_BRIDGE := (main\.rs)
+# coverage-bridge: generate line coverage for the bridge (local dev).
+# Requires cargo-llvm-cov and a running MySQL (docker compose up -d).
+# CI uses coverage-bridge-ci which drives nextest with --run-ignored all.
+COV_IGNORE_BRIDGE := (main\.rs|db/mod\.rs)
 coverage-bridge:
-	cd $(BRIDGE_DIR) && cargo llvm-cov $(COV_RUNNER) $(COV_FMT) \
+	cd $(BRIDGE_DIR) && cargo llvm-cov $(COV_FMT) \
+		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)' -- --include-ignored
+
+# coverage-bridge-ci: nextest variant used by CI (produces JUnit + LCOV).
+# Requires BRIDGE_TEST_DATABASE_URL to be set (GitHub Actions service container).
+coverage-bridge-ci:
+	cd $(BRIDGE_DIR) && cargo llvm-cov nextest --run-ignored all --profile ci $(COV_FMT) \
 		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)'
 
 # ---------- OpenAPI spec ----------

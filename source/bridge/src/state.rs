@@ -5,6 +5,7 @@ use crate::db::DbPools;
 use crate::dns_provider::DnsProvider;
 use crate::replay_cache::ReplayCache;
 use crate::repository::{ChallengeRepository, InstallRepository};
+use crate::tunnel::TunnelRegistry;
 
 /// Shared application state injected into every Axum handler via
 /// [`axum::extract::State`].
@@ -23,6 +24,8 @@ struct Inner {
     /// Keyed by `"{install_id}:{timestamp}:{body_hash}"`; prevents a valid
     /// signed request from being replayed within the ±60 s timestamp window.
     replay_cache: Arc<ReplayCache>,
+    /// Registry of active Pi reverse-tunnel WebSocket connections.
+    tunnel_registry: Arc<TunnelRegistry>,
 }
 
 impl AppState {
@@ -33,6 +36,7 @@ impl AppState {
         installs: Arc<dyn InstallRepository>,
         challenges: Arc<dyn ChallengeRepository>,
         dns: Arc<dyn DnsProvider>,
+        tunnel_registry: Arc<TunnelRegistry>,
     ) -> Self {
         Self(Arc::new(Inner {
             config,
@@ -40,6 +44,7 @@ impl AppState {
             challenges,
             dns,
             replay_cache: Arc::new(ReplayCache::new()),
+            tunnel_registry,
         }))
     }
 
@@ -66,5 +71,11 @@ impl AppState {
     #[must_use]
     pub(crate) fn replay_cache(&self) -> &ReplayCache {
         &self.0.replay_cache
+    }
+
+    /// Returns a cloned `Arc` to the tunnel registry.
+    #[must_use]
+    pub fn tunnel_registry(&self) -> Arc<TunnelRegistry> {
+        Arc::clone(&self.0.tunnel_registry)
     }
 }

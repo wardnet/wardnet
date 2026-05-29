@@ -1,20 +1,21 @@
 //! Full-stack integration tests for the bridge HTTP API.
 //!
-//! These tests build the complete Axum router with an in-memory `SQLite` database
+//! These tests build the complete Axum router with mock in-memory repositories
 //! and a `MockDnsProvider`, then drive requests through
 //! [`tower::ServiceExt::oneshot`].
 //!
 //! # Test conventions
 //!
-//! - Every test creates its own isolated in-memory database via `test_state()`.
+//! - Every test creates its own isolated state via `test_state()`.
 //! - Challenges are inserted directly with `difficulty = 0` so no real `PoW`
-//!   computation is needed. The register handler calls `verify_pow` with
-//!   whatever difficulty is in the challenge row — 0 bits means any `proof`
-//!   value passes.
+//!   computation is needed.
 //! - Ed25519 signing uses a deterministic test key derived from `[1u8; 32]`.
 //! - The loopback peer (`127.0.0.1`) is injected via `MockConnectInfo` so
 //!   handlers that call `client_ip()` see a non-forwarded address.
 
+mod common;
+
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -24,24 +25,22 @@ use axum::http::{Request, StatusCode};
 use base64::Engine as _;
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
+use futures_util::{SinkExt as _, StreamExt as _};
 use http_body_util::BodyExt;
 use sha2::{Digest, Sha256};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
+use common::{MockChallengeRepository, MockInstallRepository};
 use wardnet_bridge::config::Config;
-use wardnet_bridge::db::DbPools;
 use wardnet_bridge::dns_provider::DnsProvider;
-use wardnet_bridge::repository::{
-    ChallengeRepository, Install, InstallRepository, RegistrationChallenge,
-    SqliteChallengeRepository, SqliteInstallRepository,
-};
+use wardnet_bridge::repository::{Install, InstallRepository, RegistrationChallenge};
 use wardnet_bridge::state::AppState;
+use wardnet_bridge::tunnel::TunnelRegistry;
 
 // ── Mock DNS provider ────────────────────────────────────────────────────────
 
-/// Records which `DnsProvider` method was called — fields are tracked only for
-/// debug output; tests count calls rather than inspecting field values.
 #[derive(Debug)]
 enum DnsCall {
     UpsertA,
@@ -51,7 +50,6 @@ enum DnsCall {
 
 struct MockDnsProvider {
     calls: Mutex<Vec<DnsCall>>,
-    /// If `Some`, every operation returns this error message.
     error: Option<String>,
 }
 
@@ -117,44 +115,69 @@ impl DnsProvider for MockDnsProvider {
 fn test_config() -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_string(),
-        database_url: ":memory:".to_string(),
+        database_url: "mysql://ignored".to_string(),
         cloudflare_api_token: "test-cf-token".to_string(),
         cloudflare_zone_id: "test-cf-zone".to_string(),
         region: "test".to_string(),
         subdomain_parent: "test.wardnet.local".to_string(),
+        sni_listen_addr: "0.0.0.0:443".to_string(),
+        dot_listen_addr: "0.0.0.0:853".to_string(),
+        caddy_addr: "127.0.0.1:8443".to_string(),
+        bridge_hostname: "bridge.test.wardnet.network".to_string(),
     }
 }
 
-async fn make_pools() -> DbPools {
-    wardnet_bridge::db::init(":memory:").await.unwrap()
-}
-
-/// Build an `AppState` backed by an in-memory database and the given DNS mock.
-async fn test_state_with_dns(dns: Arc<MockDnsProvider>) -> AppState {
-    let pools = make_pools().await;
-    let installs = Arc::new(SqliteInstallRepository::new(pools.write.clone()));
-    let challenges = Arc::new(SqliteChallengeRepository::new(pools.write.clone()));
-    AppState::new(
-        test_config(),
-        pools,
-        installs as Arc<dyn InstallRepository>,
-        challenges as Arc<dyn ChallengeRepository>,
-        dns as Arc<dyn DnsProvider>,
-    )
-}
-
-/// Convenience wrapper: fresh state with a non-failing mock DNS provider.
-async fn test_state() -> (AppState, Arc<MockDnsProvider>) {
+fn test_state() -> (AppState, Arc<MockDnsProvider>) {
     let dns = Arc::new(MockDnsProvider::new());
-    let state = test_state_with_dns(dns.clone()).await;
+    let installs = Arc::new(MockInstallRepository::new());
+    let challenges = Arc::new(MockChallengeRepository::new());
+    let tunnel_registry = Arc::new(TunnelRegistry::new());
+    let state = AppState::new(
+        test_config(),
+        dummy_pools(),
+        installs as Arc<dyn InstallRepository>,
+        challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
+        Arc::clone(&dns) as Arc<dyn DnsProvider>,
+        tunnel_registry,
+    );
     (state, dns)
 }
 
-/// Build the Axum router under test with a fixed loopback peer address so
-/// every request appears to originate from `127.0.0.1:12345`.
+fn test_state_with_error_dns(dns: Arc<MockDnsProvider>) -> AppState {
+    let installs = Arc::new(MockInstallRepository::new());
+    let challenges = Arc::new(MockChallengeRepository::new());
+    let tunnel_registry = Arc::new(TunnelRegistry::new());
+    AppState::new(
+        test_config(),
+        dummy_pools(),
+        installs as Arc<dyn InstallRepository>,
+        challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
+        dns as Arc<dyn DnsProvider>,
+        tunnel_registry,
+    )
+}
+
+/// Build an `AppState` backed by mock repos and the given DNS mock.
+fn test_state_dns(dns: Arc<MockDnsProvider>) -> AppState {
+    test_state_with_error_dns(dns)
+}
+
+/// Build the Axum router under test with a fixed loopback peer address.
 fn test_app(state: AppState) -> axum::Router {
     wardnet_bridge::api::router(state)
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
+}
+
+/// Produce a dummy `DbPools` that is stored in `AppState` but never accessed
+/// (mock repositories bypass the pool entirely).
+fn dummy_pools() -> wardnet_bridge::db::DbPools {
+    // SAFETY: The AppState stores DbPools but mock repos own their own state
+    // and never touch the pool. We construct a pool that connects lazily so
+    // it doesn't fail at construction time.
+    // Use sqlx's lazy connect: MySqlPool::connect_lazy returns immediately.
+    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy")
+        .expect("lazy connect should not fail at construction");
+    wardnet_bridge::db::DbPools::single(pool)
 }
 
 /// Ed25519 signing key for tests — deterministic, derived from `[1u8; 32]`.
@@ -177,7 +200,7 @@ fn test_bearer_token() -> (String, String) {
     (raw, hash)
 }
 
-/// Insert a test install row directly into the DB and return the install + raw token.
+/// Insert a test install row directly and return the install + raw token.
 async fn insert_test_install(state: &AppState, name: &str) -> (Install, String) {
     let (raw_token, token_hash) = test_bearer_token();
     let (pub_key_bytes, public_key) = test_pub_key();
@@ -215,8 +238,6 @@ async fn insert_easy_challenge(state: &AppState, remote_ip: &str) -> Registratio
 }
 
 /// Build a signed request for an authenticated endpoint.
-///
-/// Signs `"METHOD\npath\ntimestamp\nhex-sha256(body)"` with the test Ed25519 key.
 fn signed_request(
     method: &str,
     path: &str,
@@ -234,7 +255,7 @@ fn signed_request(
     )
 }
 
-/// Like `signed_request` but with a caller-supplied timestamp (for replay / staleness tests).
+/// Like `signed_request` but with a caller-supplied timestamp.
 fn signed_request_at(
     method: &str,
     path: &str,
@@ -269,7 +290,7 @@ async fn body_string(body: axum::body::Body) -> String {
 
 #[tokio::test]
 async fn health_returns_200() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     let req = Request::builder()
         .uri("/v1/health")
@@ -283,7 +304,7 @@ async fn health_returns_200() {
 
 #[tokio::test]
 async fn get_challenge_returns_200_with_fields() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     let req = Request::builder()
         .uri("/v1/register/challenge")
@@ -302,9 +323,8 @@ async fn get_challenge_returns_200_with_fields() {
 
 #[tokio::test]
 async fn get_challenge_rate_limited_at_20_per_hour() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
 
-    // Pre-insert 20 challenges from 127.0.0.1 within the last hour.
     for _ in 0..20 {
         let c = RegistrationChallenge {
             id: Uuid::new_v4().to_string(),
@@ -331,7 +351,7 @@ async fn get_challenge_rate_limited_at_20_per_hour() {
 
 #[tokio::test]
 async fn name_available_for_fresh_name() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     let req = Request::builder()
         .uri("/v1/names/happy-einstein/available")
@@ -346,7 +366,7 @@ async fn name_available_for_fresh_name() {
 
 #[tokio::test]
 async fn name_unavailable_when_already_registered() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     insert_test_install(&state, "happy-einstein").await;
 
     let app = test_app(state);
@@ -362,7 +382,7 @@ async fn name_unavailable_when_already_registered() {
 
 #[tokio::test]
 async fn name_unavailable_for_reserved_slug() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     for reserved in &["www", "admin", "us", "api"] {
         let req = Request::builder()
@@ -381,7 +401,7 @@ async fn name_unavailable_for_reserved_slug() {
 
 #[tokio::test]
 async fn name_unavailable_for_syntactically_invalid_name() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     for invalid in &["-bad", "bad-", "ab", "ALLCAPS", "has space"] {
         let encoded = invalid.replace(' ', "%20");
@@ -401,7 +421,6 @@ async fn name_unavailable_for_syntactically_invalid_name() {
 
 // ── Register endpoint ────────────────────────────────────────────────────────
 
-/// Helper: build a register request body.
 fn register_body(
     name: &str,
     pub_key_b64: &str,
@@ -418,7 +437,7 @@ fn register_body(
 
 #[tokio::test]
 async fn register_success_creates_install_and_returns_token() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
@@ -452,7 +471,7 @@ async fn register_success_creates_install_and_returns_token() {
 
 #[tokio::test]
 async fn register_returns_400_for_invalid_name() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
@@ -476,7 +495,7 @@ async fn register_returns_400_for_invalid_name() {
 
 #[tokio::test]
 async fn register_returns_400_for_reserved_name() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
@@ -494,10 +513,9 @@ async fn register_returns_400_for_reserved_name() {
 
 #[tokio::test]
 async fn register_returns_400_for_invalid_public_key() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
 
-    // Non-base64 string
     let body = register_body("test-name", "not!valid!base64", &challenge.id, 0);
     let app = test_app(state.clone());
     let req = Request::builder()
@@ -509,7 +527,6 @@ async fn register_returns_400_for_invalid_public_key() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-    // Valid base64 but wrong length (31 bytes)
     let short_key = base64::engine::general_purpose::STANDARD.encode([0u8; 31]);
     let body2 = register_body("test-name", &short_key, &challenge.id, 0);
     let app2 = test_app(state);
@@ -525,7 +542,7 @@ async fn register_returns_400_for_invalid_public_key() {
 
 #[tokio::test]
 async fn register_returns_400_for_unknown_challenge() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, pub_key_b64) = test_pub_key();
 
     let body = register_body("test-name", &pub_key_b64, &Uuid::new_v4().to_string(), 0);
@@ -550,7 +567,7 @@ async fn register_returns_400_for_unknown_challenge() {
 
 #[tokio::test]
 async fn register_returns_400_for_expired_challenge() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, pub_key_b64) = test_pub_key();
 
     let now = Utc::now();
@@ -560,7 +577,7 @@ async fn register_returns_400_for_expired_challenge() {
         difficulty: 0,
         remote_ip: "127.0.0.1".to_string(),
         created_at: now - chrono::Duration::minutes(10),
-        expires_at: now - chrono::Duration::minutes(1), // already expired
+        expires_at: now - chrono::Duration::minutes(1),
         used_at: None,
     };
     state.challenges().insert(&expired).await.unwrap();
@@ -582,10 +599,9 @@ async fn register_returns_400_for_expired_challenge() {
 
 #[tokio::test]
 async fn register_returns_400_when_challenge_issued_to_different_ip() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, pub_key_b64) = test_pub_key();
 
-    // Challenge issued to a different IP than the test client (127.0.0.1)
     let now = Utc::now();
     let challenge = RegistrationChallenge {
         id: Uuid::new_v4().to_string(),
@@ -618,10 +634,9 @@ async fn register_returns_400_when_challenge_issued_to_different_ip() {
 
 #[tokio::test]
 async fn register_returns_400_for_failing_pow_proof() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, pub_key_b64) = test_pub_key();
 
-    // Insert challenge with high difficulty — proof=0 won't pass 24 leading-zero bits
     let now = Utc::now();
     let challenge = RegistrationChallenge {
         id: Uuid::new_v4().to_string(),
@@ -651,7 +666,7 @@ async fn register_returns_400_for_failing_pow_proof() {
 
 #[tokio::test]
 async fn register_returns_409_when_name_is_taken() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     insert_test_install(&state, "happy-einstein").await;
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
@@ -673,14 +688,13 @@ async fn register_returns_409_when_name_is_taken() {
 
 #[tokio::test]
 async fn register_returns_400_when_challenge_already_consumed() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
-    // Pre-consume the challenge
     state
         .challenges()
-        .consume(&challenge.id, &Utc::now().to_rfc3339())
+        .consume(&challenge.id, Utc::now())
         .await
         .unwrap();
 
@@ -706,14 +720,12 @@ async fn register_returns_400_when_challenge_already_consumed() {
 
 #[tokio::test]
 async fn register_returns_429_when_rate_limit_reached() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
 
-    // Log 3 registrations from 127.0.0.1 within the last 24 h
-    let now = Utc::now().to_rfc3339();
     for _ in 0..3 {
         state
             .installs()
-            .log_registration("127.0.0.1", &now)
+            .log_registration("127.0.0.1", Utc::now())
             .await
             .unwrap();
     }
@@ -737,11 +749,10 @@ async fn register_returns_429_when_rate_limit_reached() {
 
 #[tokio::test]
 async fn auth_rejects_body_over_1_mib() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
-    // Body is 1 MiB + 1 byte — just over the limit
     let oversized = vec![b'x'; 1024 * 1024 + 1];
     let timestamp = Utc::now().timestamp();
     let req = Request::builder()
@@ -762,9 +773,7 @@ async fn auth_rejects_body_over_1_mib() {
 
 #[tokio::test]
 async fn auth_passes_unauthenticated_endpoints_without_header() {
-    // Unauthenticated endpoints (health, challenge, register, names) must work
-    // without an Authorization header even when accessed on paths not under /v1/installs/.
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let app = test_app(state);
     let req = Request::builder()
         .uri("/v1/health")
@@ -776,7 +785,7 @@ async fn auth_passes_unauthenticated_endpoints_without_header() {
 
 #[tokio::test]
 async fn auth_returns_401_when_bearer_prefix_is_missing() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, _raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -797,13 +806,13 @@ async fn auth_returns_401_when_bearer_prefix_is_missing() {
         json["error"]
             .as_str()
             .unwrap()
-            .contains("Authorization header"),
+            .contains("Authorization header")
     );
 }
 
 #[tokio::test]
 async fn auth_returns_401_for_unknown_bearer_token() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, _) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -825,7 +834,7 @@ async fn auth_returns_401_for_unknown_bearer_token() {
 
 #[tokio::test]
 async fn auth_returns_401_when_timestamp_header_is_absent() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -833,7 +842,6 @@ async fn auth_returns_401_when_timestamp_header_is_absent() {
         .method("PUT")
         .uri(format!("/v1/installs/{}/ip", install.id))
         .header("Authorization", format!("Bearer {raw_token}"))
-        // No X-Wardnet-Timestamp header
         .header("X-Wardnet-Signature", "dGVzdA==")
         .header("Content-Type", "application/json")
         .body(Body::from(r#"{"ip":"203.0.113.1"}"#))
@@ -847,7 +855,7 @@ async fn auth_returns_401_when_timestamp_header_is_absent() {
 
 #[tokio::test]
 async fn auth_returns_401_when_timestamp_is_not_a_number() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -866,11 +874,11 @@ async fn auth_returns_401_when_timestamp_is_not_a_number() {
 
 #[tokio::test]
 async fn auth_returns_401_when_timestamp_is_stale() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
-    let past_ts = Utc::now().timestamp() - 120; // 120 s in the past, outside ±60 s window
+    let past_ts = Utc::now().timestamp() - 120;
     let req = Request::builder()
         .method("PUT")
         .uri(format!("/v1/installs/{}/ip", install.id))
@@ -889,11 +897,10 @@ async fn auth_returns_401_when_timestamp_is_stale() {
 
 #[tokio::test]
 async fn auth_returns_401_for_invalid_signature() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
-    // Provide a syntactically valid but cryptographically wrong signature
     let bad_sig = base64::engine::general_purpose::STANDARD.encode([0u8; 64]);
     let req = Request::builder()
         .method("PUT")
@@ -913,7 +920,7 @@ async fn auth_returns_401_for_invalid_signature() {
 
 #[tokio::test]
 async fn auth_returns_401_when_signature_base64_is_invalid() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -922,7 +929,7 @@ async fn auth_returns_401_when_signature_base64_is_invalid() {
         .uri(format!("/v1/installs/{}/ip", install.id))
         .header("Authorization", format!("Bearer {raw_token}"))
         .header("X-Wardnet-Timestamp", Utc::now().timestamp().to_string())
-        .header("X-Wardnet-Signature", "not!valid!base64!!!") // malformed base64
+        .header("X-Wardnet-Signature", "not!valid!base64!!!")
         .header("Content-Type", "application/json")
         .body(Body::from(r#"{"ip":"203.0.113.1"}"#))
         .unwrap();
@@ -932,18 +939,16 @@ async fn auth_returns_401_when_signature_base64_is_invalid() {
 
 #[tokio::test]
 async fn auth_returns_401_on_replayed_request() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // Fix a single timestamp so both requests share the same replay key.
     let timestamp = Utc::now().timestamp();
     let body = br#"{"ip":"8.8.8.8"}"#;
     let path = format!("/v1/installs/{}/ip", install.id);
 
     let app = test_app(state);
 
-    // First request — must succeed.
     let req1 = signed_request_at("PUT", &path, body, &raw_token, &signing_key, timestamp);
     let resp1 = app.clone().oneshot(req1).await.unwrap();
     assert_eq!(
@@ -952,7 +957,6 @@ async fn auth_returns_401_on_replayed_request() {
         "first signed request should succeed"
     );
 
-    // Second request with identical timestamp, body, and signature — must be rejected.
     let req2 = signed_request_at("PUT", &path, body, &raw_token, &signing_key, timestamp);
     let resp2 = app.oneshot(req2).await.unwrap();
     assert_eq!(
@@ -967,10 +971,7 @@ async fn auth_returns_401_on_replayed_request() {
 
 #[tokio::test]
 async fn auth_missing_from_authenticated_endpoint_returns_401() {
-    // No Authorization header at all on a /v1/installs/* path.
-    // The auth layer skips auth (no header), the handler tries AuthenticatedInstall,
-    // which returns 401 since no Install extension was stamped.
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, _) = insert_test_install(&state, "test-node").await;
 
     let app = test_app(state);
@@ -988,7 +989,7 @@ async fn auth_missing_from_authenticated_endpoint_returns_401() {
 
 #[tokio::test]
 async fn update_ip_success() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1008,7 +1009,7 @@ async fn update_ip_success() {
 
 #[tokio::test]
 async fn update_ip_returns_400_for_invalid_ip_string() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1026,7 +1027,7 @@ async fn update_ip_returns_400_for_invalid_ip_string() {
 
 #[tokio::test]
 async fn update_ip_returns_400_for_private_addresses() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1059,11 +1060,10 @@ async fn update_ip_returns_400_for_private_addresses() {
 
 #[tokio::test]
 async fn update_ip_returns_403_when_install_id_does_not_match_token() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // A different install ID in the path — token belongs to a different install
     let other_id = Uuid::new_v4().to_string();
     let body = br#"{"ip":"203.0.113.1"}"#;
     let path = format!("/v1/installs/{other_id}/ip");
@@ -1077,7 +1077,7 @@ async fn update_ip_returns_403_when_install_id_does_not_match_token() {
 #[tokio::test]
 async fn update_ip_returns_500_when_dns_fails() {
     let dns = Arc::new(MockDnsProvider::with_error("cloudflare unavailable"));
-    let state = test_state_with_dns(dns).await;
+    let state = test_state_dns(dns);
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1094,7 +1094,7 @@ async fn update_ip_returns_500_when_dns_fails() {
 
 #[tokio::test]
 async fn set_acme_challenge_success() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1114,7 +1114,7 @@ async fn set_acme_challenge_success() {
 
 #[tokio::test]
 async fn set_acme_challenge_returns_403_on_id_mismatch() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1131,7 +1131,7 @@ async fn set_acme_challenge_returns_403_on_id_mismatch() {
 #[tokio::test]
 async fn set_acme_challenge_returns_500_when_dns_fails() {
     let dns = Arc::new(MockDnsProvider::with_error("cloudflare unavailable"));
-    let state = test_state_with_dns(dns).await;
+    let state = test_state_dns(dns);
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1146,18 +1146,13 @@ async fn set_acme_challenge_returns_500_when_dns_fails() {
 
 #[tokio::test]
 async fn delete_acme_challenge_deletes_dns_record_when_present() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // Pre-populate the ACME record ID
     state
         .installs()
-        .update_acme_record(
-            &install.id,
-            Some("cf-txt-existing"),
-            &Utc::now().to_rfc3339(),
-        )
+        .update_acme_record(&install.id, Some("cf-txt-existing"), Utc::now())
         .await
         .unwrap();
 
@@ -1173,11 +1168,10 @@ async fn delete_acme_challenge_deletes_dns_record_when_present() {
 
 #[tokio::test]
 async fn delete_acme_challenge_is_noop_when_no_record_set() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // No ACME record set — should still succeed without touching DNS
     let body = b"";
     let path = format!("/v1/installs/{}/acme-challenge", install.id);
     let req = signed_request("DELETE", &path, body, &raw_token, &signing_key);
@@ -1194,7 +1188,7 @@ async fn delete_acme_challenge_is_noop_when_no_record_set() {
 
 #[tokio::test]
 async fn delete_acme_challenge_returns_403_on_id_mismatch() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1211,14 +1205,13 @@ async fn delete_acme_challenge_returns_403_on_id_mismatch() {
 #[tokio::test]
 async fn delete_acme_challenge_returns_500_when_dns_fails() {
     let dns = Arc::new(MockDnsProvider::with_error("cloudflare unavailable"));
-    let state = test_state_with_dns(dns).await;
+    let state = test_state_dns(dns);
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // Seed an ACME record so the handler tries to delete it
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-exists"), &Utc::now().to_rfc3339())
+        .update_acme_record(&install.id, Some("cf-txt-exists"), Utc::now())
         .await
         .unwrap();
 
@@ -1235,7 +1228,7 @@ async fn delete_acme_challenge_returns_500_when_dns_fails() {
 
 #[tokio::test]
 async fn deregister_success_with_no_dns_records() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1251,20 +1244,18 @@ async fn deregister_success_with_no_dns_records() {
 
 #[tokio::test]
 async fn deregister_success_deletes_both_dns_records() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // Pre-set an A record and an ACME TXT record
-    let now = Utc::now().to_rfc3339();
     state
         .installs()
-        .update_ip(&install.id, "8.8.8.8", "cf-a-id", &now)
+        .update_ip(&install.id, "8.8.8.8", "cf-a-id", Utc::now())
         .await
         .unwrap();
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-id"), &now)
+        .update_acme_record(&install.id, Some("cf-txt-id"), Utc::now())
         .await
         .unwrap();
 
@@ -1284,17 +1275,15 @@ async fn deregister_success_deletes_both_dns_records() {
 
 #[tokio::test]
 async fn deregister_success_with_only_a_record() {
-    let (state, dns) = test_state().await;
+    let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    let now = Utc::now().to_rfc3339();
     state
         .installs()
-        .update_ip(&install.id, "8.8.8.8", "cf-a-id", &now)
+        .update_ip(&install.id, "8.8.8.8", "cf-a-id", Utc::now())
         .await
         .unwrap();
-    // No ACME record
 
     let body = b"";
     let path = format!("/v1/installs/{}", install.id);
@@ -1308,7 +1297,7 @@ async fn deregister_success_with_only_a_record() {
 
 #[tokio::test]
 async fn deregister_returns_403_when_install_id_does_not_match() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let (_, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
@@ -1325,14 +1314,13 @@ async fn deregister_returns_403_when_install_id_does_not_match() {
 #[tokio::test]
 async fn deregister_returns_500_when_dns_fails() {
     let dns = Arc::new(MockDnsProvider::with_error("cloudflare unavailable"));
-    let state = test_state_with_dns(dns).await;
+    let state = test_state_dns(dns);
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    // Pre-set an A record so the handler tries (and fails) to delete it
     state
         .installs()
-        .update_ip(&install.id, "8.8.8.8", "cf-a-id", &Utc::now().to_rfc3339())
+        .update_ip(&install.id, "8.8.8.8", "cf-a-id", Utc::now())
         .await
         .unwrap();
 
@@ -1345,35 +1333,11 @@ async fn deregister_returns_500_when_dns_fails() {
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-// ── DB initialisation ────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn db_init_file_backed_creates_schema() {
-    use std::fs;
-
-    let dir = std::env::temp_dir().join(format!("wardnet-bridge-test-{}", Uuid::new_v4().simple()));
-    let db_path = dir.join("test.db");
-    let path_str = db_path.to_str().unwrap().to_string();
-
-    let pools = wardnet_bridge::db::init(&path_str).await.unwrap();
-    // Verify that the schema was applied by querying a known table
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM installs")
-        .fetch_one(&pools.write)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    drop(pools);
-    let _ = fs::remove_dir_all(&dir);
-}
-
 // ── State accessors ──────────────────────────────────────────────────────────
-// These tests exercise the accessor methods that may not be reachable through
-// HTTP tests (e.g. config fields that don't appear in response bodies).
 
 #[tokio::test]
 async fn config_accessors_return_expected_values() {
-    let (state, _dns) = test_state().await;
+    let (state, _dns) = test_state();
     let cfg = state.config();
     assert_eq!(cfg.region, "test");
     assert_eq!(cfg.subdomain_parent, "test.wardnet.local");
@@ -1382,4 +1346,259 @@ async fn config_accessors_return_expected_values() {
         cfg.acme_fqdn("mynode"),
         "_acme-challenge.mynode.test.wardnet.local"
     );
+}
+
+#[tokio::test]
+async fn state_tunnel_registry_returns_same_instance() {
+    let (state, _dns) = test_state();
+    let r1 = state.tunnel_registry();
+    let r2 = state.tunnel_registry();
+    // Both arcs should point to the same allocation.
+    assert!(Arc::ptr_eq(&r1, &r2));
+}
+
+// ── Tunnel WebSocket endpoint ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn tunnel_connect_returns_401_without_auth() {
+    let (state, _dns) = test_state();
+    let app = test_app(state);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/installs/some-id/tunnel")
+        .header("Upgrade", "websocket")
+        .header("Connection", "Upgrade")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn tunnel_connect_returns_403_when_install_id_does_not_match() {
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    // Spin up a real server so WebSocketUpgrade extraction succeeds.
+    let listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(listener, router).into_future());
+
+    // Sign for a different install id — auth passes (valid token) but handler
+    // rejects because the install id in the path doesn't match the token.
+    let other_id = Uuid::new_v4().to_string();
+    let path = format!("/v1/installs/{other_id}/tunnel");
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    // Should be rejected with 403 — handler checks install.id != path id.
+    let result = connect_async(req).await;
+    match result {
+        Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {
+            assert_eq!(resp.status(), 403);
+        }
+        other => panic!("expected HTTP 403 error, got: {other:?}"),
+    }
+    drop(install);
+}
+
+#[tokio::test]
+async fn tunnel_connect_establishes_websocket_and_handler_runs() {
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    // Spin up a real server (needed for actual WS upgrade handshake).
+    let listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(listener, router).into_future());
+
+    // Build the signed request headers.
+    let path = format!("/v1/installs/{}/tunnel", install.id);
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    // Connect — should get 101 and a live WebSocket.
+    let (mut ws, response) = connect_async(req).await.expect("WS connect failed");
+    assert_eq!(response.status(), 101);
+
+    // Send a custom PING frame (conn_id=0) and the handler echoes PONG.
+    ws.send(WsMessage::Binary(vec![0x05u8, 0, 0, 0, 0].into()))
+        .await
+        .unwrap();
+
+    // Receive the PONG (first message back from handler).
+    if let Some(Ok(WsMessage::Binary(bytes))) = ws.next().await {
+        assert_eq!(bytes[0], 0x06); // FRAME_PONG
+    }
+
+    ws.close(None).await.ok();
+}
+
+/// Exercises `handler::run()`'s `forward_rx` arm (inbound TCP from SNI demuxer)
+/// and `tcp_out_rx` arms (DATA and EOF from the active TCP connection).
+#[tokio::test]
+async fn tunnel_handler_forward_and_tcp_data_flow() {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+    use wardnet_bridge::tunnel::ForwardRequest;
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+    let registry = state.tunnel_registry();
+
+    let server_listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = server_listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(server_listener, router).into_future());
+
+    // Connect Pi via WebSocket.
+    let path = format!("/v1/installs/{}/tunnel", install.id);
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    let (mut ws, _) = connect_async(req).await.expect("WS connect failed");
+
+    // Wait for handler::run() to call registry.register().
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Set up a "Pi-local server" that the Pi will connect to when it gets READY.
+    let pi_local = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let pi_local_addr = pi_local.local_addr().unwrap();
+
+    // Forward a fake inbound TCP stream to the Pi — exercises the forward_rx arm.
+    let inbound = tokio::net::TcpStream::connect(pi_local_addr).await.unwrap();
+    let _ = registry.forward(
+        &install.name,
+        ForwardRequest {
+            stream: inbound,
+            dest_port: 443,
+        },
+    );
+
+    // Pi receives CONNECT frame.
+    let conn_id = if let Some(Ok(WsMessage::Binary(bytes))) = ws.next().await {
+        assert_eq!(bytes[0], 0x01, "expected FRAME_CONNECT");
+        u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
+    } else {
+        panic!("expected CONNECT frame");
+    };
+
+    // Pi sends READY — exercises handle_pi_frame READY branch and spawns tcp tasks.
+    let mut ready = vec![0x02u8, 0, 0, 0, 0];
+    ready[1..5].copy_from_slice(&conn_id.to_be_bytes());
+    ws.send(WsMessage::Binary(ready.into())).await.unwrap();
+
+    // Accept the Pi-side TCP connection and write some data + close.
+    let (mut pi_conn, _) = pi_local.accept().await.unwrap();
+    pi_conn.write_all(b"hello").await.unwrap();
+    drop(pi_conn); // EOF → tcp_reader sends empty Bytes → bridge sends CLOSE
+
+    // Pi receives DATA frame then CLOSE frame — exercises the tcp_out_rx arms.
+    let mut saw_data = false;
+    let mut saw_close = false;
+    while let Ok(Some(Ok(WsMessage::Binary(bytes)))) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await
+    {
+        match bytes[0] {
+            0x03 => saw_data = true,
+            0x04 => {
+                saw_close = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_data, "expected DATA frame from bridge");
+    assert!(saw_close, "expected CLOSE frame from bridge");
+
+    ws.close(None).await.ok();
 }

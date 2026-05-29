@@ -34,6 +34,18 @@ jobs:
       security-events: write
       actions: read
       contents: read
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -78,7 +90,11 @@ jobs:
           wait-for-processing: true
 
       - name: Tests
-        run: cargo test --manifest-path source/bridge/Cargo.toml --all-targets
+        env:
+          BRIDGE_TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306
+        run: >
+          cargo test --manifest-path source/bridge/Cargo.toml --all-targets
+          -- --include-ignored
 
   build-bridge:
     name: Build Bridge (aarch64)

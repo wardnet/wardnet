@@ -70,7 +70,7 @@ pub async fn set_acme_challenge(
 
     state
         .installs()
-        .update_acme_record(&id, Some(&record_id), &Utc::now().to_rfc3339())
+        .update_acme_record(&id, Some(&record_id), Utc::now())
         .await
         .map_err(ApiError::Internal)?;
 
@@ -115,7 +115,7 @@ pub async fn delete_acme_challenge(
 
         state
             .installs()
-            .update_acme_record(&id, None, &Utc::now().to_rfc3339())
+            .update_acme_record(&id, None, Utc::now())
             .await
             .map_err(ApiError::Internal)?;
 

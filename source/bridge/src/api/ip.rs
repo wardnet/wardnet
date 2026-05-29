@@ -90,7 +90,7 @@ pub async fn update_ip(
 
     state
         .installs()
-        .update_ip(&id, &body.ip, &record_id, &Utc::now().to_rfc3339())
+        .update_ip(&id, &body.ip, &record_id, Utc::now())
         .await
         .map_err(ApiError::Internal)?;
 

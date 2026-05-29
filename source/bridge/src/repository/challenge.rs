@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::MySqlPool;
 
 use crate::db::DbPools;
 
@@ -20,36 +20,32 @@ pub struct RegistrationChallenge {
     pub used_at: Option<DateTime<Utc>>,
 }
 
-/// Raw `SQLite` row for `sqlx::query_as` mapping.
+/// Raw `MySQL` row for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct ChallengeRow {
     id: String,
     nonce: String,
-    difficulty: i64,
+    difficulty: u32,
     remote_ip: String,
-    created_at: String,
-    expires_at: String,
-    used_at: Option<String>,
+    created_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+    used_at: Option<DateTime<Utc>>,
 }
 
 impl ChallengeRow {
-    fn into_challenge(self) -> anyhow::Result<RegistrationChallenge> {
-        Ok(RegistrationChallenge {
+    fn into_challenge(self) -> RegistrationChallenge {
+        RegistrationChallenge {
             id: self.id,
             nonce: self.nonce,
-            difficulty: u32::try_from(self.difficulty).map_err(|_| {
-                anyhow::anyhow!("difficulty {} out of range for u32", self.difficulty)
-            })?,
+            difficulty: self.difficulty,
             remote_ip: self.remote_ip,
-            created_at: self.created_at.parse()?,
-            expires_at: self.expires_at.parse()?,
-            used_at: self.used_at.map(|s| s.parse()).transpose()?,
-        })
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+            used_at: self.used_at,
+        }
     }
 }
 
-// Constant query string avoids a heap allocation per call when compared to
-// `format!("SELECT {SELECT_COLS} FROM registration_challenges WHERE id = ?")`.
 const FIND_BY_ID: &str = "SELECT id, nonce, difficulty, remote_ip, created_at, expires_at, used_at \
      FROM registration_challenges WHERE id = ?";
 
@@ -67,21 +63,21 @@ pub trait ChallengeRepository: Send + Sync {
     /// Updates `used_at` only when `used_at IS NULL` (i.e. not yet consumed).
     /// Returns `true` if the row was updated, `false` if it was already used
     /// or does not exist.
-    async fn consume(&self, id: &str, used_at: &str) -> anyhow::Result<bool>;
+    async fn consume(&self, id: &str, used_at: DateTime<Utc>) -> anyhow::Result<bool>;
 
-    /// Count how many challenges have been issued to `remote_ip` since `since`
-    /// (ISO 8601 UTC). Used for the per-IP challenge rate limit.
-    async fn count_from_ip(&self, remote_ip: &str, since: &str) -> anyhow::Result<i64>;
+    /// Count how many challenges have been issued to `remote_ip` since `since`.
+    /// Used for the per-IP challenge rate limit.
+    async fn count_from_ip(&self, remote_ip: &str, since: DateTime<Utc>) -> anyhow::Result<i64>;
 }
 
-/// SQLite-backed [`ChallengeRepository`].
-pub struct SqliteChallengeRepository {
+/// MySQL-backed [`ChallengeRepository`].
+pub struct MySqlChallengeRepository {
     pools: DbPools,
 }
 
-impl SqliteChallengeRepository {
+impl MySqlChallengeRepository {
     #[must_use]
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: MySqlPool) -> Self {
         Self {
             pools: DbPools::single(pool),
         }
@@ -94,7 +90,7 @@ impl SqliteChallengeRepository {
 }
 
 #[async_trait]
-impl ChallengeRepository for SqliteChallengeRepository {
+impl ChallengeRepository for MySqlChallengeRepository {
     async fn insert(&self, c: &RegistrationChallenge) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO registration_challenges
@@ -103,26 +99,25 @@ impl ChallengeRepository for SqliteChallengeRepository {
         )
         .bind(&c.id)
         .bind(&c.nonce)
-        .bind(i64::from(c.difficulty))
+        .bind(c.difficulty)
         .bind(&c.remote_ip)
-        .bind(c.created_at.to_rfc3339())
-        .bind(c.expires_at.to_rfc3339())
-        .bind(c.used_at.as_ref().map(chrono::DateTime::to_rfc3339))
+        .bind(c.created_at)
+        .bind(c.expires_at)
+        .bind(c.used_at)
         .execute(&self.pools.write)
         .await?;
         Ok(())
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<RegistrationChallenge>> {
-        sqlx::query_as::<_, ChallengeRow>(FIND_BY_ID)
+        Ok(sqlx::query_as::<_, ChallengeRow>(FIND_BY_ID)
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?
-            .map(ChallengeRow::into_challenge)
-            .transpose()
+            .map(ChallengeRow::into_challenge))
     }
 
-    async fn consume(&self, id: &str, used_at: &str) -> anyhow::Result<bool> {
+    async fn consume(&self, id: &str, used_at: DateTime<Utc>) -> anyhow::Result<bool> {
         let rows = sqlx::query(
             "UPDATE registration_challenges
              SET used_at = ?
@@ -136,16 +131,16 @@ impl ChallengeRepository for SqliteChallengeRepository {
         Ok(rows > 0)
     }
 
-    async fn count_from_ip(&self, remote_ip: &str, since: &str) -> anyhow::Result<i64> {
-        sqlx::query_scalar(
+    async fn count_from_ip(&self, remote_ip: &str, since: DateTime<Utc>) -> anyhow::Result<i64> {
+        let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM registration_challenges
              WHERE remote_ip = ? AND created_at > ?",
         )
         .bind(remote_ip)
         .bind(since)
         .fetch_one(&self.pools.read)
-        .await
-        .map_err(Into::into)
+        .await?;
+        Ok(count)
     }
 }
 

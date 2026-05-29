@@ -78,10 +78,10 @@ pub async fn get_challenge(
     let remote_ip = client_ip(&headers, addr);
 
     // ── Rate limit: 20 challenges per IP per hour ─────────────────────────
-    let since = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let since = Utc::now() - chrono::Duration::hours(1);
     let count = state
         .challenges()
-        .count_from_ip(&remote_ip, &since)
+        .count_from_ip(&remote_ip, since)
         .await
         .map_err(ApiError::Internal)?;
 
