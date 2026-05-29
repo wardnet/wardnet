@@ -767,10 +767,7 @@ impl TunnelService for TunnelServiceImpl {
             } else {
                 None
             };
-        let server_selector_country = req
-            .server_selector
-            .as_ref()
-            .map(|s| s.country.clone());
+        let server_selector_country = req.server_selector.as_ref().map(|s| s.country.clone());
 
         let row = TunnelRow {
             id: id.to_string(),

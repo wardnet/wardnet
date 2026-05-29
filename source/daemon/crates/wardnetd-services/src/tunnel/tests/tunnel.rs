@@ -2441,10 +2441,12 @@ async fn bring_up_reresolves_best_server() {
     });
     let h = build_harness_with_resolver(resolver);
 
-    let resp =
-        auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request_with_selector()))
-            .await
-            .unwrap();
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
     let id = resp.tunnel.id;
 
     auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
@@ -2468,10 +2470,12 @@ async fn bring_up_empty_server_list_is_fatal() {
     });
     let h = build_harness_with_resolver(resolver);
 
-    let resp =
-        auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request_with_selector()))
-            .await
-            .unwrap();
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
     let id = resp.tunnel.id;
 
     let result = auth_context::with_context(admin_ctx(), h.svc.bring_up(id)).await;
@@ -2488,10 +2492,12 @@ async fn bring_up_transient_resolver_error_uses_stored_endpoint() {
     });
     let h = build_harness_with_resolver(resolver);
 
-    let resp =
-        auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request_with_selector()))
-            .await
-            .unwrap();
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
     let id = resp.tunnel.id;
     let original_endpoint = resp.tunnel.endpoint.clone();
 

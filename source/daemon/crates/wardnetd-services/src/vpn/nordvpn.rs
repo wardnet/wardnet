@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::sync::RwLock;
 use serde::Deserialize;
+use tokio::sync::RwLock;
 use wardnet_common::vpn_provider::{
     CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
