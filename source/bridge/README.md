@@ -43,32 +43,34 @@ Pi devices talk to the bridge to:
 
 ## Architecture
 
-```
-        data plane  [#444]                          control plane
-  ┌───────────────────────────┐
-  client ─TLS:443/853─▶ SNI demuxer (peek ClientHello, no TLS termination)
-                          │
-            ┌─────────────┴───────────────┐
-   bridge_hostname                   *.my.<region>.*
-            │                              │
-            ▼                              ▼
-         ┌──────┐                   ┌──────────────┐      ┌──────────────────────────┐
-         │ Caddy│ ─(API cert)       │ TunnelRouter │ ───▶ │ WebSocket reverse tunnel  │ ─▶ Pi
-         └──┬───┘                   │ Local/Cluster│ [#445]│ (CONNECT/DATA/CLOSE/PING) │
-            │ XFF: real client IP   └──────────────┘      └──────────────────────────┘
-            ▼
-     ┌─────────────┐
-     │  auth_layer  │ ← body-size guard + Ed25519 + replay check
-     └──────┬───────┘
-            ▼
-     ┌─────────────┐     ┌──────────────────────┐     ┌──────────────────────┐
-     │  API routes  │ ──▶ │ InstallRepository    │ ──▶ │ PostgreSQL (Neon)     │ [#444/#445]
-     │  (Axum)      │     │ ChallengeRepository  │     │ DbPools{read, write}  │
-     └──────┬───────┘     └──────────────────────┘     └──────────────────────┘
-            ▼
-     ┌────────────┐
-     │ DnsProvider │ (Cloudflare REST)
-     └────────────┘
+```mermaid
+flowchart TD
+    client(["Client — TLS :443 / :853"])
+    pi(["Pi · wardnetd"])
+
+    subgraph data["Data plane [#444]"]
+        sni["SNI demuxer<br/>peek ClientHello — no TLS termination"]
+        router["TunnelRouter<br/>Local / Cluster [#445]"]
+        tunnel["WebSocket reverse tunnel<br/>CONNECT · DATA · CLOSE · PING"]
+    end
+
+    subgraph control["Control plane"]
+        caddy["Caddy — API cert"]
+        auth["auth_layer<br/>body guard + Ed25519 + replay"]
+        api["API routes · Axum"]
+        repos["InstallRepository<br/>ChallengeRepository"]
+        db[("PostgreSQL · Neon<br/>DbPools read + write [#444/#445]")]
+        dns["DnsProvider · Cloudflare REST"]
+    end
+
+    client --> sni
+    sni -->|bridge_hostname| caddy
+    sni -->|"*.my.&lt;region&gt;.*"| router
+    router --> tunnel --> pi
+    caddy -->|"XFF: real client IP"| auth
+    auth --> api
+    api --> repos --> db
+    api --> dns
 ```
 
 `AppState` is a cheap `Arc`-clone carrying:
