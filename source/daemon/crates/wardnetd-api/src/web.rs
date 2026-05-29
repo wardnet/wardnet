@@ -1,26 +1,35 @@
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use rust_embed::Embed;
+use rust_embed::{Embed, EmbeddedFile};
 use wardnetd_services::version::RELEASE_VERSION;
 
-/// Embedded web UI assets compiled into the binary.
-///
-/// In debug mode, reads files from the filesystem (no rebuild needed
-/// for UI changes). In release mode, all files are baked into the binary.
+/// User-facing PWA — served at `/` (all paths not matched by the blocks below).
 #[derive(Embed)]
-#[folder = "../../../admin-app/web/dist"]
-struct Assets;
+#[folder = "../../../user-app/dist"]
+struct UserAssets;
 
-/// Fallback handler that serves embedded static files with appropriate cache headers.
+/// Admin mobile PWA — served at `/admin-app/`.
+#[derive(Embed)]
+#[folder = "../../../admin-app/dist"]
+struct AdminAppAssets;
+
+/// Desktop admin site — served at `/admin/`.
+#[derive(Embed)]
+#[folder = "../../../admin-site/web/dist"]
+struct AdminSiteAssets;
+
+/// Fallback handler that routes requests to one of the three embedded trees
+/// based on path prefix, then serves static files with appropriate cache headers.
 ///
-/// - Content-hashed assets under `/assets/` get `Cache-Control: immutable` (safe to
-///   cache indefinitely because a new build produces new filenames).
-/// - `index.html` and any other top-level path get `Cache-Control: no-cache` so the
-///   browser always revalidates after a daemon upgrade.
-/// - Every response includes an `ETag` tied to the daemon's `RELEASE_VERSION`.
+/// - Content-hashed assets under `/assets/` in each tree get
+///   `Cache-Control: immutable` (safe to cache indefinitely because a new
+///   build produces new filenames).
+/// - `index.html` and every other non-hashed path get `Cache-Control: no-cache`
+///   so the browser always revalidates after a daemon upgrade.
+/// - Every response carries an `ETag` tied to `RELEASE_VERSION`.
 ///   A matching `If-None-Match` yields a 304 Not Modified.
 pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
-    let path = uri.path().trim_start_matches('/');
+    let raw_path = uri.path().trim_start_matches('/');
     let etag = format!("\"{RELEASE_VERSION}\"");
 
     // 304 shortcut: skip the body when the client already has this build.
@@ -32,6 +41,42 @@ pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
         return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag.as_str())]).into_response();
     }
 
+    if raw_path.starts_with("admin-app/") || raw_path == "admin-app" {
+        let asset_path = raw_path.strip_prefix("admin-app/").unwrap_or("");
+        serve_spa(
+            AdminAppAssets::get(asset_path),
+            AdminAppAssets::get("index.html"),
+            asset_path,
+            &etag,
+        )
+    } else if raw_path.starts_with("admin/") || raw_path == "admin" {
+        let asset_path = raw_path.strip_prefix("admin/").unwrap_or("");
+        serve_spa(
+            AdminSiteAssets::get(asset_path),
+            AdminSiteAssets::get("index.html"),
+            asset_path,
+            &etag,
+        )
+    } else {
+        serve_spa(
+            UserAssets::get(raw_path),
+            UserAssets::get("index.html"),
+            raw_path,
+            &etag,
+        )
+    }
+}
+
+/// Serve a file from an embedded tree, falling back to `index.html` for SPA routing.
+///
+/// `path` is the tree-relative path (prefix already stripped), used only for
+/// MIME detection and determining whether the asset is content-hashed.
+fn serve_spa(
+    file: Option<EmbeddedFile>,
+    fallback: Option<EmbeddedFile>,
+    path: &str,
+    etag: &str,
+) -> Response {
     // Content-hashed assets under /assets/ are immutable at a given URL;
     // everything else must revalidate so upgrades take effect without a hard-refresh.
     let cache_ctrl = if path.starts_with("assets/") {
@@ -40,14 +85,14 @@ pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
         "no-cache"
     };
 
-    if let Some(file) = Assets::get(path) {
+    if let Some(file) = file {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         return (
             StatusCode::OK,
             [
                 (header::CONTENT_TYPE, mime.as_ref()),
                 (header::CACHE_CONTROL, cache_ctrl),
-                (header::ETAG, etag.as_str()),
+                (header::ETAG, etag),
             ],
             file.data,
         )
@@ -55,13 +100,13 @@ pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
     }
 
     // SPA fallback: serve index.html for all unmatched client-side routes.
-    match Assets::get("index.html") {
+    match fallback {
         Some(file) => (
             StatusCode::OK,
             [
                 (header::CONTENT_TYPE, "text/html; charset=utf-8"),
                 (header::CACHE_CONTROL, "no-cache"),
-                (header::ETAG, etag.as_str()),
+                (header::ETAG, etag),
             ],
             file.data,
         )

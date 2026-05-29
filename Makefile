@@ -10,8 +10,10 @@ SHELL := /bin/bash
 DAEMON_DIR   := source/daemon
 BRIDGE_DIR   := source/bridge
 SDK_DIR      := source/sdk/wardnet-js
-ADMIN_DIR    := source/admin-app
-WEBUI_DIR    := source/admin-app/web
+ADMIN_DIR    := source/admin-site
+WEBUI_DIR    := source/admin-site/web
+USER_APP_DIR := source/user-app
+ADMIN_APP_DIR := source/admin-app
 FORGE_DIR    := source/forge
 SITE_DIR     := source/marketing-site
 
@@ -152,6 +154,8 @@ init:
 	cd $(SDK_DIR) && yarn install
 	cd $(FORGE_DIR) && yarn install
 	cd $(ADMIN_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn install
 	cd $(SITE_DIR) && yarn install
 	@echo ""
 	@echo "Dev environment ready. Run 'make help' to see available targets."
@@ -168,12 +172,20 @@ check-sdk:
 build-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn build
+	cd $(USER_APP_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn build
+	cd $(ADMIN_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn build
 
 check-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn type-check
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
+	cd $(USER_APP_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn type-check
+	cd $(ADMIN_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn type-check
 
 # ---------- Public Site ----------
 
@@ -428,7 +440,7 @@ image-multiarch:
 # No dependency on `make image` — the prod and test images share an
 # OS layer (wardnet-base) but not a build chain.
 #
-# Depends on `build-web` so source/admin-app/web/dist/ exists; wardnetd's
+# Depends on `build-web` so all three web dist/ dirs exist; wardnetd's
 # rust-embed annotation pulls those static assets into the daemon
 # binary at compile time.
 image-test: build-web
@@ -487,7 +499,9 @@ end2end-daemon: image-test
 
 clean:
 	cd $(DAEMON_DIR) && cargo clean
-	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist $(SITE_DIR)/dist
+	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist $(SITE_DIR)/dist \
+	       $(USER_APP_DIR)/dist $(USER_APP_DIR)/node_modules/.cache \
+	       $(ADMIN_APP_DIR)/dist $(ADMIN_APP_DIR)/node_modules/.cache
 
 help:
 	@echo "Wardnet build targets:"
@@ -495,7 +509,7 @@ help:
 	@echo "  init           Install all dev dependencies (yarn workspaces)"
 	@echo ""
 	@echo "  build          Build web UI + daemon (host target)"
-	@echo "  build-web      Build web UI (depends on SDK check)"
+	@echo "  build-web      Build admin-site, user-app, and admin-app (depends on SDK check)"
 	@echo "  build-daemon   Build daemon for host target"
 	@echo ""
 	@echo "  check          Run all checks (SDK + web + site + daemon)"
