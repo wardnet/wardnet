@@ -278,3 +278,29 @@ async fn update_dns_override_for_missing_id_is_silent_noop() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn update_endpoint_persists_resolved_fields() {
+    let pool = test_pool().await;
+    let repo = SqliteTunnelRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000001";
+    repo.insert(&sample_row(id, "wg_ward0")).await.unwrap();
+
+    let new_peer = "{\"public_key\":\"abc123\",\"endpoint\":\"10.0.0.99:51820\",\
+                    \"allowed_ips\":[\"0.0.0.0/0\"],\"preshared_key\":null,\
+                    \"persistent_keepalive\":25}";
+    repo.update_endpoint(
+        id,
+        "10.0.0.99:51820",
+        new_peer,
+        "Sweden #99",
+        "2026-03-07T12:00:00Z",
+    )
+    .await
+    .unwrap();
+
+    let tunnel = repo.find_by_id(id).await.unwrap().unwrap();
+    assert_eq!(tunnel.endpoint, "10.0.0.99:51820");
+    assert_eq!(tunnel.resolved_server_name.as_deref(), Some("Sweden #99"));
+    assert!(tunnel.endpoint_resolved_at.is_some());
+}

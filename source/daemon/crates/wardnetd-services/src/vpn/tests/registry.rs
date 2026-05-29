@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use wardnet_common::tunnel::BestServerSelector;
 use wardnet_common::vpn_provider::{
     CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
 use crate::vpn::provider::VpnProvider;
 use crate::vpn::registry::{EnabledProviders, VpnProviderRegistry};
+use crate::vpn::resolver::ServerResolver;
 
 /// Minimal mock VPN provider for registry tests.
 struct FakeProvider {
@@ -143,4 +145,139 @@ fn register_overwrites_existing_provider() {
     let list = registry.list();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].name, "Version 2");
+}
+
+// -- ServerResolver trait tests -------------------------------------------
+
+/// Provider whose `list_servers` result is controlled per-test.
+struct ServerListProvider {
+    info: ProviderInfo,
+    servers: Vec<ServerInfo>,
+}
+
+impl ServerListProvider {
+    fn new(id: &str, servers: Vec<ServerInfo>) -> Self {
+        Self {
+            info: ProviderInfo {
+                id: id.to_owned(),
+                name: id.to_owned(),
+                auth_methods: vec![ProviderAuthMethod::Token],
+                icon_url: None,
+                website_url: None,
+                credentials_hint: None,
+            },
+            servers,
+        }
+    }
+}
+
+#[async_trait]
+impl VpnProvider for ServerListProvider {
+    fn info(&self) -> ProviderInfo {
+        self.info.clone()
+    }
+    async fn validate_credentials(&self, _: &ProviderCredentials) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn list_countries(&self, _: &ProviderCredentials) -> anyhow::Result<Vec<CountryInfo>> {
+        Ok(vec![])
+    }
+    async fn list_servers(
+        &self,
+        _: &ProviderCredentials,
+        _: &ServerFilter,
+    ) -> anyhow::Result<Vec<ServerInfo>> {
+        Ok(self.servers.clone())
+    }
+    async fn generate_config(
+        &self,
+        _: &ProviderCredentials,
+        _: &ServerInfo,
+    ) -> anyhow::Result<String> {
+        Ok(String::new())
+    }
+}
+
+fn make_selector(country: &str) -> BestServerSelector {
+    BestServerSelector {
+        country: country.to_owned(),
+    }
+}
+
+fn make_server(hostname: &str, name: &str, load: u8) -> ServerInfo {
+    ServerInfo {
+        id: hostname.to_owned(),
+        name: name.to_owned(),
+        country_code: "SE".to_owned(),
+        city: None,
+        hostname: hostname.to_owned(),
+        load,
+    }
+}
+
+#[tokio::test]
+async fn resolve_returns_none_for_unknown_provider() {
+    let enabled = with_nordvpn_disabled();
+    let registry = VpnProviderRegistry::new(&enabled);
+
+    let result = registry
+        .resolve("nonexistent", &make_selector("SE"), 51820)
+        .await
+        .unwrap();
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn resolve_returns_empty_server_list_error() {
+    let enabled = with_nordvpn_disabled();
+    let mut registry = VpnProviderRegistry::new(&enabled);
+    registry.register(Arc::new(ServerListProvider::new("myvpn", vec![])));
+
+    let err = registry
+        .resolve("myvpn", &make_selector("SE"), 51820)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("SE") || err.to_string().contains("no servers"),
+        "got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn resolve_rejects_invalid_hostname() {
+    let enabled = with_nordvpn_disabled();
+    let mut registry = VpnProviderRegistry::new(&enabled);
+    registry.register(Arc::new(ServerListProvider::new(
+        "myvpn",
+        vec![make_server("host:with:colons", "Bad Server", 10)],
+    )));
+
+    let err = registry
+        .resolve("myvpn", &make_selector("SE"), 51820)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("invalid hostname"), "got: {err}");
+}
+
+#[tokio::test]
+async fn resolve_returns_endpoint_and_name_for_valid_server() {
+    let enabled = with_nordvpn_disabled();
+    let mut registry = VpnProviderRegistry::new(&enabled);
+    registry.register(Arc::new(ServerListProvider::new(
+        "myvpn",
+        vec![
+            make_server("se142.example.com", "Sweden #142", 30),
+            make_server("se99.example.com", "Sweden #99", 10),
+        ],
+    )));
+
+    let (endpoint, name) = registry
+        .resolve("myvpn", &make_selector("SE"), 51820)
+        .await
+        .unwrap()
+        .expect("should return Some");
+
+    // Picks the server with lowest load (se99) and formats endpoint.
+    assert_eq!(endpoint, "se99.example.com:51820");
+    assert_eq!(name, "Sweden #99");
 }

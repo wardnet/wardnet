@@ -2510,3 +2510,27 @@ async fn bring_up_transient_resolver_error_uses_stored_endpoint() {
     let rows = h.tunnels.rows.lock().unwrap();
     assert_eq!(rows[0].endpoint, original_endpoint);
 }
+
+#[tokio::test]
+async fn bring_up_with_selector_and_resolver_returning_none_uses_stored_endpoint() {
+    // MockServerResolver returns Ok(None) — "no provider registered".
+    // bring_up must succeed and keep the stored endpoint unchanged.
+    let resolver = Arc::new(MockServerResolver);
+    let h = build_harness_with_resolver(resolver);
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
+    let id = resp.tunnel.id;
+    let original_endpoint = resp.tunnel.endpoint.clone();
+
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    let rows = h.tunnels.rows.lock().unwrap();
+    assert_eq!(rows[0].endpoint, original_endpoint);
+}
