@@ -292,3 +292,6 @@ fn encode_pong() -> Vec<u8> {
     f.extend_from_slice(&0u32.to_be_bytes());
     f
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,4 +1,12 @@
-use super::{extract_install_name, parse_sni};
+use std::sync::Arc;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+use crate::config::Config;
+use crate::tunnel::registry::TunnelRegistry;
+
+use super::{extract_install_name, parse_sni, route};
 
 /// A minimal TLS 1.2 `ClientHello` with SNI = "example.com", assembled by hand.
 ///
@@ -112,4 +120,117 @@ fn extract_install_name_rejects_wrong_parent() {
 #[test]
 fn extract_install_name_rejects_bare_parent() {
     assert!(extract_install_name("my.us.wardnet.network", ".my.us.wardnet.network").is_none());
+}
+
+// ── route() integration tests ─────────────────────────────────────────────────
+
+fn make_test_config(caddy_addr: &str) -> Config {
+    Config {
+        listen_addr: "127.0.0.1:0".to_string(),
+        database_url: "mysql://ignored".to_string(),
+        cloudflare_api_token: "test-token".to_string(),
+        cloudflare_zone_id: "test-zone".to_string(),
+        region: "test".to_string(),
+        subdomain_parent: "my.us.wardnet.network".to_string(),
+        sni_listen_addr: "0.0.0.0:443".to_string(),
+        dot_listen_addr: "0.0.0.0:853".to_string(),
+        caddy_addr: caddy_addr.to_string(),
+        bridge_hostname: "bridge.test.wardnet.network".to_string(),
+    }
+}
+
+#[tokio::test]
+async fn route_drops_connection_when_no_sni() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    let (server, peer) = listener.accept().await.unwrap();
+
+    let config = make_test_config("127.0.0.1:1");
+    let registry = Arc::new(TunnelRegistry::new());
+    let suffix = format!(".{}", config.subdomain_parent);
+
+    // Send non-TLS data so parse_sni returns None
+    client.write_all(b"not-tls-data").await.unwrap();
+    // Don't hold the client reference — route should complete without error
+    drop(client);
+
+    let result = route(server, peer, 443, config, registry, &suffix).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn route_drops_connection_for_unroutable_sni() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    let (server, peer) = listener.accept().await.unwrap();
+
+    let config = make_test_config("127.0.0.1:1");
+    let registry = Arc::new(TunnelRegistry::new());
+    let suffix = format!(".{}", config.subdomain_parent);
+
+    // SNI that doesn't match bridge_hostname or subdomain_parent suffix
+    let hello = make_client_hello("unrelated.example.com");
+    client.write_all(&hello).await.unwrap();
+    drop(client);
+
+    let result = route(server, peer, 443, config, registry, &suffix).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn route_drops_connection_when_install_not_connected() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    let (server, peer) = listener.accept().await.unwrap();
+
+    let config = make_test_config("127.0.0.1:1");
+    let registry = Arc::new(TunnelRegistry::new());
+    // No tunnel registered for "install" → registry.forward returns NotConnected
+    let suffix = format!(".{}", config.subdomain_parent);
+
+    let hello = make_client_hello("install.my.us.wardnet.network");
+    client.write_all(&hello).await.unwrap();
+    drop(client);
+
+    let result = route(server, peer, 443, config, registry, &suffix).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn route_forwards_bridge_hostname_to_caddy() {
+    // Set up a "caddy" listener on a random port
+    let caddy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let caddy_addr = caddy_listener.local_addr().unwrap().to_string();
+
+    let sni_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let sni_addr = sni_listener.local_addr().unwrap();
+
+    let config = make_test_config(&caddy_addr);
+    let bridge_hostname = config.bridge_hostname.clone();
+    let registry = Arc::new(TunnelRegistry::new());
+    let suffix = format!(".{}", config.subdomain_parent);
+
+    // Spawn a caddy acceptor that reads then closes
+    tokio::spawn(async move {
+        if let Ok((mut caddy_conn, _)) = caddy_listener.accept().await {
+            let mut buf = vec![0u8; 256];
+            let _ = caddy_conn.read(&mut buf).await;
+            // Connection drops here
+        }
+    });
+
+    // Connect a client, send a ClientHello with the bridge hostname as SNI
+    let mut client = TcpStream::connect(sni_addr).await.unwrap();
+    let (server, peer) = sni_listener.accept().await.unwrap();
+
+    let hello = make_client_hello(&bridge_hostname);
+    client.write_all(&hello).await.unwrap();
+    drop(client);
+
+    let result = route(server, peer, 443, config, registry, &suffix).await;
+    // copy_bidirectional finishes when both sides close — that's expected
+    assert!(result.is_ok());
 }

@@ -94,3 +94,5 @@ wiremock = "0.6"
 testcontainers = "0.23"
 # https://crates.io/crates/testcontainers-modules — MySQL container for repository tests
 testcontainers-modules = { version = "0.11", features = ["mysql"] }
+# https://crates.io/crates/tokio-tungstenite — WebSocket client for integration tests
+tokio-tungstenite = "0.29"

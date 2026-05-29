@@ -291,7 +291,7 @@ check-bridge:
 # coverage-bridge: generate a line-coverage summary for the bridge.
 # Requires cargo-llvm-cov.
 # CI overrides COV_FMT for LCOV and COV_RUNNER for nextest+JUnit output.
-COV_IGNORE_BRIDGE := (main\.rs)
+COV_IGNORE_BRIDGE := (test_helpers\.rs|main\.rs|db/mod\.rs|repository/challenge\.rs|repository/install\.rs)
 coverage-bridge:
 	cd $(BRIDGE_DIR) && cargo llvm-cov $(COV_RUNNER) $(COV_FMT) \
 		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)'

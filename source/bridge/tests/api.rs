@@ -15,6 +15,7 @@
 
 mod common;
 
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -24,8 +25,10 @@ use axum::http::{Request, StatusCode};
 use base64::Engine as _;
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
+use futures_util::{SinkExt as _, StreamExt as _};
 use http_body_util::BodyExt;
 use sha2::{Digest, Sha256};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -1343,4 +1346,152 @@ async fn config_accessors_return_expected_values() {
         cfg.acme_fqdn("mynode"),
         "_acme-challenge.mynode.test.wardnet.local"
     );
+}
+
+#[tokio::test]
+async fn state_tunnel_registry_returns_same_instance() {
+    let (state, _dns) = test_state();
+    let r1 = state.tunnel_registry();
+    let r2 = state.tunnel_registry();
+    // Both arcs should point to the same allocation.
+    assert!(Arc::ptr_eq(&r1, &r2));
+}
+
+// ── Tunnel WebSocket endpoint ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn tunnel_connect_returns_401_without_auth() {
+    let (state, _dns) = test_state();
+    let app = test_app(state);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/installs/some-id/tunnel")
+        .header("Upgrade", "websocket")
+        .header("Connection", "Upgrade")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn tunnel_connect_returns_403_when_install_id_does_not_match() {
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    // Spin up a real server so WebSocketUpgrade extraction succeeds.
+    let listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(listener, router).into_future());
+
+    // Sign for a different install id — auth passes (valid token) but handler
+    // rejects because the install id in the path doesn't match the token.
+    let other_id = Uuid::new_v4().to_string();
+    let path = format!("/v1/installs/{other_id}/tunnel");
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    // Should be rejected with 403 — handler checks install.id != path id.
+    let result = connect_async(req).await;
+    match result {
+        Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {
+            assert_eq!(resp.status(), 403);
+        }
+        other => panic!("expected HTTP 403 error, got: {other:?}"),
+    }
+    drop(install);
+}
+
+#[tokio::test]
+async fn tunnel_connect_establishes_websocket_and_handler_runs() {
+    use tokio::net::TcpListener as StdTcpListener;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+
+    let (state, _dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    // Spin up a real server (needed for actual WS upgrade handshake).
+    let listener = StdTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let router = wardnet_bridge::api::router(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(axum::serve(listener, router).into_future());
+
+    // Build the signed request headers.
+    let path = format!("/v1/installs/{}/tunnel", install.id);
+    let dummy_req = signed_request("GET", &path, b"", &raw_token, &signing_key);
+    let ts = dummy_req
+        .headers()
+        .get("X-Wardnet-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let sig = dummy_req
+        .headers()
+        .get("X-Wardnet-Signature")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {raw_token}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("X-Wardnet-Timestamp", ts.parse().unwrap());
+    req.headers_mut()
+        .insert("X-Wardnet-Signature", sig.parse().unwrap());
+
+    // Connect — should get 101 and a live WebSocket.
+    let (mut ws, response) = connect_async(req).await.expect("WS connect failed");
+    assert_eq!(response.status(), 101);
+
+    // Send a custom PING frame (conn_id=0) and the handler echoes PONG.
+    ws.send(WsMessage::Binary(vec![0x05u8, 0, 0, 0, 0].into()))
+        .await
+        .unwrap();
+
+    // Receive the PONG (first message back from handler).
+    if let Some(Ok(WsMessage::Binary(bytes))) = ws.next().await {
+        assert_eq!(bytes[0], 0x06); // FRAME_PONG
+    }
+
+    ws.close(None).await.ok();
 }
