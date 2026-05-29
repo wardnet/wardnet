@@ -2509,9 +2509,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wardnet/admin-app@workspace:.":
+"@wardnet/admin-site@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@wardnet/admin-app@workspace:."
+  resolution: "@wardnet/admin-site@workspace:."
   languageName: unknown
   linkType: soft
 
