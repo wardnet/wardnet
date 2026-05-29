@@ -25,7 +25,7 @@ fn sample(id: &str, ip: &str) -> RegistrationChallenge {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker"]
+#[ignore = "requires MySQL (docker compose up -d)"]
 async fn insert_and_find() {
     let repo = repo().await;
     repo.insert(&sample("c-1", "1.2.3.4")).await.unwrap();
@@ -36,7 +36,7 @@ async fn insert_and_find() {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker"]
+#[ignore = "requires MySQL (docker compose up -d)"]
 async fn consume_marks_used() {
     let repo = repo().await;
     repo.insert(&sample("c-2", "1.2.3.4")).await.unwrap();
@@ -49,7 +49,7 @@ async fn consume_marks_used() {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker"]
+#[ignore = "requires MySQL (docker compose up -d)"]
 async fn consume_missing_returns_false() {
     let repo = repo().await;
     let consumed = repo.consume("no-such-id", Utc::now()).await.unwrap();
@@ -57,7 +57,7 @@ async fn consume_missing_returns_false() {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker"]
+#[ignore = "requires MySQL (docker compose up -d)"]
 async fn count_from_ip() {
     let repo = repo().await;
     repo.insert(&sample("c-3", "10.0.0.1")).await.unwrap();
