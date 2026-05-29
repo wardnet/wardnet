@@ -42,6 +42,11 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 403, description = "Bearer token does not match install ID"),
     ),
 )]
+// Auth note: this endpoint sits under /v1/installs/ so the auth_layer middleware
+// enforces the full Ed25519 signed-request flow (bearer token lookup, timestamp
+// window, signature verification over "GET\n{path}\n{ts}\nhex-sha256("")", and
+// replay-cache check) before the handler runs. AuthenticatedInstall extracts the
+// pre-verified Install from request extensions.
 pub async fn tunnel_connect(
     State(state): State<AppState>,
     Path(id): Path<String>,

@@ -1,13 +1,20 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
+use tracing::Instrument as _;
 
 use crate::config::Config;
-use crate::tunnel::registry::{ForwardRequest, TunnelRegistry};
+use crate::tunnel::registry::{ForwardRequest, ForwardResult, TunnelRegistry};
 
 /// Maximum bytes to peek for SNI extraction.
 const PEEK_SIZE: usize = 1024;
+/// Maximum concurrent in-flight SNI routing tasks (accept-storm guard).
+const MAX_CONCURRENT_SNI: usize = 4096;
+/// Timeout for reading the TLS `ClientHello` from an accepted connection.
+const PEEK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Run the SNI-routing TCP listener.
 ///
@@ -28,15 +35,29 @@ pub async fn run(
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(addr, dest_port, "SNI demuxer listening");
 
+    // Pre-compute once so the accept loop avoids a heap allocation per connection.
+    let subdomain_dot_suffix = format!(".{}", config.subdomain_parent);
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SNI));
+
     loop {
         let (stream, peer) = listener.accept().await?;
         let config = config.clone();
         let registry = Arc::clone(&registry);
-        tokio::spawn(async move {
-            if let Err(e) = route(stream, peer, dest_port, config, registry).await {
-                tracing::debug!(peer = %peer, error = %e, "SNI demux error");
+        let suffix = subdomain_dot_suffix.clone();
+        let permit = Arc::clone(&semaphore)
+            .acquire_owned()
+            .await
+            .expect("semaphore closed");
+        let span = tracing::debug_span!("sni.route", %peer, dest_port);
+        tokio::spawn(
+            async move {
+                let _permit = permit;
+                if let Err(e) = route(stream, peer, dest_port, config, registry, &suffix).await {
+                    tracing::debug!(error = %e, "SNI demux error");
+                }
             }
-        });
+            .instrument(span),
+        );
     }
 }
 
@@ -46,9 +67,12 @@ async fn route(
     dest_port: u16,
     config: Config,
     registry: Arc<TunnelRegistry>,
+    subdomain_dot_suffix: &str,
 ) -> anyhow::Result<()> {
     let mut peek_buf = vec![0u8; PEEK_SIZE];
-    let n = stream.peek(&mut peek_buf).await?;
+    let n = tokio::time::timeout(PEEK_TIMEOUT, stream.peek(&mut peek_buf))
+        .await
+        .map_err(|_| anyhow::anyhow!("peek timeout"))??;
 
     let sni = parse_sni(&peek_buf[..n]);
 
@@ -59,10 +83,16 @@ async fn route(
             tokio::io::copy_bidirectional(&mut stream, &mut caddy).await?;
         }
         Some(hostname) => {
-            if let Some(name) = extract_install_name(hostname, &config.subdomain_parent) {
+            if let Some(name) = extract_install_name(hostname, subdomain_dot_suffix) {
                 let req = ForwardRequest { stream, dest_port };
-                if !registry.forward(name, req).await {
-                    tracing::debug!(peer = %peer, name, "no active tunnel for install");
+                match registry.forward(name, req) {
+                    ForwardResult::Accepted => {}
+                    ForwardResult::NotConnected => {
+                        tracing::debug!(name, "no active tunnel for install");
+                    }
+                    ForwardResult::BufferFull => {
+                        tracing::debug!(name, "tunnel forward buffer full, dropping connection");
+                    }
                 }
             } else {
                 tracing::debug!(peer = %peer, sni = hostname, "unroutable SNI, dropping");
@@ -78,11 +108,11 @@ async fn route(
 
 /// Extract the install slug from an SNI hostname.
 ///
-/// `"happy-einstein.my.us.wardnet.network"` with parent `"my.us.wardnet.network"`
+/// `"happy-einstein.my.us.wardnet.network"` with suffix `".my.us.wardnet.network"`
 /// returns `Some("happy-einstein")`. Returns `None` when the hostname does not
-/// end with `.{subdomain_parent}` or the prefix contains a dot (multi-level).
-fn extract_install_name<'a>(hostname: &'a str, subdomain_parent: &str) -> Option<&'a str> {
-    let name = hostname.strip_suffix(&format!(".{subdomain_parent}"))?;
+/// end with the suffix or the prefix contains a dot (multi-level).
+fn extract_install_name<'a>(hostname: &'a str, subdomain_dot_suffix: &str) -> Option<&'a str> {
+    let name = hostname.strip_suffix(subdomain_dot_suffix)?;
     if name.contains('.') {
         return None;
     }

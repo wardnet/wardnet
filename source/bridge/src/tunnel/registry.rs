@@ -1,13 +1,24 @@
 use dashmap::DashMap;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
-/// An inbound TCP connection that the SNI demuxer wants forwarded to a Pi.
+/// An inbound TLS connection handed off from the SNI demuxer to a Pi tunnel handler.
 pub struct ForwardRequest {
     /// The accepted TCP stream (TLS `ClientHello` still in the buffer).
     pub stream: TcpStream,
     /// Destination port the Pi should connect to locally (443 or 853).
     pub dest_port: u16,
+}
+
+/// Result of attempting to forward an inbound connection to a registered tunnel.
+pub enum ForwardResult {
+    /// The connection was accepted and queued for the Pi.
+    Accepted,
+    /// No tunnel is registered for the requested install slug.
+    NotConnected,
+    /// A tunnel is registered but its receive buffer is full; the connection was dropped.
+    BufferFull,
 }
 
 /// Thread-safe map from install slug → active tunnel sender.
@@ -43,7 +54,7 @@ impl TunnelRegistry {
     /// replaced (the old sender is dropped, closing the previous channel).
     #[must_use]
     pub fn register(&self, install_id: &str, name: &str) -> mpsc::Receiver<ForwardRequest> {
-        let (tx, rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::channel(64);
         self.by_name.insert(name.to_string(), tx);
         self.by_id.insert(install_id.to_string(), name.to_string());
         rx
@@ -58,14 +69,21 @@ impl TunnelRegistry {
 
     /// Forward an inbound connection to the Pi registered under `name`.
     ///
-    /// Returns `true` when the forward was accepted, `false` when no tunnel
-    /// is registered for that name or the tunnel's buffer is full.
-    pub async fn forward(&self, name: &str, req: ForwardRequest) -> bool {
-        // Clone the sender while the DashMap ref is held, then drop it before await.
+    /// Returns [`ForwardResult::Accepted`] when the connection was queued,
+    /// [`ForwardResult::NotConnected`] when no tunnel is registered for `name`,
+    /// or [`ForwardResult::BufferFull`] when the tunnel's receive buffer is full.
+    /// Uses a non-blocking send so the SNI accept loop is never stalled by a
+    /// slow or unresponsive Pi.
+    pub fn forward(&self, name: &str, req: ForwardRequest) -> ForwardResult {
+        // Clone the sender while the DashMap ref is held, then drop it before the send.
         let tx = self.by_name.get(name).map(|r| r.value().clone());
         match tx {
-            Some(tx) => tx.send(req).await.is_ok(),
-            None => false,
+            None => ForwardResult::NotConnected,
+            Some(tx) => match tx.try_send(req) {
+                Ok(()) => ForwardResult::Accepted,
+                Err(TrySendError::Full(_)) => ForwardResult::BufferFull,
+                Err(TrySendError::Closed(_)) => ForwardResult::NotConnected,
+            },
         }
     }
 

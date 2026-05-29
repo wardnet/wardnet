@@ -91,7 +91,7 @@ fn extract_install_name_simple() {
     assert_eq!(
         extract_install_name(
             "happy-einstein.my.us.wardnet.network",
-            "my.us.wardnet.network"
+            ".my.us.wardnet.network"
         ),
         Some("happy-einstein")
     );
@@ -100,16 +100,16 @@ fn extract_install_name_simple() {
 #[test]
 fn extract_install_name_rejects_multi_label() {
     assert!(
-        extract_install_name("foo.bar.my.us.wardnet.network", "my.us.wardnet.network").is_none()
+        extract_install_name("foo.bar.my.us.wardnet.network", ".my.us.wardnet.network").is_none()
     );
 }
 
 #[test]
 fn extract_install_name_rejects_wrong_parent() {
-    assert!(extract_install_name("foo.other.network", "my.us.wardnet.network").is_none());
+    assert!(extract_install_name("foo.other.network", ".my.us.wardnet.network").is_none());
 }
 
 #[test]
 fn extract_install_name_rejects_bare_parent() {
-    assert!(extract_install_name("my.us.wardnet.network", "my.us.wardnet.network").is_none());
+    assert!(extract_install_name("my.us.wardnet.network", ".my.us.wardnet.network").is_none());
 }

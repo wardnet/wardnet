@@ -35,7 +35,7 @@ pub async fn init(database_url: &str) -> anyhow::Result<DbPools> {
         .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
-    tracing::info!(database_url, "database initialised");
+    tracing::info!("database initialised");
 
     Ok(DbPools {
         read: pool.clone(),
