@@ -91,6 +91,16 @@ fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
         async fn count(&self) -> anyhow::Result<i64> {
             Ok(0)
         }
+        async fn update_endpoint(
+            &self,
+            _id: &str,
+            _endpoint: &str,
+            _peer_config_json: &str,
+            _server_name: &str,
+            _resolved_at: &str,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
         async fn count_active(&self) -> anyhow::Result<i64> {
             Ok(0)
         }
@@ -758,6 +768,16 @@ impl TunnelRepository for ScriptedTunnelRepo {
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
+    async fn update_endpoint(
+        &self,
+        _id: &str,
+        _endpoint: &str,
+        _peer_config_json: &str,
+        _server_name: &str,
+        _resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn count_active(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
@@ -777,6 +797,9 @@ fn sample_tunnel(id: Uuid, interface: &str) -> Tunnel {
         bytes_rx: 0,
         created_at: Utc::now(),
         override_default_dns: true,
+        server_selector: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     }
 }
 

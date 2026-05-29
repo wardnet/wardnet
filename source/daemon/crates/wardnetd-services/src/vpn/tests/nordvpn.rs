@@ -16,6 +16,7 @@ use crate::vpn::provider::VpnProvider;
 struct MockNordVpnApi {
     validate_result: Mutex<Result<bool, String>>,
     countries: Mutex<Vec<NordCountryInfo>>,
+    list_countries_calls: Mutex<u32>,
     servers: Mutex<Vec<NordServer>>,
     server_by_hostname: Mutex<Option<NordServer>>,
     private_key_result: Mutex<Result<String, String>>,
@@ -27,6 +28,7 @@ impl MockNordVpnApi {
     fn new() -> Self {
         Self {
             validate_result: Mutex::new(Ok(true)),
+            list_countries_calls: Mutex::new(0),
             countries: Mutex::new(vec![
                 NordCountryInfo {
                     id: 208,
@@ -79,6 +81,7 @@ impl NordVpnApi for MockNordVpnApi {
     }
 
     async fn list_countries(&self) -> anyhow::Result<Vec<NordCountryInfo>> {
+        *self.list_countries_calls.lock().await += 1;
         let countries = self.countries.lock().await;
         Ok(countries.clone())
     }
@@ -732,5 +735,40 @@ async fn generate_config_uses_country_reference_server() {
         parsed.peers[0].endpoint.as_deref(),
         Some("se142.nordvpn.com:51820"),
         "endpoint must come from the requested server_info.hostname, not the reference server"
+    );
+}
+
+#[tokio::test]
+async fn list_servers_uses_cached_country_list_on_repeated_calls() {
+    let mock = MockNordVpnApi::new();
+    *mock.servers.lock().await = vec![sample_server("se142.nordvpn.com", 25, "SE")];
+    let mock = Arc::new(mock);
+    let provider = NordVpnProvider::new(mock.clone());
+
+    let filter = ServerFilter {
+        country: Some("SE".to_string()),
+        max_load: None,
+    };
+
+    // First call: fetches country list from API to resolve the ISO code.
+    provider
+        .list_servers(&token_credentials(), &filter)
+        .await
+        .unwrap();
+    assert_eq!(
+        *mock.list_countries_calls.lock().await,
+        1,
+        "first call must fetch country list"
+    );
+
+    // Second call: country list should come from the in-memory cache.
+    provider
+        .list_servers(&token_credentials(), &filter)
+        .await
+        .unwrap();
+    assert_eq!(
+        *mock.list_countries_calls.lock().await,
+        1,
+        "second call must reuse cached country list"
     );
 }

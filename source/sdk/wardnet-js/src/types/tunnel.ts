@@ -31,4 +31,10 @@ export interface Tunnel {
    * system-wide upstream pool is used. See issue #342.
    */
   override_default_dns: boolean;
+  /** Present only on "best server" tunnels. Null for specific-server or manual imports. */
+  server_selector: { country: string } | null;
+  /** Human-readable resolved server name, e.g. "United States #8395". */
+  resolved_server_name: string | null;
+  /** ISO timestamp of the last endpoint re-resolution. */
+  endpoint_resolved_at: string | null;
 }

@@ -6,7 +6,7 @@ use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListServersRequest,
     ListTunnelsResponse, SetupProviderRequest, TunnelTestResult, ValidateCredentialsRequest,
 };
-use wardnet_common::tunnel::{Tunnel, TunnelStatus};
+use wardnet_common::tunnel::{BestServerSelector, Tunnel, TunnelStatus};
 use wardnet_common::vpn_provider::{
     CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
@@ -173,6 +173,9 @@ impl TunnelService for MockTunnelService {
             bytes_rx: 0,
             created_at: chrono::Utc::now(),
             override_default_dns: false,
+            server_selector: req.server_selector.clone(),
+            resolved_server_name: req.resolved_server_name.clone(),
+            endpoint_resolved_at: None,
         };
         self.imported.lock().unwrap().push(req);
         Ok(CreateTunnelResponse {
@@ -547,6 +550,13 @@ async fn setup_tunnel_happy_path() {
     assert_eq!(imported.len(), 1);
     assert_eq!(imported[0].label, "Test VPN - Sweden #2");
     assert_eq!(imported[0].provider, Some("test".to_owned()));
+    // Auto-select path must store a BestServerSelector for re-resolution on each bring-up.
+    assert_eq!(
+        imported[0].server_selector,
+        Some(BestServerSelector {
+            country: "SE".to_owned()
+        })
+    );
 }
 
 #[tokio::test]
@@ -584,6 +594,10 @@ async fn setup_tunnel_with_specific_server_id() {
 
     assert_eq!(resp.server.id, "se-3");
     assert_eq!(resp.server.name, "Sweden #3");
+
+    // Explicit server_id must NOT store a selector — no re-resolution on bring-up.
+    let imported = h.tunnel_service.imported.lock().unwrap();
+    assert_eq!(imported[0].server_selector, None);
 }
 
 #[tokio::test]

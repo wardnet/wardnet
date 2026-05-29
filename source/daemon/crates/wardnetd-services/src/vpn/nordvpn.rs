@@ -1,8 +1,10 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tokio::sync::RwLock;
 use wardnet_common::vpn_provider::{
     CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
@@ -251,6 +253,9 @@ impl NordVpnApi for HttpNordVpnApi {
     }
 }
 
+/// Countries list TTL: the `NordVPN` country catalogue changes rarely.
+const COUNTRIES_CACHE_TTL: Duration = Duration::from_hours(24);
+
 /// `NordVPN` provider implementation.
 ///
 /// Translates VPN provider trait operations into `NordVPN`-specific API calls
@@ -258,13 +263,45 @@ impl NordVpnApi for HttpNordVpnApi {
 pub struct NordVpnProvider {
     /// The API client used for all `NordVPN` HTTP operations.
     api: Arc<dyn NordVpnApi>,
+    /// Cached country list with the instant it was fetched. Avoids one extra
+    /// HTTP round-trip on every `list_servers` / re-resolution call.
+    countries_cache: RwLock<Option<(Vec<NordCountryInfo>, Instant)>>,
 }
 
 impl NordVpnProvider {
     /// Create a new `NordVPN` provider backed by the given API client.
     #[must_use]
     pub fn new(api: Arc<dyn NordVpnApi>) -> Self {
-        Self { api }
+        Self {
+            api,
+            countries_cache: RwLock::new(None),
+        }
+    }
+
+    /// Return the numeric `NordVPN` country ID for an ISO code, using a cached
+    /// country list refreshed at most once per [`COUNTRIES_CACHE_TTL`].
+    async fn resolve_country_id(&self, code: &str) -> anyhow::Result<Option<u64>> {
+        // Fast path: valid cache entry.
+        {
+            let cache = self.countries_cache.read().await;
+            if let Some((ref countries, fetched_at)) = *cache
+                && fetched_at.elapsed() < COUNTRIES_CACHE_TTL
+            {
+                return Ok(countries
+                    .iter()
+                    .find(|c| c.code.eq_ignore_ascii_case(code))
+                    .map(|c| c.id));
+            }
+        }
+
+        // Slow path: refresh the cache.
+        let countries = self.api.list_countries().await?;
+        let id = countries
+            .iter()
+            .find(|c| c.code.eq_ignore_ascii_case(code))
+            .map(|c| c.id);
+        *self.countries_cache.write().await = Some((countries, Instant::now()));
+        Ok(id)
     }
 
     /// Convert a `NordServer` into a [`ServerInfo`].
@@ -353,11 +390,7 @@ impl VpnProvider for NordVpnProvider {
     ) -> anyhow::Result<Vec<ServerInfo>> {
         // Resolve ISO country code to the numeric ID the NordVPN API requires.
         let country_id = if let Some(ref code) = filter.country {
-            let countries = self.api.list_countries().await?;
-            countries
-                .iter()
-                .find(|c| c.code.eq_ignore_ascii_case(code))
-                .map(|c| c.id)
+            self.resolve_country_id(code).await?
         } else {
             None
         };
@@ -409,11 +442,7 @@ impl VpnProvider for NordVpnProvider {
         let country_id = if country_code.is_empty() {
             None
         } else {
-            let countries = self.api.list_countries().await?;
-            countries
-                .iter()
-                .find(|c| c.code.eq_ignore_ascii_case(&country_code))
-                .map(|c| c.id)
+            self.resolve_country_id(&country_code).await?
         };
 
         let filter = NordServerFilter {
@@ -458,11 +487,7 @@ impl VpnProvider for NordVpnProvider {
         let country_id = if server.country_code.is_empty() {
             None
         } else {
-            let countries = self.api.list_countries().await?;
-            countries
-                .iter()
-                .find(|c| c.code.eq_ignore_ascii_case(&server.country_code))
-                .map(|c| c.id)
+            self.resolve_country_id(&server.country_code).await?
         };
 
         let filter = NordServerFilter {

@@ -37,6 +37,9 @@ fn tunnel_round_trip() {
         bytes_rx: 2048,
         created_at: "2026-03-07T00:00:00Z".parse().unwrap(),
         override_default_dns: true,
+        server_selector: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     };
     let json = serde_json::to_string(&tunnel).unwrap();
     let back: Tunnel = serde_json::from_str(&json).unwrap();

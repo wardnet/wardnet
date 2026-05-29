@@ -22,7 +22,9 @@ use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::key_store::KeyStore;
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 use crate::{TunnelService, TunnelServiceImpl};
+use wardnet_common::tunnel::BestServerSelector;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
 
@@ -149,6 +151,24 @@ impl TunnelRepository for MockTunnelRepo {
         Ok(())
     }
 
+    async fn update_endpoint(
+        &self,
+        id: &str,
+        endpoint: &str,
+        peer_config_json: &str,
+        server_name: &str,
+        resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        let mut rows = self.rows.lock().unwrap();
+        if let Some(r) = rows.iter_mut().find(|r| r.id == id) {
+            r.endpoint = endpoint.to_owned();
+            r.peer_config = peer_config_json.to_owned();
+            r.resolved_server_name = Some(server_name.to_owned());
+            r.endpoint_resolved_at = Some(resolved_at.to_owned());
+        }
+        Ok(())
+    }
+
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         self.rows.lock().unwrap().retain(|r| r.id != id);
         Ok(())
@@ -202,6 +222,15 @@ fn row_to_tunnel(
         bytes_rx: s.bytes_rx.cast_unsigned(),
         created_at: chrono::Utc::now(),
         override_default_dns: r.override_default_dns,
+        server_selector: r
+            .server_selector_country
+            .as_ref()
+            .map(|c| BestServerSelector { country: c.clone() }),
+        resolved_server_name: r.resolved_server_name.clone(),
+        endpoint_resolved_at: r
+            .endpoint_resolved_at
+            .as_deref()
+            .and_then(|s| s.parse().ok()),
     })
 }
 
@@ -638,6 +667,55 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
 
 // -- Helpers --------------------------------------------------------------
 
+// -- Mock ServerResolver --------------------------------------------------
+
+struct MockServerResolver;
+
+#[async_trait]
+impl ServerResolver for MockServerResolver {
+    async fn resolve(
+        &self,
+        _provider_id: &str,
+        _selector: &BestServerSelector,
+        _port: u16,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        Ok(None)
+    }
+}
+
+// -- Configurable resolver for bring_up branch tests ----------------------
+
+enum FakeResolveResult {
+    Success(String, String),
+    EmptyList { country: String, provider: String },
+    Transient(String),
+}
+
+struct FakeServerResolver {
+    result: FakeResolveResult,
+}
+
+#[async_trait]
+impl ServerResolver for FakeServerResolver {
+    async fn resolve(
+        &self,
+        _provider_id: &str,
+        _selector: &BestServerSelector,
+        _port: u16,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        match &self.result {
+            FakeResolveResult::Success(ep, name) => Ok(Some((ep.clone(), name.clone()))),
+            FakeResolveResult::EmptyList { country, provider } => {
+                Err(anyhow::Error::new(EmptyServerListError {
+                    country: country.clone(),
+                    provider: provider.clone(),
+                }))
+            }
+            FakeResolveResult::Transient(msg) => Err(anyhow::anyhow!("{msg}")),
+        }
+    }
+}
+
 struct TestHarness {
     svc: TunnelServiceImpl,
     tunnels: Arc<MockTunnelRepo>,
@@ -659,6 +737,7 @@ fn build_harness() -> TestHarness {
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
+    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
@@ -669,6 +748,7 @@ fn build_harness() -> TestHarness {
         keys.clone(),
         events.clone(),
         meter,
+        server_resolver,
     );
 
     TestHarness {
@@ -692,6 +772,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
+    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
@@ -702,6 +783,42 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         keys.clone(),
         events.clone(),
         meter,
+        server_resolver,
+    );
+
+    TestHarness {
+        svc,
+        tunnels: repo,
+        tunnel_iface,
+        events,
+        keys,
+        stats_buffer,
+        exit_probe,
+        latency_prober,
+    }
+}
+
+fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> TestHarness {
+    let repo = Arc::new(MockTunnelRepo::new());
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
+    let tunnel_iface = Arc::new(MockTunnelInterface::new());
+    let keys = Arc::new(MockKeyStore::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let exit_probe = Arc::new(MockTunnelExitProbe::new());
+    let latency_prober = Arc::new(MockTunnelLatencyProber::new());
+    let stats_buffer = StatsBuffer::new();
+    let meter = Arc::new(Meter::new(stats_buffer.clone()));
+
+    let svc = TunnelServiceImpl::with_key_store(
+        repo.clone(),
+        device_repo,
+        tunnel_iface.clone(),
+        exit_probe.clone(),
+        latency_prober.clone(),
+        keys.clone(),
+        events.clone(),
+        meter,
+        server_resolver,
     );
 
     TestHarness {
@@ -722,6 +839,21 @@ fn sample_request() -> CreateTunnelRequest {
         country_code: "SE".to_owned(),
         provider: Some("Mullvad".to_owned()),
         config: SAMPLE_CONF.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
+    }
+}
+
+fn sample_request_with_selector() -> CreateTunnelRequest {
+    CreateTunnelRequest {
+        label: "Sweden VPN".to_owned(),
+        country_code: "SE".to_owned(),
+        provider: Some("nordvpn".to_owned()),
+        config: SAMPLE_CONF.to_owned(),
+        server_selector: Some(BestServerSelector {
+            country: "SE".to_owned(),
+        }),
+        resolved_server_name: Some("Sweden #1".to_owned()),
     }
 }
 
@@ -764,6 +896,8 @@ async fn import_tunnel_invalid_config() {
         country_code: "XX".to_owned(),
         provider: None,
         config: "this is not a valid config".to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
 
     let result = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req)).await;
@@ -1815,6 +1949,8 @@ async fn bring_up_with_no_endpoint_uses_none_branch() {
         country_code: "SE".to_owned(),
         provider: None,
         config: SAMPLE_CONF_NO_ENDPOINT.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req))
         .await
@@ -1837,6 +1973,8 @@ async fn bring_up_with_preshared_key_and_multiple_allowed_ips() {
         country_code: "NO".to_owned(),
         provider: None,
         config: SAMPLE_CONF_WITH_PRESHARED.to_owned(),
+        server_selector: None,
+        resolved_server_name: None,
     };
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(req))
         .await
@@ -1937,6 +2075,9 @@ fn insert_up_tunnel(h: &TestHarness, id: Uuid, interface_name: &str) {
         peer_config: "{}".to_owned(),
         listen_port: None,
         override_default_dns: false,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     });
 }
 
@@ -1981,6 +2122,9 @@ async fn probe_latencies_skips_down_tunnels() {
         peer_config: "{}".to_owned(),
         listen_port: None,
         override_default_dns: false,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     });
 
     h.svc.probe_latencies().await.unwrap();
@@ -2283,4 +2427,110 @@ async fn test_tunnel_get_stats_error_maps_to_internal() {
         matches!(result, Err(AppError::Internal(_))),
         "expected Internal on stats Err, got {result:?}"
     );
+}
+
+// -- Re-resolution branch tests -------------------------------------------
+
+#[tokio::test]
+async fn bring_up_reresolves_best_server() {
+    let resolver = Arc::new(FakeServerResolver {
+        result: FakeResolveResult::Success(
+            "198.51.100.99:51820".to_owned(),
+            "Sweden #99".to_owned(),
+        ),
+    });
+    let h = build_harness_with_resolver(resolver);
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
+    let id = resp.tunnel.id;
+
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    // Re-resolution must have persisted the new endpoint in the repo.
+    let rows = h.tunnels.rows.lock().unwrap();
+    assert_eq!(rows[0].endpoint, "198.51.100.99:51820");
+    assert_eq!(rows[0].resolved_server_name.as_deref(), Some("Sweden #99"));
+    assert!(rows[0].endpoint_resolved_at.is_some());
+}
+
+#[tokio::test]
+async fn bring_up_empty_server_list_is_fatal() {
+    let resolver = Arc::new(FakeServerResolver {
+        result: FakeResolveResult::EmptyList {
+            country: "SE".to_owned(),
+            provider: "nordvpn".to_owned(),
+        },
+    });
+    let h = build_harness_with_resolver(resolver);
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
+    let id = resp.tunnel.id;
+
+    let result = auth_context::with_context(admin_ctx(), h.svc.bring_up(id)).await;
+    assert!(
+        matches!(result, Err(AppError::Internal(_))),
+        "EmptyServerListError must be fatal, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn bring_up_transient_resolver_error_uses_stored_endpoint() {
+    let resolver = Arc::new(FakeServerResolver {
+        result: FakeResolveResult::Transient("connection refused".to_owned()),
+    });
+    let h = build_harness_with_resolver(resolver);
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
+    let id = resp.tunnel.id;
+    let original_endpoint = resp.tunnel.endpoint.clone();
+
+    // Transient errors must not fail bring_up — fall back to stored endpoint.
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    // Stored endpoint must not have been overwritten.
+    let rows = h.tunnels.rows.lock().unwrap();
+    assert_eq!(rows[0].endpoint, original_endpoint);
+}
+
+#[tokio::test]
+async fn bring_up_with_selector_and_resolver_returning_none_uses_stored_endpoint() {
+    // MockServerResolver returns Ok(None) — "no provider registered".
+    // bring_up must succeed and keep the stored endpoint unchanged.
+    let resolver = Arc::new(MockServerResolver);
+    let h = build_harness_with_resolver(resolver);
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.svc.import_tunnel(sample_request_with_selector()),
+    )
+    .await
+    .unwrap();
+    let id = resp.tunnel.id;
+    let original_endpoint = resp.tunnel.endpoint.clone();
+
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    let rows = h.tunnels.rows.lock().unwrap();
+    assert_eq!(rows[0].endpoint, original_endpoint);
 }

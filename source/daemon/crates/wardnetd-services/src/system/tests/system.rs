@@ -127,6 +127,16 @@ impl TunnelRepository for MockTunnelRepo {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_endpoint(
+        &self,
+        _id: &str,
+        _endpoint: &str,
+        _peer_config_json: &str,
+        _server_name: &str,
+        _resolved_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn delete(&self, _id: &str) -> anyhow::Result<()> {
         Ok(())
     }

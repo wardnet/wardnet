@@ -414,6 +414,8 @@ fn create_services(
         backends.network_probe.clone(),
     ));
 
+    let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));
+
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
         tunnel_repo.clone(),
         device_repo.clone(),
@@ -423,9 +425,9 @@ fn create_services(
         backends.secret_store.clone(),
         event_publisher.clone(),
         stats_meter.clone(),
+        registry.clone(),
     ));
 
-    let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));
     let vpn_provider_service: Arc<dyn VpnProviderService> = Arc::new(VpnProviderServiceImpl::new(
         registry,
         tunnel_service.clone(),

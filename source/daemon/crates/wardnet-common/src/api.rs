@@ -10,7 +10,7 @@ use crate::dns::{
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
-use crate::tunnel::Tunnel;
+use crate::tunnel::{BestServerSelector, Tunnel};
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
@@ -167,6 +167,10 @@ pub struct CreateTunnelRequest {
     pub country_code: String,
     pub provider: Option<String>,
     pub config: String,
+    /// Set when the tunnel was created via country-scoped auto-select.
+    pub server_selector: Option<BestServerSelector>,
+    /// Human-readable name of the server resolved at creation time.
+    pub resolved_server_name: Option<String>,
 }
 
 /// Response for POST /api/tunnels.

@@ -17,6 +17,9 @@ fn sample_row(id: &str, interface_name: &str) -> TunnelRow {
         peer_config: "{\"public_key\":\"abc123\",\"endpoint\":\"198.51.100.1:51820\",\"allowed_ips\":[\"0.0.0.0/0\"],\"preshared_key\":null,\"persistent_keepalive\":25}".to_owned(),
         listen_port: None,
         override_default_dns: true,
+        server_selector_country: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
     }
 }
 
@@ -274,4 +277,30 @@ async fn update_dns_override_for_missing_id_is_silent_noop() {
     repo.update_dns_override("00000000-0000-0000-0000-000000000099", true)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn update_endpoint_persists_resolved_fields() {
+    let pool = test_pool().await;
+    let repo = SqliteTunnelRepository::new(pool);
+    let id = "00000000-0000-0000-0000-000000000001";
+    repo.insert(&sample_row(id, "wg_ward0")).await.unwrap();
+
+    let new_peer = "{\"public_key\":\"abc123\",\"endpoint\":\"10.0.0.99:51820\",\
+                    \"allowed_ips\":[\"0.0.0.0/0\"],\"preshared_key\":null,\
+                    \"persistent_keepalive\":25}";
+    repo.update_endpoint(
+        id,
+        "10.0.0.99:51820",
+        new_peer,
+        "Sweden #99",
+        "2026-03-07T12:00:00Z",
+    )
+    .await
+    .unwrap();
+
+    let tunnel = repo.find_by_id(id).await.unwrap().unwrap();
+    assert_eq!(tunnel.endpoint, "10.0.0.99:51820");
+    assert_eq!(tunnel.resolved_server_name.as_deref(), Some("Sweden #99"));
+    assert!(tunnel.endpoint_resolved_at.is_some());
 }

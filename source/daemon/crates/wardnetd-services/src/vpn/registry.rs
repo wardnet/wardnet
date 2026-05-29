@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use wardnet_common::vpn_provider::ProviderInfo;
+use async_trait::async_trait;
+use wardnet_common::tunnel::BestServerSelector;
+use wardnet_common::vpn_provider::{ProviderCredentials, ProviderInfo, ServerFilter};
 
 use crate::vpn::nordvpn::{HttpNordVpnApi, NordVpnProvider};
 use crate::vpn::provider::VpnProvider;
+use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 
 /// Per-provider enable/disable flags passed from daemon configuration.
 pub type EnabledProviders = HashMap<String, bool>;
@@ -60,5 +63,55 @@ impl VpnProviderRegistry {
     #[must_use]
     pub fn list(&self) -> Vec<ProviderInfo> {
         self.providers.values().map(|p| p.info()).collect()
+    }
+}
+
+/// Reject hostnames that could be used for endpoint injection (e.g. containing
+/// a colon that would override the port, or whitespace from a malformed response).
+fn validate_hostname(hostname: &str) -> anyhow::Result<()> {
+    if hostname.is_empty() || hostname.chars().any(|c| c == ':' || c.is_whitespace()) {
+        anyhow::bail!("provider returned invalid hostname: {hostname:?}");
+    }
+    Ok(())
+}
+
+#[async_trait]
+impl ServerResolver for VpnProviderRegistry {
+    async fn resolve(
+        &self,
+        provider_id: &str,
+        selector: &BestServerSelector,
+        port: u16,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        let Some(provider) = self.providers.get(provider_id) else {
+            return Ok(None);
+        };
+
+        // NordVPN's recommendations endpoint is unauthenticated (public API).
+        // The `list_servers` trait signature accepts credentials for providers
+        // that require auth; we pass an empty token here because NordVPN ignores
+        // it. A future provider that requires auth for listing must not use this
+        // path — extend the trait with a credential-free method instead.
+        let dummy = ProviderCredentials::Token {
+            token: String::new(),
+        };
+        let filter = ServerFilter {
+            country: Some(selector.country.clone()),
+            max_load: None,
+        };
+
+        let servers = provider.list_servers(&dummy, &filter).await?;
+
+        if servers.is_empty() {
+            return Err(anyhow::Error::new(EmptyServerListError {
+                country: selector.country.clone(),
+                provider: provider_id.to_owned(),
+            }));
+        }
+
+        let server = servers.iter().min_by_key(|s| s.load).expect("non-empty");
+        validate_hostname(&server.hostname)?;
+        let endpoint = format!("{}:{port}", server.hostname);
+        Ok(Some((endpoint, server.name.clone())))
     }
 }

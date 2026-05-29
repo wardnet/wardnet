@@ -115,6 +115,14 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
                 {flag}
               </div>
             )}
+            {tunnel.server_selector && (
+              <span
+                className="rounded-sm bg-sunken px-1.5 py-0.5 text-[10px] font-medium text-ink-3"
+                aria-label={`Auto-selected best server in ${tunnel.server_selector.country.toUpperCase()}`}
+              >
+                Best {tunnel.server_selector.country.toUpperCase()}
+              </span>
+            )}
             <div className="spacer" />
             <StatusBadge tone={statusTone(tunnel.status)} title={statusTooltip(tunnel)}>
               <span className="dot" />

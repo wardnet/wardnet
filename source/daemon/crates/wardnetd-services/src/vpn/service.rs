@@ -6,6 +6,7 @@ use wardnet_common::api::{
     ListServersResponse, SetupProviderRequest, SetupProviderResponse, ValidateCredentialsRequest,
     ValidateCredentialsResponse,
 };
+use wardnet_common::tunnel::BestServerSelector;
 use wardnet_common::vpn_provider::ServerFilter;
 
 use crate::TunnelService;
@@ -212,12 +213,23 @@ impl VpnProviderService for VpnProviderServiceImpl {
             .label
             .unwrap_or_else(|| format!("{} - {}", info.name, server.name));
 
-        // 6. Import the tunnel via TunnelService.
+        // 6. Capture selector — hostname or explicit server_id = specific server → no re-resolution.
+        let server_selector = if request.hostname.is_none() && request.server_id.is_none() {
+            Some(BestServerSelector {
+                country: server.country_code.clone(),
+            })
+        } else {
+            None
+        };
+
+        // 7. Import the tunnel via TunnelService.
         let tunnel_request = CreateTunnelRequest {
             label,
             country_code: server.country_code.clone(),
             provider: Some(info.id.clone()),
             config,
+            server_selector,
+            resolved_server_name: Some(server.name.clone()),
         };
         let tunnel_response = self.tunnel_service.import_tunnel(tunnel_request).await?;
 
