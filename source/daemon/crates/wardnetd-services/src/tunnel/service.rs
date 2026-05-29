@@ -143,14 +143,13 @@ pub struct TunnelServiceImpl {
 /// if the endpoint is absent, malformed, or the port cannot be parsed.
 fn parse_port(endpoint: Option<&str>) -> u16 {
     let port_str = endpoint.and_then(|ep| ep.rsplit(':').next());
-    match port_str.and_then(|p| p.parse::<u16>().ok()) {
-        Some(p) => p,
-        None => {
-            if endpoint.is_some() {
-                tracing::warn!(endpoint = ?endpoint, "could not parse port from endpoint, using default 51820");
-            }
-            51820
+    if let Some(p) = port_str.and_then(|p| p.parse::<u16>().ok()) {
+        p
+    } else {
+        if endpoint.is_some() {
+            tracing::warn!(endpoint = ?endpoint, "could not parse port from endpoint, using default 51820");
         }
+        51820
     }
 }
 
@@ -261,65 +260,7 @@ impl TunnelServiceImpl {
             .ok_or_else(|| AppError::NotFound(format!("tunnel config {id} not found")))?;
 
         // Re-resolve endpoint for "best server" tunnels on each bring-up.
-        let tunnel_config = match &tunnel.server_selector {
-            Some(selector) if tunnel.provider.is_some() => {
-                let provider_id = tunnel.provider.as_deref().expect("checked above");
-                let port = parse_port(tunnel_config.peer.endpoint.as_deref());
-                match self
-                    .server_resolver
-                    .resolve(provider_id, selector, port)
-                    .await
-                {
-                    Ok(Some((new_ep, server_name))) => {
-                        let now = chrono::Utc::now().to_rfc3339();
-                        let mut updated_peer = tunnel_config.peer.clone();
-                        updated_peer.endpoint = Some(new_ep);
-                        let peer_json = serde_json::to_string(&updated_peer)
-                            .map_err(|e| AppError::Internal(e.into()))?;
-                        if let Err(e) = self
-                            .tunnels
-                            .update_endpoint(
-                                &id.to_string(),
-                                updated_peer.endpoint.as_deref().unwrap_or_default(),
-                                &peer_json,
-                                &server_name,
-                                &now,
-                            )
-                            .await
-                        {
-                            tracing::warn!(
-                                tunnel_id = %id,
-                                error = %e,
-                                "endpoint re-resolution: failed to persist updated endpoint",
-                            );
-                        }
-                        wardnet_common::tunnel::TunnelConfig {
-                            peer: updated_peer,
-                            ..tunnel_config
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::warn!(
-                            tunnel_id = %id,
-                            "no provider registered for re-resolution, using stored endpoint",
-                        );
-                        tunnel_config
-                    }
-                    Err(e) => {
-                        if e.downcast_ref::<EmptyServerListError>().is_some() {
-                            return Err(AppError::Internal(e));
-                        }
-                        tracing::warn!(
-                            tunnel_id = %id,
-                            error = %e,
-                            "endpoint re-resolution failed (transient), using stored endpoint",
-                        );
-                        tunnel_config
-                    }
-                }
-            }
-            _ => tunnel_config,
-        };
+        let tunnel_config = self.reresolve_endpoint(id, &tunnel, tunnel_config).await?;
 
         // Load and decode private key from key store.
         let private_key_b64 = self.keys.load_key(&id).await.map_err(AppError::Internal)?;
@@ -336,33 +277,10 @@ impl TunnelServiceImpl {
             .map(Self::decode_key)
             .transpose()?;
 
-        // Parse peer endpoint — resolve hostname if needed (e.g. NordVPN gives
-        // `pt149.nordvpn.com:51820` which must be resolved to an IP for WireGuard).
-        let peer_endpoint = match tunnel_config.peer.endpoint.as_deref() {
-            None => None,
-            Some(ep) => {
-                // Try direct parse first (already an IP:port).
-                if let Ok(addr) = ep.parse::<std::net::SocketAddr>() {
-                    Some(addr)
-                } else {
-                    // Resolve hostname via DNS.
-                    let addr = tokio::net::lookup_host(ep)
-                        .await
-                        .map_err(|e| {
-                            AppError::Internal(anyhow::anyhow!(
-                                "failed to resolve peer endpoint '{ep}': {e}"
-                            ))
-                        })?
-                        .next()
-                        .ok_or_else(|| {
-                            AppError::Internal(anyhow::anyhow!(
-                                "DNS resolution returned no addresses for '{ep}'"
-                            ))
-                        })?;
-                    Some(addr)
-                }
-            }
-        };
+        // Parse peer endpoint — resolve hostname if needed (e.g. a provider
+        // hostname like `pt149.nordvpn.com:51820` must be resolved to an IP).
+        let peer_endpoint =
+            Self::resolve_peer_endpoint(tunnel_config.peer.endpoint.as_deref()).await?;
 
         // Parse allowed IPs.
         let peer_allowed_ips = tunnel_config
@@ -423,6 +341,101 @@ impl TunnelServiceImpl {
         });
 
         Ok(())
+    }
+
+    /// Re-resolve the best server endpoint for "best server" tunnels.
+    /// For tunnels with a static server or no provider, the config is
+    /// returned unchanged.
+    async fn reresolve_endpoint(
+        &self,
+        id: Uuid,
+        tunnel: &Tunnel,
+        config: wardnet_common::tunnel::TunnelConfig,
+    ) -> Result<wardnet_common::tunnel::TunnelConfig, AppError> {
+        let (Some(selector), Some(_)) = (&tunnel.server_selector, &tunnel.provider) else {
+            return Ok(config);
+        };
+        let provider_id = tunnel.provider.as_deref().expect("checked above");
+        let port = parse_port(config.peer.endpoint.as_deref());
+        match self
+            .server_resolver
+            .resolve(provider_id, selector, port)
+            .await
+        {
+            Ok(Some((new_ep, server_name))) => {
+                let now = chrono::Utc::now().to_rfc3339();
+                let mut updated_peer = config.peer.clone();
+                updated_peer.endpoint = Some(new_ep);
+                let peer_json = serde_json::to_string(&updated_peer)
+                    .map_err(|e| AppError::Internal(e.into()))?;
+                if let Err(e) = self
+                    .tunnels
+                    .update_endpoint(
+                        &id.to_string(),
+                        updated_peer.endpoint.as_deref().unwrap_or_default(),
+                        &peer_json,
+                        &server_name,
+                        &now,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        tunnel_id = %id,
+                        error = %e,
+                        "endpoint re-resolution: failed to persist updated endpoint",
+                    );
+                }
+                Ok(wardnet_common::tunnel::TunnelConfig {
+                    peer: updated_peer,
+                    ..config
+                })
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    tunnel_id = %id,
+                    "no provider registered for re-resolution, using stored endpoint",
+                );
+                Ok(config)
+            }
+            Err(e) => {
+                if e.downcast_ref::<EmptyServerListError>().is_some() {
+                    return Err(AppError::Internal(e));
+                }
+                tracing::warn!(
+                    tunnel_id = %id,
+                    error = %e,
+                    "endpoint re-resolution failed (transient), using stored endpoint",
+                );
+                Ok(config)
+            }
+        }
+    }
+
+    /// Resolve a peer endpoint string to a `SocketAddr`. Tries direct parse
+    /// first (already an IP:port), then falls back to DNS lookup.
+    async fn resolve_peer_endpoint(
+        ep: Option<&str>,
+    ) -> Result<Option<std::net::SocketAddr>, AppError> {
+        let Some(ep) = ep else {
+            return Ok(None);
+        };
+        if let Ok(addr) = ep.parse::<std::net::SocketAddr>() {
+            return Ok(Some(addr));
+        }
+        let addr = tokio::net::lookup_host(ep)
+            .await
+            .map_err(|e| {
+                AppError::Internal(anyhow::anyhow!(
+                    "failed to resolve peer endpoint '{ep}': {e}"
+                ))
+            })?
+            .next()
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "DNS resolution returned no addresses for '{ep}'"
+                ))
+            })?;
+        Ok(Some(addr))
     }
 
     /// Reconcile DB tunnel status against kernel reality. After a daemon
@@ -784,7 +797,9 @@ impl TunnelService for TunnelServiceImpl {
             override_default_dns,
             server_selector_country,
             resolved_server_name: req.resolved_server_name.clone(),
-            endpoint_resolved_at: endpoint_resolved_at_dt.as_ref().map(|dt| dt.to_rfc3339()),
+            endpoint_resolved_at: endpoint_resolved_at_dt
+                .as_ref()
+                .map(chrono::DateTime::to_rfc3339),
         };
 
         self.tunnels

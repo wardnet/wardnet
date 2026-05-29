@@ -711,7 +711,7 @@ impl ServerResolver for FakeServerResolver {
                     provider: provider.clone(),
                 }))
             }
-            FakeResolveResult::Transient(msg) => Err(anyhow::anyhow!("{}", msg)),
+            FakeResolveResult::Transient(msg) => Err(anyhow::anyhow!("{msg}")),
         }
     }
 }

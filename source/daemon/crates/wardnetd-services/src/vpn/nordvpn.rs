@@ -253,8 +253,8 @@ impl NordVpnApi for HttpNordVpnApi {
     }
 }
 
-/// Countries list TTL: the NordVPN country catalogue changes rarely.
-const COUNTRIES_CACHE_TTL: Duration = Duration::from_secs(86_400);
+/// Countries list TTL: the `NordVPN` country catalogue changes rarely.
+const COUNTRIES_CACHE_TTL: Duration = Duration::from_hours(24);
 
 /// `NordVPN` provider implementation.
 ///
@@ -278,19 +278,19 @@ impl NordVpnProvider {
         }
     }
 
-    /// Return the numeric NordVPN country ID for an ISO code, using a cached
+    /// Return the numeric `NordVPN` country ID for an ISO code, using a cached
     /// country list refreshed at most once per [`COUNTRIES_CACHE_TTL`].
     async fn resolve_country_id(&self, code: &str) -> anyhow::Result<Option<u64>> {
         // Fast path: valid cache entry.
         {
             let cache = self.countries_cache.read().await;
-            if let Some((ref countries, fetched_at)) = *cache {
-                if fetched_at.elapsed() < COUNTRIES_CACHE_TTL {
-                    return Ok(countries
-                        .iter()
-                        .find(|c| c.code.eq_ignore_ascii_case(code))
-                        .map(|c| c.id));
-                }
+            if let Some((ref countries, fetched_at)) = *cache
+                && fetched_at.elapsed() < COUNTRIES_CACHE_TTL
+            {
+                return Ok(countries
+                    .iter()
+                    .find(|c| c.code.eq_ignore_ascii_case(code))
+                    .map(|c| c.id));
             }
         }
 

@@ -70,7 +70,7 @@ impl VpnProviderRegistry {
 /// a colon that would override the port, or whitespace from a malformed response).
 fn validate_hostname(hostname: &str) -> anyhow::Result<()> {
     if hostname.is_empty() || hostname.chars().any(|c| c == ':' || c.is_whitespace()) {
-        anyhow::bail!("provider returned invalid hostname: {:?}", hostname);
+        anyhow::bail!("provider returned invalid hostname: {hostname:?}");
     }
     Ok(())
 }
