@@ -1,5 +1,5 @@
 {
-  "name": "@wardnet/admin-app",
+  "name": "@wardnet/admin-site",
   "private": true,
   "workspaces": [
     "forge-web",
