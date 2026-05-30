@@ -172,9 +172,9 @@ check-sdk:
 build-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn build
-	cd $(USER_APP_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn install --immutable
 	cd $(USER_APP_DIR) && yarn build
-	cd $(ADMIN_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn install --immutable
 	cd $(ADMIN_APP_DIR) && yarn build
 
 check-web: check-sdk
@@ -182,9 +182,9 @@ check-web: check-sdk
 	cd $(WEBUI_DIR) && yarn type-check
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
-	cd $(USER_APP_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn install --immutable
 	cd $(USER_APP_DIR) && yarn type-check
-	cd $(ADMIN_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn install --immutable
 	cd $(ADMIN_APP_DIR) && yarn type-check
 
 # ---------- Public Site ----------

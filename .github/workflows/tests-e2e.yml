@@ -57,7 +57,10 @@ jobs:
       # cached by the Docker layer cache instead.
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/admin-site/yarn.lock
+          cache-dependency-path: |
+            source/admin-site/yarn.lock
+            source/user-app/yarn.lock
+            source/admin-app/yarn.lock
 
       - uses: ./.github/actions/setup-rust
 
