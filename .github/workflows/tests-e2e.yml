@@ -51,13 +51,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # `make image-test` builds the web UI as a prerequisite (the
-      # daemon embeds source/admin-app/web/dist via rust-embed). Caching the
+      # daemon embeds all three web dist/ dirs via rust-embed). Caching the
       # web-ui yarn install is the biggest single win here; the e2e
       # test_runner package's deps install inside Docker and are
       # cached by the Docker layer cache instead.
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/admin-app/yarn.lock
+          cache-dependency-path: |
+            source/admin-site/yarn.lock
+            source/user-app/yarn.lock
+            source/admin-app/yarn.lock
 
       - uses: ./.github/actions/setup-rust
 

@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: "/admin-app/",
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -12,15 +13,12 @@ export default defineConfig({
     preserveSymlinks: true,
   },
   server: {
-    port: 7412,
+    port: 7414,
     proxy: {
       "/api": {
         target: "http://127.0.0.1:7411",
         ws: true,
       },
     },
-  },
-  optimizeDeps: {
-    include: ["use-sync-external-store/shim"],
   },
 });

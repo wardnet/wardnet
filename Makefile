@@ -10,8 +10,10 @@ SHELL := /bin/bash
 DAEMON_DIR   := source/daemon
 BRIDGE_DIR   := source/bridge
 SDK_DIR      := source/sdk/wardnet-js
-ADMIN_DIR    := source/admin-app
-WEBUI_DIR    := source/admin-app/web
+ADMIN_DIR    := source/admin-site
+WEBUI_DIR    := source/admin-site/web
+USER_APP_DIR := source/user-app
+ADMIN_APP_DIR := source/admin-app
 FORGE_DIR    := source/forge
 SITE_DIR     := source/marketing-site
 
@@ -55,7 +57,7 @@ COV_RUNNER ?=
         fmt clippy test \
         image image-multiarch image-test image-base \
         end2end-daemon \
-        run-dev run-dev-daemon run-dev-web \
+        run-dev run-dev-daemon run-dev-web run-dev-user-app run-dev-admin-app \
         sync-version check-version \
         clean help
 
@@ -152,6 +154,8 @@ init:
 	cd $(SDK_DIR) && yarn install
 	cd $(FORGE_DIR) && yarn install
 	cd $(ADMIN_DIR) && yarn install
+	cd $(USER_APP_DIR) && yarn install
+	cd $(ADMIN_APP_DIR) && yarn install
 	cd $(SITE_DIR) && yarn install
 	@echo ""
 	@echo "Dev environment ready. Run 'make help' to see available targets."
@@ -168,12 +172,20 @@ check-sdk:
 build-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn build
+	cd $(USER_APP_DIR) && yarn install --immutable
+	cd $(USER_APP_DIR) && yarn build
+	cd $(ADMIN_APP_DIR) && yarn install --immutable
+	cd $(ADMIN_APP_DIR) && yarn build
 
 check-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable
 	cd $(WEBUI_DIR) && yarn type-check
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
+	cd $(USER_APP_DIR) && yarn install --immutable
+	cd $(USER_APP_DIR) && yarn type-check
+	cd $(ADMIN_APP_DIR) && yarn install --immutable
+	cd $(ADMIN_APP_DIR) && yarn type-check
 
 # ---------- Public Site ----------
 
@@ -348,19 +360,10 @@ check: check-web check-site check-daemon check-bridge
 RESUME ?= true
 LOCAL_DIR := $(CURDIR)/.wardnet-local
 
-# Run the mock daemon + web UI dev server locally.
-#
-# wardnetd-mock serves the HTTP API on 127.0.0.1:7411 with no-op network
-# backends and seeded demo data. Vite dev server runs on :7412 and proxies
-# /api to the mock. Ctrl+C stops the dev server and tears down the mock
-# via the EXIT trap. Database persists at .wardnet-local/wardnet.db by
-# default so iterating on UI doesn't reset the setup wizard on every
-# restart; pass `RESUME=false` for an ephemeral in-memory DB (which
-# re-runs the setup wizard from scratch).
 # Run just the mock daemon (`wardnetd-mock`) in the foreground on :7411.
 # Respects `RESUME=false` for an ephemeral in-memory DB. Use this when
 # you only need the API (e.g. exercising `/api/docs`, curling endpoints)
-# without the Vite server.
+# without the Vite servers.
 run-dev-daemon:
 	@mkdir -p $(LOCAL_DIR)
 	@if [ "$(RESUME)" = "true" ]; then \
@@ -375,26 +378,49 @@ run-dev-daemon:
 	echo ""; \
 	cd $(DAEMON_DIR) && cargo run --bin wardnetd-mock -- --verbose $$DB_ARG
 
-# Run just the Vite dev server on :7412, proxying `/api` to :7411. Use
-# this when you already have a mock daemon running in another terminal.
+# Run just the admin-site Vite dev server on :7412, proxying /api to :7411.
 run-dev-web:
-	@echo "Web UI   : http://127.0.0.1:7412  (proxies /api to mock on :7411)"
+	@echo "Admin site : http://127.0.0.1:7412/admin/  (proxies /api to mock on :7411)"
 	@echo ""
 	@cd $(WEBUI_DIR) && yarn dev
 
-# Run mock daemon + Vite dev server together. The daemon is spawned in
-# the background via a recursive `$(MAKE) run-dev-daemon` call; the web
-# dev server runs in the foreground. Ctrl+C stops Vite and tears down
-# the mock via the EXIT trap.
+# Run just the user-app Vite dev server on :7413, proxying /api to :7411.
+run-dev-user-app:
+	@echo "User PWA   : http://127.0.0.1:7413  (proxies /api to mock on :7411)"
+	@echo ""
+	@cd $(USER_APP_DIR) && yarn dev
+
+# Run just the admin-app Vite dev server on :7414, proxying /api to :7411.
+run-dev-admin-app:
+	@echo "Admin PWA  : http://127.0.0.1:7414/admin-app/  (proxies /api to mock on :7411)"
+	@echo ""
+	@cd $(ADMIN_APP_DIR) && yarn dev
+
+# Run mock daemon + all three Vite dev servers together.
 #
-# Database persists at `.wardnet-local/wardnet.db` by default; pass
-# `RESUME=false` for an ephemeral in-memory DB (re-runs setup wizard).
+# The daemon, user-app, and admin-app servers are spawned in the background;
+# the admin-site server runs in the foreground. Ctrl+C stops admin-site and
+# tears down all background processes via the EXIT trap.
+#
+# All four processes share the same :7411 mock API. Database persists at
+# `.wardnet-local/wardnet.db` by default; pass `RESUME=false` for an
+# ephemeral in-memory DB (re-runs setup wizard from scratch).
 run-dev:
-	@echo "=== Starting wardnetd-mock + web UI dev server ==="
+	@echo "=== Starting wardnetd-mock + all three web dev servers ==="
+	@echo "  Mock API   : http://127.0.0.1:7411"
+	@echo "  Admin site : http://127.0.0.1:7412/admin/"
+	@echo "  User PWA   : http://127.0.0.1:7413"
+	@echo "  Admin PWA  : http://127.0.0.1:7414/admin-app/"
+	@echo ""
 	@set -e; \
 	$(MAKE) run-dev-daemon & \
 	DAEMON_PID=$$!; \
-	trap "kill $$DAEMON_PID 2>/dev/null; wait $$DAEMON_PID 2>/dev/null; true" EXIT INT TERM; \
+	$(MAKE) run-dev-user-app & \
+	USER_APP_PID=$$!; \
+	$(MAKE) run-dev-admin-app & \
+	ADMIN_APP_PID=$$!; \
+	trap "kill $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; \
+	      wait $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; true" EXIT INT TERM; \
 	$(MAKE) run-dev-web
 
 # ---------- Container images ----------
@@ -428,10 +454,14 @@ image-multiarch:
 # No dependency on `make image` — the prod and test images share an
 # OS layer (wardnet-base) but not a build chain.
 #
-# Depends on `build-web` so source/admin-app/web/dist/ exists; wardnetd's
-# rust-embed annotation pulls those static assets into the daemon
-# binary at compile time.
-image-test: build-web
+# Web assets (dist/ trees and logo.png) are created inside the Dockerfile
+# with RUN rather than COPY-ed from the host. Docker BuildKit's context
+# snapshot caches directories by inode; directories that are new in a PR
+# branch are unknown to the reused daemon and come back "not found" even
+# after git checkout. Building placeholder content inside the image
+# sidesteps that cache entirely. The e2e suite targets API endpoints,
+# not the web UI, so placeholder content is sufficient.
+image-test:
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
 	$(CONTAINER_RT) build \
 		-f source/daemon/Dockerfile.test \
@@ -487,7 +517,9 @@ end2end-daemon: image-test
 
 clean:
 	cd $(DAEMON_DIR) && cargo clean
-	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist $(SITE_DIR)/dist
+	rm -rf $(WEBUI_DIR)/dist $(WEBUI_DIR)/node_modules/.cache $(SDK_DIR)/dist $(SITE_DIR)/dist \
+	       $(USER_APP_DIR)/dist $(USER_APP_DIR)/node_modules/.cache \
+	       $(ADMIN_APP_DIR)/dist $(ADMIN_APP_DIR)/node_modules/.cache
 
 help:
 	@echo "Wardnet build targets:"
@@ -495,7 +527,7 @@ help:
 	@echo "  init           Install all dev dependencies (yarn workspaces)"
 	@echo ""
 	@echo "  build          Build web UI + daemon (host target)"
-	@echo "  build-web      Build web UI (depends on SDK check)"
+	@echo "  build-web      Build admin-site, user-app, and admin-app (depends on SDK check)"
 	@echo "  build-daemon   Build daemon for host target"
 	@echo ""
 	@echo "  check          Run all checks (SDK + web + site + daemon)"
@@ -510,13 +542,15 @@ help:
 	@echo "  openapi        Regenerate $(OPENAPI_FILE) from the daemon's #[utoipa::path] annotations"
 	@echo "  check-openapi  Drift gate: fail if $(OPENAPI_FILE) is stale (run 'make openapi' to fix)"
 	@echo ""
-	@echo "  run-dev        Run wardnetd-mock + web UI dev server locally"
-	@echo "                 Mock API on :7411, web UI on :7412 (proxies /api)"
-	@echo "                 Ctrl+C stops both. DB persists at .wardnet-local/ by default."
+	@echo "  run-dev        Run wardnetd-mock + all three Vite dev servers"
+	@echo "                 Mock API :7411, admin-site :7412/admin/, user-app :7413, admin-app :7414/admin-app/"
+	@echo "                 Ctrl+C stops all. DB persists at .wardnet-local/ by default."
 	@echo "                 make run-dev                    (persist DB at .wardnet-local/)"
 	@echo "                 make run-dev RESUME=false       (ephemeral in-memory DB)"
-	@echo "  run-dev-daemon Run just wardnetd-mock on :7411 (same RESUME flag)"
-	@echo "  run-dev-web    Run just the Vite dev server on :7412"
+	@echo "  run-dev-daemon     Run just wardnetd-mock on :7411 (same RESUME flag)"
+	@echo "  run-dev-web        Run just the admin-site Vite server on :7412"
+	@echo "  run-dev-user-app   Run just the user-app Vite server on :7413"
+	@echo "  run-dev-admin-app  Run just the admin-app Vite server on :7414"
 	@echo ""
 	@echo "  image          Build production container image (downloads latest release)"
 	@echo "                 make image                              (latest stable release)"

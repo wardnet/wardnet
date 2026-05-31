@@ -7,7 +7,9 @@ name: "Wardnet CodeQL config"
 #     - source/daemon/build-support/**
 #
 #   JavaScript / TypeScript (single `javascript-typescript` language):
-#     - source/admin-app/web/src/**            (React admin UI)
+#     - source/admin-site/web/src/**            (React admin site)
+#     - source/user-app/src/**                 (React user PWA)
+#     - source/admin-app/src/**                (React admin PWA)
 #     - source/sdk/wardnet-js/src/**    (TypeScript SDK)
 #     - source/marketing-site/src/**              (marketing site)
 #     - source/marketing-site/scripts/**          (release-manifest generator)
@@ -33,7 +35,9 @@ paths-ignore:
   - "source/daemon/crates/*/src/**/tests/**"
 
   # Web UI + marketing site Vitest suites.
-  - "source/admin-app/web/tests/**"
+  - "source/admin-site/web/tests/**"
+  - "source/user-app/tests/**"
+  - "source/admin-app/tests/**"
   - "source/marketing-site/tests/**"
 
   # wardnet-test-agent is a test harness that inspects kernel state

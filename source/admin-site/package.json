@@ -1,0 +1,13 @@
+{
+  "name": "@wardnet/admin-site",
+  "private": true,
+  "workspaces": [
+    "forge-web",
+    "web"
+  ],
+  "packageManager": "yarn@4.13.0",
+  "resolutions": {
+    "path-to-regexp": "8.4.0",
+    "ip-address": "10.1.1"
+  }
+}

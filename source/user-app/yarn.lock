@@ -1876,9 +1876,38 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wardnet/admin-app@workspace:.":
+"@wardnet/forge-web@portal:../admin-site/forge-web::locator=%40wardnet%2Fuser-app%40workspace%3A.":
   version: 0.0.0-use.local
-  resolution: "@wardnet/admin-app@workspace:."
+  resolution: "@wardnet/forge-web@portal:../admin-site/forge-web::locator=%40wardnet%2Fuser-app%40workspace%3A."
+  dependencies:
+    "@wardnet/forge": "portal:../../forge"
+    class-variance-authority: "npm:0.7.1"
+    clsx: "npm:2.1.1"
+    cmdk: "npm:1.1.1"
+    radix-ui: "npm:1.4.3"
+  peerDependencies:
+    react: ^19.0.0
+    react-dom: ^19.0.0
+  languageName: node
+  linkType: soft
+
+"@wardnet/forge@portal:../../forge::locator=%40wardnet%2Fforge-web%40portal%3A..%2Fadmin-site%2Fforge-web%3A%3Alocator%3D%2540wardnet%252Fuser-app%2540workspace%253A.":
+  version: 0.0.0-use.local
+  resolution: "@wardnet/forge@portal:../../forge::locator=%40wardnet%2Fforge-web%40portal%3A..%2Fadmin-site%2Fforge-web%3A%3Alocator%3D%2540wardnet%252Fuser-app%2540workspace%253A."
+  languageName: node
+  linkType: soft
+
+"@wardnet/js@portal:../sdk/wardnet-js::locator=%40wardnet%2Fuser-app%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@wardnet/js@portal:../sdk/wardnet-js::locator=%40wardnet%2Fuser-app%40workspace%3A."
+  dependencies:
+    consola: "npm:^3.4.2"
+  languageName: node
+  linkType: soft
+
+"@wardnet/user-app@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@wardnet/user-app@workspace:."
   dependencies:
     "@tailwindcss/vite": "npm:4.2.4"
     "@types/node": "npm:25.8.0"
@@ -1896,38 +1925,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wardnet/forge-web@portal:../admin-site/forge-web::locator=%40wardnet%2Fadmin-app%40workspace%3A.":
+"@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fuser-app%40workspace%3A.":
   version: 0.0.0-use.local
-  resolution: "@wardnet/forge-web@portal:../admin-site/forge-web::locator=%40wardnet%2Fadmin-app%40workspace%3A."
-  dependencies:
-    "@wardnet/forge": "portal:../../forge"
-    class-variance-authority: "npm:0.7.1"
-    clsx: "npm:2.1.1"
-    cmdk: "npm:1.1.1"
-    radix-ui: "npm:1.4.3"
-  peerDependencies:
-    react: ^19.0.0
-    react-dom: ^19.0.0
-  languageName: node
-  linkType: soft
-
-"@wardnet/forge@portal:../../forge::locator=%40wardnet%2Fforge-web%40portal%3A..%2Fadmin-site%2Fforge-web%3A%3Alocator%3D%2540wardnet%252Fadmin-app%2540workspace%253A.":
-  version: 0.0.0-use.local
-  resolution: "@wardnet/forge@portal:../../forge::locator=%40wardnet%2Fforge-web%40portal%3A..%2Fadmin-site%2Fforge-web%3A%3Alocator%3D%2540wardnet%252Fadmin-app%2540workspace%253A."
-  languageName: node
-  linkType: soft
-
-"@wardnet/js@portal:../sdk/wardnet-js::locator=%40wardnet%2Fadmin-app%40workspace%3A.":
-  version: 0.0.0-use.local
-  resolution: "@wardnet/js@portal:../sdk/wardnet-js::locator=%40wardnet%2Fadmin-app%40workspace%3A."
-  dependencies:
-    consola: "npm:^3.4.2"
-  languageName: node
-  linkType: soft
-
-"@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fadmin-app%40workspace%3A.":
-  version: 0.0.0-use.local
-  resolution: "@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fadmin-app%40workspace%3A."
+  resolution: "@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fuser-app%40workspace%3A."
   peerDependencies:
     "@wardnet/forge-web": "*"
     "@wardnet/js": "*"

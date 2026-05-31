@@ -16,7 +16,7 @@
 #
 # Build context: repo root
 #   docker build -f source/daemon/Dockerfile.test -t wardnetd:dev-test .
-#   make image-test            (builds source/admin-app/web/dist first)
+#   make image-test            (builds all three web dist/ trees first)
 
 # ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
@@ -30,18 +30,34 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-# Rust workspace lives at /build; the admin-app/web/dist tree must be at
-# /admin-app/web/dist so wardnetd-api's `#[folder = "../../../admin-app/web/dist"]`
-# rust-embed annotation resolves correctly from
-# /build/crates/wardnetd-api/. /deploy/keys/wardnet-release.pub is
+# Rust workspace lives at /build; rust-embed paths in wardnetd-api are
+# three ../ steps from /build/crates/wardnetd-api/, resolving at the
+# filesystem root — so asset trees land at /admin-site/web/dist,
+# /user-app/dist, and /admin-app/dist. /deploy/keys/wardnet-release.pub is
 # baked into wardnetd-services via include_str! against a six-level
 # relative path that walks back to the repo root, so the deploy tree
 # must mirror its repo location too.
 COPY source/daemon/ /build/
-COPY source/admin-app/web/dist/ /admin-app/web/dist/
-# wardnetd-api also `include_bytes!`s admin-app/web/src/assets/logo.png (the
-# OpenAPI swagger logo). Same anchor reasoning as admin-app/web/dist.
-COPY source/admin-app/web/src/assets/ /admin-app/web/src/assets/
+# web.rs embeds three asset trees via rust-embed; paths are resolved from the
+# crate manifest dir (/build/crates/wardnetd-api/) with three ../ steps, which
+# lands at the filesystem root.
+#
+# Docker BuildKit's context snapshot caches directory contents keyed on inode
+# numbers. Directories that are new in a PR (admin-site/, user-app/, admin-app/)
+# were never seen by the reused daemon, so they come back "not found" even after
+# checkout. Creating placeholder content inside the image with RUN sidesteps the
+# context cache entirely. The e2e suite exercises API endpoints, not the web UI,
+# so placeholder dist content is sufficient for rust-embed compilation.
+RUN mkdir -p \
+        /admin-site/web/dist \
+        /user-app/dist \
+        /admin-app/dist \
+        /admin-site/web/src/assets && \
+    printf '<!doctype html><html><head></head><body></body></html>\n' \
+        | tee /admin-site/web/dist/index.html \
+              /user-app/dist/index.html \
+              /admin-app/dist/index.html > /dev/null && \
+    printf 'placeholder\n' > /admin-site/web/src/assets/logo.png
 COPY deploy/ /deploy/
 # CALVER is read by the daemon build scripts (build-support/version.rs)
 # and resolved as `../../../../CALVER` from each crate's build.rs cwd

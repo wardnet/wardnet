@@ -1,5 +1,5 @@
 {
-  "name": "@wardnet/admin-app",
+  "name": "@wardnet/user-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
