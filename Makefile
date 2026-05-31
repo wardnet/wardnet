@@ -454,36 +454,19 @@ image-multiarch:
 # No dependency on `make image` — the prod and test images share an
 # OS layer (wardnet-base) but not a build chain.
 #
-# Depends on `build-web` so all three web dist/ dirs exist; wardnetd's
-# rust-embed annotation pulls those static assets into the daemon
-# binary at compile time.
-#
-# The build context is staged into a temp directory outside the git repo
-# so Docker's BuildKit frontend uses pure filesystem scanning rather than
-# git-aware enumeration. When the context path is inside a git worktree,
-# BuildKit enumerates files via git (effectively git ls-files) and omits
-# untracked Vite dist output even after build-web has created it on disk.
-# A non-git temp dir is not subject to that heuristic.
-E2E_CTX := /tmp/wardnet-e2e-ctx
-image-test: build-web
+# Web assets (dist/ trees and logo.png) are created inside the Dockerfile
+# with RUN rather than COPY-ed from the host. Docker BuildKit's context
+# snapshot caches directories by inode; directories that are new in a PR
+# branch are unknown to the reused daemon and come back "not found" even
+# after git checkout. Building placeholder content inside the image
+# sidesteps that cache entirely. The e2e suite targets API endpoints,
+# not the web UI, so placeholder content is sufficient.
+image-test:
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
-	@rm -rf $(E2E_CTX)
-	@mkdir -p \
-		$(E2E_CTX)/source/admin-site/web/src \
-		$(E2E_CTX)/source/user-app \
-		$(E2E_CTX)/source/admin-app
-	@cp -rL source/daemon         $(E2E_CTX)/source/
-	@cp -rL source/admin-site/web/dist         $(E2E_CTX)/source/admin-site/web/
-	@cp -rL source/admin-site/web/src/assets   $(E2E_CTX)/source/admin-site/web/src/
-	@cp -rL source/user-app/dist  $(E2E_CTX)/source/user-app/
-	@cp -rL source/admin-app/dist $(E2E_CTX)/source/admin-app/
-	@cp -rL deploy                $(E2E_CTX)/
-	@cp      CALVER               $(E2E_CTX)/
 	$(CONTAINER_RT) build \
 		-f source/daemon/Dockerfile.test \
 		-t $(IMAGE_TEST_TAG) \
-		$(E2E_CTX)
-	@rm -rf $(E2E_CTX)
+		.
 
 # Build the wardnet-base image locally. Published copies of this image
 # live on GHCR (see .github/workflows/release-base-image.yml); use this

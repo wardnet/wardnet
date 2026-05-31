@@ -40,13 +40,24 @@ WORKDIR /build
 COPY source/daemon/ /build/
 # web.rs embeds three asset trees via rust-embed; paths are resolved from the
 # crate manifest dir (/build/crates/wardnetd-api/) with three ../ steps, which
-# lands at the filesystem root. Each COPY mirrors that layout.
-COPY source/admin-site/web/dist/ /admin-site/web/dist/
-COPY source/user-app/dist/ /user-app/dist/
-COPY source/admin-app/dist/ /admin-app/dist/
-# openapi.rs include_bytes! the logo four levels up from its src/ dir,
-# which also resolves to the filesystem root.
-COPY source/admin-site/web/src/assets/ /admin-site/web/src/assets/
+# lands at the filesystem root.
+#
+# Docker BuildKit's context snapshot caches directory contents keyed on inode
+# numbers. Directories that are new in a PR (admin-site/, user-app/, admin-app/)
+# were never seen by the reused daemon, so they come back "not found" even after
+# checkout. Creating placeholder content inside the image with RUN sidesteps the
+# context cache entirely. The e2e suite exercises API endpoints, not the web UI,
+# so placeholder dist content is sufficient for rust-embed compilation.
+RUN mkdir -p \
+        /admin-site/web/dist \
+        /user-app/dist \
+        /admin-app/dist \
+        /admin-site/web/src/assets && \
+    printf '<!doctype html><html><head></head><body></body></html>\n' \
+        | tee /admin-site/web/dist/index.html \
+              /user-app/dist/index.html \
+              /admin-app/dist/index.html > /dev/null && \
+    printf 'placeholder\n' > /admin-site/web/src/assets/logo.png
 COPY deploy/ /deploy/
 # CALVER is read by the daemon build scripts (build-support/version.rs)
 # and resolved as `../../../../CALVER` from each crate's build.rs cwd
