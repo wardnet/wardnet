@@ -458,28 +458,32 @@ image-multiarch:
 # rust-embed annotation pulls those static assets into the daemon
 # binary at compile time.
 #
-# The build context is sent as an explicit tarball piped to stdin rather
-# than the repo root directory. Docker BuildKit's git-aware context
-# provider (active when the context path is a git repository) enumerates
-# files via git and therefore omits untracked Vite dist output even when
-# those files exist on disk. Piping a tarball bypasses that filtering
-# entirely: every path listed in the tar is present in the context
-# regardless of git tracking status.
+# The build context is staged into a temp directory outside the git repo
+# so Docker's BuildKit frontend uses pure filesystem scanning rather than
+# git-aware enumeration. When the context path is inside a git worktree,
+# BuildKit enumerates files via git (effectively git ls-files) and omits
+# untracked Vite dist output even after build-web has created it on disk.
+# A non-git temp dir is not subject to that heuristic.
+E2E_CTX := /tmp/wardnet-e2e-ctx
 image-test: build-web
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
-	tar -c \
-		--exclude='source/daemon/target' \
-		source/daemon \
-		source/admin-site/web/dist \
-		source/admin-site/web/src/assets \
-		source/user-app/dist \
-		source/admin-app/dist \
-		deploy \
-		CALVER \
-	| $(CONTAINER_RT) build \
-		--file source/daemon/Dockerfile.test \
-		--tag $(IMAGE_TEST_TAG) \
-		-
+	@rm -rf $(E2E_CTX)
+	@mkdir -p \
+		$(E2E_CTX)/source/admin-site/web/src \
+		$(E2E_CTX)/source/user-app \
+		$(E2E_CTX)/source/admin-app
+	@cp -rL source/daemon         $(E2E_CTX)/source/
+	@cp -rL source/admin-site/web/dist         $(E2E_CTX)/source/admin-site/web/
+	@cp -rL source/admin-site/web/src/assets   $(E2E_CTX)/source/admin-site/web/src/
+	@cp -rL source/user-app/dist  $(E2E_CTX)/source/user-app/
+	@cp -rL source/admin-app/dist $(E2E_CTX)/source/admin-app/
+	@cp -rL deploy                $(E2E_CTX)/
+	@cp      CALVER               $(E2E_CTX)/
+	$(CONTAINER_RT) build \
+		-f source/daemon/Dockerfile.test \
+		-t $(IMAGE_TEST_TAG) \
+		$(E2E_CTX)
+	@rm -rf $(E2E_CTX)
 
 # Build the wardnet-base image locally. Published copies of this image
 # live on GHCR (see .github/workflows/release-base-image.yml); use this
