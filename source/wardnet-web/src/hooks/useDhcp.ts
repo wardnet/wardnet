@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { dhcpService } from "@/lib/sdk";
+import { dhcpService } from "../lib/sdk";
 import type {
   DhcpConfigResponse,
   DhcpStatusResponse,

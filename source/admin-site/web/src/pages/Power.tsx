@@ -3,10 +3,10 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { PowerCard } from "@/components/features/PowerCard";
 import { RestartProgressDialog } from "@/components/features/RestartProgressDialog";
 import { ShutdownProgressDialog } from "@/components/features/ShutdownProgressDialog";
-import { useReboot } from "@/hooks/useReboot";
-import { useRestart } from "@/hooks/useRestart";
-import { useShutdown } from "@/hooks/useShutdown";
-import { useAuthStore } from "@/stores/authStore";
+import { useReboot } from "@wardnet/wardnet-web";
+import { useRestart } from "@wardnet/wardnet-web";
+import { useShutdown } from "@wardnet/wardnet-web";
+import { useAuthStore } from "@wardnet/wardnet-web";
 
 /** Power page (admin only) — restart daemon, reboot host, shutdown
  *  host. Moved out of Settings so the menu's `System / Power` entry

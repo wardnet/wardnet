@@ -11,7 +11,7 @@ import {
   Server,
 } from "lucide-react";
 import type { DeviceType } from "@wardnet/js";
-import { cn } from "@/lib/utils";
+import { cn } from "@wardnet/wardnet-web";
 
 function SetTopBox({ size = 24, className }: { size?: number; className?: string }) {
   // Inline lucide-shaped icon (no SetTopBox exists in lucide-react). Tagged with the

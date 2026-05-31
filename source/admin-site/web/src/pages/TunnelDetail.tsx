@@ -10,11 +10,11 @@ import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
 import { TunnelLatencyChart } from "@/components/features/TunnelLatencyChart";
-import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@/hooks/useTunnels";
-import { useTunnelStats, RANGES, type StatsRange } from "@/hooks/useTunnelStats";
+import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@wardnet/wardnet-web";
+import { useTunnelStats, RANGES, type StatsRange } from "@wardnet/wardnet-web";
 import { type ZoomRange } from "@/hooks/useChartZoom";
-import { countryFlag } from "@/lib/country";
-import { timeAgo } from "@/lib/utils";
+import { countryFlag } from "@wardnet/wardnet-web";
+import { timeAgo } from "@wardnet/wardnet-web";
 import type { TunnelStatus } from "@wardnet/js";
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {

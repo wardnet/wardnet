@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Field } from "@wardnet/forge-web/field";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo } from "@wardnet/wardnet-web";
 import type { Device } from "@wardnet/js";
 
 interface DeviceIdentityCardProps {

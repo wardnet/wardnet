@@ -17,7 +17,7 @@ import {
   useDnsFilterConfig,
   useDnsFilterProfiles,
   useUpdateDeviceFilterSettings,
-} from "@/hooks/useDnsFilter";
+} from "@wardnet/wardnet-web";
 import type { Device, DnsFilterProfile } from "@wardnet/js";
 
 interface DeviceDnsFilterCardProps {

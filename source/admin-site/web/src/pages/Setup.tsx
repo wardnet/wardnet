@@ -1,4 +1,4 @@
-import { useSetupStatus } from "@/hooks/useSetup";
+import { useSetupStatus } from "@wardnet/wardnet-web";
 import Step1Admin from "@/pages/setup/Step1Admin";
 import Step2Network from "@/pages/setup/Step2Network";
 import Step3DhcpOnboarding from "@/pages/setup/Step3DhcpOnboarding";

@@ -17,11 +17,19 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "cronstrue": "3.14.0",
+    "tailwind-merge": "3.6.0"
+  },
   "peerDependencies": {
+    "@tanstack/react-query": ">=5.0.0",
     "@wardnet/forge-web": "*",
     "@wardnet/js": "*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "sonner": ">=2.0.0",
+    "zustand": ">=5.0.0"
   },
   "devDependencies": {
     "prettier": "3.8.3",

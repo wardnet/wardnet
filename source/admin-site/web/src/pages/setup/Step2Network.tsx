@@ -1,7 +1,7 @@
 import { AlertTriangleIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
-import { useAdvanceWizard } from "@/hooks/useSetup";
-import { useNetworkStatus } from "@/hooks/useNetwork";
+import { useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useNetworkStatus } from "@wardnet/wardnet-web";
 
 /**
  * Step 2 — confirm the OS network state.

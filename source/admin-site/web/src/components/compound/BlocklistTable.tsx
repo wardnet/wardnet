@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo } from "@wardnet/wardnet-web";
 import type { Blocklist } from "@wardnet/js";
 
 function createColumns(): ColumnDef<Blocklist>[] {

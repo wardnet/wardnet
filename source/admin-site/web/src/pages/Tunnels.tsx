@@ -3,8 +3,8 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { TunnelGrid } from "@/components/compound/TunnelGrid";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
-import { useTunnels, useDeleteTunnel } from "@/hooks/useTunnels";
-import { useProviders } from "@/hooks/useProviders";
+import { useTunnels, useDeleteTunnel } from "@wardnet/wardnet-web";
+import { useProviders } from "@wardnet/wardnet-web";
 import { Button } from "@wardnet/forge-web/button";
 
 /** Tunnels page for managing WireGuard VPN tunnels (admin only).

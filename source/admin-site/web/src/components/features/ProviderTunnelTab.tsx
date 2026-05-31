@@ -17,8 +17,8 @@ import {
   useValidateCredentials,
   useProviderServers,
   useProviderSetup,
-} from "@/hooks/useProviders";
-import { countryFlag } from "@/lib/country";
+} from "@wardnet/wardnet-web";
+import { countryFlag } from "@wardnet/wardnet-web";
 import type { ProviderCredentials, ProviderInfo, ServerInfo } from "@wardnet/js";
 
 /** Visual load indicator with a colored dot and percentage. */
@@ -306,7 +306,9 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             <Field label="Server">
               <Select value={serverId} onValueChange={setServerId}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder={`Auto-select best server in ${country.toUpperCase()}`} />
+                  <SelectValue
+                    placeholder={`Auto-select best server in ${country.toUpperCase()}`}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {servers.map((s) => (

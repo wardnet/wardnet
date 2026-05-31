@@ -20,6 +20,7 @@
     "@wardnet/forge": "portal:../../forge",
     "@wardnet/forge-web": "workspace:^",
     "@wardnet/js": "portal:../../sdk/wardnet-js",
+    "@wardnet/wardnet-web": "portal:../../wardnet-web",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "consola": "^3.4.2",

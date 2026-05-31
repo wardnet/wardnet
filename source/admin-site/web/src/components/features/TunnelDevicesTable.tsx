@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/car
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { HostCell } from "@/components/compound/HostCell";
-import { useTunnelDevices } from "@/hooks/useTunnels";
+import { useTunnelDevices } from "@wardnet/wardnet-web";
 import type { Device } from "@wardnet/js";
 
 interface Props {

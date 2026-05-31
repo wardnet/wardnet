@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { WardnetApiError } from "@wardnet/js";
-import { systemService } from "@/lib/sdk";
+import { systemService } from "../lib/sdk";
 
 /**
  * Observable state of an in-flight power lifecycle.

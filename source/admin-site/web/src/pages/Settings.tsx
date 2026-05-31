@@ -1,15 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { UpdateCard } from "@/components/features/UpdateCard";
-import { useSystemStatus } from "@/hooks/useSystemStatus";
+import { useSystemStatus } from "@wardnet/wardnet-web";
 import {
   useCheckForUpdates,
   useInstallUpdate,
   useRollbackUpdate,
   useUpdateConfig,
   useUpdateStatus,
-} from "@/hooks/useUpdate";
-import { formatBytes, formatUptime } from "@/lib/utils";
+} from "@wardnet/wardnet-web";
+import { formatBytes, formatUptime } from "@wardnet/wardnet-web";
 
 /** Settings page for system configuration (admin only).
  *

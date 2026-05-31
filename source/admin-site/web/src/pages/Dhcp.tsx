@@ -16,8 +16,8 @@ import {
   useToggleDhcp,
   useRevokeLease,
   useDeleteReservation,
-} from "@/hooks/useDhcp";
-import { useDevices } from "@/hooks/useDevices";
+} from "@wardnet/wardnet-web";
+import { useDevices } from "@wardnet/wardnet-web";
 
 /** DHCP management page (admin only). */
 export default function Dhcp() {

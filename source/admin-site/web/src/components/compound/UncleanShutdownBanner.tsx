@@ -1,8 +1,8 @@
 import { CircleAlertIcon, X } from "lucide-react";
 import { Banner } from "@wardnet/forge-web/banner";
 import { Button } from "@wardnet/forge-web/button";
-import { useAcknowledgeShutdown, useSystemStatus } from "@/hooks/useSystemStatus";
-import { timeAgo } from "@/lib/utils";
+import { useAcknowledgeShutdown, useSystemStatus } from "@wardnet/wardnet-web";
+import { timeAgo } from "@wardnet/wardnet-web";
 
 /**
  * Full-width banner that calls out the previous unclean daemon

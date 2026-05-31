@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { statsService } from "@/lib/sdk";
-import { RANGE_HOURS, type StatsRange } from "@/hooks/useStats";
+import { statsService } from "../lib/sdk";
+import { RANGE_HOURS, type StatsRange } from "./useStats";
 import type { StatsBucket } from "@wardnet/js";
 
-export { RANGES } from "@/hooks/useStats";
-export type { StatsRange } from "@/hooks/useStats";
+export { RANGES } from "./useStats";
+export type { StatsRange } from "./useStats";
 
 interface Window {
   from: string;

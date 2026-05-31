@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { logger } from "@/lib/logger";
+import { logger } from "@wardnet/wardnet-web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Button } from "@wardnet/forge-web/button";
 

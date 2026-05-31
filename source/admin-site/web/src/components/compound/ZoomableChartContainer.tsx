@@ -1,6 +1,6 @@
 import { Button } from "@wardnet/forge-web/button";
 import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
-import { cn } from "@/lib/utils";
+import { cn } from "@wardnet/wardnet-web";
 import type { ComponentProps } from "react";
 import type { ResponsiveContainer } from "recharts";
 

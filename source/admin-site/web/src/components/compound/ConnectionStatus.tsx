@@ -1,4 +1,4 @@
-import { useDaemonStatus } from "@/hooks/useDaemonStatus";
+import { useDaemonStatus } from "@wardnet/wardnet-web";
 
 /** Traffic-light status indicator shown in the sidebar footer. The
  *  daemon version is rendered separately under the brand mark (see

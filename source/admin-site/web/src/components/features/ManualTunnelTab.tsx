@@ -5,7 +5,7 @@ import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
 import { Textarea } from "@wardnet/forge-web/textarea";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
-import { useCreateTunnel } from "@/hooks/useTunnels";
+import { useCreateTunnel } from "@wardnet/wardnet-web";
 
 interface ManualTunnelTabProps {
   onSuccess: () => void;

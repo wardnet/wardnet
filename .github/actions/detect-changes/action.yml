@@ -17,6 +17,9 @@ outputs:
   site:
     description: "'true' when marketing-site code or the Makefile changed."
     value: ${{ steps.filter.outputs.site }}
+  admin-web:
+    description: "'true' when wardnet-web or admin-site code changed."
+    value: ${{ steps.filter.outputs.admin-web }}
   ci:
     description: "'true' when a workflow or composite action changed."
     value: ${{ steps.filter.outputs.ci }}
@@ -41,6 +44,10 @@ runs:
           site:
             - 'source/marketing-site/**'
             - 'Makefile'
+          admin-web:
+            - 'source/wardnet-web/**'
+            - 'source/admin-site/**'
+            - 'source/sdk/wardnet-js/**'
           ci:
             - '.github/workflows/**'
             - '.github/actions/**'

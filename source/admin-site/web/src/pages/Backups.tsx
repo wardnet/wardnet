@@ -4,9 +4,9 @@ import type { RestorePreviewResponse } from "@wardnet/js";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { BackupCard } from "@/components/features/BackupCard";
 import { RestartProgressDialog } from "@/components/features/RestartProgressDialog";
-import { useApplyImport, useExportBackup, usePreviewImport } from "@/hooks/useBackup";
-import { useRestart } from "@/hooks/useRestart";
-import { useAuthStore } from "@/stores/authStore";
+import { useApplyImport, useExportBackup, usePreviewImport } from "@wardnet/wardnet-web";
+import { useRestart } from "@wardnet/wardnet-web";
+import { useAuthStore } from "@wardnet/wardnet-web";
 
 /** Backups page (admin only) — export and restore the Wardnet
  *  bundle. The post-restore daemon restart is part of this flow, so

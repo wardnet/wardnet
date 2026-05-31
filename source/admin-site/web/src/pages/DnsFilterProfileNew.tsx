@@ -6,7 +6,7 @@ import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
-import { useCreateDnsFilterProfile } from "@/hooks/useDnsFilter";
+import { useCreateDnsFilterProfile } from "@wardnet/wardnet-web";
 
 /** Routed create flow for a new DNS filter profile (admin only). */
 export default function DnsFilterProfileNew() {

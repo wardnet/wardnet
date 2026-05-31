@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
-import { useAdvanceWizard } from "@/hooks/useSetup";
-import { useTunnels } from "@/hooks/useTunnels";
+import { useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useTunnels } from "@wardnet/wardnet-web";
 
 /**
  * Step 5 — first VPN tunnel (optional).

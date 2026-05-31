@@ -1,6 +1,6 @@
 import { PowerOffIcon } from "lucide-react";
 import { ProgressDialog, type GenericPhase } from "@/components/compound/ProgressDialog";
-import type { ShutdownPhase } from "@/hooks/useShutdown";
+import type { ShutdownPhase } from "@wardnet/wardnet-web";
 
 interface Props {
   /** Whether to render the dialog at all — mirrors `useShutdown().isOpen`. */

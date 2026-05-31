@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/forge-web/select";
-import { cn } from "@/lib/utils";
+import { cn } from "@wardnet/wardnet-web";
 
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

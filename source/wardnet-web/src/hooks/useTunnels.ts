@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { CreateTunnelRequest } from "@wardnet/js";
-import { tunnelService } from "@/lib/sdk";
+import { tunnelService } from "../lib/sdk";
 
 export function useTunnels() {
   return useQuery({

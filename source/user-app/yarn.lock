@@ -1928,11 +1928,18 @@ __metadata:
 "@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fuser-app%40workspace%3A.":
   version: 0.0.0-use.local
   resolution: "@wardnet/wardnet-web@portal:../wardnet-web::locator=%40wardnet%2Fuser-app%40workspace%3A."
+  dependencies:
+    clsx: "npm:2.1.1"
+    cronstrue: "npm:3.14.0"
+    tailwind-merge: "npm:3.6.0"
   peerDependencies:
+    "@tanstack/react-query": ">=5.0.0"
     "@wardnet/forge-web": "*"
     "@wardnet/js": "*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    sonner: ">=2.0.0"
+    zustand: ">=5.0.0"
   languageName: node
   linkType: soft
 
@@ -2036,6 +2043,15 @@ __metadata:
   version: 3.4.2
   resolution: "consola@npm:3.4.2"
   checksum: 10c0/7cebe57ecf646ba74b300bcce23bff43034ed6fbec9f7e39c27cee1dc00df8a21cd336b466ad32e304ea70fba04ec9e890c200270de9a526ce021ba8a7e4c11a
+  languageName: node
+  linkType: hard
+
+"cronstrue@npm:3.14.0":
+  version: 3.14.0
+  resolution: "cronstrue@npm:3.14.0"
+  bin:
+    cronstrue: bin/cli.js
+  checksum: 10c0/6a45a60a5ba6ef8c3f686ee213f0a5a989ad4123da8175d2892c92615bbb8abfd83d06e2f8d64e4097c03e4d4abd94650f4f58aa1255da435bba3f69ff5a79aa
   languageName: node
   linkType: hard
 
@@ -2841,6 +2857,13 @@ __metadata:
   dependencies:
     minipass: "npm:^7.0.3"
   checksum: 10c0/cf6408a18676c57ff2ed06b8a20dc64bb3e748e5c7e095332e6aecaa2b8422b1e94a739a8453bf65156a8a47afe23757ba4ab52d3ea3b62322dc40875763e17a
+  languageName: node
+  linkType: hard
+
+"tailwind-merge@npm:3.6.0":
+  version: 3.6.0
+  resolution: "tailwind-merge@npm:3.6.0"
+  checksum: 10c0/a728d929f4786bcb48641db4228cc8c006a7545491783a658fb4d24d177dab960620991d17805a047309228de50ab949ca8d9e112c30183da0432367796ae186
   languageName: node
   linkType: hard
 

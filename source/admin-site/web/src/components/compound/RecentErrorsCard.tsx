@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import type { RecentError } from "@/hooks/useSystemStatus";
+import type { RecentError } from "@wardnet/wardnet-web";
 
 function formatTimestamp(ts: string): string {
   if (!ts) return "";

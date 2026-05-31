@@ -3,12 +3,12 @@ import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { DhcpSummaryCard } from "@/components/compound/DhcpSummaryCard";
 import { RecentErrorsCard } from "@/components/compound/RecentErrorsCard";
 import { DashboardLogWidget } from "@/components/features/DashboardLogWidget";
-import { useSystemStatus, useRecentErrors } from "@/hooks/useSystemStatus";
-import { useDevices } from "@/hooks/useDevices";
-import { useTunnels } from "@/hooks/useTunnels";
-import { useDhcpStatus } from "@/hooks/useDhcp";
-import { useDnsStatSummary } from "@/hooks/useStats";
-import { formatBytes, formatUptime } from "@/lib/utils";
+import { useSystemStatus, useRecentErrors } from "@wardnet/wardnet-web";
+import { useDevices } from "@wardnet/wardnet-web";
+import { useTunnels } from "@wardnet/wardnet-web";
+import { useDhcpStatus } from "@wardnet/wardnet-web";
+import { useDnsStatSummary } from "@wardnet/wardnet-web";
+import { formatBytes, formatUptime } from "@wardnet/wardnet-web";
 
 /** Admin dashboard with system overview stats. */
 export default function Dashboard() {

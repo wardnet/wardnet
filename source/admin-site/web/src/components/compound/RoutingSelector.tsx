@@ -7,7 +7,7 @@ import {
 } from "@wardnet/forge-web/select";
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
-import { countryFlag } from "@/lib/country";
+import { countryFlag } from "@wardnet/wardnet-web";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
 
 const DIRECT_VALUE = "direct";

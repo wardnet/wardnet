@@ -1,4 +1,4 @@
-import { apiErrorMessage, apiRequestId } from "@/lib/utils";
+import { apiErrorMessage, apiRequestId } from "@wardnet/wardnet-web";
 import { CircleAlertIcon } from "lucide-react";
 
 interface ApiErrorAlertProps {

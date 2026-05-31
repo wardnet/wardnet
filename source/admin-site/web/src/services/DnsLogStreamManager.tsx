@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { dnsLogStreamService } from "@/lib/sdk";
+import { dnsLogStreamService } from "@wardnet/wardnet-web";
 import { useDnsLogStore } from "@/stores/dnsLogStore";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@wardnet/wardnet-web";
 
 /**
  * Global DNS log stream connection manager.

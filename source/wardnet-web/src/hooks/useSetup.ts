@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AdvanceWizardRequest } from "@wardnet/js";
-import { setupService } from "@/lib/sdk";
+import { setupService } from "../lib/sdk";
 
 /** Check the current wizard state. */
 export function useSetupStatus() {

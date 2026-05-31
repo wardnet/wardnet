@@ -4,8 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/car
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
-import { useMyDevice, useSetMyRule } from "@/hooks/useDevices";
-import { countryFlag } from "@/lib/country";
+import { useMyDevice, useSetMyRule } from "@wardnet/wardnet-web";
+import { countryFlag } from "@wardnet/wardnet-web";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
 import { LockIcon, WifiOffIcon } from "lucide-react";
 

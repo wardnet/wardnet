@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
-import { useDevices } from "@/hooks/useDevices";
+import { useDevices } from "@wardnet/wardnet-web";
 import type { Device } from "@wardnet/js";
 
 type GroupId = "all" | "managed" | "unmanaged" | "recent";

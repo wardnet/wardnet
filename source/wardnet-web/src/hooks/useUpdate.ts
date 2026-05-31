@@ -7,7 +7,7 @@ import {
   type UpdateHistoryResponse,
   type UpdateStatusResponse,
 } from "@wardnet/js";
-import { updateService } from "@/lib/sdk";
+import { updateService } from "../lib/sdk";
 
 /**
  * Extract the most user-friendly message we can from an API error.

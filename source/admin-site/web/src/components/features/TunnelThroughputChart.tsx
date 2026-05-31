@@ -15,8 +15,8 @@ import { ZoomableChartContainer } from "@/components/compound/ZoomableChartConta
 import { type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
-import type { TunnelStatsData, StatsRange } from "@/hooks/useTunnelStats";
-import { formatBytes } from "@/lib/utils";
+import type { TunnelStatsData, StatsRange } from "@wardnet/wardnet-web";
+import { formatBytes } from "@wardnet/wardnet-web";
 
 const chartConfig: ChartConfig = {
   rx: { label: "Download", color: "var(--chart-1)" },
