@@ -2589,6 +2589,14 @@ __metadata:
     clsx: "npm:2.1.1"
     cronstrue: "npm:3.14.0"
     tailwind-merge: "npm:3.6.0"
+  peerDependencies:
+    "@tanstack/react-query": ">=5.0.0"
+    "@wardnet/forge-web": "*"
+    "@wardnet/js": "*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
+    sonner: ">=2.0.0"
+    zustand: ">=5.0.0"
   languageName: node
   linkType: soft
 
