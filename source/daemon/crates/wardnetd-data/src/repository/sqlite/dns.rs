@@ -93,7 +93,7 @@ impl DnsRepository for SqliteDnsRepository {
              ORDER BY id DESC LIMIT ? OFFSET ?"
         );
 
-        let mut q = sqlx::query_as::<_, DbQueryLogRow>(&sql);
+        let mut q = sqlx::query_as::<_, DbQueryLogRow>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = q.bind(b);
         }
@@ -106,7 +106,7 @@ impl DnsRepository for SqliteDnsRepository {
     async fn query_log_count(&self, filter: &QueryLogFilter) -> anyhow::Result<u64> {
         let (where_clause, binds) = build_where(filter);
         let sql = format!("SELECT COUNT(*) FROM dns_query_log {where_clause}");
-        let mut q = sqlx::query_scalar::<_, i64>(&sql);
+        let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = q.bind(b);
         }

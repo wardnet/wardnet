@@ -236,7 +236,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "UPDATE dns_filter_profiles SET {} WHERE id = ?",
             set_parts.join(", ")
         );
-        let mut q = sqlx::query(&sql).bind(&now);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&now);
         if let Some(n) = name {
             q = q.bind(n);
         }
@@ -345,7 +345,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "UPDATE dns_filter_blocklists SET {} WHERE id = ?",
             sets.join(", ")
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = q.bind(b);
         }
@@ -380,7 +380,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
                 "INSERT INTO dns_filter_blocked_domains (domain, blocklist_id) VALUES {}",
                 placeholders.join(", ")
             );
-            let mut q = sqlx::query(&sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
             for d in chunk {
                 q = q.bind(d).bind(&id_str);
             }
@@ -549,7 +549,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             "UPDATE dns_filter_custom_rules SET {} WHERE id = ?",
             sets.join(", ")
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = q.bind(b);
         }
@@ -726,7 +726,9 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         );
 
         let rows: Vec<(String, Option<String>, Option<i64>, Option<String>)> =
-            sqlx::query_as(&sql).fetch_all(&self.pools.read).await?;
+            sqlx::query_as(sqlx::AssertSqlSafe(sql))
+                .fetch_all(&self.pools.read)
+                .await?;
 
         let mut out = Vec::with_capacity(rows.len());
         for (device_id_s, ip, enabled, updated) in rows {

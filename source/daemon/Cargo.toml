@@ -19,7 +19,7 @@ resolver = "3"
 [workspace.package]
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.96"
 license = "MIT"
 
 [workspace.lints.clippy]
@@ -59,7 +59,7 @@ axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 
 # https://crates.io/crates/sqlx
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
 
 # https://crates.io/crates/tower
 tower = { version = "0.5", features = ["util"] }
@@ -78,8 +78,11 @@ tracing-appender = "0.2"
 
 # https://crates.io/crates/argon2
 argon2 = "0.5"
-# https://crates.io/crates/password-hash — re-exported by argon2, pinned for feature activation
-password-hash = { version = "0.6", features = ["getrandom"] }
+# https://crates.io/crates/password-hash — re-exported by argon2 (which pins 0.5);
+# must match that version so the `getrandom` feature activates `OsRng` on the
+# shared `rand_core` 0.6. Until sqlx 0.9 this was supplied transitively by
+# sqlx 0.8's rsa/signature deps; those were dropped, so we activate it here.
+password-hash = { version = "0.5", features = ["getrandom"] }
 # https://crates.io/crates/anyhow
 anyhow = "1"
 # https://crates.io/crates/rand
@@ -120,7 +123,7 @@ dhcproto = "0.15"
 # https://crates.io/crates/regex
 regex = "1"
 # https://crates.io/crates/mdns-sd — pure-Rust mDNS responder; advertises wardnet.local for setup discovery
-mdns-sd = "0.19"
+mdns-sd = "0.20"
 # https://crates.io/crates/semver — SemVer parsing and ordering for auto-update version comparison
 semver = { version = "1", features = ["serde"] }
 # https://crates.io/crates/flate2 — gzip decompression for release tarballs

@@ -44,7 +44,9 @@ impl MaintenanceRepository for SqliteMaintenanceRepository {
             .await
             .unwrap_or(0);
         let stmt = format!("PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES})");
-        sqlx::query(&stmt).execute(&self.pools.write).await?;
+        sqlx::query(sqlx::AssertSqlSafe(stmt))
+            .execute(&self.pools.write)
+            .await?;
         let after: i64 = sqlx::query_scalar("PRAGMA freelist_count")
             .fetch_one(&self.pools.write)
             .await

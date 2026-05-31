@@ -107,13 +107,10 @@ async fn current_schema_version_reads_max_version() {
     .await
     .unwrap();
     for v in [1, 3, 7, 12] {
-        pool.execute(
-            format!(
-                "INSERT INTO _sqlx_migrations (version, description, success, checksum, \
-                 execution_time) VALUES ({v}, 'm', 1, X'00', 0);"
-            )
-            .as_str(),
-        )
+        pool.execute(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, \
+             execution_time) VALUES ({v}, 'm', 1, X'00', 0);"
+        )))
         .await
         .unwrap();
     }

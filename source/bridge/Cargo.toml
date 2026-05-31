@@ -2,7 +2,7 @@
 name = "wardnet-bridge"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.96"
 license = "MIT"
 description = "Wardnet DDNS + ACME bridge service — credential proxy for Cloudflare DNS"
 
