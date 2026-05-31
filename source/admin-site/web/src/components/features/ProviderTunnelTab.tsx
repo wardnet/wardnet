@@ -306,7 +306,9 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             <Field label="Server">
               <Select value={serverId} onValueChange={setServerId}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder={`Auto-select best server in ${country.toUpperCase()}`} />
+                  <SelectValue
+                    placeholder={`Auto-select best server in ${country.toUpperCase()}`}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {servers.map((s) => (
