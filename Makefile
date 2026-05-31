@@ -457,12 +457,29 @@ image-multiarch:
 # Depends on `build-web` so all three web dist/ dirs exist; wardnetd's
 # rust-embed annotation pulls those static assets into the daemon
 # binary at compile time.
+#
+# The build context is sent as an explicit tarball piped to stdin rather
+# than the repo root directory. Docker BuildKit's git-aware context
+# provider (active when the context path is a git repository) enumerates
+# files via git and therefore omits untracked Vite dist output even when
+# those files exist on disk. Piping a tarball bypasses that filtering
+# entirely: every path listed in the tar is present in the context
+# regardless of git tracking status.
 image-test: build-web
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
-	$(CONTAINER_RT) build \
-		-f source/daemon/Dockerfile.test \
-		-t $(IMAGE_TEST_TAG) \
-		.
+	tar -c \
+		--exclude='source/daemon/target' \
+		source/daemon \
+		source/admin-site/web/dist \
+		source/admin-site/web/src/assets \
+		source/user-app/dist \
+		source/admin-app/dist \
+		deploy \
+		CALVER \
+	| $(CONTAINER_RT) build \
+		--file source/daemon/Dockerfile.test \
+		--tag $(IMAGE_TEST_TAG) \
+		-
 
 # Build the wardnet-base image locally. Published copies of this image
 # live on GHCR (see .github/workflows/release-base-image.yml); use this
