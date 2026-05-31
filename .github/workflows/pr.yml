@@ -41,6 +41,7 @@ jobs:
       daemon: ${{ steps.detect.outputs.daemon }}
       bridge: ${{ steps.detect.outputs.bridge }}
       site: ${{ steps.detect.outputs.site }}
+      admin-web: ${{ steps.detect.outputs.admin-web }}
       ci: ${{ steps.detect.outputs.ci }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -87,6 +88,13 @@ jobs:
     needs: preflight
     if: needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/build-site.yml
+    secrets: inherit
+
+  build-admin-web:
+    name: Build Admin Web
+    needs: preflight
+    if: needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/build-admin-web.yml
     secrets: inherit
 
   coverage:
@@ -138,7 +146,7 @@ jobs:
   # PR forever.
   all-checks-passed:
     name: All checks passed
-    needs: [preflight, build-daemon, build-bridge, build-site, coverage, tests-e2e]
+    needs: [preflight, build-daemon, build-bridge, build-site, build-admin-web, coverage, tests-e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
