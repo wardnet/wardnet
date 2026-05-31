@@ -2517,6 +2517,7 @@ __metadata:
     "@wardnet/forge": "portal:../../forge"
     "@wardnet/forge-web": "workspace:^"
     "@wardnet/js": "portal:../../sdk/wardnet-js"
+    "@wardnet/wardnet-web": "portal:../../wardnet-web"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
     consola: "npm:^3.4.2"
@@ -2578,6 +2579,16 @@ __metadata:
   resolution: "@wardnet/js@portal:../../sdk/wardnet-js::locator=%40wardnet%2Fadmin-web%40workspace%3Aweb"
   dependencies:
     consola: "npm:^3.4.2"
+  languageName: node
+  linkType: soft
+
+"@wardnet/wardnet-web@portal:../../wardnet-web::locator=%40wardnet%2Fadmin-web%40workspace%3Aweb":
+  version: 0.0.0-use.local
+  resolution: "@wardnet/wardnet-web@portal:../../wardnet-web::locator=%40wardnet%2Fadmin-web%40workspace%3Aweb"
+  dependencies:
+    clsx: "npm:2.1.1"
+    cronstrue: "npm:3.14.0"
+    tailwind-merge: "npm:3.6.0"
   languageName: node
   linkType: soft
 
