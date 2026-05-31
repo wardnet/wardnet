@@ -40,22 +40,38 @@ export function useOnlineStatus(options?: {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
+    let timeoutId: number | undefined;
 
     const probe = async () => {
       try {
-        const res = await fetch("/api/info", { cache: "no-store" });
+        const res = await fetch("/api/info", { cache: "no-store", signal: controller.signal });
         if (!cancelled) setIsDaemonReachable(res.ok);
-      } catch {
-        if (!cancelled) setIsDaemonReachable(false);
+      } catch (e) {
+        // Ignore AbortError — it means the component unmounted or the interval changed.
+        if (!cancelled && !(e instanceof DOMException && e.name === "AbortError")) {
+          setIsDaemonReachable(false);
+        }
       }
     };
 
-    void probe();
-    const id = setInterval(() => void probe(), daemonProbeIntervalMs);
+    // Chained setTimeout rather than setInterval: the next probe is only scheduled
+    // after the previous one resolves, preventing concurrent in-flight requests when
+    // the network is slow or the daemon is unreachable.
+    const schedule = async () => {
+      await probe();
+      if (!cancelled) {
+        timeoutId = window.setTimeout(() => void schedule(), daemonProbeIntervalMs);
+      }
+    };
+
+    void schedule();
+
     return () => {
       cancelled = true;
-      clearInterval(id);
+      controller.abort();
+      clearTimeout(timeoutId);
     };
   }, [daemonProbeIntervalMs]);
 

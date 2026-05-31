@@ -41,6 +41,17 @@ export function registerSW(options: RegisterSWOptions = {}): (() => void) | unde
     waitingWorker?.postMessage({ type: "SKIP_WAITING" });
   };
 
+  // Registered once — outside the `.then()` — so it fires exactly once even if
+  // `register()` is called multiple times (e.g. HMR in dev). The `refreshing`
+  // guard prevents double-reloads within the same listener.
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+
   const register = () => {
     navigator.serviceWorker
       .register(swPath)
@@ -73,15 +84,6 @@ export function registerSW(options: RegisterSWOptions = {}): (() => void) | unde
               onOfflineReady?.();
             }
           });
-        });
-
-        // Reload once the new SW takes control so all assets are served from the updated cache.
-        let refreshing = false;
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (!refreshing) {
-            refreshing = true;
-            window.location.reload();
-          }
         });
       })
       .catch((error: unknown) => {

@@ -37,8 +37,11 @@ export function useInstallPrompt() {
    */
   const promptInstall = useCallback(async (): Promise<InstallPromptResult | null> => {
     if (!promptEvent) return null;
-    await promptEvent.prompt();
-    const result = await promptEvent.userChoice;
+    // Capture before the first await — the state update from a re-fired
+    // `beforeinstallprompt` could replace `promptEvent` while we await.
+    const captured = promptEvent;
+    await captured.prompt();
+    const result = await captured.userChoice;
     setPromptEvent(null);
     return result;
   }, [promptEvent]);
