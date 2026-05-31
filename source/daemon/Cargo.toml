@@ -59,7 +59,7 @@ axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 
 # https://crates.io/crates/sqlx
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
 
 # https://crates.io/crates/tower
 tower = { version = "0.5", features = ["util"] }
