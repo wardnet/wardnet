@@ -77,12 +77,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
 
 # https://crates.io/crates/argon2
-argon2 = "0.5"
-# https://crates.io/crates/password-hash — re-exported by argon2 (which pins 0.5);
-# must match that version so the `getrandom` feature activates `OsRng` on the
-# shared `rand_core` 0.6. Until sqlx 0.9 this was supplied transitively by
-# sqlx 0.8's rsa/signature deps; those were dropped, so we activate it here.
-password-hash = { version = "0.5", features = ["getrandom"] }
+# `std` pulls in argon2 -> password-hash/std -> rand_core/std, which is what
+# enables `OsRng` (used by `SaltString::generate`). Until sqlx 0.9 the
+# `getrandom` flag on the shared rand_core 0.6 was set transitively by sqlx
+# 0.8's rsa/signature deps; sqlx 0.9 dropped them, so we enable it explicitly
+# through argon2's own feature here.
+argon2 = { version = "0.5", features = ["std"] }
 # https://crates.io/crates/anyhow
 anyhow = "1"
 # https://crates.io/crates/rand
