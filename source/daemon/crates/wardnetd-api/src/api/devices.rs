@@ -10,6 +10,7 @@ use wardnet_common::api::{
     SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest,
 };
 use wardnet_common::device::DhcpStatus;
+use wardnet_common::routing::RoutingTarget;
 
 use crate::api::middleware::{AdminAuth, ClientIp};
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
@@ -134,10 +135,13 @@ async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpS
     Ok(map)
 }
 
-/// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status.
+/// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status
+/// and current routing target. `current_rule` is `None` when the device has no
+/// rule of its own (it follows the gateway default policy).
 fn enrich_device(
     device: wardnet_common::device::Device,
     dhcp_map: &HashMap<String, DhcpStatus>,
+    current_rule: Option<RoutingTarget>,
 ) -> DeviceWithStatus {
     let status = dhcp_map
         .get(&device.mac)
@@ -146,6 +150,7 @@ fn enrich_device(
     DeviceWithStatus {
         device,
         dhcp_status: status,
+        current_rule,
     }
 }
 
@@ -154,8 +159,9 @@ fn enrich_device(
     path = PATH_LIST,
     tag = TAG,
     description = "List every device the daemon has seen on the LAN, enriched with its \
-                   current DHCP status (reservation, active lease, or external/unknown). \
-                   Admin only.",
+                   current DHCP status (reservation, active lease, or external/unknown) \
+                   and current routing target (a specific tunnel, direct, or null when \
+                   the device follows the gateway default policy). Admin only.",
     responses(
         (status = 200, description = "List of devices with DHCP status", body = ListDevicesResponse),
         AuthErrors,
@@ -171,10 +177,15 @@ pub async fn list_devices(
 ) -> Result<Json<ListDevicesResponse>, AppError> {
     let devices = state.discovery_service().get_all_devices().await?;
     let dhcp_map = build_dhcp_status_map(&state).await?;
+    // Single batched lookup of every device's routing rule — no N+1.
+    let mut routing_map = state.device_service().current_rules().await?;
 
     let devices = devices
         .into_iter()
-        .map(|d| enrich_device(d, &dhcp_map))
+        .map(|d| {
+            let rule = routing_map.remove(&d.id);
+            enrich_device(d, &dhcp_map, rule)
+        })
         .collect();
 
     Ok(Json(ListDevicesResponse { devices }))
@@ -214,7 +225,7 @@ pub async fn get_device(
         .ok()
         .and_then(|r| r.current_rule);
     let dhcp_map = build_dhcp_status_map(&state).await?;
-    let device = enrich_device(device, &dhcp_map);
+    let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,
@@ -294,7 +305,7 @@ pub async fn update_device(
         .and_then(|r| r.current_rule);
 
     let dhcp_map = build_dhcp_status_map(&state).await?;
-    let device = enrich_device(device, &dhcp_map);
+    let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,

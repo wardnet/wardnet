@@ -64,6 +64,14 @@ pub trait DeviceRepository: Send + Sync {
     /// Return the routing rule for a device, if one exists.
     async fn find_rule_for_device(&self, device_id: &str) -> anyhow::Result<Option<RoutingRule>>;
 
+    /// Return every device's routing rule in a single query.
+    ///
+    /// Batched companion to [`find_rule_for_device`](Self::find_rule_for_device)
+    /// for callers that enrich the whole device list (e.g. `GET /api/devices`)
+    /// and must avoid an N+1. There is at most one rule per device, so each
+    /// device appears at most once; devices with no rule are simply absent.
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>>;
+
     /// Insert or update a user-created routing rule for a device.
     async fn upsert_user_rule(
         &self,

@@ -19,6 +19,8 @@ use wardnetd_data::repository::device::DeviceRow;
 struct MockDeviceRepo {
     device: Option<Device>,
     rule: Option<RoutingRule>,
+    /// Rules returned by the batched `find_all_rules` lookup.
+    all_rules: Vec<RoutingRule>,
 }
 
 #[async_trait]
@@ -65,6 +67,9 @@ impl DeviceRepository for MockDeviceRepo {
     }
     async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
         Ok(self.rule.clone())
+    }
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+        Ok(self.all_rules.clone())
     }
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())
@@ -146,6 +151,7 @@ fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
         Arc::new(MockDeviceRepo {
             device: Some(sample_device(locked)),
             rule,
+            all_rules: vec![],
         }),
         Arc::new(MockEventPublisher),
     )
@@ -156,9 +162,29 @@ fn make_svc_no_device() -> DeviceServiceImpl {
         Arc::new(MockDeviceRepo {
             device: None,
             rule: None,
+            all_rules: vec![],
         }),
         Arc::new(MockEventPublisher),
     )
+}
+
+fn make_svc_with_rules(all_rules: Vec<RoutingRule>) -> DeviceServiceImpl {
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+            all_rules,
+        }),
+        Arc::new(MockEventPublisher),
+    )
+}
+
+fn rule_for(device_id: &str, target: RoutingTarget) -> RoutingRule {
+    RoutingRule {
+        device_id: Uuid::parse_str(device_id).unwrap(),
+        target,
+        created_by: RuleCreator::User,
+    }
 }
 
 // -- Tests: get_device_for_ip --------------------------------------------
@@ -401,6 +427,63 @@ async fn update_admin_locked_anonymous_forbidden() {
             .await
     })
     .await;
+
+    assert!(result.is_err());
+}
+
+// -- Tests: current_rules ------------------------------------------------
+
+#[tokio::test]
+async fn current_rules_maps_each_device_to_its_target() {
+    const DEV1: &str = "00000000-0000-0000-0000-000000000001";
+    const DEV2: &str = "00000000-0000-0000-0000-000000000002";
+    const DEV3: &str = "00000000-0000-0000-0000-000000000003";
+    let tunnel_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+    let svc = make_svc_with_rules(vec![
+        rule_for(DEV1, RoutingTarget::Tunnel { tunnel_id }),
+        rule_for(DEV2, RoutingTarget::Direct),
+        rule_for(DEV3, RoutingTarget::Default),
+    ]);
+
+    let map = auth_context::with_context(admin_ctx(), svc.current_rules())
+        .await
+        .unwrap();
+
+    assert_eq!(map.len(), 3);
+    assert_eq!(
+        map.get(&Uuid::parse_str(DEV1).unwrap()),
+        Some(&RoutingTarget::Tunnel { tunnel_id })
+    );
+    assert_eq!(
+        map.get(&Uuid::parse_str(DEV2).unwrap()),
+        Some(&RoutingTarget::Direct)
+    );
+    assert_eq!(
+        map.get(&Uuid::parse_str(DEV3).unwrap()),
+        Some(&RoutingTarget::Default)
+    );
+}
+
+#[tokio::test]
+async fn current_rules_empty_when_no_rules() {
+    let svc = make_svc_with_rules(vec![]);
+
+    let map = auth_context::with_context(admin_ctx(), svc.current_rules())
+        .await
+        .unwrap();
+
+    assert!(map.is_empty());
+}
+
+#[tokio::test]
+async fn current_rules_anonymous_forbidden() {
+    let svc = make_svc_with_rules(vec![rule_for(
+        "00000000-0000-0000-0000-000000000001",
+        RoutingTarget::Direct,
+    )]);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, svc.current_rules()).await;
 
     assert!(result.is_err());
 }

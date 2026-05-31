@@ -246,16 +246,22 @@ pub struct TunnelTestResponse {
     pub result: TunnelTestResult,
 }
 
-/// A device enriched with its DHCP status for API responses.
+/// A device enriched with its DHCP status and current routing target for API
+/// responses.
 ///
 /// Uses `#[serde(flatten)]` so the JSON output includes all `Device` fields
-/// at the top level alongside `dhcp_status`, keeping the response
-/// backwards-compatible for consumers that ignore unknown fields.
+/// at the top level alongside `dhcp_status` and `current_rule`, keeping the
+/// response backwards-compatible for consumers that ignore unknown fields.
+///
+/// `current_rule` mirrors [`DeviceDetailResponse::current_rule`]: `None` means
+/// the device has no rule of its own and follows the gateway default policy;
+/// `Some(RoutingTarget::Default)` is an explicit persisted default choice.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct DeviceWithStatus {
     #[serde(flatten)]
     pub device: Device,
     pub dhcp_status: DhcpStatus,
+    pub current_rule: Option<RoutingTarget>,
 }
 
 /// Response for GET /api/devices (admin).

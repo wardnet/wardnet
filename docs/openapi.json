@@ -835,7 +835,7 @@
         "tags": [
           "devices"
         ],
-        "description": "List every device the daemon has seen on the LAN, enriched with its current DHCP status (reservation, active lease, or external/unknown). Admin only.",
+        "description": "List every device the daemon has seen on the LAN, enriched with its current DHCP status (reservation, active lease, or external/unknown) and current routing target (a specific tunnel, direct, or null when the device follows the gateway default policy). Admin only.",
         "operationId": "list_devices",
         "responses": {
           "200": {
@@ -13916,13 +13916,23 @@
               "dhcp_status"
             ],
             "properties": {
+              "current_rule": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RoutingTarget"
+                  }
+                ]
+              },
               "dhcp_status": {
                 "$ref": "#/components/schemas/DhcpStatus"
               }
             }
           }
         ],
-        "description": "A device enriched with its DHCP status for API responses.\n\nUses `#[serde(flatten)]` so the JSON output includes all `Device` fields\nat the top level alongside `dhcp_status`, keeping the response\nbackwards-compatible for consumers that ignore unknown fields."
+        "description": "A device enriched with its DHCP status and current routing target for API\nresponses.\n\nUses `#[serde(flatten)]` so the JSON output includes all `Device` fields\nat the top level alongside `dhcp_status` and `current_rule`, keeping the\nresponse backwards-compatible for consumers that ignore unknown fields.\n\n`current_rule` mirrors [`DeviceDetailResponse::current_rule`]: `None` means\nthe device has no rule of its own and follows the gateway default policy;\n`Some(RoutingTarget::Default)` is an explicit persisted default choice."
       },
       "DhcpConfig": {
         "type": "object",
