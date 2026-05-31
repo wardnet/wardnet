@@ -214,6 +214,28 @@ impl DeviceRepository for SqliteDeviceRepository {
         }
     }
 
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+        let rows = sqlx::query_as::<_, RuleRow>(
+            "SELECT device_id, target_json, created_by FROM routing_rules",
+        )
+        .fetch_all(&self.pools.read)
+        .await?;
+
+        rows.into_iter()
+            .map(|r| {
+                let target: RoutingTarget = serde_json::from_str(&r.target_json)?;
+                let created_by: RuleCreator =
+                    serde_json::from_str(&format!("\"{}\"", r.created_by))
+                        .unwrap_or(RuleCreator::User);
+                Ok(RoutingRule {
+                    device_id: r.device_id.parse()?,
+                    target,
+                    created_by,
+                })
+            })
+            .collect()
+    }
+
     async fn upsert_user_rule(
         &self,
         device_id: &str,

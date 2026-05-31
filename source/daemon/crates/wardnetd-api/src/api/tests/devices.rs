@@ -76,6 +76,8 @@ struct MockDeviceService {
     rule: Option<RoutingTarget>,
     admin_locked: bool,
     set_rule_error: Option<String>,
+    /// Batched routing rules returned by `current_rules` (used by the list path).
+    current_rules: std::collections::HashMap<Uuid, RoutingTarget>,
 }
 
 impl MockDeviceService {
@@ -86,6 +88,7 @@ impl MockDeviceService {
             rule,
             admin_locked,
             set_rule_error: None,
+            current_rules: std::collections::HashMap::new(),
         }
     }
 
@@ -95,6 +98,7 @@ impl MockDeviceService {
             rule: None,
             admin_locked: false,
             set_rule_error: Some("not_found".to_owned()),
+            current_rules: std::collections::HashMap::new(),
         }
     }
 
@@ -104,7 +108,14 @@ impl MockDeviceService {
             rule: None,
             admin_locked: true,
             set_rule_error: Some("forbidden".to_owned()),
+            current_rules: std::collections::HashMap::new(),
         }
+    }
+
+    /// Seed the batched `current_rules` map returned to the list handler.
+    fn with_current_rules(mut self, rules: std::collections::HashMap<Uuid, RoutingTarget>) -> Self {
+        self.current_rules = rules;
+        self
     }
 }
 
@@ -138,6 +149,12 @@ impl DeviceService for MockDeviceService {
 
     async fn set_rule(&self, _id: &str, _t: RoutingTarget) -> Result<(), AppError> {
         Ok(())
+    }
+
+    async fn current_rules(
+        &self,
+    ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
+        Ok(self.current_rules.clone())
     }
 
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
@@ -566,6 +583,56 @@ async fn list_devices_returns_all() {
     assert_eq!(json["devices"][0]["mac"], "aa:bb:cc:dd:ee:01");
     // No lease or reservation for this device, so dhcp_status should be "external".
     assert_eq!(json["devices"][0]["dhcp_status"], "external");
+    // No routing rule for this device → it follows the gateway default policy,
+    // surfaced as a null current_rule.
+    assert!(json["devices"][0]["current_rule"].is_null());
+}
+
+#[tokio::test]
+async fn list_devices_includes_routing_target() {
+    // Two devices: one tunnel-routed, one with no rule (default policy).
+    let mut tunnel_device = sample_device();
+    let tunnel_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+    tunnel_device.id = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    tunnel_device.mac = "aa:bb:cc:dd:ee:01".to_owned();
+
+    let mut default_device = sample_device();
+    default_device.id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
+    default_device.mac = "aa:bb:cc:dd:ee:02".to_owned();
+
+    let mut rules = std::collections::HashMap::new();
+    rules.insert(tunnel_device.id, RoutingTarget::Tunnel { tunnel_id });
+
+    let state = build_state_with_dhcp(
+        MockDeviceService::not_found().with_current_rules(rules),
+        MockDiscoveryService {
+            devices: vec![tunnel_device, default_device],
+        },
+        MockDhcpService::empty(),
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let devices = json["devices"].as_array().unwrap();
+    assert_eq!(devices.len(), 2);
+
+    let tunnel = devices
+        .iter()
+        .find(|d| d["mac"] == "aa:bb:cc:dd:ee:01")
+        .unwrap();
+    assert_eq!(tunnel["current_rule"]["type"], "tunnel");
+    assert_eq!(
+        tunnel["current_rule"]["tunnel_id"],
+        "11111111-1111-1111-1111-111111111111"
+    );
+
+    let default = devices
+        .iter()
+        .find(|d| d["mac"] == "aa:bb:cc:dd:ee:02")
+        .unwrap();
+    assert!(default["current_rule"].is_null());
 }
 
 #[tokio::test]

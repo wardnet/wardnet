@@ -28,6 +28,12 @@ export interface Device {
   last_ip: string;
   admin_locked: boolean;
   dhcp_status: DhcpStatus;
+  /**
+   * The device's current routing target. `null` when the device has no rule of
+   * its own and follows the gateway default policy; `{ type: "default" }` is an
+   * explicit persisted default choice.
+   */
+  current_rule: RoutingTarget | null;
 }
 
 /** Where a device's traffic is routed. */

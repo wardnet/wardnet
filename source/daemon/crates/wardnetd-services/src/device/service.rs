@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use uuid::Uuid;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
@@ -40,6 +42,14 @@ pub trait DeviceService: Send + Sync {
     ///
     /// Same authorization rules as [`set_rule_for_ip`](Self::set_rule_for_ip).
     async fn set_rule(&self, device_id: &str, target: RoutingTarget) -> Result<(), AppError>;
+
+    /// Return every device's current routing target, keyed by device ID.
+    ///
+    /// Batched companion to the per-device rule lookup used to enrich the
+    /// admin device list (`GET /api/devices`) without an N+1. Devices with no
+    /// rule are absent from the map (they follow the gateway default policy).
+    /// Requires admin privileges via the [`AuthContext`].
+    async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError>;
 
     /// Update the `admin_locked` flag for a device.
     ///
@@ -200,6 +210,18 @@ impl DeviceService for DeviceServiceImpl {
         });
 
         Ok(())
+    }
+
+    async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError> {
+        auth_context::require_admin()?;
+
+        let rules = self
+            .devices
+            .find_all_rules()
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(rules.into_iter().map(|r| (r.device_id, r.target)).collect())
     }
 
     async fn update_admin_locked(&self, device_id: &str, locked: bool) -> Result<(), AppError> {

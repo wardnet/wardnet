@@ -382,6 +382,11 @@ impl DeviceService for MockDeviceService {
     async fn set_rule(&self, _id: &str, _t: RoutingTarget) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn current_rules(
+        &self,
+    ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
+        unimplemented!()
+    }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }

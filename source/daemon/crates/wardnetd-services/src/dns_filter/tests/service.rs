@@ -153,6 +153,9 @@ impl DeviceRepository for MemoryDeviceRepository {
     async fn find_rule_for_device(&self, _device_id: &str) -> anyhow::Result<Option<RoutingRule>> {
         unimplemented!()
     }
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+        unimplemented!()
+    }
     async fn upsert_user_rule(
         &self,
         _device_id: &str,

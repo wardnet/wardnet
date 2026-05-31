@@ -191,6 +191,9 @@ impl DeviceRepository for MockDeviceRepo {
     async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
         Ok(None)
     }
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+        Ok(vec![])
+    }
 
     async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
         Ok(())

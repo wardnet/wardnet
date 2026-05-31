@@ -310,6 +310,68 @@ async fn find_rule_not_found() {
 }
 
 #[tokio::test]
+async fn find_all_rules_returns_every_rule_once() {
+    let pool = test_pool().await;
+    // DEV1 → tunnel, DEV2 → direct, DEV3 → explicit default; a fourth device
+    // with no rule must be absent from the result.
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    insert_device(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11").await;
+    insert_device(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.12").await;
+    let dev4 = "00000000-0000-0000-0000-000000000004";
+    insert_device(&pool, dev4, "aa:bb:cc:dd:ee:04", "192.168.1.13").await;
+
+    let tunnel_id = "11111111-1111-1111-1111-111111111111";
+    for (id, target_json) in [
+        (
+            DEV1,
+            format!("{{\"type\":\"tunnel\",\"tunnel_id\":\"{tunnel_id}\"}}"),
+        ),
+        (DEV2, "{\"type\":\"direct\"}".to_owned()),
+        (DEV3, "{\"type\":\"default\"}".to_owned()),
+    ] {
+        sqlx::query(
+            "INSERT INTO routing_rules (id, device_id, target_json, created_by) \
+             VALUES (?, ?, ?, 'user')",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(id)
+        .bind(target_json)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let repo = SqliteDeviceRepository::new(pool);
+    let rules = repo.find_all_rules().await.unwrap();
+
+    // Exactly the three devices with a rule — dev4 (no rule) is absent.
+    assert_eq!(rules.len(), 3);
+    let by_id: std::collections::HashMap<_, _> = rules
+        .into_iter()
+        .map(|r| (r.device_id.to_string(), r.target))
+        .collect();
+    assert_eq!(
+        by_id.get(DEV1),
+        Some(&RoutingTarget::Tunnel {
+            tunnel_id: tunnel_id.parse().unwrap(),
+        })
+    );
+    assert_eq!(by_id.get(DEV2), Some(&RoutingTarget::Direct));
+    assert_eq!(by_id.get(DEV3), Some(&RoutingTarget::Default));
+    assert!(!by_id.contains_key(dev4));
+}
+
+#[tokio::test]
+async fn find_all_rules_empty_when_no_rules() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let rules = repo.find_all_rules().await.unwrap();
+    assert!(rules.is_empty());
+}
+
+#[tokio::test]
 async fn upsert_user_rule_insert_and_update() {
     let pool = test_pool().await;
     insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
