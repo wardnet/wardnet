@@ -9,7 +9,7 @@ import {
   type ListSnapshotsResponse,
   type RestorePreviewResponse,
 } from "@wardnet/js";
-import { backupService } from "@/lib/sdk";
+import { backupService } from "../lib/sdk";
 
 /** Extract the most user-friendly message we can from an API error. */
 function errorMessage(err: unknown, fallback: string): string {

@@ -5,8 +5,8 @@ import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
 import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
-import { useSetup, useAdvanceWizard } from "@/hooks/useSetup";
-import { useAuth } from "@/hooks/useAuth";
+import { useSetup, useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useAuth } from "@wardnet/wardnet-web";
 
 interface AdminFormValues extends Record<string, unknown> {
   username: string;

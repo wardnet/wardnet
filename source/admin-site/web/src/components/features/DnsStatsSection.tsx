@@ -15,7 +15,7 @@ import { type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
-import { useDnsStatsDashboard, RANGE_HOURS, type StatsRange } from "@/hooks/useStats";
+import { useDnsStatsDashboard, RANGE_HOURS, type StatsRange } from "@wardnet/wardnet-web";
 import type { StatsTopEntry } from "@wardnet/js";
 
 const chartConfig: ChartConfig = {

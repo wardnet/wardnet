@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 import { WardnetApiError } from "@wardnet/js";
-import { systemService } from "@/lib/sdk";
+import { systemService } from "../lib/sdk";
 import { useDaemonReachability } from "./useDaemonReachability";
 
-/** Phases the reboot flow may surface. Same as
- *  [`useRestart`](./useRestart.ts) — both expect the daemon back. */
-export type RebootPhase =
+/** Phases the restart flow may surface. Subset of
+ *  [`DaemonReachabilityPhase`] — restart never resolves to `off`. */
+export type RestartPhase =
   | "idle"
   | "scheduled"
   | "down"
@@ -16,24 +16,25 @@ export type RebootPhase =
   | "failed";
 
 /**
- * Lifecycle manager for a host reboot from the web UI.
+ * Lifecycle manager for a daemon restart from the web UI.
  *
- * Fires `POST /api/system/reboot`, then runs the shared
- * [`useDaemonReachability`] state machine in "reboot" mode. The
- * lifecycle is the same shape as `useRestart` (the daemon is
- * expected to come back); the difference is the trigger endpoint
- * and the on-the-wire effect — see #213's GARP failover, which
- * uses this endpoint as its e2e trigger.
+ * Thin wrapper over [`useDaemonReachability`] that fires
+ * `POST /api/system/restart` and starts the shared poll loop in
+ * "restart" mode once the server has accepted the request.
+ *
+ * Public surface mirrors the previous (pre-#215) implementation —
+ * existing callers (Settings page, post-restore prompt) keep
+ * working without changes.
  */
-export function useReboot() {
+export function useRestart() {
   const reach = useDaemonReachability();
 
   const start = useCallback(() => {
     reach.markScheduled();
     systemService
-      .reboot()
+      .restart()
       .then(() => {
-        reach.start({ kind: "reboot" });
+        reach.start({ kind: "restart" });
       })
       .catch((err: unknown) => {
         const msg =
@@ -41,13 +42,13 @@ export function useReboot() {
             ? (err.body.detail ?? err.body.error)
             : err instanceof Error
               ? err.message
-              : "Failed to reboot";
+              : "Failed to restart";
         reach.fail(msg);
       });
   }, [reach]);
 
   return {
-    phase: reach.phase as RebootPhase,
+    phase: reach.phase as RestartPhase,
     errorMessage: reach.errorMessage,
     startedAt: reach.startedAt,
     isOpen: reach.isOpen,

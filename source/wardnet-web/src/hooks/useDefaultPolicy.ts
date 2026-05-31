@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { systemService } from "@/lib/sdk";
+import { systemService } from "../lib/sdk";
 
 /** Read the current global default routing policy. */
 export function useDefaultPolicy() {

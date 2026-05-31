@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { RoutingTarget, UpdateDeviceRequest } from "@wardnet/js";
-import { deviceService } from "@/lib/sdk";
+import { deviceService } from "../lib/sdk";
 
 export function useDevices() {
   return useQuery({

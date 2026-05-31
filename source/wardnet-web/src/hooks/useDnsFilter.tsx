@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { dnsFilterService, jobsService } from "@/lib/sdk";
-import { JobProgressDescription } from "@/components/compound/JobProgressDescription";
+import { dnsFilterService, jobsService } from "../lib/sdk";
+import { JobProgressDescription } from "../components/JobProgressDescription";
 import type {
   ListProfilesResponse,
   GetProfileResponse,

@@ -12,9 +12,9 @@ import {
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
-import { useDaemonStatus } from "@/hooks/useDaemonStatus";
-import { useUpdateStatus } from "@/hooks/useUpdate";
+import { useAuth } from "@wardnet/wardnet-web";
+import { useDaemonStatus } from "@wardnet/wardnet-web";
+import { useUpdateStatus } from "@wardnet/wardnet-web";
 import { Logo } from "./Logo";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { UpdateBanner } from "./UpdateBanner";

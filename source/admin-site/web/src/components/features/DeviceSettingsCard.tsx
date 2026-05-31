@@ -21,10 +21,10 @@ import { Toggle } from "@wardnet/forge-web/toggle";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
-import { useUpdateDevice } from "@/hooks/useDevices";
-import { useTunnels } from "@/hooks/useTunnels";
-import { countryFlag } from "@/lib/country";
-import { DEVICE_TYPE_OPTIONS, deviceTypeLabel } from "@/lib/device";
+import { useUpdateDevice } from "@wardnet/wardnet-web";
+import { useTunnels } from "@wardnet/wardnet-web";
+import { countryFlag } from "@wardnet/wardnet-web";
+import { DEVICE_TYPE_OPTIONS, deviceTypeLabel } from "@wardnet/wardnet-web";
 import type { Device, DeviceType, RoutingTarget, Tunnel } from "@wardnet/js";
 
 function routingLabel(target: RoutingTarget | null, tunnels: Tunnel[]): React.ReactNode {

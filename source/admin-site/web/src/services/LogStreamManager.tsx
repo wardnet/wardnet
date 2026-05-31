@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { logService } from "@/lib/sdk";
+import { logService } from "@wardnet/wardnet-web";
 import { useLogStore } from "@/stores/logStore";
 
 /**

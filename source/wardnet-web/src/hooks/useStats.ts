@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { statsService } from "@/lib/sdk";
+import { statsService } from "../lib/sdk";
 import type { StatsBucket, StatsTopResponse } from "@wardnet/js";
 
 /** Unified range selector used by all time-series charts. */

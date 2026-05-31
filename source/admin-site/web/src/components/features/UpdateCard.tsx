@@ -4,7 +4,7 @@ import { Button } from "@wardnet/forge-web/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Pill } from "@wardnet/forge-web/pill";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@wardnet/wardnet-web";
 import {
   Select,
   SelectContent,

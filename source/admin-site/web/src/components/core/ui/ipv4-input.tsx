@@ -1,5 +1,5 @@
 import { useRef, useCallback, useMemo, type KeyboardEvent, type ClipboardEvent } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@wardnet/wardnet-web";
 
 interface Ipv4InputProps {
   value: string;

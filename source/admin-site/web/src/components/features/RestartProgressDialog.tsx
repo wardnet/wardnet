@@ -3,7 +3,7 @@ import { CheckCircle2Icon, LogInIcon } from "lucide-react";
 import { Button } from "@wardnet/forge-web/button";
 import { AlertModalAction } from "@wardnet/forge-web/alert-modal";
 import { ProgressDialog, type GenericPhase } from "@/components/compound/ProgressDialog";
-import type { RestartPhase } from "@/hooks/useRestart";
+import type { RestartPhase } from "@wardnet/wardnet-web";
 
 interface Props {
   /** Whether to render the dialog at all — mirrors `useRestart().isOpen`. */

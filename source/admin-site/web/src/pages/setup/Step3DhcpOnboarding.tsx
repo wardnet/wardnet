@@ -9,8 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/forge-web/select";
-import { useAdvanceWizard } from "@/hooks/useSetup";
-import { useDhcpSelfProbe } from "@/hooks/useNetwork";
+import { useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useDhcpSelfProbe } from "@wardnet/wardnet-web";
 import { ROUTER_INSTRUCTIONS, findRouterInstruction } from "@/lib/router-instructions";
 
 /**

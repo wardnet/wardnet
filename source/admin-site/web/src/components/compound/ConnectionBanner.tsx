@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { Banner } from "@wardnet/forge-web/banner";
-import { useDaemonStatus } from "@/hooks/useDaemonStatus";
+import { useDaemonStatus } from "@wardnet/wardnet-web";
 
 /**
  * Full-width red banner shown at the top of all pages when the daemon is unreachable.

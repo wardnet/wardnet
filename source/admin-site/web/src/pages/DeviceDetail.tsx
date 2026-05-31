@@ -6,9 +6,9 @@ import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
-import { useDevice } from "@/hooks/useDevices";
-import { deviceTypeLabel } from "@/lib/device";
-import { timeAgo } from "@/lib/utils";
+import { useDevice } from "@wardnet/wardnet-web";
+import { deviceTypeLabel } from "@wardnet/wardnet-web";
+import { timeAgo } from "@wardnet/wardnet-web";
 import type { Device } from "@wardnet/js";
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;

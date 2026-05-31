@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { infoService } from "@/lib/sdk";
+import { infoService } from "../lib/sdk";
 
 interface DaemonStatus {
   reachable: boolean;

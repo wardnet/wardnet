@@ -3,7 +3,7 @@ import { Sidebar } from "@/components/compound/Sidebar";
 import { MobileMenu } from "@/components/compound/MobileMenu";
 import { ConnectionBanner } from "@/components/compound/ConnectionBanner";
 import { UncleanShutdownBanner } from "@/components/compound/UncleanShutdownBanner";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@wardnet/wardnet-web";
 
 /**
  * Main application layout.

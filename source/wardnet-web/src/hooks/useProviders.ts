@@ -5,7 +5,7 @@ import type {
   ListServersRequest,
   SetupProviderRequest,
 } from "@wardnet/js";
-import { providerService } from "@/lib/sdk";
+import { providerService } from "../lib/sdk";
 
 export function useProviders() {
   return useQuery({

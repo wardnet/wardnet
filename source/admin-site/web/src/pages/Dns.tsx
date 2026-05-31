@@ -24,8 +24,8 @@ import {
   useToggleDns,
   useFlushDnsCache,
   useUpdateDnsConfig,
-} from "@/hooks/useDns";
-import { RANGES, type StatsRange } from "@/hooks/useStats";
+} from "@wardnet/wardnet-web";
+import { RANGES, type StatsRange } from "@wardnet/wardnet-web";
 
 /** DNS server configuration page (admin only). */
 export default function Dns() {

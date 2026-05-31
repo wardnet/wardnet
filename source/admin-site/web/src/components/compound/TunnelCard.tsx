@@ -3,9 +3,9 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@wardnet/forge-web/button";
 import { StatusBadge } from "./StatusBadge";
-import { formatBytes, timeAgo } from "@/lib/utils";
-import { countryFlag } from "@/lib/country";
-import { useTestTunnel } from "@/hooks/useTunnels";
+import { formatBytes, timeAgo } from "@wardnet/wardnet-web";
+import { countryFlag } from "@wardnet/wardnet-web";
+import { useTestTunnel } from "@wardnet/wardnet-web";
 import type { Tunnel, TunnelStatus, ProviderInfo, TunnelTestResult } from "@wardnet/js";
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {

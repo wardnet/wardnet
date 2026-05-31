@@ -12,7 +12,7 @@ import { Field } from "@wardnet/forge-web/field";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { useCreateReservation, useDeleteReservation, useDhcpReservations } from "@/hooks/useDhcp";
+import { useCreateReservation, useDeleteReservation, useDhcpReservations } from "@wardnet/wardnet-web";
 import type { Device, DhcpReservation, DhcpStatus } from "@wardnet/js";
 
 interface DeviceNetworkCardProps {

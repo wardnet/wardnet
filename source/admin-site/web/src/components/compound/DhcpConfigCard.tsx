@@ -12,8 +12,8 @@ import { Field } from "@wardnet/forge-web/field";
 import { Input } from "@wardnet/forge-web/input";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
-import { useUpdateDhcpConfig } from "@/hooks/useDhcp";
-import { useDnsConfig } from "@/hooks/useDns";
+import { useUpdateDhcpConfig } from "@wardnet/wardnet-web";
+import { useDnsConfig } from "@wardnet/wardnet-web";
 import type { DhcpConfig } from "@wardnet/js";
 
 function formatDuration(secs: number): string {

@@ -3,8 +3,8 @@ import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
 import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
-import { useAdvanceWizard } from "@/hooks/useSetup";
-import { useDiscoverGatewayMac } from "@/hooks/useNetwork";
+import { useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useDiscoverGatewayMac } from "@wardnet/wardnet-web";
 
 const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
 

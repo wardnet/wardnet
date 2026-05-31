@@ -1,5 +1,5 @@
 import { Combobox, ComboboxItem } from "@wardnet/forge-web/combobox";
-import { countryFlag } from "@/lib/country";
+import { countryFlag } from "@wardnet/wardnet-web";
 import type { CountryInfo } from "@wardnet/js";
 
 interface CountryComboboxProps {

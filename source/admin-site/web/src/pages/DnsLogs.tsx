@@ -15,10 +15,10 @@ import {
 } from "@wardnet/forge-web/select";
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { DeviceSelect } from "@/components/compound/DeviceSelect";
-import { useDevices } from "@/hooks/useDevices";
-import { useDnsQueryLog } from "@/hooks/useDnsLogs";
+import { useDevices } from "@wardnet/wardnet-web";
+import { useDnsQueryLog } from "@wardnet/wardnet-web";
 import { useDnsLogStore } from "@/stores/dnsLogStore";
-import { formatTime } from "@/lib/utils";
+import { formatTime } from "@wardnet/wardnet-web";
 import type { DnsQueryLogEntry, DnsQueryResult, QueryLogEvent } from "@wardnet/js";
 
 interface RowShape {

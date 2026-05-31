@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { dnsService } from "@/lib/sdk";
+import { dnsService } from "../lib/sdk";
 import type { ListQueryLogParams, ListQueryLogResponse } from "@wardnet/js";
 
 /** Paginated DNS query log. */

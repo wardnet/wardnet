@@ -36,7 +36,7 @@ import {
   useCreateFilterRule,
   useUpdateFilterRule,
   useDeleteFilterRule,
-} from "@/hooks/useDnsFilter";
+} from "@wardnet/wardnet-web";
 import type { Blocklist } from "@wardnet/js";
 
 const DEFAULT_SCHEDULE = "0 3 * * *";

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { WardnetApiError } from "@wardnet/js";
-import { systemService } from "@/lib/sdk";
+import { systemService } from "../lib/sdk";
 import { useDaemonReachability } from "./useDaemonReachability";
 
 /** Phases the shutdown flow may surface. Resolves to `off` (the

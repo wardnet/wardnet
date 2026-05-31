@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { WardnetApiError } from "@wardnet/js";
-import { authService, systemService } from "@/lib/sdk";
+import { authService, systemService } from "../lib/sdk";
 
 interface AuthState {
   isAdmin: boolean;

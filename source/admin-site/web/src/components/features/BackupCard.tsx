@@ -14,7 +14,7 @@ import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
 import { AlertTriangleIcon, DownloadIcon, Loader2, UploadIcon } from "lucide-react";
 import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@wardnet/wardnet-web";
 
 /** Server-enforced minimum, mirrors `wardnet_common::backup::MIN_PASSPHRASE_LEN`. */
 const MIN_PASSPHRASE_LEN = 12;

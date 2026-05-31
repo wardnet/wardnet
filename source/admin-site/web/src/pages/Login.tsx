@@ -5,7 +5,7 @@ import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
 import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@wardnet/wardnet-web";
 
 /**
  * Admin login page — rendered inside AuthLayout's branded hero.

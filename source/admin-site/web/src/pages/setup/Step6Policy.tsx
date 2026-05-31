@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button } from "@wardnet/forge-web/button";
 import { RoutingSelector } from "@/components/compound/RoutingSelector";
-import { useAdvanceWizard } from "@/hooks/useSetup";
-import { useDefaultPolicy, useSetDefaultPolicy } from "@/hooks/useDefaultPolicy";
-import { useTunnels } from "@/hooks/useTunnels";
+import { useAdvanceWizard } from "@wardnet/wardnet-web";
+import { useDefaultPolicy, useSetDefaultPolicy } from "@wardnet/wardnet-web";
+import { useTunnels } from "@wardnet/wardnet-web";
 import type { RoutingTarget } from "@wardnet/js";
 
 /**

@@ -1,7 +1,7 @@
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@wardnet/forge-web/card";
 import { Pill } from "@wardnet/forge-web/pill";
 import { Toggle } from "@wardnet/forge-web/toggle";
-import { useDnsFilterConfig, useUpdateDnsFilterConfig } from "@/hooks/useDnsFilter";
+import { useDnsFilterConfig, useUpdateDnsFilterConfig } from "@wardnet/wardnet-web";
 
 /** System-level DNS filter card — the global kill switch.
  *

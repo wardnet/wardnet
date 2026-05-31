@@ -17,8 +17,8 @@ import {
   useValidateCredentials,
   useProviderServers,
   useProviderSetup,
-} from "@/hooks/useProviders";
-import { countryFlag } from "@/lib/country";
+} from "@wardnet/wardnet-web";
+import { countryFlag } from "@wardnet/wardnet-web";
 import type { ProviderCredentials, ProviderInfo, ServerInfo } from "@wardnet/js";
 
 /** Visual load indicator with a colored dot and percentage. */

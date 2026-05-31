@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { DiscoverGatewayMacRequest } from "@wardnet/js";
-import { networkService } from "@/lib/sdk";
+import { networkService } from "../lib/sdk";
 
 /** Read the LAN interface's current state for the wizard + Settings. */
 export function useNetworkStatus() {

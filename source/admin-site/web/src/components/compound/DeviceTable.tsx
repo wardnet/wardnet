@@ -5,9 +5,9 @@ import { DataTable, type DataTableGroup } from "@/components/core/ui/data-table"
 import { DeviceIcon } from "@/components/compound/DeviceIcon";
 import { HostCell } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { useDeviceFilterSettingsList, useDnsFilterProfiles } from "@/hooks/useDnsFilter";
-import { deviceTypeLabel } from "@/lib/device";
-import { timeAgo } from "@/lib/utils";
+import { useDeviceFilterSettingsList, useDnsFilterProfiles } from "@wardnet/wardnet-web";
+import { deviceTypeLabel } from "@wardnet/wardnet-web";
+import { timeAgo } from "@wardnet/wardnet-web";
 import type { Device, DeviceDnsFilterSettings, DnsFilterProfile, DhcpStatus } from "@wardnet/js";
 
 function buildColumns(

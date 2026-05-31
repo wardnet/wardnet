@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { systemService, client } from "@/lib/sdk";
+import { systemService, client } from "../lib/sdk";
 
 export function useSystemStatus() {
   return useQuery({

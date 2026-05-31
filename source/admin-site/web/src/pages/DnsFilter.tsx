@@ -17,7 +17,7 @@ import {
   useDnsFilterProfiles,
   useFilterRules,
   useUpdateDnsFilterConfig,
-} from "@/hooks/useDnsFilter";
+} from "@wardnet/wardnet-web";
 import type { DnsFilterProfile } from "@wardnet/js";
 
 /** Per-row badges showing the volume of rules attached to a profile.
