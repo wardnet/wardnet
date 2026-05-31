@@ -101,7 +101,7 @@ impl DatabaseDumper for SqliteDumper {
         let dest = dump_path.to_string_lossy().replace('\'', "''");
         let sql = format!("VACUUM INTO '{dest}'");
         self.pool
-            .execute(sql.as_str())
+            .execute(sqlx::AssertSqlSafe(sql))
             .await
             .map_err(|e| anyhow::anyhow!("VACUUM INTO failed: {e}"))?;
 

@@ -74,7 +74,7 @@ const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, f
 impl DeviceRepository for SqliteDeviceRepository {
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_ip = ?");
-        let row = sqlx::query_as::<_, DeviceRow>(&query)
+        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .bind(ip)
             .fetch_optional(&self.pools.read)
             .await?;
@@ -83,7 +83,7 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>> {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE id = ?");
-        let row = sqlx::query_as::<_, DeviceRow>(&query)
+        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?;
@@ -96,7 +96,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         // arrive uppercase — normalise here so the WHERE-clause hits the
         // canonical row regardless.
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE mac = ?");
-        let row = sqlx::query_as::<_, DeviceRow>(&query)
+        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .bind(mac.to_lowercase())
             .fetch_optional(&self.pools.read)
             .await?;
@@ -105,7 +105,7 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
         let query = format!("SELECT {SELECT_COLS} FROM devices ORDER BY last_seen DESC");
-        let rows = sqlx::query_as::<_, DeviceRow>(&query)
+        let rows = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DeviceRow::into_device).collect()
@@ -183,7 +183,7 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn find_stale(&self, before: &str) -> anyhow::Result<Vec<Device>> {
         let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_seen < ?");
-        let rows = sqlx::query_as::<_, DeviceRow>(&query)
+        let rows = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .bind(before)
             .fetch_all(&self.pools.read)
             .await?;
