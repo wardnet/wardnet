@@ -31,7 +31,7 @@ struct AlwaysAuthService;
 
 #[async_trait]
 impl AuthService for AlwaysAuthService {
-    async fn login(&self, _u: &str, _p: &str) -> Result<LoginResult, AppError> {
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
     async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
@@ -56,6 +56,9 @@ impl AuthService for AlwaysAuthService {
         _to_step: wardnet_common::api::WizardStep,
         _mode: Option<wardnet_common::api::WizardMode>,
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 }

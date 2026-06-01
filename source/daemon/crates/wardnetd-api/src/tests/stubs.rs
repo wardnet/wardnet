@@ -40,7 +40,7 @@ use crate::state::AppState;
 pub struct StubAuthService;
 #[async_trait]
 impl AuthService for StubAuthService {
-    async fn login(&self, _u: &str, _p: &str) -> Result<LoginResult, AppError> {
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
     async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
@@ -66,6 +66,9 @@ impl AuthService for StubAuthService {
         _to_step: WizardStep,
         _mode: Option<WizardMode>,
     ) -> Result<WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 }

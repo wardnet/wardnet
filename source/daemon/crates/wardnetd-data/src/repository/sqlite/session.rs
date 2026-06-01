@@ -32,16 +32,18 @@ impl SessionRepository for SqliteSessionRepository {
         token_hash: &str,
         created_at: &str,
         expires_at: &str,
+        remember_me: bool,
     ) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO sessions (id, admin_id, token_hash, created_at, expires_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, admin_id, token_hash, created_at, expires_at, remember_me) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(admin_id)
         .bind(token_hash)
         .bind(created_at)
         .bind(expires_at)
+        .bind(remember_me)
         .execute(&self.pools.write)
         .await?;
         Ok(())
@@ -68,5 +70,23 @@ impl SessionRepository for SqliteSessionRepository {
             .execute(&self.pools.write)
             .await?;
         Ok(result.rows_affected())
+    }
+
+    async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
+            .bind(new_expires_at)
+            .bind(token_hash)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
+    async fn remember_me_for_token(&self, token_hash: &str) -> anyhow::Result<Option<bool>> {
+        let row =
+            sqlx::query_scalar::<_, bool>("SELECT remember_me FROM sessions WHERE token_hash = ?")
+                .bind(token_hash)
+                .fetch_optional(&self.pools.read)
+                .await?;
+        Ok(row)
     }
 }

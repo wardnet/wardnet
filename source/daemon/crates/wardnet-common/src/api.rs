@@ -22,6 +22,12 @@ use uuid::Uuid;
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    /// When `true`, the session cookie is set with a 30-day `Max-Age` instead
+    /// of the default 24-hour expiry. Admin-app always sends `true`; admin-site
+    /// exposes this as a "Remember me" checkbox.
+    #[serde(default)]
+    #[schema(default = false)]
+    pub remember_me: bool,
 }
 
 // Redact `password` so a stray `tracing::debug!(?req)` in the auth path
@@ -31,6 +37,7 @@ impl std::fmt::Debug for LoginRequest {
         f.debug_struct("LoginRequest")
             .field("username", &self.username)
             .field("password", &"[REDACTED]")
+            .field("remember_me", &self.remember_me)
             .finish()
     }
 }

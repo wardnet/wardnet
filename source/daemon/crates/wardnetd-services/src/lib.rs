@@ -374,6 +374,7 @@ fn create_services(
         api_key_repo,
         system_config_repo.clone(),
         config.auth.session_expiry_hours,
+        config.auth.remember_me_expiry_hours,
     ));
 
     let device_service: Arc<dyn DeviceService> = Arc::new(DeviceServiceImpl::new(

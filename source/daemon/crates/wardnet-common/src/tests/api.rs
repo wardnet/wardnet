@@ -42,6 +42,7 @@ fn login_request_debug_redacts_password() {
     let req = LoginRequest {
         username: "alice".to_owned(),
         password: "hunter2".to_owned(),
+        remember_me: false,
     };
     let rendered = format!("{req:?}");
     assert!(rendered.contains("alice"));

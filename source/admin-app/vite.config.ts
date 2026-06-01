@@ -17,8 +17,7 @@ export default defineConfig({
       // Use our own public/manifest.json
       manifest: false,
       devOptions: {
-        enabled: true,
-        type: "module",
+        enabled: false,
       },
     }),
   ],
@@ -37,5 +36,8 @@ export default defineConfig({
         ws: true,
       },
     },
+  },
+  optimizeDeps: {
+    include: ["use-sync-external-store/shim"],
   },
 });

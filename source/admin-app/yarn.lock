@@ -1229,6 +1229,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fontsource-variable/inter-tight@npm:^5.2.7":
+  version: 5.2.7
+  resolution: "@fontsource-variable/inter-tight@npm:5.2.7"
+  checksum: 10c0/ca93e2088c8fce926966180a2fc6ef94f62105043a4f5efba05a8402e566ae83a53401efd6ac53d765467a7ced6072f4e57a3f99e086c11eeae551e586cacbd5
+  languageName: node
+  linkType: hard
+
+"@fontsource-variable/jetbrains-mono@npm:^5.2.8":
+  version: 5.2.8
+  resolution: "@fontsource-variable/jetbrains-mono@npm:5.2.8"
+  checksum: 10c0/574e5463b802cfdd6ec8dd16724d2fd5ee38204815729c9dca0f457a417f0a4d32e6ec4ed2dfa0e5a5de5a9b0deaeb9f3c0b49b332763ed40172de43d6b1502f
+  languageName: node
+  linkType: hard
+
 "@gar/promise-retry@npm:^1.0.0":
   version: 1.0.2
   resolution: "@gar/promise-retry@npm:1.0.2"
@@ -3337,6 +3351,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/admin-app@workspace:."
   dependencies:
+    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
     "@tailwindcss/vite": "npm:4.2.4"
     "@tanstack/react-query": "npm:5.100.14"
     "@types/node": "npm:25.8.0"
@@ -3346,6 +3362,7 @@ __metadata:
     "@wardnet/forge-web": "portal:../admin-site/forge-web"
     "@wardnet/js": "portal:../sdk/wardnet-js"
     "@wardnet/wardnet-web": "portal:../wardnet-web"
+    lucide-react: "npm:1.14.0"
     react: "npm:19.2.5"
     react-dom: "npm:19.2.5"
     react-router: "npm:7.15.1"
@@ -4927,6 +4944,15 @@ __metadata:
   dependencies:
     yallist: "npm:^3.0.2"
   checksum: 10c0/89b2ef2ef45f543011e38737b8a8622a2f8998cddf0e5437174ef8f1f70a8b9d14a918ab3e232cb3ba343b7abddffa667f0b59075b2b80e6b4d63c3de6127482
+  languageName: node
+  linkType: hard
+
+"lucide-react@npm:1.14.0":
+  version: 1.14.0
+  resolution: "lucide-react@npm:1.14.0"
+  peerDependencies:
+    react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/25c5dd878945842ffb519532f1a66f59f2d461e7be7bd322091b0ecd3cd32561c1ae3d9b50161432d39a72bf8c8f1a039268f2f20a035e520dd3f49dd46ffaf2
   languageName: node
   linkType: hard
 

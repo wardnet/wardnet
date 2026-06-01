@@ -73,6 +73,58 @@
         ]
       }
     },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "Slide the current session's expiry forward by 30 days. Called by the admin-app on every open to implement the 'login once' sliding-window behaviour. Requires a valid session cookie or `Authorization: Bearer <token>` header.",
+        "operationId": "refresh",
+        "responses": {
+          "204": {
+            "description": "Session expiry extended; fresh Set-Cookie issued"
+          },
+          "401": {
+            "description": "No valid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session was not created with remember_me",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/backup/export": {
       "post": {
         "tags": [
@@ -15151,6 +15203,11 @@
         "properties": {
           "password": {
             "type": "string"
+          },
+          "remember_me": {
+            "type": "boolean",
+            "description": "When `true`, the session cookie is set with a 30-day `Max-Age` instead\nof the default 24-hour expiry. Admin-app always sends `true`; admin-site\nexposes this as a \"Remember me\" checkbox.",
+            "default": false
           },
           "username": {
             "type": "string"

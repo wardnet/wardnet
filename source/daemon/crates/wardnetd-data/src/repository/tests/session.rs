@@ -22,6 +22,7 @@ async fn create_and_find_valid_session() {
         "tokenhash1",
         "2026-01-01T00:00:00Z",
         "2099-01-01T00:00:00Z",
+        true,
     )
     .await
     .unwrap();
@@ -45,6 +46,7 @@ async fn find_expired_session_returns_none() {
         "tokenhash1",
         "2026-01-01T00:00:00Z",
         "2026-01-02T00:00:00Z",
+        false,
     )
     .await
     .unwrap();
@@ -69,6 +71,7 @@ async fn delete_expired_removes_only_old_sessions() {
         "hash-old",
         "2026-01-01T00:00:00Z",
         "2026-01-02T00:00:00Z",
+        false,
     )
     .await
     .unwrap();
@@ -79,6 +82,7 @@ async fn delete_expired_removes_only_old_sessions() {
         "hash-new",
         "2026-01-01T00:00:00Z",
         "2099-01-01T00:00:00Z",
+        true,
     )
     .await
     .unwrap();
@@ -92,4 +96,45 @@ async fn delete_expired_removes_only_old_sessions() {
         .await
         .unwrap();
     assert!(result.is_some());
+}
+
+#[tokio::test]
+async fn remember_me_for_token_returns_correct_flag() {
+    let pool = test_pool().await;
+    seed_admin(&pool).await;
+    let repo = SqliteSessionRepository::new(pool);
+
+    repo.create(
+        "s1",
+        "admin-1",
+        "hash-rm",
+        "2026-01-01T00:00:00Z",
+        "2099-01-01T00:00:00Z",
+        true,
+    )
+    .await
+    .unwrap();
+    repo.create(
+        "s2",
+        "admin-1",
+        "hash-short",
+        "2026-01-01T00:00:00Z",
+        "2099-01-01T00:00:00Z",
+        false,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.remember_me_for_token("hash-rm").await.unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        repo.remember_me_for_token("hash-short").await.unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        repo.remember_me_for_token("no-such-hash").await.unwrap(),
+        None
+    );
 }

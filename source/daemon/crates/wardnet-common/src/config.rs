@@ -244,12 +244,15 @@ impl Default for NetworkConfig {
 #[serde(default)]
 pub struct AuthConfig {
     pub session_expiry_hours: u64,
+    /// Session lifetime when `remember_me = true` (default 30 days = 720 h).
+    pub remember_me_expiry_hours: u64,
 }
 
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             session_expiry_hours: 24,
+            remember_me_expiry_hours: 720,
         }
     }
 }

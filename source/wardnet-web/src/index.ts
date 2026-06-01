@@ -46,6 +46,7 @@ export { useAuthStore } from "./stores/authStore";
 
 // Components
 export { JobProgressDescription } from "./components/JobProgressDescription";
+export { LoginForm } from "./components/LoginForm";
 
 // Hooks — auth
 export { useAuth } from "./hooks/useAuth";

@@ -309,7 +309,11 @@ fn available_disk_bytes(path: &Path) -> Option<u64> {
     };
     // `f_frsize` is the fundamental block size; `f_bavail` is the
     // number of blocks available to non-root.
+    // `cast_lossless` / `useless_conversion`: field types are u32 on macOS
+    // and u64 on Linux; `as u64` is the portable no-op-safe widening.
+    #[allow(clippy::cast_lossless, clippy::useless_conversion)]
     let frsize = stat.f_frsize as u64;
+    #[allow(clippy::cast_lossless, clippy::useless_conversion)]
     let bavail = stat.f_bavail as u64;
     frsize.checked_mul(bavail)
 }
