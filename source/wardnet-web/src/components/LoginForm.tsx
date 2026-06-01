@@ -89,12 +89,12 @@ export function LoginForm({ rememberMe = false, onSuccess }: LoginFormProps) {
       )}
 
       {formError && <p className="text-sm text-danger">{formError}</p>}
-      <p className="text-center text-xs text-ink-3">
-        Credentials are set during initial daemon setup.
-      </p>
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Signing in…" : "Log in"}
       </Button>
+      <p className="text-xs text-ink-3">
+        Credentials are set during initial daemon setup.
+      </p>
     </Form>
   );
 }
