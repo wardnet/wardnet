@@ -17,8 +17,7 @@ export default defineConfig({
       // Use our own public/manifest.json
       manifest: false,
       devOptions: {
-        enabled: true,
-        type: "module",
+        enabled: false,
       },
     }),
   ],
