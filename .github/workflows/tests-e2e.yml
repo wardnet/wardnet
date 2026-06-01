@@ -104,6 +104,18 @@ jobs:
             fi
           done
 
+      - name: Ensure Yarn cache directory exists
+        # actions/setup-node saves the Yarn global cache in its post-step.
+        # If make build-web exits early before any yarn install completes,
+        # the cache folder may not exist and actions/cache will error with
+        # "Path Validation Error". Creating it here (always, even on
+        # failure) guarantees the post-step has a path to save.
+        if: always()
+        run: |
+          CACHE_DIR=$(cd source/admin-site && yarn config get cacheFolder 2>/dev/null \
+            || echo "$HOME/.yarn/berry/cache")
+          mkdir -p "$CACHE_DIR"
+
       - name: Upload Vitest reports
         # Always upload, even on failure — the JUnit XML + compose
         # logs the trap captured are the primary debug surface.

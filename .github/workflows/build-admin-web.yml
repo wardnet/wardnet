@@ -52,12 +52,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: ./.github/actions/setup-node-yarn
+      - uses: ./.github/actions/build-vite-app
         with:
           cache-dependency-path: source/admin-site/yarn.lock
-
-      - name: Install deps
-        run: cd source/admin-site && yarn install --immutable
-
-      - name: Build
-        run: cd source/admin-site/web && yarn build
+          build-command: cd source/admin-site && yarn install --immutable && cd web && yarn build
