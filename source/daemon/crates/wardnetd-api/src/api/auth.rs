@@ -102,8 +102,8 @@ pub async fn refresh(
 /// Extract the raw session token from a `wardnet_session` cookie or a
 /// `Authorization: Bearer` header (cookie takes precedence).
 fn extract_session_token(headers: &HeaderMap) -> Option<String> {
-    if let Some(v) = headers.get(axum::http::header::COOKIE) {
-        if let Some(token) = v.to_str().ok().and_then(|s| {
+    if let Some(v) = headers.get(axum::http::header::COOKIE)
+        && let Some(token) = v.to_str().ok().and_then(|s| {
             s.split(';').find_map(|pair| {
                 let (name, value) = pair.trim().split_once('=')?;
                 if name.trim() == "wardnet_session" {
@@ -112,9 +112,9 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
                     None
                 }
             })
-        }) {
-            return Some(token);
-        }
+        })
+    {
+        return Some(token);
     }
     headers
         .get(axum::http::header::AUTHORIZATION)

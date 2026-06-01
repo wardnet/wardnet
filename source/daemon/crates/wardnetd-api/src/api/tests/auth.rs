@@ -83,7 +83,7 @@ impl AuthService for MockAuthService {
 
 /// Mock auth service for refresh endpoint tests.
 struct MockRefreshAuthService {
-    /// `Ok(())` → returns a successful LoginResult; `Err(())` → returns Unauthorized.
+    /// `Ok(())` → returns a successful `LoginResult`; `Err(())` → returns Unauthorized.
     refresh_result: Result<(), ()>,
 }
 
