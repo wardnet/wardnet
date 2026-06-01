@@ -42,7 +42,7 @@ struct MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn login(&self, _username: &str, _password: &str) -> Result<LoginResult, AppError> {
+    async fn login(&self, _username: &str, _password: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 
@@ -69,6 +69,9 @@ impl AuthService for MockAuthService {
         _to_step: wardnet_common::api::WizardStep,
         _mode: Option<wardnet_common::api::WizardMode>,
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 }

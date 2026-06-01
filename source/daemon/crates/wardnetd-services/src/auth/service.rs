@@ -46,7 +46,24 @@ pub struct LoginResult {
 #[async_trait]
 pub trait AuthService: Send + Sync {
     /// Verify credentials and create a new session. Returns a raw token for the cookie.
-    async fn login(&self, username: &str, password: &str) -> Result<LoginResult, AppError>;
+    ///
+    /// When `remember_me` is `true`, the session is created with
+    /// `remember_me_expiry_hours` lifetime instead of the default
+    /// `session_expiry_hours`.
+    async fn login(
+        &self,
+        username: &str,
+        password: &str,
+        remember_me: bool,
+    ) -> Result<LoginResult, AppError>;
+
+    /// Extend the expiry of an existing session (sliding-window refresh).
+    ///
+    /// Called by `POST /api/auth/refresh` on every admin-app open. Validates
+    /// that the session still exists, slides the expiry forward by
+    /// `remember_me_expiry_hours`, and returns the same token with the new
+    /// `max_age_seconds`.
+    async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError>;
 
     /// Validate a raw session token. Returns the admin UUID if valid and not expired.
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError>;
@@ -93,6 +110,7 @@ pub struct AuthServiceImpl {
     api_keys: Arc<dyn ApiKeyRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
     session_expiry_hours: u64,
+    remember_me_expiry_hours: u64,
 }
 
 impl AuthServiceImpl {
@@ -102,6 +120,7 @@ impl AuthServiceImpl {
         api_keys: Arc<dyn ApiKeyRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
         session_expiry_hours: u64,
+        remember_me_expiry_hours: u64,
     ) -> Self {
         Self {
             admins,
@@ -109,13 +128,19 @@ impl AuthServiceImpl {
             api_keys,
             system_config,
             session_expiry_hours,
+            remember_me_expiry_hours,
         }
     }
 }
 
 #[async_trait]
 impl AuthService for AuthServiceImpl {
-    async fn login(&self, username: &str, password: &str) -> Result<LoginResult, AppError> {
+    async fn login(
+        &self,
+        username: &str,
+        password: &str,
+        remember_me: bool,
+    ) -> Result<LoginResult, AppError> {
         let (admin_id, password_hash) = self
             .admins
             .find_by_username(username)
@@ -140,8 +165,13 @@ impl AuthService for AuthServiceImpl {
 
         let session_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
-        let expiry_hours = i64::try_from(self.session_expiry_hours).unwrap_or(24);
-        let expires_at = now + chrono::Duration::hours(expiry_hours);
+        let expiry_hours = if remember_me {
+            self.remember_me_expiry_hours
+        } else {
+            self.session_expiry_hours
+        };
+        let expiry_hours_i64 = i64::try_from(expiry_hours).unwrap_or(24);
+        let expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions
             .create(
@@ -156,7 +186,36 @@ impl AuthService for AuthServiceImpl {
 
         Ok(LoginResult {
             token,
-            max_age_seconds: self.session_expiry_hours * 3600,
+            max_age_seconds: expiry_hours * 3600,
+        })
+    }
+
+    async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError> {
+        auth_context::require_admin()?;
+
+        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let now = chrono::Utc::now();
+        let now_str = now.to_rfc3339();
+
+        // Verify the session still exists (guards against replaying an already-expired token).
+        self.sessions
+            .find_admin_id_by_token_hash(&token_hash, &now_str)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::Unauthorized("session not found or expired".to_owned()))?;
+
+        let expiry_hours_i64 =
+            i64::try_from(self.remember_me_expiry_hours).unwrap_or(720);
+        let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
+
+        self.sessions
+            .extend_expiry(&token_hash, &new_expires_at.to_rfc3339())
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(LoginResult {
+            token: token.to_owned(),
+            max_age_seconds: self.remember_me_expiry_hours * 3600,
         })
     }
 

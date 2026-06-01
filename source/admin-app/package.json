@@ -14,6 +14,7 @@
     "@wardnet/forge-web": "portal:../admin-site/forge-web",
     "@wardnet/js": "portal:../sdk/wardnet-js",
     "@wardnet/wardnet-web": "portal:../wardnet-web",
+    "lucide-react": "1.14.0",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "react-router": "7.15.1",

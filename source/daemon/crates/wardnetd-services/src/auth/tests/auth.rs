@@ -58,6 +58,9 @@ impl SessionRepository for MockSessionRepo {
     async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
         Ok(0)
     }
+    async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Mock API key repo that returns preconfigured key hashes.
@@ -130,6 +133,7 @@ fn make_auth_service(
         }),
         Arc::new(MockSystemConfigRepo),
         24,
+        720,
     )
 }
 
@@ -140,7 +144,7 @@ async fn login_success() {
     let hash = argon2_hash("correct-password");
     let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
 
-    let result = svc.login("admin", "correct-password").await;
+    let result = svc.login("admin", "correct-password", false).await;
     assert!(result.is_ok());
     let login = result.unwrap();
     assert!(!login.token.is_empty());
@@ -152,7 +156,7 @@ async fn login_wrong_password() {
     let hash = argon2_hash("correct-password");
     let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
 
-    let result = svc.login("admin", "wrong-password").await;
+    let result = svc.login("admin", "wrong-password", false).await;
     assert!(result.is_err());
 }
 
@@ -160,7 +164,7 @@ async fn login_wrong_password() {
 async fn login_user_not_found() {
     let svc = make_auth_service(None, None, None, vec![]);
 
-    let result = svc.login("nobody", "password").await;
+    let result = svc.login("nobody", "password", false).await;
     assert!(result.is_err());
 }
 

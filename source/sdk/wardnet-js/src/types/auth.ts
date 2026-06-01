@@ -2,6 +2,8 @@
 export interface LoginRequest {
   username: string;
   password: string;
+  /** When `true`, the session is set with a 30-day Max-Age. */
+  rememberMe?: boolean;
 }
 
 /** Response body for POST /api/auth/login.

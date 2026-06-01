@@ -38,4 +38,7 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: ["use-sync-external-store/shim"],
+  },
 });

@@ -69,6 +69,9 @@ impl SessionRepository for MockSessionRepo {
     async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
         Ok(0)
     }
+    async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 struct MockApiKeyRepo;
@@ -139,6 +142,7 @@ fn make_service(
         Arc::new(MockApiKeyRepo),
         system_config.clone(),
         24,
+        720,
     );
     (svc, system_config)
 }

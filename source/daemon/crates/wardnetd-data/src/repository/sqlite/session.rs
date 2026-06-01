@@ -69,4 +69,13 @@ impl SessionRepository for SqliteSessionRepository {
             .await?;
         Ok(result.rows_affected())
     }
+
+    async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
+            .bind(new_expires_at)
+            .bind(token_hash)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
 }

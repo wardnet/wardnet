@@ -6,30 +6,44 @@ import { Field } from "@wardnet/forge-web/field";
 import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
 import { useAuth } from "@wardnet/wardnet-web";
+import { useBiometric } from "@/hooks/useBiometric";
+import { BiometricSetupPrompt } from "@/components/BiometricSetupPrompt";
+
+interface Props {
+  /** Called after a successful login to mark this session as unlocked. */
+  onUnlock: () => void;
+}
 
 /**
- * Admin login page — rendered inside AuthLayout's branded hero.
+ * Admin login page for the mobile admin PWA.
  *
- * Uses the Forge `<Form>` + `<Validator>` pair: per-field rules are
- * declared inline and the form surfaces every failure on submit (not
- * just the first). AuthLayout already hosts a `<Card>`, so this page
- * renders only the form contents (no wrapper div, no inner card).
+ * Always sends `rememberMe: true` — admin-app sessions are always 30 days.
+ * After a successful login, if the device supports biometrics and no
+ * credential is registered yet, shows the `<BiometricSetupPrompt>`.
  */
-export default function Login() {
+export default function Login({ onUnlock }: Props) {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const biometric = useBiometric();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showBiometricSetup, setShowBiometricSetup] = useState(false);
 
   async function handleSubmit(values: { username: string; password: string }) {
     setFormError(null);
     setLoading(true);
     try {
-      await login(values.username, values.password, rememberMe);
-      navigate("/");
+      await login(values.username, values.password, true);
+
+      if (biometric.isAvailable() && !biometric.isRegistered()) {
+        setShowBiometricSetup(true);
+      } else {
+        onUnlock();
+        navigate("/", { replace: true });
+      }
     } catch (err) {
       if (err instanceof WardnetApiError && err.status === 401) {
         setFormError("Invalid username or password.");
@@ -41,6 +55,22 @@ export default function Login() {
     }
   }
 
+  if (showBiometricSetup) {
+    return (
+      <BiometricSetupPrompt
+        username={username}
+        onAccept={() => {
+          onUnlock();
+          navigate("/", { replace: true });
+        }}
+        onDecline={() => {
+          onUnlock();
+          navigate("/", { replace: true });
+        }}
+      />
+    );
+  }
+
   return (
     <Form values={{ username, password }} onSubmit={handleSubmit} className="flex flex-col gap-5">
       <Field label="Username" htmlFor="username" name="username">
@@ -50,6 +80,7 @@ export default function Login() {
           onChange={(e) => setUsername(e.target.value)}
           autoComplete="username"
           placeholder="admin"
+          inputMode="text"
         />
       </Field>
       <Validator name="username" rule="required" message="Username is required." />
@@ -66,20 +97,7 @@ export default function Login() {
       </Field>
       <Validator name="password" rule="required" message="Password is required." />
 
-      <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={rememberMe}
-          onChange={(e) => setRememberMe(e.target.checked)}
-          className="accent-accent"
-        />
-        Remember me for 30 days
-      </label>
-
       {formError && <p className="text-sm text-danger">{formError}</p>}
-      <p className="text-center text-xs text-ink-3">
-        Credentials are set during initial daemon setup.
-      </p>
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Signing in…" : "Log in"}
       </Button>

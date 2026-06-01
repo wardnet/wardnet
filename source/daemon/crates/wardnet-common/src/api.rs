@@ -22,6 +22,11 @@ use uuid::Uuid;
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    /// When `true`, the session cookie is set with a 30-day `Max-Age` instead
+    /// of the default 24-hour expiry. Admin-app always sends `true`; admin-site
+    /// exposes this as a "Remember me" checkbox.
+    #[serde(default)]
+    pub remember_me: bool,
 }
 
 // Redact `password` so a stray `tracing::debug!(?req)` in the auth path

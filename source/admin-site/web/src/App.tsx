@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { ErrorBoundary } from "@/components/core/ErrorBoundary";
@@ -41,9 +41,25 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
  * so the boolean check still works for clients that haven't been
  * updated, but the multi-step wizard re-routes the operator back to
  * /setup after each step until they reach the final confirmation.
+ *
+ * When setup transitions to completed and a `wardnet_returnTo` value
+ * is stored in sessionStorage (written by main.tsx on load), the guard
+ * redirects back to that surface instead of staying on the admin-site.
  */
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const { data, isLoading } = useSetupStatus();
+  const didRedirectRef = useRef(false);
+
+  useEffect(() => {
+    if (data?.wizard_step === "completed" && !didRedirectRef.current) {
+      const returnTo = sessionStorage.getItem("wardnet_returnTo");
+      if (returnTo) {
+        didRedirectRef.current = true;
+        sessionStorage.removeItem("wardnet_returnTo");
+        window.location.replace(returnTo);
+      }
+    }
+  }, [data?.wizard_step]);
 
   if (isLoading) return null;
   if (data && data.wizard_step !== "completed") return <Navigate to="/setup" replace />;
