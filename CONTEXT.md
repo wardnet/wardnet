@@ -2,7 +2,7 @@
 
 ## Surfaces
 
-**Admin site** — The full desktop web admin. Served at `<id>.wardnet.network/admin/`. Not a PWA; intended for desktop use only. Previously named `admin-app` in source; renamed to `admin-site`.
+**Admin site** — The full desktop web admin. Served at `<id>.wardnet.network/admin/`. Not a PWA; intended for desktop use only. Source package: `source/admin-site`.
 
 **User PWA** — Installable mobile app for non-admin household members. Served at `<id>.wardnet.network/`. Scope: self-service only (own device routing, own DNS stats, own connection status). Cannot manage other devices.
 
