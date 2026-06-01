@@ -46,7 +46,7 @@ export function BiometricGate({ onSuccess, onUsePassword }: Props) {
           <p className="text-sm text-danger">Biometric verification failed. Try again.</p>
           <button
             onClick={attempt}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"
           >
             Retry
           </button>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Card } from "@wardnet/forge-web/card";
 import { useBiometric } from "@/hooks/useBiometric";
 
 interface Props {
@@ -32,8 +33,8 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-xl bg-surface p-6 shadow-xl flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <Card className="w-full max-w-sm flex flex-col gap-4">
         <div>
           <h2 className="text-base font-semibold text-ink">Enable biometric unlock?</h2>
           <p className="mt-1 text-sm text-ink-3">
@@ -48,19 +49,19 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
           <button
             onClick={handleAccept}
             disabled={loading}
-            className="flex-1 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="flex-1 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink disabled:opacity-50"
           >
             {loading ? "Setting up…" : "Enable"}
           </button>
           <button
             onClick={onDecline}
             disabled={loading}
-            className="flex-1 rounded-md border border-ink-5 px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            className="flex-1 rounded-md border border-line px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
           >
             Not now
           </button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
