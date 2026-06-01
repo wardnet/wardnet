@@ -7,6 +7,9 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import Devices from "@/pages/Devices";
+import Tunnels from "@/pages/Tunnels";
+import System from "@/pages/System";
 
 /** Redirects to /login if the user has no active session. */
 function AdminRoute() {
@@ -93,6 +96,9 @@ export default function App() {
         <Route element={<AdminRoute />}>
           <Route element={<AppLayout />}>
             <Route index element={<Dashboard />} />
+            <Route path="devices" element={<Devices />} />
+            <Route path="tunnels" element={<Tunnels />} />
+            <Route path="system" element={<System />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

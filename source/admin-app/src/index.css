@@ -26,6 +26,14 @@
   --color-ink-4: var(--ink-4);
   --color-ink-5: var(--ink-5);
 
+  /* Sidebar — bg-side, text-side-ink, text-side-ink-2, etc. */
+  --color-side: var(--side-bg);
+  --color-side-line: var(--side-line);
+  --color-side-ink: var(--side-ink);
+  --color-side-ink-2: var(--side-ink-2);
+  --color-side-ink-active: var(--side-ink-active);
+  --color-side-active: var(--side-active-bg);
+
   /* Brand */
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
@@ -70,5 +78,25 @@
   samp,
   pre {
     font-feature-settings: "zero";
+  }
+}
+
+@keyframes pulse-dot {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@layer utilities {
+  .animate-pulse-dot {
+    animation: pulse-dot 2.4s infinite;
+  }
+  .animate-slide-up {
+    animation: slide-up 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 }
