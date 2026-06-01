@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 
-use crate::{AuthService, AuthServiceImpl};
+use crate::{AuthService, AuthServiceImpl, auth_context};
+use crate::error::AppError;
 use wardnetd_data::repository::{
     AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
 };
@@ -34,6 +37,7 @@ impl AdminRepository for MockAdminRepo {
 /// Mock session repo that captures created sessions and returns a preconfigured lookup result.
 struct MockSessionRepo {
     find_result: Mutex<Option<String>>,
+    remember_me: Mutex<Option<bool>>,
 }
 
 #[async_trait]
@@ -45,6 +49,7 @@ impl SessionRepository for MockSessionRepo {
         _token_hash: &str,
         _created_at: &str,
         _expires_at: &str,
+        _remember_me: bool,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -60,6 +65,9 @@ impl SessionRepository for MockSessionRepo {
     }
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
+    }
+    async fn remember_me_for_token(&self, _token_hash: &str) -> anyhow::Result<Option<bool>> {
+        Ok(*self.remember_me.lock().unwrap())
     }
 }
 
@@ -127,6 +135,7 @@ fn make_auth_service(
         }),
         Arc::new(MockSessionRepo {
             find_result: Mutex::new(session_find),
+            remember_me: Mutex::new(Some(true)),
         }),
         Arc::new(MockApiKeyRepo {
             hashes: api_key_hashes,
@@ -248,4 +257,59 @@ async fn is_setup_completed_delegates() {
     // Default MockSystemConfigRepo returns false.
     let result = svc.is_setup_completed().await.unwrap();
     assert!(!result);
+}
+
+#[tokio::test]
+async fn refresh_session_success() {
+    // Session exists and was created as remember_me=true → extends expiry.
+    let admin_uuid = "00000000-0000-0000-0000-000000000001";
+    let svc = make_auth_service(None, None, Some(admin_uuid.to_owned()), vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin { admin_id: Uuid::nil() },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(result.is_ok());
+    let r = result.unwrap();
+    assert!(!r.token.is_empty());
+    assert_eq!(r.max_age_seconds, 720 * 3600);
+}
+
+#[tokio::test]
+async fn refresh_session_not_remember_me_returns_forbidden() {
+    // Session exists but remember_me=false → Forbidden.
+    let admin_uuid = "00000000-0000-0000-0000-000000000001";
+    // Build a service with a MockSessionRepo that returns remember_me=false.
+    let svc = AuthServiceImpl::new(
+        Arc::new(MockAdminRepo {
+            find_result: Mutex::new(None),
+            first_id: Mutex::new(None),
+        }),
+        Arc::new(MockSessionRepo {
+            find_result: Mutex::new(Some(admin_uuid.to_owned())),
+            remember_me: Mutex::new(Some(false)),
+        }),
+        Arc::new(MockApiKeyRepo { hashes: vec![] }),
+        Arc::new(MockSystemConfigRepo),
+        24,
+        720,
+    );
+    let result = auth_context::with_context(
+        AuthContext::Admin { admin_id: Uuid::nil() },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_expired_returns_unauthorized() {
+    // Session does not exist (find returns None) → Unauthorized.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin { admin_id: Uuid::nil() },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }

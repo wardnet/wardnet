@@ -70,6 +70,7 @@ impl SessionRepository for MockSessionRepo {
         _token_hash: &str,
         _created_at: &str,
         _expires_at: &str,
+        _remember_me: bool,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -85,6 +86,9 @@ impl SessionRepository for MockSessionRepo {
     }
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
+    }
+    async fn remember_me_for_token(&self, _token_hash: &str) -> anyhow::Result<Option<bool>> {
+        Ok(Some(true))
     }
 }
 

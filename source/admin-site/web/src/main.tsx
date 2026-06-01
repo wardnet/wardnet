@@ -14,9 +14,15 @@ import "./index.css";
 // so it survives internal wizard navigations that change the URL.
 (function captureReturnTo() {
   const params = new URLSearchParams(window.location.search);
-  const returnTo = params.get("returnTo");
-  if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
-    sessionStorage.setItem("wardnet_returnTo", returnTo);
+  const raw = params.get("returnTo");
+  if (!raw) return;
+  try {
+    const u = new URL(raw, window.location.origin);
+    if (u.origin === window.location.origin) {
+      sessionStorage.setItem("wardnet_returnTo", u.pathname + u.search);
+    }
+  } catch {
+    // malformed URL — ignore silently
   }
 })();
 

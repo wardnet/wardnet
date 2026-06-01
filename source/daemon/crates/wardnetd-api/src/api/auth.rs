@@ -73,7 +73,12 @@ pub async fn login(
     responses(
         (status = 204, description = "Session expiry extended; fresh Set-Cookie issued"),
         (status = 401, description = "No valid session", body = ApiError),
+        (status = 403, description = "Session was not created with remember_me", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
     ),
 )]
 pub async fn refresh(

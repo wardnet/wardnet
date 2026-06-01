@@ -24,7 +24,7 @@ use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
 
 // ---------------------------------------------------------------------------
-// Mock auth service
+// Mock auth services
 // ---------------------------------------------------------------------------
 
 /// Mock auth service returning a configurable login result or error.
@@ -76,6 +76,53 @@ impl AuthService for MockAuthService {
     }
 }
 
+/// Mock auth service for refresh endpoint tests.
+struct MockRefreshAuthService {
+    /// `Ok(())` → returns a successful LoginResult; `Err(())` → returns Unauthorized.
+    refresh_result: Result<(), ()>,
+}
+
+#[async_trait]
+impl AuthService for MockRefreshAuthService {
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+        // Always return a valid admin so the AdminAuth extractor passes.
+        Ok(Some(Uuid::nil()))
+    }
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(None)
+    }
+    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        match self.refresh_result {
+            Ok(()) => Ok(LoginResult {
+                token: "same-token".to_owned(),
+                max_age_seconds: 720 * 3600,
+            }),
+            Err(()) => Err(AppError::Unauthorized(
+                "session not found or not refreshable".to_owned(),
+            )),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -106,6 +153,12 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
 fn login_app(state: AppState) -> Router {
     Router::new()
         .route("/api/auth/login", post(crate::api::auth::login))
+        .with_state(state)
+}
+
+fn refresh_app(state: AppState) -> Router {
+    Router::new()
+        .route("/api/auth/refresh", post(crate::api::auth::refresh))
         .with_state(state)
 }
 
@@ -232,4 +285,52 @@ async fn login_invalid_json_returns_error() {
 
     let resp = app.oneshot(req).await.unwrap();
     assert!(resp.status().is_client_error());
+}
+
+#[tokio::test]
+async fn refresh_success_returns_204_and_set_cookie() {
+    let state = make_state(MockRefreshAuthService { refresh_result: Ok(()) });
+    let app = refresh_app(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie expected")
+        .to_str()
+        .unwrap();
+    assert!(cookie.contains("wardnet_session=same-token"));
+    assert!(cookie.contains("Max-Age=2592000")); // 720 * 3600
+}
+
+#[tokio::test]
+async fn refresh_without_session_returns_401() {
+    // MockAuthService.validate_session returns Ok(None) → AdminAuth extractor rejects.
+    let state = make_state(MockAuthService {
+        login_result: Ok(LoginResult {
+            token: "unused".to_owned(),
+            max_age_seconds: 0,
+        }),
+    });
+    let app = refresh_app(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }

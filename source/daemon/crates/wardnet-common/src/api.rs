@@ -26,6 +26,7 @@ pub struct LoginRequest {
     /// of the default 24-hour expiry. Admin-app always sends `true`; admin-site
     /// exposes this as a "Remember me" checkbox.
     #[serde(default)]
+    #[schema(default = false)]
     pub remember_me: bool,
 }
 

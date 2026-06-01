@@ -141,6 +141,9 @@ impl AuthService for AuthServiceImpl {
         password: &str,
         remember_me: bool,
     ) -> Result<LoginResult, AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2):
+        // this IS the credential-verification endpoint — by definition the caller
+        // has no session yet, so there is no context to authenticate.
         let (admin_id, password_hash) = self
             .admins
             .find_by_username(username)
@@ -180,6 +183,7 @@ impl AuthService for AuthServiceImpl {
                 &token_hash,
                 &now.to_rfc3339(),
                 &expires_at.to_rfc3339(),
+                remember_me,
             )
             .await
             .map_err(AppError::Internal)?;
@@ -203,6 +207,20 @@ impl AuthService for AuthServiceImpl {
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::Unauthorized("session not found or expired".to_owned()))?;
+
+        // Verify the session was originally created as a long-lived remember-me session.
+        let is_refreshable = self
+            .sessions
+            .remember_me_for_token(&token_hash)
+            .await
+            .map_err(AppError::Internal)?
+            .unwrap_or(false);
+
+        if !is_refreshable {
+            return Err(AppError::Forbidden(
+                "session was not created with remember_me — refresh not permitted".to_owned(),
+            ));
+        }
 
         let expiry_hours_i64 =
             i64::try_from(self.remember_me_expiry_hours).unwrap_or(720);

@@ -14,6 +14,7 @@ pub trait SessionRepository: Send + Sync {
         token_hash: &str,
         created_at: &str,
         expires_at: &str,
+        remember_me: bool,
     ) -> anyhow::Result<()>;
 
     /// Find the `admin_id` for a session whose token hash matches and has not expired.
@@ -28,4 +29,9 @@ pub trait SessionRepository: Send + Sync {
 
     /// Slide the expiry forward for an existing session (used by the refresh endpoint).
     async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()>;
+
+    /// Return whether the session identified by `token_hash` was created as
+    /// a long-lived (remember-me) session. Returns `None` if the session does
+    /// not exist or has expired.
+    async fn remember_me_for_token(&self, token_hash: &str) -> anyhow::Result<Option<bool>>;
 }
