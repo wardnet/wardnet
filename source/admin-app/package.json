@@ -22,6 +22,8 @@
     "zustand": "5.0.13"
   },
   "devDependencies": {
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tailwindcss/vite": "4.2.4",
     "@types/node": "25.8.0",
     "@types/react": "19.2.14",

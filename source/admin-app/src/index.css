@@ -1,1 +1,73 @@
 @import "tailwindcss";
+@import "@wardnet/forge/styles.css";
+@import "@fontsource-variable/inter-tight";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  /* Type */
+  --font-sans: "Inter Tight Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces */
+  --color-bg: var(--bg);
+  --color-elev: var(--bg-elev);
+  --color-sunken: var(--bg-sunken);
+  --color-card: var(--bg-card);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  /* Ink */
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+
+  /* Brand */
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-ink: var(--accent-soft-ink);
+
+  /* Status */
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-soft-ink: var(--warn-soft-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-ink: var(--danger-soft-ink);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Elevation */
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
+  /* Motion */
+  --duration-snap: 120ms;
+  --duration-slide: 200ms;
+  --duration-stream: 600ms;
+  --ease-default: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@layer base {
+  body {
+    font-feature-settings: "ss01", "cv11";
+  }
+  .mono,
+  .font-mono,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-feature-settings: "zero";
+  }
+}
