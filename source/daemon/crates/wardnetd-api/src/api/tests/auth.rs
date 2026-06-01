@@ -34,7 +34,12 @@ struct MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn login(&self, _username: &str, _password: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(
+        &self,
+        _username: &str,
+        _password: &str,
+        _remember_me: bool,
+    ) -> Result<LoginResult, AppError> {
         match &self.login_result {
             Ok(r) => Ok(LoginResult {
                 token: r.token.clone(),
@@ -100,7 +105,9 @@ impl AuthService for MockRefreshAuthService {
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
         Ok(true)
     }
-    async fn wizard_state(&self) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
     async fn advance_wizard(
@@ -289,7 +296,9 @@ async fn login_invalid_json_returns_error() {
 
 #[tokio::test]
 async fn refresh_success_returns_204_and_set_cookie() {
-    let state = make_state(MockRefreshAuthService { refresh_result: Ok(()) });
+    let state = make_state(MockRefreshAuthService {
+        refresh_result: Ok(()),
+    });
     let app = refresh_app(state);
 
     let req = Request::builder()

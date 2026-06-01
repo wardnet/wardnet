@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
-use crate::{AuthService, AuthServiceImpl, auth_context};
 use crate::error::AppError;
+use crate::{AuthService, AuthServiceImpl, auth_context};
 use wardnetd_data::repository::{
     AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
 };
@@ -265,7 +265,9 @@ async fn refresh_session_success() {
     let admin_uuid = "00000000-0000-0000-0000-000000000001";
     let svc = make_auth_service(None, None, Some(admin_uuid.to_owned()), vec![]);
     let result = auth_context::with_context(
-        AuthContext::Admin { admin_id: Uuid::nil() },
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
         async { svc.refresh_session("any-token").await },
     )
     .await;
@@ -295,7 +297,9 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
         720,
     );
     let result = auth_context::with_context(
-        AuthContext::Admin { admin_id: Uuid::nil() },
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
         async { svc.refresh_session("any-token").await },
     )
     .await;
@@ -307,7 +311,9 @@ async fn refresh_session_expired_returns_unauthorized() {
     // Session does not exist (find returns None) → Unauthorized.
     let svc = make_auth_service(None, None, None, vec![]);
     let result = auth_context::with_context(
-        AuthContext::Admin { admin_id: Uuid::nil() },
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
         async { svc.refresh_session("any-token").await },
     )
     .await;

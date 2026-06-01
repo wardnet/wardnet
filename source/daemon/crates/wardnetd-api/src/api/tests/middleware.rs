@@ -42,7 +42,12 @@ struct MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn login(&self, _username: &str, _password: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(
+        &self,
+        _username: &str,
+        _password: &str,
+        _remember_me: bool,
+    ) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 

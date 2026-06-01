@@ -222,8 +222,7 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
-        let expiry_hours_i64 =
-            i64::try_from(self.remember_me_expiry_hours).unwrap_or(720);
+        let expiry_hours_i64 = i64::try_from(self.remember_me_expiry_hours).unwrap_or(720);
         let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions

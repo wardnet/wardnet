@@ -86,9 +86,8 @@ pub async fn refresh(
     _auth: AdminAuth,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    let token = extract_session_token(&headers).ok_or_else(|| {
-        AppError::Unauthorized("no session token in request".to_owned())
-    })?;
+    let token = extract_session_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("no session token in request".to_owned()))?;
 
     let result = state.auth_service().refresh_session(&token).await?;
 
