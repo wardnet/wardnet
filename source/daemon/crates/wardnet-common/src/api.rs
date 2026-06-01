@@ -37,6 +37,7 @@ impl std::fmt::Debug for LoginRequest {
         f.debug_struct("LoginRequest")
             .field("username", &self.username)
             .field("password", &"[REDACTED]")
+            .field("remember_me", &self.remember_me)
             .finish()
     }
 }

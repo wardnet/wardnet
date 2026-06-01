@@ -309,7 +309,7 @@ fn available_disk_bytes(path: &Path) -> Option<u64> {
     };
     // `f_frsize` is the fundamental block size; `f_bavail` is the
     // number of blocks available to non-root.
-    let frsize = stat.f_frsize as u64;
-    let bavail = stat.f_bavail as u64;
+    let frsize = u64::from(stat.f_frsize);
+    let bavail = u64::from(stat.f_bavail);
     frsize.checked_mul(bavail)
 }

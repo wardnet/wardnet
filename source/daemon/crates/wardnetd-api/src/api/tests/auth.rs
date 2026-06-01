@@ -323,6 +323,27 @@ async fn refresh_success_returns_204_and_set_cookie() {
 }
 
 #[tokio::test]
+async fn refresh_via_bearer_token_returns_204() {
+    // Covers the bearer-token branch of extract_session_token.
+    let state = make_state(MockRefreshAuthService {
+        refresh_result: Ok(()),
+    });
+    let app = refresh_app(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Authorization", "Bearer valid-bearer-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(resp.headers().contains_key("set-cookie"));
+}
+
+#[tokio::test]
 async fn refresh_without_session_returns_401() {
     // MockAuthService.validate_session returns Ok(None) → AdminAuth extractor rejects.
     let state = make_state(MockAuthService {
