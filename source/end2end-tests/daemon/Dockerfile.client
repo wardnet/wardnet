@@ -19,7 +19,7 @@
 #       -t wardnet-test-client-debian:dev .
 
 ARG WARDNETD_TEST_IMAGE=wardnetd:dev-test
-ARG BASE_IMAGE=debian:bookworm-slim
+ARG BASE_IMAGE=debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb
 
 FROM ${WARDNETD_TEST_IMAGE} AS source
 
