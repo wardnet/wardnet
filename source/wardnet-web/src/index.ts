@@ -181,3 +181,10 @@ export {
 
 // Hooks — setup wizard
 export { useSetupStatus, useSetup, useAdvanceWizard } from "./hooks/useSetup";
+
+// PWA helpers
+export { registerSW } from "./lib/registerSW";
+export type { RegisterSWOptions } from "./lib/registerSW";
+export { useInstallPrompt } from "./hooks/useInstallPrompt";
+export type { InstallPromptResult } from "./hooks/useInstallPrompt";
+export { useOnlineStatus } from "./hooks/useOnlineStatus";
