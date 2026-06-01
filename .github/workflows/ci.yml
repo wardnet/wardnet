@@ -75,10 +75,16 @@ jobs:
   build-bridge:
     name: Build Bridge
     needs: preflight
-    if: needs.preflight.outputs.bridge == 'true' || needs.preflight.outputs.ci == 'true'
+    if: >
+      needs.preflight.outputs.bridge == 'true' ||
+      needs.preflight.outputs.ci == 'true' ||
+      github.event_name == 'pull_request'
     # check-bridge uploads clippy SARIF to Code Scanning — it needs
     # `security-events: write` granted by the caller. Scoped here so the
     # rest of the run stays read-only.
+    # Always runs on pull_request events so Code Scanning always has a
+    # rust-clippy-bridge analysis to compare against main, preventing the
+    # "configuration not found" warning even when bridge code is unchanged.
     permissions:
       contents: read
       actions: read
