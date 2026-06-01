@@ -1,0 +1,62 @@
+name: Build Vite App
+description: >
+  Set up Node/Yarn, run a build command, and optionally upload the dist as an
+  artifact. Use after actions/checkout and step-security/harden-runner.
+
+  Callers supply the full build command so the action stays build-system-
+  agnostic (Makefile target, yarn script, or anything else).
+
+inputs:
+  cache-dependency-path:
+    description: >
+      Path(s) to the yarn.lock file(s) used as the Yarn cache key.
+      Accepts a multiline string for workspaces with multiple lockfiles.
+    required: true
+  build-command:
+    description: >
+      Shell command that installs deps and produces the dist output.
+      Examples: "make build-site", "cd source/admin-app && yarn install --immutable && yarn build"
+    required: true
+  artifact-name:
+    description: >
+      Name for the uploaded artifact. Leave empty to skip artifact upload
+      (useful for validation-only builds that have no downstream consumer).
+    required: false
+    default: ""
+  artifact-path:
+    description: >
+      Path to the dist directory to upload. Required when artifact-name is set.
+    required: false
+    default: ""
+  retention-days:
+    description: How long to keep the artifact (days).
+    required: false
+    default: "1"
+  github-token:
+    description: >
+      Optional GitHub token exposed as GITHUB_TOKEN during the build.
+      Used by build commands that call the GitHub API (e.g. the marketing-site
+      manifest generator).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-node-yarn
+      with:
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Build
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: ${{ inputs.build-command }}
+
+    - name: Upload dist
+      if: inputs.artifact-name != ''
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact-path }}
+        retention-days: ${{ inputs.retention-days }}

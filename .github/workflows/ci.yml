@@ -41,6 +41,8 @@ jobs:
       bridge: ${{ steps.detect.outputs.bridge }}
       site: ${{ steps.detect.outputs.site }}
       admin-web: ${{ steps.detect.outputs.admin-web }}
+      admin-app: ${{ steps.detect.outputs.admin-app }}
+      user-app: ${{ steps.detect.outputs.user-app }}
       ci: ${{ steps.detect.outputs.ci }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -96,6 +98,20 @@ jobs:
     needs: preflight
     if: needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/build-admin-web.yml
+    secrets: inherit
+
+  build-admin-app:
+    name: Build Admin App
+    needs: preflight
+    if: needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/build-admin-app.yml
+    secrets: inherit
+
+  build-user-app:
+    name: Build User App
+    needs: preflight
+    if: needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/build-user-app.yml
     secrets: inherit
 
   tests-e2e:
