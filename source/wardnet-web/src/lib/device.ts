@@ -1,5 +1,13 @@
 import type { DeviceType } from "@wardnet/js";
 
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
+/** Returns true when the device was seen within the last 5 minutes. */
+export function isDeviceOnline(lastSeen: string): boolean {
+  const ts = new Date(lastSeen).getTime();
+  return Number.isFinite(ts) && Date.now() - ts <= ONLINE_THRESHOLD_MS;
+}
+
 /** Display labels for each {@link DeviceType}, ordered for selection menus. */
 export const DEVICE_TYPE_OPTIONS: { value: DeviceType; label: string }[] = [
   { value: "tv", label: "TV" },

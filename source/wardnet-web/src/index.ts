@@ -36,7 +36,7 @@ export {
 
 // Country / device helpers
 export { countryFlag } from "./lib/country";
-export { DEVICE_TYPE_OPTIONS, deviceTypeLabel } from "./lib/device";
+export { DEVICE_TYPE_OPTIONS, deviceTypeLabel, isDeviceOnline } from "./lib/device";
 export { cronToHuman } from "./lib/cron";
 export { logger, createLogger, setLevel } from "./lib/logger";
 export type { Logger, LogLevel } from "./lib/logger";
