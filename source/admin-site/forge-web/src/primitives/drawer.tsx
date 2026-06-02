@@ -15,7 +15,7 @@ function DrawerTrigger(props: DrawerTriggerProps) {
 }
 
 type DrawerContentProps = React.ComponentProps<typeof Dialog.Content> & {
-  side?: "left" | "right";
+  side?: "left" | "right" | "bottom";
   container?: React.ComponentProps<typeof Dialog.Portal>["container"];
 };
 

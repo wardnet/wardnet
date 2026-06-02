@@ -1302,6 +1302,19 @@ button { font-family: inherit; }
   to   { transform: translateX(100%); }
 }
 
+/* Bottom sheet variant — full width, pinned to viewport bottom, card surface. */
+.drawer[data-side="bottom"] {
+  top: auto; left: 0; right: 0; bottom: 0;
+  width: 100%; max-width: 100%; max-height: 85vh;
+  background: var(--bg-card); color: var(--ink);
+  border-top: 1px solid var(--line); border-right: none; border-left: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+.drawer[data-state="open"][data-side="bottom"]  { animation: drawer-in-bottom  200ms ease; }
+.drawer[data-state="closed"][data-side="bottom"] { animation: drawer-out-bottom 160ms ease forwards; }
+@keyframes drawer-in-bottom  { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes drawer-out-bottom { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
 /* ---------- Popover ---------- */
 .popover {
   background: var(--bg-card);

@@ -1,13 +1,8 @@
 import { MonitorIcon } from "lucide-react";
 import { Link } from "react-router";
 import { Card } from "@wardnet/forge-web/card";
+import { isDeviceOnline } from "@wardnet/wardnet-web";
 import type { Device } from "@wardnet/js";
-
-const ONLINE_WINDOW_MS = 5 * 60_000;
-
-function isOnline(device: Device): boolean {
-  return Date.now() - new Date(device.last_seen).getTime() < ONLINE_WINDOW_MS;
-}
 
 interface Props {
   deviceCount: number;
@@ -16,13 +11,13 @@ interface Props {
 }
 
 export function DevicesCard({ deviceCount, devices, defaultPolicy }: Props) {
-  const onlineCount = devices?.filter(isOnline).length ?? null;
+  const onlineCount = devices?.filter((d) => isDeviceOnline(d.last_seen)).length ?? null;
   const defaultIsTunnel = defaultPolicy != null && defaultPolicy !== "direct";
 
   const tunnelledCount =
     devices?.filter((d) => {
       if (d.current_rule?.type === "tunnel") return true;
-      if (d.current_rule === null && defaultIsTunnel) return true;
+      if ((d.current_rule === null || d.current_rule.type === "default") && defaultIsTunnel) return true;
       return false;
     }).length ?? null;
 

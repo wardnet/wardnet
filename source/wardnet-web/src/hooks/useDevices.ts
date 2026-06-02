@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { RoutingTarget, UpdateDeviceRequest } from "@wardnet/js";
@@ -38,14 +39,17 @@ export function useSetMyRule() {
   });
 }
 
-export function useUpdateDevice() {
+export function useUpdateDevice(options?: { successMessage?: string }) {
   const qc = useQueryClient();
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: UpdateDeviceRequest }) =>
       deviceService.update(id, body),
-    onSuccess: () => {
-      toast.success("Device updated");
-      qc.invalidateQueries({ queryKey: ["devices"] });
+    onSuccess: (_, variables) => {
+      toast.success(optionsRef.current?.successMessage ?? "Device updated");
+      qc.invalidateQueries({ queryKey: ["devices"], exact: true });
+      qc.invalidateQueries({ queryKey: ["devices", variables.id], exact: true });
     },
     onError: () => toast.error("Failed to update device"),
   });
