@@ -17,7 +17,18 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make run-dev-daemon`** / **`make run-dev-web`** — run each piece independently.
 - **`make clean`** — clean all build artifacts
 
-## Direct commands (when needed)
+## Direct commands (fast iteration only — NOT a substitute for Make before push)
+
+> **IMPORTANT**: Direct `cargo`/`yarn` invocations are acceptable for fast inner-loop
+> iteration (e.g. quickly re-running one failing test). They are **NOT** a replacement
+> for the Make gate before `git push`. Specifically:
+> - `cargo clippy -p <crate>` misses `--all-targets` — lib, test, and binary targets
+>   each compile differently; the scoped invocation passes while `make check-daemon` fails.
+> - On macOS, any direct `cargo` command builds for macOS, not Linux. CI runs on Linux.
+>   Always use `make check-daemon` (which wraps the run in a container) for final verification.
+> - Direct `yarn build` is permissive; `make check-web` adds lint and type-check that CI enforces.
+>
+> **Before every `git push`, always run the appropriate Make target.**
 
 ### Daemon (Rust)
 

@@ -47,6 +47,7 @@ cd source/web-ui  && yarn format && yarn lint && yarn type-check
 ### Common mistakes to avoid
 
 - Running only `cargo build` and assuming tests pass — the test compile target has its own stubs that can fall out of sync with service signatures; always run `cargo test --workspace` (or `make check-daemon`) before pushing.
+- **Using `cargo clippy -p <crate>` instead of `make check-daemon`** — the scoped invocation silently skips `--all-targets` (lib, test, and binary targets compile separately) and `cargo fmt --check`. A scoped run can pass while `make check-daemon` fails. Always use the Make target for the pre-push gate.
 - Running `yarn build` but skipping `yarn lint` — Vite is permissive about lint warnings that ESLint elevates to errors in CI.
 - Pushing a rebase without re-running checks locally — dependency bumps pulled in from `main` can change lint/type rules; treat every rebase as a fresh change.
 
