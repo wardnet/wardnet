@@ -47,7 +47,7 @@
     "tailwindcss": "4.3.0",
     "tsx": "4.21.0",
     "typescript": "6.0.3",
-    "vite": "8.0.13",
+    "vite": "8.0.14",
     "vitest": "4.1.7"
   },
   "packageManager": "yarn@4.13.0",
