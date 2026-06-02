@@ -2540,3 +2540,43 @@ async fn bring_up_with_selector_and_resolver_returning_none_uses_stored_endpoint
     let rows = h.tunnels.rows.lock().unwrap();
     assert_eq!(rows[0].endpoint, original_endpoint);
 }
+
+// -- rebuild ------------------------------------------------------------------
+
+#[tokio::test]
+async fn rebuild_success() {
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    // Bring the tunnel up so it is in `Connecting` state — rebuild has work to do.
+    auth_context::with_context(admin_ctx(), h.svc.bring_up(id))
+        .await
+        .unwrap();
+
+    // Clear the interface call counts so we can assert rebuild's own calls.
+    h.tunnel_iface.torn_down.lock().unwrap().clear();
+    h.tunnel_iface.removed.lock().unwrap().clear();
+    h.tunnel_iface.created.lock().unwrap().clear();
+    h.tunnel_iface.brought_up.lock().unwrap().clear();
+
+    auth_context::with_context(admin_ctx(), h.svc.rebuild(id))
+        .await
+        .unwrap();
+
+    // Rebuild must tear down the existing interface and bring a fresh one up.
+    assert_eq!(h.tunnel_iface.torn_down.lock().unwrap().as_slice(), ["wg_ward0"]);
+    assert_eq!(h.tunnel_iface.removed.lock().unwrap().as_slice(), ["wg_ward0"]);
+    assert_eq!(h.tunnel_iface.created.lock().unwrap().as_slice(), ["wg_ward0"]);
+    assert_eq!(h.tunnel_iface.brought_up.lock().unwrap().as_slice(), ["wg_ward0"]);
+}
+
+#[tokio::test]
+async fn rebuild_not_found() {
+    let h = build_harness();
+    let result =
+        auth_context::with_context(admin_ctx(), h.svc.rebuild(Uuid::new_v4())).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
