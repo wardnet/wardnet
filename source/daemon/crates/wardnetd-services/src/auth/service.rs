@@ -217,7 +217,10 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
-        let expiry_hours_i64 = self.remember_me_expiry_hours.min(i64::MAX as u64).cast_signed();
+        let expiry_hours_i64 = self
+            .remember_me_expiry_hours
+            .min(i64::MAX as u64)
+            .cast_signed();
         let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions
