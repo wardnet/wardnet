@@ -16144,6 +16144,8 @@
           "cpu_usage_percent",
           "memory_used_bytes",
           "memory_total_bytes",
+          "disk_free_bytes",
+          "disk_total_bytes",
           "last_shutdown"
         ],
         "properties": {
@@ -16157,6 +16159,16 @@
             "minimum": 0
           },
           "device_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "disk_free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "disk_total_bytes": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
