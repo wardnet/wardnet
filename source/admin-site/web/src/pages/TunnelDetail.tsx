@@ -10,7 +10,12 @@ import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
 import { TunnelThroughputChart } from "@/components/features/TunnelThroughputChart";
 import { TunnelLatencyChart } from "@/components/features/TunnelLatencyChart";
-import { useTunnel, useDeleteTunnel, useSetTunnelDnsOverride } from "@wardnet/wardnet-web";
+import {
+  useTunnel,
+  useDeleteTunnel,
+  useSetTunnelDnsOverride,
+  useRebuildTunnel,
+} from "@wardnet/wardnet-web";
 import { useTunnelStats, RANGES, type StatsRange } from "@wardnet/wardnet-web";
 import { type ZoomRange } from "@/hooks/useChartZoom";
 import { countryFlag } from "@wardnet/wardnet-web";
@@ -49,6 +54,7 @@ export default function TunnelDetail() {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnel(id);
   const deleteTunnel = useDeleteTunnel();
+  const rebuildTunnel = useRebuildTunnel();
   const setDnsOverride = useSetTunnelDnsOverride();
   const {
     data: statsData,
@@ -194,7 +200,14 @@ export default function TunnelDetail() {
 
       <TunnelDevicesTable tunnelId={tunnel.id} />
 
-      <div className="row justify-end">
+      <div className="row justify-end gap-8">
+        <Button
+          variant="outline"
+          disabled={rebuildTunnel.isPending}
+          onClick={() => rebuildTunnel.mutate(tunnel.id)}
+        >
+          {rebuildTunnel.isPending ? "Rebuilding…" : "Rebuild tunnel"}
+        </Button>
         <Button
           variant="destructive"
           onClick={() => {

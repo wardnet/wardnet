@@ -7,7 +7,11 @@ import { Input } from "@wardnet/forge-web/input";
 
 interface LoginFormProps {
   /** Injected login action — callers supply this from their auth store or hook. */
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (
+    username: string,
+    password: string,
+    rememberMe?: boolean,
+  ) => Promise<void>;
   /**
    * Controls the "Remember me" behaviour:
    * - `"checkbox"` — shows an unchecked checkbox the user can toggle (admin-site)
@@ -25,14 +29,19 @@ interface LoginFormProps {
  * Pure presentation — all business logic is injected via props. The caller
  * owns the login action and post-login navigation via `onSuccess`.
  */
-export function LoginForm({ login, rememberMe = false, onSuccess }: LoginFormProps) {
+export function LoginForm({
+  login,
+  rememberMe = false,
+  onSuccess,
+}: LoginFormProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMeChecked, setRememberMeChecked] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const effectiveRememberMe = rememberMe === "checkbox" ? rememberMeChecked : (rememberMe as boolean);
+  const effectiveRememberMe =
+    rememberMe === "checkbox" ? rememberMeChecked : (rememberMe as boolean);
 
   async function handleSubmit(values: { username: string; password: string }) {
     setFormError(null);
@@ -52,7 +61,11 @@ export function LoginForm({ login, rememberMe = false, onSuccess }: LoginFormPro
   }
 
   return (
-    <Form values={{ username, password }} onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <Form
+      values={{ username, password }}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <Field label="Username" htmlFor="username" name="username">
         <Input
           id="username"
@@ -62,7 +75,11 @@ export function LoginForm({ login, rememberMe = false, onSuccess }: LoginFormPro
           placeholder="admin"
         />
       </Field>
-      <Validator name="username" rule="required" message="Username is required." />
+      <Validator
+        name="username"
+        rule="required"
+        message="Username is required."
+      />
 
       <Field label="Password" htmlFor="password" name="password">
         <Input
@@ -74,7 +91,11 @@ export function LoginForm({ login, rememberMe = false, onSuccess }: LoginFormPro
           placeholder="••••••••"
         />
       </Field>
-      <Validator name="password" rule="required" message="Password is required." />
+      <Validator
+        name="password"
+        rule="required"
+        message="Password is required."
+      />
 
       {rememberMe === "checkbox" && (
         <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer select-none">

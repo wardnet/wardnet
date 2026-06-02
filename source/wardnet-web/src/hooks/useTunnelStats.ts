@@ -19,8 +19,10 @@ function makeWindow(range: StatsRange): Window {
   const hours = RANGE_HOURS[range];
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3_600_000);
-  const bucket: StatsBucket = hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
-  const bucketSecs = bucket === "minute" ? 60 : bucket === "hour" ? 3_600 : 86_400;
+  const bucket: StatsBucket =
+    hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
+  const bucketSecs =
+    bucket === "minute" ? 60 : bucket === "hour" ? 3_600 : 86_400;
   return { from: from.toISOString(), to: to.toISOString(), bucket, bucketSecs };
 }
 
@@ -49,19 +51,30 @@ export interface TunnelStatsData {
  * for intraday, 5 min for hour, 1 h for daily).
  */
 export function useTunnelStats(tunnelId: string, range: StatsRange) {
-  const { from, to, bucket, bucketSecs } = useMemo(() => makeWindow(range), [range]);
+  const { from, to, bucket, bucketSecs } = useMemo(
+    () => makeWindow(range),
+    [range],
+  );
 
   // `label_filter` is matched against the canonical sorted-JSON label
   // string the daemon writes — single-key filters are unambiguous.
-  const labelFilter = useMemo(() => JSON.stringify({ tunnel_id: tunnelId }), [tunnelId]);
+  const labelFilter = useMemo(
+    () => JSON.stringify({ tunnel_id: tunnelId }),
+    [tunnelId],
+  );
 
-  const refetchInterval = bucket === "minute" ? 60_000 : bucket === "hour" ? 5 * 60_000 : 3_600_000;
+  const refetchInterval =
+    bucket === "minute" ? 60_000 : bucket === "hour" ? 5 * 60_000 : 3_600_000;
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["stats", "tunnel", tunnelId, range],
     queryFn: () =>
       statsService.queryMulti({
-        metrics: ["tunnel.bytes.tx", "tunnel.bytes.rx", "tunnel.latency.rtt_ms"],
+        metrics: [
+          "tunnel.bytes.tx",
+          "tunnel.bytes.rx",
+          "tunnel.latency.rtt_ms",
+        ],
         from,
         to,
         bucket,

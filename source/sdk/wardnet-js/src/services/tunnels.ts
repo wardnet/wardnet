@@ -4,6 +4,7 @@ import type {
   CreateTunnelResponse,
   DeleteTunnelResponse,
   ListTunnelsResponse,
+  RebuildTunnelResponse,
   TunnelDetailResponse,
   TunnelDevicesResponse,
   TunnelTestResponse,
@@ -70,6 +71,17 @@ export class TunnelService {
     return this.client.request<UpdateTunnelDnsOverrideResponse>(`/tunnels/${id}/dns-override`, {
       method: "PUT",
       body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Tear down and re-apply the WireGuard interface from persisted config
+   * (admin only). Use when a tunnel is stale or devices cannot route through
+   * it.
+   */
+  async rebuild(id: string): Promise<RebuildTunnelResponse> {
+    return this.client.request<RebuildTunnelResponse>(`/tunnels/${id}/rebuild`, {
+      method: "POST",
     });
   }
 }

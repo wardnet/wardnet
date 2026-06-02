@@ -85,6 +85,11 @@ export interface DeleteTunnelResponse {
   message: string;
 }
 
+/** Response for POST /api/tunnels/:id/rebuild. */
+export interface RebuildTunnelResponse {
+  ok: boolean;
+}
+
 /** Response for GET /api/tunnels/:id. */
 export interface TunnelDetailResponse {
   tunnel: Tunnel;

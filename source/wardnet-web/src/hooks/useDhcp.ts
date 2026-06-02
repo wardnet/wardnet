@@ -45,7 +45,9 @@ export function useToggleDhcp() {
   return useMutation({
     mutationFn: (enabled: boolean) => dhcpService.toggle({ enabled }),
     onSuccess: (data) => {
-      toast.success(data.config.enabled ? "DHCP server enabled" : "DHCP server disabled");
+      toast.success(
+        data.config.enabled ? "DHCP server enabled" : "DHCP server disabled",
+      );
       qc.invalidateQueries({ queryKey: ["dhcp"] });
     },
     onError: () => toast.error("Failed to toggle DHCP server"),
@@ -55,7 +57,8 @@ export function useToggleDhcp() {
 export function useUpdateDhcpConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: UpdateDhcpConfigRequest) => dhcpService.updateConfig(body),
+    mutationFn: (body: UpdateDhcpConfigRequest) =>
+      dhcpService.updateConfig(body),
     onSuccess: () => {
       toast.success("DHCP configuration updated");
       qc.invalidateQueries({ queryKey: ["dhcp"] });
@@ -67,7 +70,8 @@ export function useUpdateDhcpConfig() {
 export function useCreateReservation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateDhcpReservationRequest) => dhcpService.createReservation(body),
+    mutationFn: (body: CreateDhcpReservationRequest) =>
+      dhcpService.createReservation(body),
     onSuccess: (data) => {
       toast.success(data.message || "Reservation created");
       qc.invalidateQueries({ queryKey: ["dhcp", "reservations"] });

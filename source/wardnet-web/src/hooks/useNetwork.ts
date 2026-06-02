@@ -19,7 +19,8 @@ export function useNetworkStatus() {
  */
 export function useDiscoverGatewayMac() {
   return useMutation({
-    mutationFn: (body: DiscoverGatewayMacRequest = {}) => networkService.discoverGatewayMac(body),
+    mutationFn: (body: DiscoverGatewayMacRequest = {}) =>
+      networkService.discoverGatewayMac(body),
   });
 }
 

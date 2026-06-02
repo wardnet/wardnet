@@ -15,7 +15,8 @@ export function useSetup() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (body: { username: string; password: string }) => setupService.setup(body),
+    mutationFn: (body: { username: string; password: string }) =>
+      setupService.setup(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["setup", "status"] });
     },

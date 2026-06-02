@@ -48,7 +48,8 @@ export function useDnsFilterProfile(profileId: string | undefined) {
 export function useCreateDnsFilterProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateProfileRequest) => dnsFilterService.createProfile(body),
+    mutationFn: (body: CreateProfileRequest) =>
+      dnsFilterService.createProfile(body),
     onSuccess: (data) => {
       toast.success(data.message || "Profile created");
       qc.invalidateQueries({ queryKey: ["dns-filter"] });
@@ -108,7 +109,9 @@ export function useCreateBlocklist(profileId: string | undefined) {
       dnsFilterService.createBlocklist(profileId!, body),
     onSuccess: (data) => {
       toast.success(data.message || "Blocklist added");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "blocklists"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
     },
     onError: () => toast.error("Failed to add blocklist"),
   });
@@ -121,7 +124,9 @@ export function useUpdateBlocklist(profileId: string | undefined) {
       dnsFilterService.updateBlocklist(profileId!, id, body),
     onSuccess: (data) => {
       toast.success(data.message || "Blocklist updated");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "blocklists"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
     },
     onError: () => toast.error("Failed to update blocklist"),
   });
@@ -130,10 +135,13 @@ export function useUpdateBlocklist(profileId: string | undefined) {
 export function useDeleteBlocklist(profileId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => dnsFilterService.deleteBlocklist(profileId!, id),
+    mutationFn: (id: string) =>
+      dnsFilterService.deleteBlocklist(profileId!, id),
     onSuccess: (data) => {
       toast.success(data.message || "Blocklist deleted");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "blocklists"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
     },
     onError: () => toast.error("Failed to delete blocklist"),
   });
@@ -148,11 +156,17 @@ export function useDeleteBlocklist(profileId: string | undefined) {
  *  `entry_count` refresh. Only one refresh is tracked at a time. */
 export function useRefreshBlocklist(profileId: string | undefined) {
   const qc = useQueryClient();
-  const [active, setActive] = useState<{ jobId: string; blocklistId: string } | null>(null);
+  const [active, setActive] = useState<{
+    jobId: string;
+    blocklistId: string;
+  } | null>(null);
 
   const dispatch = useMutation({
     mutationFn: async (blocklistId: string) => {
-      const res = await dnsFilterService.refreshBlocklist(profileId!, blocklistId);
+      const res = await dnsFilterService.refreshBlocklist(
+        profileId!,
+        blocklistId,
+      );
       return { blocklistId, jobId: res.job_id };
     },
     onSuccess: ({ blocklistId, jobId }) => {
@@ -182,14 +196,18 @@ export function useRefreshBlocklist(profileId: string | undefined) {
     if (job.status === "RUNNING" || job.status === "PENDING") {
       toast.loading("Refreshing blocklist…", {
         id: active.jobId,
-        description: <JobProgressDescription percentage={job.percentage_done} />,
+        description: (
+          <JobProgressDescription percentage={job.percentage_done} />
+        ),
       });
     } else if (job.status === "SUCCEED") {
       toast.success("Blocklist refreshed", {
         id: active.jobId,
         description: undefined,
       });
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "blocklists"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActive(null);
     } else if (job.status === "TERMINATED_WITH_ERRORS") {
@@ -197,7 +215,9 @@ export function useRefreshBlocklist(profileId: string | undefined) {
         id: active.jobId,
         description: undefined,
       });
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "blocklists"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
       setActive(null);
     }
   }, [jobQuery.data, active, qc, profileId]);
@@ -228,7 +248,9 @@ export function useCreateAllowlistEntry(profileId: string | undefined) {
       dnsFilterService.createAllowlistEntry(profileId!, body),
     onSuccess: (data) => {
       toast.success(data.message || "Domain allowlisted");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "allowlist"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "allowlist"],
+      });
     },
     onError: () => toast.error("Failed to add allowlist entry"),
   });
@@ -237,10 +259,13 @@ export function useCreateAllowlistEntry(profileId: string | undefined) {
 export function useDeleteAllowlistEntry(profileId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => dnsFilterService.deleteAllowlistEntry(profileId!, id),
+    mutationFn: (id: string) =>
+      dnsFilterService.deleteAllowlistEntry(profileId!, id),
     onSuccess: (data) => {
       toast.success(data.message || "Allowlist entry removed");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "allowlist"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "allowlist"],
+      });
     },
     onError: () => toast.error("Failed to remove allowlist entry"),
   });
@@ -265,7 +290,9 @@ export function useCreateFilterRule(profileId: string | undefined) {
       dnsFilterService.createFilterRule(profileId!, body),
     onSuccess: (data) => {
       toast.success(data.message || "Filter rule added");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "rules"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "rules"],
+      });
     },
     onError: () => toast.error("Failed to add filter rule"),
   });
@@ -278,7 +305,9 @@ export function useUpdateFilterRule(profileId: string | undefined) {
       dnsFilterService.updateFilterRule(profileId!, id, body),
     onSuccess: (data) => {
       toast.success(data.message || "Filter rule updated");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "rules"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "rules"],
+      });
     },
     onError: () => toast.error("Failed to update filter rule"),
   });
@@ -287,10 +316,13 @@ export function useUpdateFilterRule(profileId: string | undefined) {
 export function useDeleteFilterRule(profileId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => dnsFilterService.deleteFilterRule(profileId!, id),
+    mutationFn: (id: string) =>
+      dnsFilterService.deleteFilterRule(profileId!, id),
     onSuccess: (data) => {
       toast.success(data.message || "Filter rule deleted");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "profile", profileId, "rules"] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "rules"],
+      });
     },
     onError: () => toast.error("Failed to delete filter rule"),
   });
@@ -300,9 +332,12 @@ export function useDeleteFilterRule(profileId: string | undefined) {
 // Per-device settings
 // ---------------------------------------------------------------------------
 
-export function useDeviceFilterSettingsList(params: ListDeviceFilterSettingsParams = {}) {
+export function useDeviceFilterSettingsList(
+  params: ListDeviceFilterSettingsParams = {},
+) {
   // Stable cache key — `enabled === undefined` collapses to "all".
-  const key = params.enabled === undefined ? "all" : params.enabled ? "true" : "false";
+  const key =
+    params.enabled === undefined ? "all" : params.enabled ? "true" : "false";
   return useQuery<ListDeviceFilterSettingsResponse>({
     queryKey: ["dns-filter", "devices", key],
     queryFn: () => dnsFilterService.listDeviceSettings(params),
@@ -320,11 +355,18 @@ export function useDeviceFilterSettings(deviceId: string | undefined) {
 export function useUpdateDeviceFilterSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: UpdateDeviceFilterSettingsRequest }) =>
-      dnsFilterService.updateDeviceSettings(id, body),
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: UpdateDeviceFilterSettingsRequest;
+    }) => dnsFilterService.updateDeviceSettings(id, body),
     onSuccess: (data, variables) => {
       toast.success(data.message || "DNS filter settings updated");
-      qc.invalidateQueries({ queryKey: ["dns-filter", "device", variables.id] });
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "device", variables.id],
+      });
       qc.invalidateQueries({ queryKey: ["dns-filter", "devices"] });
     },
     onError: () => toast.error("Failed to update DNS filter settings"),
@@ -345,13 +387,16 @@ export function useDnsFilterConfig() {
 export function useUpdateDnsFilterConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: UpdateDnsFilterConfigRequest) => dnsFilterService.updateConfig(body),
+    mutationFn: (body: UpdateDnsFilterConfigRequest) =>
+      dnsFilterService.updateConfig(body),
     onSuccess: () => {
       // Stable `id` collapses rapid successive calls (e.g. clicking
       // a default-profile toggle on and off quickly) into a single
       // toast slot. Without it sonner sometimes renders the second
       // toast with an empty body for a frame.
-      toast.success("DNS filter configuration updated", { id: "dns-filter-config-update" });
+      toast.success("DNS filter configuration updated", {
+        id: "dns-filter-config-update",
+      });
       qc.invalidateQueries({ queryKey: ["dns-filter", "config"] });
     },
     onError: () =>

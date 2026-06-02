@@ -22,11 +22,16 @@ export const RANGE_HOURS: Record<StatsRange, number> = {
   "12mo": 12 * 30 * 24,
 };
 
-function makeWindow(range: StatsRange): { from: string; to: string; bucket: StatsBucket } {
+function makeWindow(range: StatsRange): {
+  from: string;
+  to: string;
+  bucket: StatsBucket;
+} {
   const hours = RANGE_HOURS[range];
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3_600_000);
-  const bucket: StatsBucket = hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
+  const bucket: StatsBucket =
+    hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
   return { from: from.toISOString(), to: to.toISOString(), bucket };
 }
 
@@ -44,7 +49,8 @@ export function useDnsStatSummary(range: StatsRange) {
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["stats", "dns-summary", range],
-    queryFn: () => statsService.query({ metric: "dns.queries", from, to, bucket }),
+    queryFn: () =>
+      statsService.query({ metric: "dns.queries", from, to, bucket }),
     refetchInterval: 30_000,
   });
 
@@ -54,10 +60,15 @@ export function useDnsStatSummary(range: StatsRange) {
     let blocked = 0;
     for (const point of data.series ?? []) {
       total += point.value;
-      if (parseLabels(point.labels).outcome === "blocked") blocked += point.value;
+      if (parseLabels(point.labels).outcome === "blocked")
+        blocked += point.value;
     }
     const blockedPercent = total > 0 ? (blocked / total) * 100 : 0;
-    return { total: Math.round(total), blocked: Math.round(blocked), blockedPercent };
+    return {
+      total: Math.round(total),
+      blocked: Math.round(blocked),
+      blockedPercent,
+    };
   }, [data]);
 
   return { data: derived, isLoading, isError, error };
@@ -93,7 +104,8 @@ export function useDnsStatsDashboard(
     queries: [
       {
         queryKey: ["stats", "dns-series", range],
-        queryFn: () => statsService.query({ metric: "dns.queries", from, to, bucket }),
+        queryFn: () =>
+          statsService.query({ metric: "dns.queries", from, to, bucket }),
         refetchInterval: 30_000,
       },
       {
@@ -124,11 +136,15 @@ export function useDnsStatsDashboard(
   });
 
   const isLoading =
-    queryResult.isLoading || topDomainsResult.isLoading || topClientsResult.isLoading;
+    queryResult.isLoading ||
+    topDomainsResult.isLoading ||
+    topClientsResult.isLoading;
 
-  const isError = queryResult.isError || topDomainsResult.isError || topClientsResult.isError;
+  const isError =
+    queryResult.isError || topDomainsResult.isError || topClientsResult.isError;
 
-  const error = queryResult.error ?? topDomainsResult.error ?? topClientsResult.error;
+  const error =
+    queryResult.error ?? topDomainsResult.error ?? topClientsResult.error;
 
   const data = useMemo((): DnsStatsDashboardData | undefined => {
     const raw = queryResult.data;
@@ -161,8 +177,14 @@ export function useDnsStatsDashboard(
       total: Math.round(total),
       blocked: Math.round(blocked),
       blockedPercent,
-      topDomains: topDomainsResult.data ?? { metric: "dns.queries.by_domain", entries: [] },
-      topClients: topClientsResult.data ?? { metric: "dns.queries.by_client", entries: [] },
+      topDomains: topDomainsResult.data ?? {
+        metric: "dns.queries.by_domain",
+        entries: [],
+      },
+      topClients: topClientsResult.data ?? {
+        metric: "dns.queries.by_client",
+        entries: [],
+      },
     };
   }, [queryResult.data, topDomainsResult.data, topClientsResult.data]);
 
@@ -195,7 +217,12 @@ export function useDashboardDnsStats() {
       const now = new Date();
       const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
       const to = now.toISOString();
-      return statsService.query({ metric: "dns.queries", from, to, bucket: "hour" });
+      return statsService.query({
+        metric: "dns.queries",
+        from,
+        to,
+        bucket: "hour",
+      });
     },
     refetchInterval: 30_000,
   });
@@ -218,7 +245,9 @@ export function useDashboardDnsStats() {
       byTs.set(point.ts, entry);
     }
 
-    const sorted = Array.from(byTs.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const sorted = Array.from(byTs.entries()).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
 
     return {
       total: Math.round(total),

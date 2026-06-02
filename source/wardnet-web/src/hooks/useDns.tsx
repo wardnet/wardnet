@@ -28,7 +28,9 @@ export function useToggleDns() {
   return useMutation({
     mutationFn: (enabled: boolean) => dnsService.toggle({ enabled }),
     onSuccess: (data) => {
-      toast.success(data.config.enabled ? "DNS server enabled" : "DNS server disabled");
+      toast.success(
+        data.config.enabled ? "DNS server enabled" : "DNS server disabled",
+      );
       qc.invalidateQueries({ queryKey: ["dns"] });
     },
     onError: () => toast.error("Failed to toggle DNS server"),

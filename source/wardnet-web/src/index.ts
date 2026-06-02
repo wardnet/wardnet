@@ -36,7 +36,11 @@ export {
 
 // Country / device helpers
 export { countryFlag } from "./lib/country";
-export { DEVICE_TYPE_OPTIONS, deviceTypeLabel, isDeviceOnline } from "./lib/device";
+export {
+  DEVICE_TYPE_OPTIONS,
+  deviceTypeLabel,
+  isDeviceOnline,
+} from "./lib/device";
 export { cronToHuman } from "./lib/cron";
 export { logger, createLogger, setLevel } from "./lib/logger";
 export type { Logger, LogLevel } from "./lib/logger";
@@ -52,7 +56,13 @@ export { LoginForm } from "./components/LoginForm";
 export { useAuth } from "./hooks/useAuth";
 
 // Hooks — devices
-export { useDevices, useDevice, useMyDevice, useSetMyRule, useUpdateDevice } from "./hooks/useDevices";
+export {
+  useDevices,
+  useDevice,
+  useMyDevice,
+  useSetMyRule,
+  useUpdateDevice,
+} from "./hooks/useDevices";
 
 // Hooks — tunnels
 export {
@@ -62,6 +72,7 @@ export {
   useCreateTunnel,
   useDeleteTunnel,
   useTestTunnel,
+  useRebuildTunnel,
   useSetTunnelDnsOverride,
 } from "./hooks/useTunnels";
 
@@ -82,13 +93,14 @@ export {
 } from "./hooks/useSystemStatus";
 export type { RecentError } from "./hooks/useSystemStatus";
 
-export { useDefaultPolicy, useSetDefaultPolicy } from "./hooks/useDefaultPolicy";
+export {
+  useDefaultPolicy,
+  useSetDefaultPolicy,
+} from "./hooks/useDefaultPolicy";
 
 // Hooks — daemon lifecycle
 export { useDaemonStatus } from "./hooks/useDaemonStatus";
-export {
-  useDaemonReachability,
-} from "./hooks/useDaemonReachability";
+export { useDaemonReachability } from "./hooks/useDaemonReachability";
 export type {
   DaemonReachabilityPhase,
   ReachabilityMode,
@@ -108,9 +120,15 @@ export {
   RANGES,
   RANGE_HOURS,
 } from "./hooks/useStats";
-export type { StatsRange, DnsStatsDashboardData, DashboardDnsStats } from "./hooks/useStats";
+export type {
+  StatsRange,
+  DnsStatsDashboardData,
+  DashboardDnsStats,
+} from "./hooks/useStats";
 export { useTunnelStats } from "./hooks/useTunnelStats";
 export type { TunnelStatsPoint, TunnelStatsData } from "./hooks/useTunnelStats";
+export { useCombinedTunnelStats } from "./hooks/useCombinedTunnelStats";
+export type { CombinedTunnelStatsData } from "./hooks/useCombinedTunnelStats";
 
 // Hooks — DNS
 export {
@@ -149,7 +167,11 @@ export {
 export { useDnsQueryLog } from "./hooks/useDnsLogs";
 
 // Hooks — network + DHCP
-export { useNetworkStatus, useDiscoverGatewayMac, useDhcpSelfProbe } from "./hooks/useNetwork";
+export {
+  useNetworkStatus,
+  useDiscoverGatewayMac,
+  useDhcpSelfProbe,
+} from "./hooks/useNetwork";
 export {
   useDhcpStatus,
   useDhcpConfig,

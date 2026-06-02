@@ -29,6 +29,15 @@ wardnetd-mock         ─  Dev binary: same wardnetd-api/services/data stack, no
 - **Secret-store concerns are provider-owned too**: `SecretStore::backup_contents` / `restore_from_backup` live on the trait, so each provider (`FileSecretStore` today; `HashicorpVault`, `1Password`, etc. later) decides what travels with a bundle and what stays in the external service.
 - **mDNS advertisement is a self-contained runner**: `wardnetd::mdns_advertiser::MdnsAdvertiser` (Linux production binary only) publishes `<hostname>.local.` so the setup wizard is reachable without a known IP. It is a runner, not a service — mirrors `HeartbeatRunner` / `RouteMonitor`, not a trait-backed service. The mock binary does not start it.
 
+## Tunnel rebuild endpoint (issue #480)
+
+`POST /api/tunnels/{id}/rebuild` — admin-only endpoint that invokes `TunnelService::rebuild(id)`. The service method calls `tear_down_core` then `bring_up_core` (the same path used by the internal watchdog). The handler returns 404 for unknown tunnel IDs and guards against issuing a rebuild while a test probe is already in flight (409 Conflict). The response is `RebuildTunnelResponse { ok: true }`.
+
+Key conventions:
+- `tear_down_core` / `bring_up_core` are the internal primitives shared between `test_tunnel`, the idle watchdog, and `rebuild`. Always call them — never reach into `TunnelInterface` directly from `rebuild`.
+- Errors from `bring_up_core` are **logged** (not silently swallowed) before returning to the caller.
+- The in-flight guard reuses the same `Arc<Mutex<HashSet<Uuid>>>` that `test_tunnel` already holds; this prevents a rebuild from racing a concurrent test.
+
 ## Stats subsystem (issue #409)
 
 A generic pre-aggregating stats subsystem. All layers (data, services, API) are complete as of PR 2.

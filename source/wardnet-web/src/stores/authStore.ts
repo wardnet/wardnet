@@ -5,7 +5,11 @@ import { authService, systemService } from "../lib/sdk";
 interface AuthState {
   isAdmin: boolean;
   isChecking: boolean;
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (
+    username: string,
+    password: string,
+    rememberMe?: boolean,
+  ) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<void>;
   refresh: () => Promise<void>;

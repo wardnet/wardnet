@@ -303,6 +303,10 @@ impl TunnelService for MockTunnelService {
         unimplemented!("not used in routing tests")
     }
 
+    async fn rebuild(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!("not used in routing tests")
+    }
+
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!("not used in routing tests")
     }

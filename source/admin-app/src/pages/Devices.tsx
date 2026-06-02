@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline } from "@wardnet/wardnet-web";
+import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { ChevronRightIcon } from "lucide-react";
 import type { Device, Tunnel } from "@wardnet/js";
@@ -71,9 +72,12 @@ const DeviceRow = memo(function DeviceRow({
 });
 
 export default function Devices() {
-  const { data: devicesData, isLoading } = useDevices();
+  const { data: devicesData, isLoading: devicesLoading } = useDevices();
   const { data: tunnelsData } = useTunnels();
-  const { data: policyData } = useDefaultPolicy();
+  const { data: policyData, isLoading: policyLoading } = useDefaultPolicy();
+  const isLoading = devicesLoading || policyLoading;
+
+  const { showingLastKnownState } = useOnlineStatusContext();
 
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -146,38 +150,42 @@ export default function Devices() {
     <div className="flex flex-col p-4">
       <h1 className="mb-4 text-xl font-semibold text-ink">Devices</h1>
 
-      {/* Filter pills */}
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        {(["all", "online", "vpn"] as Filter[]).map((id) => (
-          <button
-            key={id}
-            onClick={() => setFilter(id)}
-            className={[
-              "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-snap",
-              filter === id ? "bg-accent text-accent-ink" : "bg-sunken text-ink-3 active:bg-line",
-            ].join(" ")}
-          >
-            {FILTER_LABELS[id]} ({counts[id]})
-          </button>
-        ))}
-      </div>
+      <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
 
-      {/* Device list */}
-      {visible.length === 0
-        ? <p className="py-16 text-center text-sm text-ink-3">No devices match this filter.</p>
-        : (
-          <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
-            {visible.map(({ device, online }) => (
-              <DeviceRow
-                key={device.id}
-                device={device}
-                online={online}
-                tunnels={tunnels}
-                onSelect={handleDeviceClick}
-              />
-            ))}
-          </div>
-        )}
+        {/* Filter pills */}
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          {(["all", "online", "vpn"] as Filter[]).map((id) => (
+            <button
+              key={id}
+              onClick={() => setFilter(id)}
+              className={[
+                "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-snap",
+                filter === id ? "bg-accent text-accent-ink" : "bg-sunken text-ink-3 active:bg-line",
+              ].join(" ")}
+            >
+              {FILTER_LABELS[id]} ({counts[id]})
+            </button>
+          ))}
+        </div>
+
+        {/* Device list */}
+        {visible.length === 0
+          ? <p className="py-16 text-center text-sm text-ink-3">No devices match this filter.</p>
+          : (
+            <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
+              {visible.map(({ device, online }) => (
+                <DeviceRow
+                  key={device.id}
+                  device={device}
+                  online={online}
+                  tunnels={tunnels}
+                  onSelect={handleDeviceClick}
+                />
+              ))}
+            </div>
+          )}
+
+      </div>
 
       <DeviceRoutingSheet
         device={selectedDevice}
