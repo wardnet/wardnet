@@ -71,6 +71,13 @@ pub trait TunnelService: Send + Sync {
     /// upstream pool (`false`).
     async fn set_dns_override(&self, id: Uuid, value: bool) -> Result<Tunnel, AppError>;
 
+    /// Tear down and re-apply a tunnel interface from scratch (admin rebuild).
+    ///
+    /// Equivalent to the watchdog recovery path: tears down the `WireGuard`
+    /// interface and brings it back up from the persisted config. Use when
+    /// the tunnel is stale or devices cannot route through it.
+    async fn rebuild(&self, id: Uuid) -> Result<(), AppError>;
+
     /// Bring a tunnel interface up.
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError>;
 
@@ -918,6 +925,17 @@ impl TunnelService for TunnelServiceImpl {
         });
         let tunnel = self.require_tunnel(id).await?;
         Ok(tunnel)
+    }
+
+    async fn rebuild(&self, id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        let _guard = self.acquire_in_flight(id)?;
+        self.tear_down_core(id, "admin rebuild").await?;
+        if let Err(e) = self.bring_up_core(id).await {
+            tracing::error!(tunnel_id = %id, error = %e, "rebuild: tear-down succeeded but bring-up failed — tunnel is down");
+            return Err(e);
+        }
+        Ok(())
     }
 
     async fn bring_up(&self, id: Uuid) -> Result<(), AppError> {

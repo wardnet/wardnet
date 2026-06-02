@@ -122,7 +122,10 @@ export function useDaemonReachability() {
         if (!probeOk) {
           seenDown = true;
           downStreak += 1;
-          if (mode.kind === "shutdown" && downStreak >= OFF_CONFIRM_DOWN_PROBES) {
+          if (
+            mode.kind === "shutdown" &&
+            downStreak >= OFF_CONFIRM_DOWN_PROBES
+          ) {
             // Daemon has been silent long enough — host is off.
             if (!cancelled) setPhase("off");
             return;

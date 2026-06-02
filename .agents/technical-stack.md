@@ -17,15 +17,31 @@
 - TypeScript 5.9, zero runtime dependencies
 - Uses native `fetch` (works in browser and Node 18+)
 - No DOM types — minimal `globals.d.ts` for cross-environment support
-- Linked to web-ui via Yarn `portal:` protocol (`"@wardnet/js": "portal:../sdk/wardnet-js"`)
+- Linked via Yarn `portal:` protocol from all app surfaces (`"@wardnet/js": "portal:../sdk/wardnet-js"`)
 - Yarn 4 with `nodeLinker: node-modules`
 
-## Web UI
+## Shared React library (`@wardnet/wardnet-web`)
+- Lives at `source/wardnet-web/`; linked via `"@wardnet/wardnet-web": "portal:../wardnet-web"`
+- Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, and utility functions
+- All app surfaces (admin-site, user-app, admin-app) import hooks and utilities from here — **do not duplicate hook logic in app-local hook files**
+
+## Admin site (`source/admin-site/web/` — `@wardnet/admin-site`)
+- Full desktop admin UI; served at `/admin/`
 - React 19, TypeScript 5.9, Vite 7
 - Tailwind CSS 4 (CSS-first config: `@import "tailwindcss"` + `@tailwindcss/vite` plugin)
 - shadcn/ui (Radix UI primitives + Tailwind styling) — components in `src/components/core/ui/`
+- Forge design-system components from `@wardnet/forge-web` (`source/admin-site/forge-web/`)
 - TanStack Query 5, React Router 7, Zustand 5
 - ESLint 10 + Prettier
+- Yarn 4 with `nodeLinker: node-modules`
+- Path alias: `@/` → `src/` (Vite + tsconfig)
+
+## Admin mobile PWA (`source/admin-app/` — `@wardnet/admin-app`)
+- Admin PWA for daily operational tasks; served at `/admin-app/`
+- React 19, TypeScript 5.9, Vite 7
+- Tailwind CSS 4; Forge design-system components from `@wardnet/forge-web`
+- TanStack Query 5, React Router 7, Zustand 5, Sonner (toasts)
+- `OnlineStatusContext` — provides `showingLastKnownState: boolean` to all pages; pages wrap content in an offline overlay (pointer-events disabled + opacity dimmed) when true
 - Yarn 4 with `nodeLinker: node-modules`
 - Path alias: `@/` → `src/` (Vite + tsconfig)
 
@@ -34,9 +50,9 @@
 - Docs are plain markdown under `source/site/content/docs/`, rendered via `react-markdown` + `remark-gfm` with custom component mappings in `DocsArticle.tsx`
 - Topic catalogue in `source/site/content/docs.yml` (loaded via `@modyfi/vite-plugin-yaml`)
 
-## Planned infrastructure (PWA initiative — issues #435–#441)
+## PWA initiative (issues #435–#441)
 
+- **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. Admin site and admin-app are both live; user-app is still planned (issue #438). See `CONTEXT.md` for the full glossary.
 - **Caddy** — reverse proxy bundled in the release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443 and forwards to the daemon on port 7411. The daemon manages the Caddyfile on startup. See issue #436.
 - **DDNS + ACME bridge service** — wardnet-operated service assigning each install a subdomain (`<id>.wardnet.network`) and acting as ACME bridge for Let's Encrypt DNS-01 challenges. The cert private key is generated on the Pi and never leaves it. See issue #435.
 - **VAPID / Web Push** — daemon-side push notification support (VAPID key pair generated at setup, subscription records keyed to device MAC or admin session). See issue #440.
-- **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. See `CONTEXT.md` for the full glossary and issues #437–#439 for implementation.

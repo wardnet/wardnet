@@ -63,24 +63,33 @@ export function useCheckForUpdates() {
     onSuccess: (data) => {
       qc.setQueryData(STATUS_KEY, data);
       if (data.status.update_available) {
-        toast.success(`Update available: v${data.status.latest_version}`, { id: TOAST_CHECK });
+        toast.success(`Update available: v${data.status.latest_version}`, {
+          id: TOAST_CHECK,
+        });
       } else {
         toast.success("Wardnet is up to date", { id: TOAST_CHECK });
       }
     },
-    onError: (err) => toast.error(errorMessage(err, "Update check failed"), { id: TOAST_CHECK }),
+    onError: (err) =>
+      toast.error(errorMessage(err, "Update check failed"), {
+        id: TOAST_CHECK,
+      }),
   });
 }
 
 export function useInstallUpdate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: InstallUpdateRequest = {}) => updateService.install(body),
+    mutationFn: (body: InstallUpdateRequest = {}) =>
+      updateService.install(body),
     onSuccess: (data) => {
-      toast.success(`Installing v${data.handle.target_version}...`, { id: TOAST_INSTALL });
+      toast.success(`Installing v${data.handle.target_version}...`, {
+        id: TOAST_INSTALL,
+      });
       qc.invalidateQueries({ queryKey: STATUS_KEY });
     },
-    onError: (err) => toast.error(errorMessage(err, "Install failed"), { id: TOAST_INSTALL }),
+    onError: (err) =>
+      toast.error(errorMessage(err, "Install failed"), { id: TOAST_INSTALL }),
   });
 }
 
@@ -89,10 +98,13 @@ export function useRollbackUpdate() {
   return useMutation({
     mutationFn: () => updateService.rollback(),
     onSuccess: () => {
-      toast.success("Rollback staged — daemon will restart", { id: TOAST_ROLLBACK });
+      toast.success("Rollback staged — daemon will restart", {
+        id: TOAST_ROLLBACK,
+      });
       qc.invalidateQueries({ queryKey: STATUS_KEY });
     },
-    onError: (err) => toast.error(errorMessage(err, "Rollback failed"), { id: TOAST_ROLLBACK }),
+    onError: (err) =>
+      toast.error(errorMessage(err, "Rollback failed"), { id: TOAST_ROLLBACK }),
   });
 }
 
@@ -105,6 +117,8 @@ export function useUpdateConfig() {
       toast.success("Update settings saved", { id: TOAST_CONFIG });
     },
     onError: (err) =>
-      toast.error(errorMessage(err, "Failed to save update settings"), { id: TOAST_CONFIG }),
+      toast.error(errorMessage(err, "Failed to save update settings"), {
+        id: TOAST_CONFIG,
+      }),
   });
 }

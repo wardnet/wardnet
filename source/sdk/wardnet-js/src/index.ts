@@ -114,6 +114,7 @@ export type {
   CreateTunnelResponse,
   ListTunnelsResponse,
   DeleteTunnelResponse,
+  RebuildTunnelResponse,
   TunnelDetailResponse,
   TunnelDevicesResponse,
   TunnelTestResult,

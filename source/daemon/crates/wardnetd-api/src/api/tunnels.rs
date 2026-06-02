@@ -6,7 +6,7 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, ListTunnelsResponse,
-    TunnelDetailResponse, TunnelDevicesResponse, TunnelTestResponse,
+    RebuildTunnelResponse, TunnelDetailResponse, TunnelDevicesResponse, TunnelTestResponse,
     UpdateTunnelDnsOverrideRequest, UpdateTunnelDnsOverrideResponse,
 };
 
@@ -23,6 +23,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(list_tunnel_devices))
         .routes(routes!(test_tunnel))
         .routes(routes!(update_tunnel_dns_override))
+        .routes(routes!(rebuild_tunnel))
 }
 
 #[utoipa::path(
@@ -218,4 +219,31 @@ pub async fn update_tunnel_dns_override(
         .set_dns_override(id, body.override_default_dns)
         .await?;
     Ok(Json(UpdateTunnelDnsOverrideResponse { tunnel }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/tunnels/{id}/rebuild",
+    tag = "tunnels",
+    description = "Tear down the WireGuard interface and re-apply it from the persisted \
+                   config. Use when a tunnel is stale or devices cannot route through it. \
+                   Equivalent to the internal watchdog recovery path. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 200, description = "Tunnel rebuild initiated", body = RebuildTunnelResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn rebuild_tunnel(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<RebuildTunnelResponse>, AppError> {
+    state.tunnel_service().rebuild(id).await?;
+    Ok(Json(RebuildTunnelResponse { ok: true }))
 }

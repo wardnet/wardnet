@@ -211,6 +211,10 @@ impl TunnelService for MockTunnelService {
         unimplemented!()
     }
 
+    async fn rebuild(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         Ok(())
     }

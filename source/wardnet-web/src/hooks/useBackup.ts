@@ -69,9 +69,15 @@ export function useExportBackup() {
 
 /** Preview an import — decrypts server-side, returns manifest + token. */
 export function usePreviewImport() {
-  return useMutation<RestorePreviewResponse, unknown, { bundle: Blob; passphrase: string }>({
-    mutationFn: ({ bundle, passphrase }) => backupService.previewImport(bundle, passphrase),
-    onError: (err) => toast.error(errorMessage(err, "Bundle could not be decrypted")),
+  return useMutation<
+    RestorePreviewResponse,
+    unknown,
+    { bundle: Blob; passphrase: string }
+  >({
+    mutationFn: ({ bundle, passphrase }) =>
+      backupService.previewImport(bundle, passphrase),
+    onError: (err) =>
+      toast.error(errorMessage(err, "Bundle could not be decrypted")),
   });
 }
 

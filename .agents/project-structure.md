@@ -38,6 +38,7 @@ source/
 │       │   └── src/
 │       │       ├── api/             # Endpoint handlers (auth, devices, dhcp, dns, info, setup, stats, system, tunnels, providers, backup, update)
 │       │       │   ├── stats.rs     # GET /api/stats (time-series query) + GET /api/stats/top (top-N)
+│       │       │   ├── tunnels.rs   # includes POST /api/tunnels/{id}/rebuild → TunnelService::rebuild()
 │       │       │   └── logs_ws.rs   # WebSocket log streaming endpoint
 │       │       ├── middleware.rs    # AuthContextLayer, RequestContextLayer, CORS, tracing
 │       │       ├── state.rs         # AppState (holds Arc<dyn Service> trait objects + EventPublisher)
@@ -79,23 +80,48 @@ source/
 │   └── wardnet-js/                  # @wardnet/js — TypeScript SDK (browser + Node)
 │       └── src/
 │           ├── client.ts            # WardnetClient base HTTP client
-│           ├── services/            # AuthService, DeviceService, TunnelService, ProviderService, SystemService, SetupService, InfoService, BackupService, UpdateService
-│           └── types/               # TypeScript type definitions (mirrors daemon API)
-├── admin-site/                      # PLANNED (issue #437): rename of web-ui/ — full desktop admin (not a PWA)
-├── web-ui/                          # React + TypeScript frontend (to be renamed admin-site — see issue #437)
-│   └── src/
-│       ├── components/
-│       │   ├── core/ui/             # shadcn/ui components (Button, Card, Sheet, Dialog, Select, Tabs, Switch, etc.)
-│       │   ├── compound/            # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, Logo, CountryCombobox, RoutingSelector, ApiErrorAlert)
-│       │   ├── features/            # Use-case components (DeviceList, TunnelList, LoginForm, BackupCard, RestartProgressDialog, UpdateCard)
-│       │   └── layouts/             # Page shells (AppLayout, AuthLayout)
-│       ├── hooks/                   # React hooks bridging SDK ↔ React (useAuth, useTheme, useDevices, useTunnels, useProviders, useSystemStatus, useBackup, useRestart, useUpdate, …)
-│       ├── stores/                  # Zustand stores (authStore)
-│       ├── pages/                   # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
-│       └── lib/                     # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
+│           ├── services/            # AuthService, DeviceService, TunnelService (includes rebuild()), ProviderService,
+│           │                        #   SystemService, SetupService, InfoService, BackupService, UpdateService
+│           └── types/               # TypeScript type definitions (mirrors daemon API);
+│                                    #   RebuildTunnelResponse added for POST /api/tunnels/{id}/rebuild
+├── admin-site/                      # Full desktop admin UI (renamed from web-ui/ — issue #437); served at /admin/
+│   ├── forge-web/                   # @wardnet/forge-web — Forge design-system component library (Card, Pill, Sparkline, Button, etc.)
+│   └── web/                         # Admin site app (React + TypeScript)
+│       └── src/
+│           ├── components/
+│           │   ├── core/ui/         # shadcn/ui components (Button, Card, Sheet, Dialog, Select, Tabs, Switch, etc.)
+│           │   ├── compound/        # Compositions (Sidebar, MobileMenu, PageHeader, DeviceIcon, ConnectionStatus, TunnelCard, TunnelDetail, etc.)
+│           │   ├── features/        # Use-case components (DeviceList, TunnelList, LoginForm, BackupCard, RestartProgressDialog, UpdateCard)
+│           │   └── layouts/         # Page shells (AppLayout, AuthLayout)
+│           ├── hooks/               # React hooks bridging SDK ↔ React (see wardnet-web for shared hooks)
+│           ├── stores/              # Zustand stores (authStore)
+│           ├── pages/               # Route pages (Dashboard, Devices, Tunnels, Settings, Login, Setup, MyDevice)
+│           └── lib/                 # SDK instance (sdk.ts), utilities (cn, formatBytes, formatUptime, timeAgo)
 ├── user-app/                        # PLANNED (issue #438): user PWA — self-service for non-admin household members; served at /
-├── admin-app/                       # PLANNED (issue #439): admin mobile PWA — daily operational tasks; served at /admin-app/
-├── web-lib/                         # PLANNED (issue #437): shared component library used by all three app surfaces
+├── admin-app/                       # Admin mobile PWA (issue #439) — daily operational tasks; served at /admin-app/
+│   └── src/
+│       ├── components/              # Mobile-specific components (Header, TabBar, BusyOverlay, ConfirmDialog, DeviceRoutingSheet, ConnectionBanner, etc.)
+│       ├── context/                 # OnlineStatusContext — exposes `showingLastKnownState` flag for offline overlay
+│       ├── features/                # Dashboard feature cards (DevicesCard, TunnelsCard, DnsCard, DaemonStrip, StatusCard)
+│       ├── hooks/                   # App-local hooks (useBiometric)
+│       ├── layouts/                 # AppLayout, AuthLayout
+│       └── pages/                   # Route pages: Dashboard, Devices, Tunnels, Dns, System, Login
+│                                    #   Tunnels page: summary header card (sparkline + combined throughput) + per-tunnel
+│                                    #   cards with status pill, rebuild button, and live throughput; uses
+│                                    #   useCombinedTunnelStats and useRebuildTunnel from wardnet-web.
+│                                    #   Devices page: showingLastKnownState offline overlay; loading skeleton
+│                                    #   gated on both devices + policy loaded.
+├── wardnet-web/                     # @wardnet/wardnet-web — shared React hooks + utilities used by all app surfaces
+│   └── src/
+│       ├── hooks/                   # All shared TanStack Query hooks: useAuth, useDevices, useTunnels, useStats,
+│       │                            #   useTunnelStats, useCombinedTunnelStats, useProviders, useSystemStatus,
+│       │                            #   useDns, useDhcp, useBackup, useUpdate, useSetup, useDaemonStatus, etc.
+│       │                            #   useCombinedTunnelStats — aggregates tunnel.bytes.tx + tunnel.bytes.rx
+│       │                            #   over 1-hour window (1-min buckets) for sparkline + combined throughput.
+│       │                            #   useRebuildTunnel — mutation wrapping POST /api/tunnels/{id}/rebuild.
+│       ├── components/              # LoginForm, JobProgressDescription
+│       ├── stores/                  # Zustand stores (authStore)
+│       └── lib/                     # SDK singletons (sdk.ts), utility functions, country helpers, logger
 └── site/                            # Public documentation + marketing site (Vite + React)
     ├── content/docs/                # Markdown articles served by DocsArticle.tsx
     ├── content/docs.yml             # Topic catalogue driving /docs

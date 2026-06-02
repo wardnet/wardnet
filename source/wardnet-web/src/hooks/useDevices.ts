@@ -49,7 +49,10 @@ export function useUpdateDevice(options?: { successMessage?: string }) {
     onSuccess: (_, variables) => {
       toast.success(optionsRef.current?.successMessage ?? "Device updated");
       qc.invalidateQueries({ queryKey: ["devices"], exact: true });
-      qc.invalidateQueries({ queryKey: ["devices", variables.id], exact: true });
+      qc.invalidateQueries({
+        queryKey: ["devices", variables.id],
+        exact: true,
+      });
     },
     onError: () => toast.error("Failed to update device"),
   });

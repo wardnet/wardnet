@@ -321,6 +321,9 @@ impl TunnelService for StubTunnelService {
     ) -> Result<wardnet_common::tunnel::Tunnel, AppError> {
         unimplemented!()
     }
+    async fn rebuild(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }

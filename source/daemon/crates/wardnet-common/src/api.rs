@@ -199,6 +199,13 @@ pub struct DeleteTunnelResponse {
     pub message: String,
 }
 
+/// Response for POST /api/tunnels/:id/rebuild.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RebuildTunnelResponse {
+    /// Always `true` on a 200 response. Errors surface as non-200 status codes.
+    pub ok: bool,
+}
+
 /// Response for GET /api/tunnels/{id}.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TunnelDetailResponse {

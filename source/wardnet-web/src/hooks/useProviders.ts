@@ -24,23 +24,38 @@ export function useProviderCountries(providerId: string) {
 
 export function useValidateCredentials() {
   return useMutation({
-    mutationFn: ({ providerId, body }: { providerId: string; body: ValidateCredentialsRequest }) =>
-      providerService.validateCredentials(providerId, body),
+    mutationFn: ({
+      providerId,
+      body,
+    }: {
+      providerId: string;
+      body: ValidateCredentialsRequest;
+    }) => providerService.validateCredentials(providerId, body),
   });
 }
 
 export function useProviderServers() {
   return useMutation({
-    mutationFn: ({ providerId, body }: { providerId: string; body: ListServersRequest }) =>
-      providerService.listServers(providerId, body),
+    mutationFn: ({
+      providerId,
+      body,
+    }: {
+      providerId: string;
+      body: ListServersRequest;
+    }) => providerService.listServers(providerId, body),
   });
 }
 
 export function useProviderSetup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ providerId, body }: { providerId: string; body: SetupProviderRequest }) =>
-      providerService.setupTunnel(providerId, body),
+    mutationFn: ({
+      providerId,
+      body,
+    }: {
+      providerId: string;
+      body: SetupProviderRequest;
+    }) => providerService.setupTunnel(providerId, body),
     onSuccess: (data) => {
       toast.success(data.message || "Tunnel created via provider");
       qc.invalidateQueries({ queryKey: ["tunnels"] });

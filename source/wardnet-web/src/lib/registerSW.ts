@@ -23,7 +23,9 @@ export interface RegisterSWOptions {
  * Returns a function that posts `SKIP_WAITING` to the pending SW and reloads the page,
  * or `undefined` when service workers are not supported by the browser.
  */
-export function registerSW(options: RegisterSWOptions = {}): (() => void) | undefined {
+export function registerSW(
+  options: RegisterSWOptions = {},
+): (() => void) | undefined {
   if (!("serviceWorker" in navigator)) return undefined;
 
   const {

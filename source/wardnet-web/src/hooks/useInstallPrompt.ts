@@ -18,7 +18,8 @@ export interface InstallPromptResult {
  * (Chromium-based); it is always `false` on Safari / Firefox.
  */
 export function useInstallPrompt() {
-  const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [promptEvent, setPromptEvent] =
+    useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -35,16 +36,17 @@ export function useInstallPrompt() {
    * The prompt can only be shown once per `beforeinstallprompt` event, so
    * `isInstallable` reverts to `false` after this is called.
    */
-  const promptInstall = useCallback(async (): Promise<InstallPromptResult | null> => {
-    if (!promptEvent) return null;
-    // Capture before the first await — the state update from a re-fired
-    // `beforeinstallprompt` could replace `promptEvent` while we await.
-    const captured = promptEvent;
-    await captured.prompt();
-    const result = await captured.userChoice;
-    setPromptEvent(null);
-    return result;
-  }, [promptEvent]);
+  const promptInstall =
+    useCallback(async (): Promise<InstallPromptResult | null> => {
+      if (!promptEvent) return null;
+      // Capture before the first await — the state update from a re-fired
+      // `beforeinstallprompt` could replace `promptEvent` while we await.
+      const captured = promptEvent;
+      await captured.prompt();
+      const result = await captured.userChoice;
+      setPromptEvent(null);
+      return result;
+    }, [promptEvent]);
 
   return {
     /** `true` when the browser has signalled that the app can be installed. */

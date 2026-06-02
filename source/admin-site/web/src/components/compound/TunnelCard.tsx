@@ -1,11 +1,10 @@
-import { ArrowDown, ArrowUp, Loader2, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@wardnet/forge-web/button";
 import { StatusBadge } from "./StatusBadge";
-import { formatBytes, timeAgo } from "@wardnet/wardnet-web";
-import { countryFlag } from "@wardnet/wardnet-web";
-import { useTestTunnel } from "@wardnet/wardnet-web";
+import { countryFlag, formatBytes, timeAgo } from "@wardnet/wardnet-web";
+import { useTestTunnel, useRebuildTunnel } from "@wardnet/wardnet-web";
 import type { Tunnel, TunnelStatus, ProviderInfo, TunnelTestResult } from "@wardnet/js";
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
@@ -67,6 +66,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
   const flag = tunnel.country_code ? countryFlag(tunnel.country_code) : "";
 
   const testTunnel = useTestTunnel();
+  const rebuildTunnel = useRebuildTunnel();
   const [testResult, setTestResult] = useState<TunnelTestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testedAt, setTestedAt] = useState<string | null>(null);
@@ -194,6 +194,24 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
             </>
           ) : (
             "Test"
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={rebuildTunnel.isPending && rebuildTunnel.variables === tunnel.id}
+          onClick={() => rebuildTunnel.mutate(tunnel.id)}
+        >
+          {rebuildTunnel.isPending && rebuildTunnel.variables === tunnel.id ? (
+            <>
+              <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
+              Rebuilding
+            </>
+          ) : (
+            <>
+              <RotateCcw className="mr-1 size-3" aria-hidden />
+              Rebuild
+            </>
           )}
         </Button>
         <Button

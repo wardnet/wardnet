@@ -163,6 +163,13 @@ impl TunnelService for MockTunnelService {
         Ok(updated)
     }
 
+    async fn rebuild(&self, id: Uuid) -> Result<(), AppError> {
+        if !self.tunnels.iter().any(|t| t.id == id) {
+            return Err(AppError::NotFound(format!("tunnel {id} not found")));
+        }
+        Ok(())
+    }
+
     async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
         Ok(())
     }
@@ -290,6 +297,10 @@ fn tunnel_router(state: AppState) -> Router {
         .route(
             "/api/tunnels/{id}/dns-override",
             axum::routing::put(crate::api::tunnels::update_tunnel_dns_override),
+        )
+        .route(
+            "/api/tunnels/{id}/rebuild",
+            axum::routing::post(crate::api::tunnels::rebuild_tunnel),
         )
         .with_state(state)
 }
@@ -850,6 +861,59 @@ async fn update_tunnel_dns_override_unauthorized_without_session() {
                 .header("Content-Type", "application/json")
                 .extension(connect_info())
                 .body(Body::from(r#"{"override_default_dns": true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/tunnels/:id/rebuild
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn rebuild_tunnel_success() {
+    let tunnel = sample_tunnel();
+    let state = build_state(MockTunnelService::with_tunnels(vec![tunnel]));
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/rebuild",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ok"], true);
+}
+
+#[tokio::test]
+async fn rebuild_tunnel_not_found() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let (status, json) = post_empty(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000099/rebuild",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"], "not found");
+}
+
+#[tokio::test]
+async fn rebuild_tunnel_unauthorized_without_session() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/tunnels/00000000-0000-0000-0000-000000000010/rebuild")
+                .extension(connect_info())
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
