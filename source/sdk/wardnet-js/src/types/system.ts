@@ -31,6 +31,7 @@ export interface SystemStatusResponse {
   uptime_seconds: number;
   device_count: number;
   tunnel_count: number;
+  tunnel_active_count: number;
   db_size_bytes: number;
   cpu_usage_percent: number;
   memory_used_bytes: number;

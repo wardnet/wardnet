@@ -1,7 +1,7 @@
 import * as React from "react";
 import { clsx } from "clsx";
 
-type SparklineProps = Omit<React.ComponentProps<"svg">, "children"> & {
+type SparklineProps = Omit<React.ComponentProps<"svg">, "children" | "values"> & {
   /**
    * Sample points rendered left-to-right. Normalised to a 0..1 viewBox so
    * the host container fully owns width and height; passing 1, 30, or 300

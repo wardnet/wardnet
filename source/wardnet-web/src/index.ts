@@ -104,10 +104,11 @@ export type { ShutdownPhase } from "./hooks/useShutdown";
 export {
   useDnsStatSummary,
   useDnsStatsDashboard,
+  useDashboardDnsStats,
   RANGES,
   RANGE_HOURS,
 } from "./hooks/useStats";
-export type { StatsRange, DnsStatsDashboardData } from "./hooks/useStats";
+export type { StatsRange, DnsStatsDashboardData, DashboardDnsStats } from "./hooks/useStats";
 export { useTunnelStats } from "./hooks/useTunnelStats";
 export type { TunnelStatsPoint, TunnelStatsData } from "./hooks/useTunnelStats";
 
