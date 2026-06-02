@@ -2567,16 +2567,27 @@ async fn rebuild_success() {
         .unwrap();
 
     // Rebuild must tear down the existing interface and bring a fresh one up.
-    assert_eq!(h.tunnel_iface.torn_down.lock().unwrap().as_slice(), ["wg_ward0"]);
-    assert_eq!(h.tunnel_iface.removed.lock().unwrap().as_slice(), ["wg_ward0"]);
-    assert_eq!(h.tunnel_iface.created.lock().unwrap().as_slice(), ["wg_ward0"]);
-    assert_eq!(h.tunnel_iface.brought_up.lock().unwrap().as_slice(), ["wg_ward0"]);
+    assert_eq!(
+        h.tunnel_iface.torn_down.lock().unwrap().as_slice(),
+        ["wg_ward0"]
+    );
+    assert_eq!(
+        h.tunnel_iface.removed.lock().unwrap().as_slice(),
+        ["wg_ward0"]
+    );
+    assert_eq!(
+        h.tunnel_iface.created.lock().unwrap().as_slice(),
+        ["wg_ward0"]
+    );
+    assert_eq!(
+        h.tunnel_iface.brought_up.lock().unwrap().as_slice(),
+        ["wg_ward0"]
+    );
 }
 
 #[tokio::test]
 async fn rebuild_not_found() {
     let h = build_harness();
-    let result =
-        auth_context::with_context(admin_ctx(), h.svc.rebuild(Uuid::new_v4())).await;
+    let result = auth_context::with_context(admin_ctx(), h.svc.rebuild(Uuid::new_v4())).await;
     assert!(matches!(result, Err(AppError::NotFound(_))));
 }
