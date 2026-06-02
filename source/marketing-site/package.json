@@ -48,7 +48,7 @@
     "tsx": "4.21.0",
     "typescript": "6.0.3",
     "vite": "8.0.13",
-    "vitest": "4.1.5"
+    "vitest": "4.1.7"
   },
   "packageManager": "yarn@4.13.0",
   "resolutions": {
