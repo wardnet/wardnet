@@ -20,9 +20,9 @@ export default defineConfig({
     poolOptions: {
       forks: {
         singleFork: true,
+        isolate: false,
       },
     },
-    isolate: false,
     reporters: [
       "default",
       ["junit", { outputFile: "./reports/junit.xml" }],
