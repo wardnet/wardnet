@@ -212,6 +212,7 @@ fn build_service_with_power_ops(
         power_ops,
         Arc::new(StaticNetworkInspector),
         Arc::new(StaticNetworkProbe::default()),
+        Some(std::path::PathBuf::from("/tmp")),
     )
 }
 
@@ -229,6 +230,7 @@ fn build_service_with_repo(
         Arc::new(RecordingPowerOps::default()),
         Arc::new(StaticNetworkInspector),
         Arc::new(StaticNetworkProbe::default()),
+        Some(std::path::PathBuf::from("/tmp")),
     )
 }
 
@@ -297,6 +299,7 @@ async fn status_returns_correct_values() {
     assert!(resp.cpu_usage_percent >= 0.0);
     assert!(resp.memory_total_bytes > 0);
     assert!(resp.memory_used_bytes <= resp.memory_total_bytes);
+    assert!(resp.disk_total_bytes > 0);
 }
 
 #[tokio::test]
@@ -541,6 +544,7 @@ fn build_probe_fixture(
         Arc::new(RecordingPowerOps::default()),
         Arc::new(inspector),
         probe.clone(),
+        Some(std::path::PathBuf::from("/tmp")),
     );
     ProbeFixture {
         svc,

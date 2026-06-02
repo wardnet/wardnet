@@ -140,6 +140,28 @@ impl Default for DatabaseConfig {
     }
 }
 
+impl DatabaseConfig {
+    /// Return the connection string as an absolute [`PathBuf`].
+    ///
+    /// Resolves relative paths against the process working directory so that
+    /// callers like the backup service and the disk-space probe get a path
+    /// that can be matched against absolute mount points. Returns `None` for
+    /// the `:memory:` sentinel (in-memory `SQLite`, no file on disk).
+    #[must_use]
+    pub fn to_file_path(&self) -> Option<std::path::PathBuf> {
+        let s = &self.connection_string;
+        if s == ":memory:" {
+            return None;
+        }
+        let p = std::path::Path::new(s);
+        if p.is_absolute() {
+            Some(p.to_path_buf())
+        } else {
+            std::env::current_dir().ok().map(|cwd| cwd.join(p))
+        }
+    }
+}
+
 /// Log output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -466,6 +488,7 @@ pub struct EnabledMetrics {
     pub wardnet_tunnel_active_count: bool,
     pub wardnet_uptime_seconds: bool,
     pub wardnet_db_size_bytes: bool,
+    pub wardnet_disk_free_bytes: bool,
 }
 
 impl Default for EnabledMetrics {
@@ -480,6 +503,7 @@ impl Default for EnabledMetrics {
             wardnet_tunnel_active_count: true,
             wardnet_uptime_seconds: true,
             wardnet_db_size_bytes: true,
+            wardnet_disk_free_bytes: true,
         }
     }
 }

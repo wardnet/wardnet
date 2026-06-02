@@ -537,6 +537,8 @@ impl SystemService for StubSystemService {
             cpu_usage_percent: 0.0,
             memory_used_bytes: 0,
             memory_total_bytes: 0,
+            disk_free_bytes: 0,
+            disk_total_bytes: 0,
             last_shutdown: LastShutdownStatus {
                 state: LastShutdownState::Unknown,
                 at: None,

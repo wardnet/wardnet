@@ -36,6 +36,8 @@ export interface SystemStatusResponse {
   cpu_usage_percent: number;
   memory_used_bytes: number;
   memory_total_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
   /** Classification of the previous daemon shutdown plus its acknowledgement. */
   last_shutdown: LastShutdownStatus;
 }

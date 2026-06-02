@@ -413,6 +413,7 @@ fn create_services(
         backends.power_ops.clone(),
         backends.network_inspector.clone(),
         backends.network_probe.clone(),
+        config.database.to_file_path(),
     ));
 
     let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));
@@ -574,7 +575,7 @@ fn build_backup_service(
     host_id: String,
     config: &ApplicationConfiguration,
 ) -> Arc<dyn BackupService> {
-    let database_path = std::path::PathBuf::from(&config.database.connection_string);
+    let database_path = config.database.to_file_path().unwrap_or_default();
     Arc::new(BackupServiceImpl::new(
         Arc::new(AgeArchiver::new()),
         repo_factory.dumper(),

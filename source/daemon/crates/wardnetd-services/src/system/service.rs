@@ -1,8 +1,9 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use sysinfo::System;
+use sysinfo::{Disks, System};
 use tokio_util::sync::CancellationToken;
 use wardnet_common::api::{
     DhcpSelfProbeResponse, DiscoverGatewayMacRequest, DiscoverGatewayMacResponse,
@@ -159,6 +160,7 @@ pub struct SystemServiceImpl {
     power_ops: Arc<dyn SystemPowerOps>,
     network_inspector: Arc<dyn NetworkInspector>,
     network_probe: Arc<dyn NetworkProbe>,
+    db_path: Option<PathBuf>,
 }
 
 impl SystemServiceImpl {
@@ -171,6 +173,7 @@ impl SystemServiceImpl {
         power_ops: Arc<dyn SystemPowerOps>,
         network_inspector: Arc<dyn NetworkInspector>,
         network_probe: Arc<dyn NetworkProbe>,
+        db_path: Option<PathBuf>,
     ) -> Self {
         Self {
             system_config,
@@ -181,6 +184,7 @@ impl SystemServiceImpl {
             power_ops,
             network_inspector,
             network_probe,
+            db_path,
         }
     }
 }
@@ -241,6 +245,17 @@ impl SystemService for SystemServiceImpl {
             )
         };
 
+        let (disk_free_bytes, disk_total_bytes) = if let Some(ref db_path) = self.db_path {
+            let disks = Disks::new_with_refreshed_list();
+            let best = disks
+                .iter()
+                .filter(|d| db_path.starts_with(d.mount_point()))
+                .max_by_key(|d| d.mount_point().as_os_str().len());
+            best.map_or((0, 0), |d| (d.available_space(), d.total_space()))
+        } else {
+            (0, 0)
+        };
+
         Ok(SystemStatusResponse {
             version,
             release_version: crate::version::RELEASE_VERSION.to_owned(),
@@ -258,6 +273,8 @@ impl SystemService for SystemServiceImpl {
             cpu_usage_percent,
             memory_used_bytes,
             memory_total_bytes,
+            disk_free_bytes,
+            disk_total_bytes,
             last_shutdown,
         })
     }
