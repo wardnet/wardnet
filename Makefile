@@ -49,7 +49,7 @@ COV_RUNNER ?=
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-bridge build-sdk build-web build-site \
-        check check-sdk check-web check-site check-daemon check-daemon-native check-daemon-container \
+        check check-sdk check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
         check-bridge \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         coverage-bridge coverage-bridge-ci \
@@ -214,6 +214,11 @@ CARGO_CRATE_FLAG  := $(if $(CRATE),-p $(CRATE),)
 
 build-daemon:
 	cd $(DAEMON_DIR) && cargo build --release $(CARGO_TARGET_FLAG) $(CARGO_CRATE_FLAG)
+
+# fmt-daemon: format check only — rustfmt has no Linux-only dependencies so
+# this runs natively on any platform. Used by the pre-commit gate.
+fmt-daemon:
+	cd $(DAEMON_DIR) && cargo fmt --check
 
 # check-daemon: auto-selects native (Linux) or container (macOS/other).
 # The daemon uses Linux-only dependencies (netlink, rtnetlink) so it cannot
