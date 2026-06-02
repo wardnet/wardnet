@@ -1,6 +1,5 @@
 use axum::Json;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::SET_COOKIE;
 use axum::response::IntoResponse;
@@ -48,7 +47,7 @@ pub async fn login(
         .await?;
 
     let cookie_value = format!(
-        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}; Secure",
         result.token, result.max_age_seconds
     );
 
@@ -83,43 +82,18 @@ pub async fn login(
 )]
 pub async fn refresh(
     State(state): State<AppState>,
-    _auth: AdminAuth,
-    headers: HeaderMap,
+    auth: AdminAuth,
 ) -> Result<impl IntoResponse, AppError> {
-    let token = extract_session_token(&headers)
+    let token = auth
+        .session_token
         .ok_or_else(|| AppError::Unauthorized("no session token in request".to_owned()))?;
 
     let result = state.auth_service().refresh_session(&token).await?;
 
     let cookie_value = format!(
-        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}; Secure",
         result.token, result.max_age_seconds
     );
 
     Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, cookie_value)]))
-}
-
-/// Extract the raw session token from a `wardnet_session` cookie or a
-/// `Authorization: Bearer` header (cookie takes precedence).
-fn extract_session_token(headers: &HeaderMap) -> Option<String> {
-    if let Some(v) = headers.get(axum::http::header::COOKIE)
-        && let Some(token) = v.to_str().ok().and_then(|s| {
-            s.split(';').find_map(|pair| {
-                let (name, value) = pair.trim().split_once('=')?;
-                if name.trim() == "wardnet_session" {
-                    Some(value.trim().to_owned())
-                } else {
-                    None
-                }
-            })
-        })
-    {
-        return Some(token);
-    }
-    headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|t| !t.is_empty())
-        .map(str::to_owned)
 }

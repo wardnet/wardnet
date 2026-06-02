@@ -173,7 +173,7 @@ impl AuthService for AuthServiceImpl {
         } else {
             self.session_expiry_hours
         };
-        let expiry_hours_i64 = i64::try_from(expiry_hours).unwrap_or(24);
+        let expiry_hours_i64 = expiry_hours.min(i64::MAX as u64).cast_signed();
         let expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions
@@ -201,20 +201,15 @@ impl AuthService for AuthServiceImpl {
         let now = chrono::Utc::now();
         let now_str = now.to_rfc3339();
 
-        // Verify the session still exists (guards against replaying an already-expired token).
-        self.sessions
-            .find_admin_id_by_token_hash(&token_hash, &now_str)
+        // Single atomic query: validates the session is non-expired and retrieves
+        // remember_me in one round-trip, eliminating the race window where
+        // delete_expired() could remove the row between two sequential reads.
+        let (_, is_refreshable) = self
+            .sessions
+            .find_session_for_refresh(&token_hash, &now_str)
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::Unauthorized("session not found or expired".to_owned()))?;
-
-        // Verify the session was originally created as a long-lived remember-me session.
-        let is_refreshable = self
-            .sessions
-            .remember_me_for_token(&token_hash)
-            .await
-            .map_err(AppError::Internal)?
-            .unwrap_or(false);
 
         if !is_refreshable {
             return Err(AppError::Forbidden(
@@ -222,7 +217,10 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
-        let expiry_hours_i64 = i64::try_from(self.remember_me_expiry_hours).unwrap_or(720);
+        let expiry_hours_i64 = self
+            .remember_me_expiry_hours
+            .min(i64::MAX as u64)
+            .cast_signed();
         let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions

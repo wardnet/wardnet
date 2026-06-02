@@ -168,3 +168,66 @@ export function useDnsStatsDashboard(
 
   return { data, isLoading, isError, error };
 }
+
+export interface DashboardDnsStats {
+  total: number;
+  blocked: number;
+  blockedPercent: number;
+  /** Per-hour total query counts for the last 24h, oldest-first. Feeds the DNS sparkline. */
+  totalSeries: number[];
+  /** Per-hour blocked counts for the last 24h, oldest-first. Feeds the blocked sparkline. */
+  blockedSeries: number[];
+}
+
+/**
+ * Lightweight 24h DNS summary for the Dashboard cards.
+ *
+ * Uses hour buckets (24 points) rather than minute buckets so the
+ * sparkline series is a manageable size. Distinct query key from
+ * useDnsStatSummary("24h") which uses minute buckets.
+ */
+export function useDashboardDnsStats() {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["stats", "dns-dashboard-24h"],
+    queryFn: () => {
+      // Compute the window inside queryFn so each 30-second refetch uses the
+      // current time rather than the time the component first mounted.
+      const now = new Date();
+      const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+      const to = now.toISOString();
+      return statsService.query({ metric: "dns.queries", from, to, bucket: "hour" });
+    },
+    refetchInterval: 30_000,
+  });
+
+  const derived = useMemo((): DashboardDnsStats | undefined => {
+    if (!data) return undefined;
+
+    const byTs = new Map<string, { total: number; blocked: number }>();
+    let total = 0;
+    let blocked = 0;
+
+    for (const point of data.series ?? []) {
+      const entry = byTs.get(point.ts) ?? { total: 0, blocked: 0 };
+      entry.total += point.value;
+      total += point.value;
+      if (parseLabels(point.labels).outcome === "blocked") {
+        entry.blocked += point.value;
+        blocked += point.value;
+      }
+      byTs.set(point.ts, entry);
+    }
+
+    const sorted = Array.from(byTs.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    return {
+      total: Math.round(total),
+      blocked: Math.round(blocked),
+      blockedPercent: total > 0 ? (blocked / total) * 100 : 0,
+      totalSeries: sorted.map(([, v]) => v.total),
+      blockedSeries: sorted.map(([, v]) => v.blocked),
+    };
+  }, [data]);
+
+  return { data: derived, isLoading, isError, error };
+}

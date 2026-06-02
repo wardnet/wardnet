@@ -1,7 +1,8 @@
 import { useNavigate } from "react-router";
-import { LoginForm } from "@wardnet/wardnet-web";
+import { LoginForm, useAuthStore } from "@wardnet/wardnet-web";
 
 export default function Login() {
   const navigate = useNavigate();
-  return <LoginForm rememberMe="checkbox" onSuccess={() => navigate("/")} />;
+  const { login } = useAuthStore();
+  return <LoginForm login={login} rememberMe="checkbox" onSuccess={() => navigate("/")} />;
 }

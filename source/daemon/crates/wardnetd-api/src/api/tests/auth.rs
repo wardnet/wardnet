@@ -324,7 +324,7 @@ async fn refresh_success_returns_204_and_set_cookie() {
 
 #[tokio::test]
 async fn refresh_via_bearer_token_returns_204() {
-    // Covers the bearer-token branch of extract_session_token.
+    // Covers the bearer-token branch of AdminAuth::session_token extraction.
     let state = make_state(MockRefreshAuthService {
         refresh_result: Ok(()),
     });

@@ -110,7 +110,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
 
 /// Handler that requires `AdminAuth` and returns the admin UUID.
 async fn admin_only(
-    crate::api::middleware::AdminAuth { admin_id }: crate::api::middleware::AdminAuth,
+    crate::api::middleware::AdminAuth { admin_id, .. }: crate::api::middleware::AdminAuth,
 ) -> impl IntoResponse {
     admin_id.to_string()
 }

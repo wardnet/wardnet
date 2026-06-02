@@ -73,8 +73,12 @@ impl SessionRepository for MockSessionRepo {
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn remember_me_for_token(&self, _token_hash: &str) -> anyhow::Result<Option<bool>> {
-        Ok(Some(true))
+    async fn find_session_for_refresh(
+        &self,
+        _token_hash: &str,
+        _now: &str,
+    ) -> anyhow::Result<Option<(String, bool)>> {
+        Ok(None)
     }
 }
 

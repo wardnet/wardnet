@@ -99,11 +99,12 @@ async fn delete_expired_removes_only_old_sessions() {
 }
 
 #[tokio::test]
-async fn remember_me_for_token_returns_correct_flag() {
+async fn find_session_for_refresh_returns_admin_id_and_flag() {
     let pool = test_pool().await;
     seed_admin(&pool).await;
     let repo = SqliteSessionRepository::new(pool);
 
+    // remember_me=true, not expired.
     repo.create(
         "s1",
         "admin-1",
@@ -114,6 +115,7 @@ async fn remember_me_for_token_returns_correct_flag() {
     )
     .await
     .unwrap();
+    // remember_me=false, not expired.
     repo.create(
         "s2",
         "admin-1",
@@ -124,17 +126,41 @@ async fn remember_me_for_token_returns_correct_flag() {
     )
     .await
     .unwrap();
+    // Expired.
+    repo.create(
+        "s3",
+        "admin-1",
+        "hash-expired",
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+        true,
+    )
+    .await
+    .unwrap();
 
+    let now = "2026-06-01T00:00:00Z";
     assert_eq!(
-        repo.remember_me_for_token("hash-rm").await.unwrap(),
-        Some(true)
+        repo.find_session_for_refresh("hash-rm", now).await.unwrap(),
+        Some(("admin-1".to_owned(), true))
     );
     assert_eq!(
-        repo.remember_me_for_token("hash-short").await.unwrap(),
-        Some(false)
+        repo.find_session_for_refresh("hash-short", now)
+            .await
+            .unwrap(),
+        Some(("admin-1".to_owned(), false))
     );
+    // Expired session returns None.
     assert_eq!(
-        repo.remember_me_for_token("no-such-hash").await.unwrap(),
+        repo.find_session_for_refresh("hash-expired", now)
+            .await
+            .unwrap(),
+        None
+    );
+    // Unknown hash returns None.
+    assert_eq!(
+        repo.find_session_for_refresh("no-such-hash", now)
+            .await
+            .unwrap(),
         None
     );
 }

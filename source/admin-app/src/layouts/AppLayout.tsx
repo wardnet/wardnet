@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
-import { useOnlineStatus, useDaemonStatus } from "@wardnet/wardnet-web";
+import { useDaemonStatus } from "@wardnet/wardnet-web";
+import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { Header } from "@/components/Header";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { TabBar } from "@/components/TabBar";
@@ -13,7 +14,7 @@ function deriveConnState(isOnline: boolean, isDaemonReachable: boolean): ConnSta
 }
 
 export function AppLayout() {
-  const { isOnline, isDaemonReachable } = useOnlineStatus();
+  const { isOnline, isDaemonReachable } = useOnlineStatusContext();
   const { data } = useDaemonStatus();
   const connState = deriveConnState(isOnline, isDaemonReachable);
   const version = data?.version ?? null;

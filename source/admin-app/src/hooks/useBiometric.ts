@@ -48,7 +48,12 @@ async function register(username: string): Promise<void> {
 
   if (!credential) throw new Error("Credential creation returned null");
   const rawId = (credential as PublicKeyCredential).rawId;
-  const base64Id = btoa(String.fromCharCode(...new Uint8Array(rawId)));
+  // Avoid spread-into-String.fromCharCode which can throw RangeError for large
+  // credential IDs (the spec allows up to 1023 bytes).
+  const rawIdBytes = new Uint8Array(rawId);
+  let binary = "";
+  for (const byte of rawIdBytes) binary += String.fromCharCode(byte);
+  const base64Id = btoa(binary);
   localStorage.setItem(CREDENTIAL_KEY, base64Id);
 }
 

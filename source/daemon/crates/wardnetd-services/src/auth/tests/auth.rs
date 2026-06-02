@@ -34,10 +34,12 @@ impl AdminRepository for MockAdminRepo {
     }
 }
 
-/// Mock session repo that captures created sessions and returns a preconfigured lookup result.
+/// Mock session repo that captures created sessions and returns preconfigured lookup results.
 struct MockSessionRepo {
+    /// Returned by `find_admin_id_by_token_hash` (drives `validate_session`).
     find_result: Mutex<Option<String>>,
-    remember_me: Mutex<Option<bool>>,
+    /// Returned by `find_session_for_refresh` (drives `refresh_session`).
+    session_for_refresh: Mutex<Option<(String, bool)>>,
 }
 
 #[async_trait]
@@ -66,8 +68,12 @@ impl SessionRepository for MockSessionRepo {
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn remember_me_for_token(&self, _token_hash: &str) -> anyhow::Result<Option<bool>> {
-        Ok(*self.remember_me.lock().unwrap())
+    async fn find_session_for_refresh(
+        &self,
+        _token_hash: &str,
+        _now: &str,
+    ) -> anyhow::Result<Option<(String, bool)>> {
+        Ok(self.session_for_refresh.lock().unwrap().clone())
     }
 }
 
@@ -128,6 +134,7 @@ fn make_auth_service(
     session_find: Option<String>,
     api_key_hashes: Vec<(String, String)>,
 ) -> AuthServiceImpl {
+    let session_for_refresh = session_find.as_ref().map(|id| (id.clone(), true));
     AuthServiceImpl::new(
         Arc::new(MockAdminRepo {
             find_result: Mutex::new(admin_find),
@@ -135,7 +142,7 @@ fn make_auth_service(
         }),
         Arc::new(MockSessionRepo {
             find_result: Mutex::new(session_find),
-            remember_me: Mutex::new(Some(true)),
+            session_for_refresh: Mutex::new(session_for_refresh),
         }),
         Arc::new(MockApiKeyRepo {
             hashes: api_key_hashes,
@@ -158,6 +165,18 @@ async fn login_success() {
     let login = result.unwrap();
     assert!(!login.token.is_empty());
     assert_eq!(login.max_age_seconds, 24 * 3600);
+}
+
+#[tokio::test]
+async fn login_success_with_remember_me() {
+    let hash = argon2_hash("correct-password");
+    let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
+
+    let result = svc.login("admin", "correct-password", true).await;
+    assert!(result.is_ok());
+    let login = result.unwrap();
+    assert!(!login.token.is_empty());
+    assert_eq!(login.max_age_seconds, 720 * 3600);
 }
 
 #[tokio::test]
@@ -281,7 +300,7 @@ async fn refresh_session_success() {
 async fn refresh_session_not_remember_me_returns_forbidden() {
     // Session exists but remember_me=false → Forbidden.
     let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    // Build a service with a MockSessionRepo that returns remember_me=false.
+    // Build a service with a MockSessionRepo where remember_me=false.
     let svc = AuthServiceImpl::new(
         Arc::new(MockAdminRepo {
             find_result: Mutex::new(None),
@@ -289,7 +308,7 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
         }),
         Arc::new(MockSessionRepo {
             find_result: Mutex::new(Some(admin_uuid.to_owned())),
-            remember_me: Mutex::new(Some(false)),
+            session_for_refresh: Mutex::new(Some((admin_uuid.to_owned(), false))),
         }),
         Arc::new(MockApiKeyRepo { hashes: vec![] }),
         Arc::new(MockSystemConfigRepo),

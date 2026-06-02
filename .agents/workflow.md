@@ -13,6 +13,8 @@
 
 **You MUST run checks locally and fix ALL issues BEFORE every `git push`.** CI mirrors these exact Make targets — if any of them fail locally, CI will fail and the push will be rejected. This is a hard gate; never push without passing checks.
 
+**DO NOT OPEN A PR OR PUSH BEFORE ALL MAKE CHECKS PASS LOCALLY. NO EXCEPTIONS.**
+
 The fastest, most complete signal is the root Makefile:
 
 ```bash
@@ -47,6 +49,7 @@ cd source/web-ui  && yarn format && yarn lint && yarn type-check
 ### Common mistakes to avoid
 
 - Running only `cargo build` and assuming tests pass — the test compile target has its own stubs that can fall out of sync with service signatures; always run `cargo test --workspace` (or `make check-daemon`) before pushing.
+- **NEVER use `cargo clippy -p <crate>` or `cargo fmt` as a push gate** — scoped clippy misses `--all-targets`; running `cargo fmt` without `--check` silently auto-fixes locally while the pushed commit was never verified. RUN `make check-daemon` EVERY TIME.
 - Running `yarn build` but skipping `yarn lint` — Vite is permissive about lint warnings that ESLint elevates to errors in CI.
 - Pushing a rebase without re-running checks locally — dependency bumps pulled in from `main` can change lint/type rules; treat every rebase as a fresh change.
 

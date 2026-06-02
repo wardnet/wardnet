@@ -16,7 +16,7 @@ export function ConnectionBanner({ connState }: Props) {
         role="alert"
         icon={<WifiOffIcon size={15} strokeWidth={1.9} />}
       >
-        No connection to wardnet-pi — showing last known state
+        No connection to wardnet daemon — showing last known state
       </Banner>
     );
   }
@@ -26,7 +26,7 @@ export function ConnectionBanner({ connState }: Props) {
       tone="warn"
       icon={<RefreshCwIcon size={14} strokeWidth={2} className="animate-spin" />}
     >
-      Reconnecting to wardnet-pi…
+      Reconnecting to wardnet daemon…
     </Banner>
   );
 }

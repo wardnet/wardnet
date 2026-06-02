@@ -81,12 +81,18 @@ impl SessionRepository for SqliteSessionRepository {
         Ok(())
     }
 
-    async fn remember_me_for_token(&self, token_hash: &str) -> anyhow::Result<Option<bool>> {
-        let row =
-            sqlx::query_scalar::<_, bool>("SELECT remember_me FROM sessions WHERE token_hash = ?")
-                .bind(token_hash)
-                .fetch_optional(&self.pools.read)
-                .await?;
+    async fn find_session_for_refresh(
+        &self,
+        token_hash: &str,
+        now: &str,
+    ) -> anyhow::Result<Option<(String, bool)>> {
+        let row = sqlx::query_as::<_, (String, bool)>(
+            "SELECT admin_id, remember_me FROM sessions WHERE token_hash = ? AND expires_at > ?",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.pools.read)
+        .await?;
         Ok(row)
     }
 }
