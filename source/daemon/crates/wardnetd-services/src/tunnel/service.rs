@@ -73,7 +73,7 @@ pub trait TunnelService: Send + Sync {
 
     /// Tear down and re-apply a tunnel interface from scratch (admin rebuild).
     ///
-    /// Equivalent to the watchdog recovery path: tears down the WireGuard
+    /// Equivalent to the watchdog recovery path: tears down the `WireGuard`
     /// interface and brings it back up from the persisted config. Use when
     /// the tunnel is stale or devices cannot route through it.
     async fn rebuild(&self, id: Uuid) -> Result<(), AppError>;
