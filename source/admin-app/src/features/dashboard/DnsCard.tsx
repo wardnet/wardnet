@@ -1,6 +1,6 @@
-import { SearchIcon, ShieldOffIcon } from "lucide-react";
-import { Card, CardHeader, CardContent } from "@wardnet/forge-web/card";
-import { StatTile } from "@wardnet/forge-web/stat-tile";
+import { GlobeIcon, ShieldOffIcon } from "lucide-react";
+import { Link } from "react-router";
+import { Card } from "@wardnet/forge-web/card";
 import { Sparkline } from "@wardnet/forge-web/sparkline";
 import type { DashboardDnsStats } from "@wardnet/wardnet-web";
 
@@ -10,62 +10,77 @@ interface Props {
 }
 
 export function DnsQueriesCard({ data, isLoading }: Props) {
-  const spark =
-    data && data.totalSeries.length > 0 ? (
-      <Sparkline
-        values={data.totalSeries}
-        color="var(--accent)"
-        className="h-9 w-full"
-      />
-    ) : undefined;
-
   return (
-    <Card>
-      <CardHeader className="flex items-center gap-2 px-4 pt-4 pb-0 text-sm font-medium text-ink-2">
-        <SearchIcon size={14} strokeWidth={1.8} />
-        DNS Queries · 24h
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        <StatTile
-          label="Total"
-          value={isLoading && !data ? "…" : (data?.total.toLocaleString() ?? "0")}
-          spark={spark}
-        />
-      </CardContent>
-    </Card>
+    <Link to="/dns" className="block">
+      <Card className="card--flush">
+        <div className="flex items-center gap-3 px-2 py-3">
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+            style={{
+              background: "color-mix(in srgb, var(--color-ink-3) 12%, transparent)",
+              color: "var(--color-ink-3)",
+            }}
+          >
+            <GlobeIcon size={20} strokeWidth={1.8} />
+          </div>
+
+          <div className="min-w-0 shrink-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+              DNS Queries · 24h
+            </div>
+            <div className="mt-0.5 text-2xl font-bold text-ink tabular-nums">
+              {isLoading && !data ? "…" : (data?.total.toLocaleString() ?? "0")}
+            </div>
+          </div>
+
+          <div className="h-12 flex-1 opacity-70">
+            {data && data.totalSeries.length > 0 && (
+              <Sparkline values={data.totalSeries} color="var(--color-ink-3)" area={false} />
+            )}
+          </div>
+        </div>
+      </Card>
+    </Link>
   );
 }
 
 export function BlockedCard({ data, isLoading }: Props) {
-  const spark =
-    data && data.blockedSeries.length > 0 ? (
-      <Sparkline
-        values={data.blockedSeries}
-        color="var(--danger)"
-        className="h-9 w-full"
-      />
-    ) : undefined;
-
-  const blockedLabel =
+  const sub =
     data != null
-      ? `${data.blocked.toLocaleString()} blocked`
+      ? `${data.blocked.toLocaleString()} of ${data.total.toLocaleString()}`
       : undefined;
 
   return (
-    <Card>
-      <CardHeader className="flex items-center gap-2 px-4 pt-4 pb-0 text-sm font-medium text-ink-2">
-        <ShieldOffIcon size={14} strokeWidth={1.8} />
-        Blocked · 24h
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        <StatTile
-          label="Block rate"
-          value={isLoading && !data ? "…" : `${(data?.blockedPercent ?? 0).toFixed(1)}`}
-          unit="%"
-          sub={blockedLabel}
-          spark={spark}
-        />
-      </CardContent>
-    </Card>
+    <Link to="/dns" className="block">
+      <Card className="card--flush">
+        <div className="flex items-center gap-3 px-2 py-3">
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+            style={{ background: "var(--color-warn-soft)", color: "var(--color-warn)" }}
+          >
+            <ShieldOffIcon size={20} strokeWidth={1.8} />
+          </div>
+
+          <div className="min-w-0 shrink-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+              Blocked · 24h
+            </div>
+            <div className="mt-0.5 flex items-baseline gap-0.5">
+              <span className="text-2xl font-bold text-ink tabular-nums">
+                {isLoading && !data ? "…" : `${(data?.blockedPercent ?? 0).toFixed(1)}`}
+              </span>
+              <span className="text-sm text-ink-3">%</span>
+            </div>
+            {sub && <div className="mt-0.5 text-xs text-ink-3">{sub}</div>}
+          </div>
+
+          <div className="h-12 flex-1 opacity-80">
+            {data && data.blockedSeries.length > 0 && (
+              <Sparkline values={data.blockedSeries} color="var(--color-warn)" area={false} />
+            )}
+          </div>
+        </div>
+      </Card>
+    </Link>
   );
 }

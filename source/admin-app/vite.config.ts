@@ -35,6 +35,9 @@ export default defineConfig({
         target: "http://127.0.0.1:7411",
         ws: true,
       },
+      "/admin/": {
+        target: "http://127.0.0.1:7412",
+      },
     },
   },
   optimizeDeps: {

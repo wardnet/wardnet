@@ -42,6 +42,10 @@ impl FromRequestParts<AppState> for ClientIp {
 /// no SQL or hashing happens here.
 pub struct AdminAuth {
     pub admin_id: Uuid,
+    /// The raw session token (cookie or Bearer) extracted from the request headers.
+    /// `None` when authenticated via API key (no session token is present).
+    /// Provided to downstream handlers so they do not need to re-parse headers.
+    pub session_token: Option<String>,
 }
 
 impl FromRequestParts<AppState> for AdminAuth {
@@ -53,18 +57,56 @@ impl FromRequestParts<AppState> for AdminAuth {
     ) -> Result<Self, Self::Rejection> {
         let headers = &parts.headers;
 
+        // Extract the raw token once (cheap header parse, no DB call) so it is
+        // available to handlers without a second header traversal.
+        let session_token = extract_raw_session_token(headers);
+
         if let Some(admin_id) = try_session_cookie(headers, state).await? {
-            return Ok(Self { admin_id });
+            return Ok(Self {
+                admin_id,
+                session_token,
+            });
         }
 
         if let Some(admin_id) = try_bearer(headers, state).await? {
-            return Ok(Self { admin_id });
+            return Ok(Self {
+                admin_id,
+                session_token,
+            });
         }
 
         Err(AppError::Unauthorized(
             "valid session cookie or API key required".to_owned(),
         ))
     }
+}
+
+/// Extract the raw session token from the `wardnet_session` cookie or an
+/// `Authorization: Bearer` header without performing any validation.
+/// Cookie takes precedence.
+fn extract_raw_session_token(headers: &HeaderMap) -> Option<String> {
+    if let Some(v) = headers.get(axum::http::header::COOKIE)
+        && let Some(token) = v.to_str().ok().and_then(|s| {
+            s.split(';').find_map(|pair| {
+                let mut parts = pair.trim().splitn(2, '=');
+                let name = parts.next()?.trim();
+                let value = parts.next()?.trim();
+                if name == "wardnet_session" && !value.is_empty() {
+                    Some(value.to_owned())
+                } else {
+                    None
+                }
+            })
+        })
+    {
+        return Some(token);
+    }
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
 }
 
 /// Extract and validate the `wardnet_session` cookie via the auth service.

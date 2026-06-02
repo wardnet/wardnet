@@ -4,9 +4,10 @@ import { Button } from "@wardnet/forge-web/button";
 import { Field } from "@wardnet/forge-web/field";
 import { Form, Validator } from "@wardnet/forge-web/form";
 import { Input } from "@wardnet/forge-web/input";
-import { useAuthStore } from "../stores/authStore";
 
 interface LoginFormProps {
+  /** Injected login action — callers supply this from their auth store or hook. */
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
   /**
    * Controls the "Remember me" behaviour:
    * - `"checkbox"` — shows an unchecked checkbox the user can toggle (admin-site)
@@ -21,11 +22,10 @@ interface LoginFormProps {
 /**
  * Shared admin login form used by both admin-site and admin-app.
  *
- * Handles all credential state, loading, and error display.
- * The caller owns post-login navigation via `onSuccess`.
+ * Pure presentation — all business logic is injected via props. The caller
+ * owns the login action and post-login navigation via `onSuccess`.
  */
-export function LoginForm({ rememberMe = false, onSuccess }: LoginFormProps) {
-  const { login } = useAuthStore();
+export function LoginForm({ login, rememberMe = false, onSuccess }: LoginFormProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMeChecked, setRememberMeChecked] = useState(false);

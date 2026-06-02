@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { LoginForm } from "@wardnet/wardnet-web";
+import { LoginForm, useAuthStore } from "@wardnet/wardnet-web";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BiometricSetupPrompt } from "@/components/BiometricSetupPrompt";
 
@@ -10,6 +10,7 @@ interface Props {
 
 export default function Login({ onUnlock }: Props) {
   const navigate = useNavigate();
+  const { login } = useAuthStore();
   const biometric = useBiometric();
   const [biometricUsername, setBiometricUsername] = useState("");
   const [showBiometricSetup, setShowBiometricSetup] = useState(false);
@@ -31,6 +32,7 @@ export default function Login({ onUnlock }: Props) {
 
   return (
     <LoginForm
+      login={login}
       rememberMe={true}
       onSuccess={(username) => {
         if (biometric.isAvailable() && !biometric.isRegistered()) {

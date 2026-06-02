@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
 import { useAuth, useSetupStatus } from "@wardnet/wardnet-web";
 import { useBiometric } from "@/hooks/useBiometric";
+import { OnlineStatusProvider } from "@/context/OnlineStatusContext";
 import { BiometricGate } from "@/components/BiometricGate";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
@@ -9,6 +10,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Devices from "@/pages/Devices";
 import Tunnels from "@/pages/Tunnels";
+import Dns from "@/pages/Dns";
 import System from "@/pages/System";
 
 /** Redirects to /login if the user has no active session. */
@@ -62,9 +64,12 @@ export default function App() {
 
   useEffect(() => {
     async function boot() {
-      // Always probe + refresh auth in the background so session state is fresh.
-      checkAuth();
-      refresh();
+      // Probe auth status and slide any remember-me session forward before the
+      // biometric gate renders. The gate is a client-side presence check only
+      // (see useBiometric.ts); the server session remains the enforced auth
+      // boundary. Awaiting both ensures AdminRoute has accurate state when the
+      // gate resolves.
+      await Promise.all([checkAuth(), refresh()]);
       setBiometricReady(true);
     }
     boot();
@@ -88,6 +93,7 @@ export default function App() {
   }
 
   return (
+    <OnlineStatusProvider>
     <SetupGuard>
       <Routes>
         <Route element={<AuthLayout />}>
@@ -98,11 +104,13 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="devices" element={<Devices />} />
             <Route path="tunnels" element={<Tunnels />} />
+            <Route path="dns" element={<Dns />} />
             <Route path="system" element={<System />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </SetupGuard>
+    </OnlineStatusProvider>
   );
 }

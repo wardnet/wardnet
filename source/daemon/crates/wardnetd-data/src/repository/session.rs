@@ -30,8 +30,16 @@ pub trait SessionRepository: Send + Sync {
     /// Slide the expiry forward for an existing session (used by the refresh endpoint).
     async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()>;
 
-    /// Return whether the session identified by `token_hash` was created as
-    /// a long-lived (remember-me) session. Returns `None` if the session does
-    /// not exist or has expired.
-    async fn remember_me_for_token(&self, token_hash: &str) -> anyhow::Result<Option<bool>>;
+    /// Atomically look up a session for the refresh endpoint.
+    ///
+    /// Returns `Some((admin_id, remember_me))` when the session exists and has
+    /// not expired; `None` otherwise. Using a single query eliminates the
+    /// race window between the two-call pattern
+    /// (`find_admin_id_by_token_hash` + separate `remember_me` lookup) where
+    /// `delete_expired` could remove the row between the two reads.
+    async fn find_session_for_refresh(
+        &self,
+        token_hash: &str,
+        now: &str,
+    ) -> anyhow::Result<Option<(String, bool)>>;
 }

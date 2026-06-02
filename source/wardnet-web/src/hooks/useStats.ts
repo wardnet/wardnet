@@ -187,17 +187,16 @@ export interface DashboardDnsStats {
  * useDnsStatSummary("24h") which uses minute buckets.
  */
 export function useDashboardDnsStats() {
-  const { from, to } = useMemo(() => {
-    const now = new Date();
-    return {
-      from: new Date(now.getTime() - 24 * 3_600_000).toISOString(),
-      to: now.toISOString(),
-    };
-  }, []);
-
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["stats", "dns-dashboard-24h"],
-    queryFn: () => statsService.query({ metric: "dns.queries", from, to, bucket: "hour" }),
+    queryFn: () => {
+      // Compute the window inside queryFn so each 30-second refetch uses the
+      // current time rather than the time the component first mounted.
+      const now = new Date();
+      const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+      const to = now.toISOString();
+      return statsService.query({ metric: "dns.queries", from, to, bucket: "hour" });
+    },
     refetchInterval: 30_000,
   });
 
