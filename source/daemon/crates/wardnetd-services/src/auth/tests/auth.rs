@@ -168,6 +168,18 @@ async fn login_success() {
 }
 
 #[tokio::test]
+async fn login_success_with_remember_me() {
+    let hash = argon2_hash("correct-password");
+    let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
+
+    let result = svc.login("admin", "correct-password", true).await;
+    assert!(result.is_ok());
+    let login = result.unwrap();
+    assert!(!login.token.is_empty());
+    assert_eq!(login.max_age_seconds, 720 * 3600);
+}
+
+#[tokio::test]
 async fn login_wrong_password() {
     let hash = argon2_hash("correct-password");
     let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);

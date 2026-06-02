@@ -173,13 +173,7 @@ impl AuthService for AuthServiceImpl {
         } else {
             self.session_expiry_hours
         };
-        let expiry_hours_i64 = i64::try_from(expiry_hours).unwrap_or_else(|_| {
-            tracing::warn!(
-                hours = expiry_hours,
-                "session_expiry_hours overflows i64, clamping to 24"
-            );
-            24
-        });
+        let expiry_hours_i64 = expiry_hours.min(i64::MAX as u64) as i64;
         let expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions
@@ -223,13 +217,7 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
-        let expiry_hours_i64 = i64::try_from(self.remember_me_expiry_hours).unwrap_or_else(|_| {
-            tracing::warn!(
-                hours = self.remember_me_expiry_hours,
-                "remember_me_expiry_hours overflows i64, clamping to 720"
-            );
-            720
-        });
+        let expiry_hours_i64 = self.remember_me_expiry_hours.min(i64::MAX as u64) as i64;
         let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
 
         self.sessions
