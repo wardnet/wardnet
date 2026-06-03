@@ -72,6 +72,7 @@ struct Instruments {
     tunnel_active_count: Option<Gauge<u64>>,
     uptime_seconds: Option<Gauge<u64>>,
     db_size_bytes: Option<Gauge<u64>>,
+    disk_free_bytes: Option<Gauge<u64>>,
 }
 
 impl Instruments {
@@ -135,6 +136,13 @@ impl Instruments {
                 meter
                     .u64_gauge("wardnet.db_size_bytes")
                     .with_description("SQLite database file size in bytes")
+                    .with_unit("By")
+                    .build()
+            }),
+            disk_free_bytes: em.wardnet_disk_free_bytes.then(|| {
+                meter
+                    .u64_gauge("wardnet.disk_free_bytes")
+                    .with_description("Free bytes on the wardnet data filesystem")
                     .with_unit("By")
                     .build()
             }),
@@ -224,7 +232,8 @@ async fn collection_loop(
         let needs_app_metrics = instruments.device_count.is_some()
             || instruments.tunnel_count.is_some()
             || instruments.tunnel_active_count.is_some()
-            || instruments.db_size_bytes.is_some();
+            || instruments.db_size_bytes.is_some()
+            || instruments.disk_free_bytes.is_some();
 
         if needs_app_metrics {
             let admin_ctx = AuthContext::Admin {
@@ -243,6 +252,9 @@ async fn collection_loop(
                     }
                     if let Some(gauge) = &instruments.db_size_bytes {
                         gauge.record(status.db_size_bytes, &[]);
+                    }
+                    if let Some(gauge) = &instruments.disk_free_bytes {
+                        gauge.record(status.disk_free_bytes, &[]);
                     }
                 }
                 Err(e) => {

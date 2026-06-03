@@ -102,6 +102,8 @@ pub struct SystemStatusResponse {
     pub cpu_usage_percent: f32,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
+    pub disk_free_bytes: u64,
+    pub disk_total_bytes: u64,
     /// Classification of the previous daemon shutdown plus its
     /// acknowledgement timestamp. The web UI uses this to surface a
     /// persistent banner after an unclean shutdown until an admin

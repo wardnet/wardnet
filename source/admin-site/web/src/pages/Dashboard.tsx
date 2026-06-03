@@ -74,6 +74,18 @@ export default function Dashboard() {
                 subtitle={`of ${formatBytes(status.memory_total_bytes)}`}
                 usagePercent={memoryPercent}
               />
+              <DashboardStatCard
+                title="Disk"
+                value={formatBytes(status.disk_free_bytes)}
+                subtitle={`free of ${formatBytes(status.disk_total_bytes)}`}
+                usagePercent={
+                  status.disk_total_bytes > 0
+                    ? ((status.disk_total_bytes - status.disk_free_bytes) /
+                        status.disk_total_bytes) *
+                      100
+                    : 0
+                }
+              />
               <DhcpSummaryCard status={dhcpStatus} to="/dhcp" />
             </>
           )}

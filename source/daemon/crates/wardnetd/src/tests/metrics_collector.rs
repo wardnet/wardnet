@@ -32,6 +32,8 @@ impl SystemService for MockSystemService {
             cpu_usage_percent: 10.0,
             memory_used_bytes: 500_000_000,
             memory_total_bytes: 1_000_000_000,
+            disk_free_bytes: 1_000_000_000,
+            disk_total_bytes: 32_000_000_000,
             last_shutdown: LastShutdownStatus {
                 state: LastShutdownState::Unknown,
                 at: None,

@@ -10,8 +10,8 @@ interface Props {
 
 const COPY: Record<BusyAction, Record<BusyPhase, { title: string; subtitle: string }>> = {
   reboot: {
-    working: { title: "Rebooting wardnet-pi…", subtitle: "This takes about 60 seconds" },
-    done: { title: "Pi is back online", subtitle: "Connection restored" },
+    working: { title: "Rebooting device…", subtitle: "This takes about 60 seconds" },
+    done: { title: "Device is back online", subtitle: "Connection restored" },
   },
   restart: {
     working: { title: "Restarting daemon…", subtitle: "Reloading service" },
