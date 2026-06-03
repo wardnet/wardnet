@@ -51,7 +51,7 @@ impl StatsService for SpyService {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn startup_runs_maintenance_immediately() {
     let buffer = StatsBuffer::new();
     let service = Arc::new(SpyService::default());
@@ -63,8 +63,9 @@ async fn startup_runs_maintenance_immediately() {
         Duration::ZERO,
         &tracing::Span::current(),
     );
-    // Give the time driver a turn so the zero-duration maintenance timer fires.
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Advance mock time so the spawned task gets scheduled, registers its
+    // zero-duration maintenance timer, and fires it — all deterministically.
+    tokio::time::advance(Duration::from_millis(1)).await;
     runner.shutdown().await;
     assert!(
         service.maintenance_count() >= 1,
