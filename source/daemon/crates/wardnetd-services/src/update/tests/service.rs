@@ -201,6 +201,7 @@ fn build_service_full(
         events.clone(),
         require_signature,
         "0.1.0",
+        tokio_util::sync::CancellationToken::new(),
     ));
     (svc, applier, events)
 }

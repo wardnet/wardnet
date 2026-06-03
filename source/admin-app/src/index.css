@@ -1,8 +1,9 @@
 @import "tailwindcss";
-@source "../../wardnet-web/src/**/*.{ts,tsx}";
 @import "@wardnet/forge/styles.css";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";
+
+@source "../../wardnet-web/src/**/*.{ts,tsx}";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

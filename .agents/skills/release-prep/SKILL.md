@@ -115,11 +115,32 @@ Expected diff: **only** the `info.version` field. Any other change
 means `main` already drifted from the committed spec — investigate
 before continuing (probably a missed `make openapi` in a prior PR).
 
-## Step 4 — Verify
+## Step 4 — Rebuild embedded web apps
+
+The daemon binary embeds three web apps at compile time via
+`rust_embed`. The dist folders for `user-app` and `admin-app` are
+committed to the repo (not CI-built); `admin-site/web/dist` is
+CI-built. For every release, rebuild the committed dists so the
+shipped binary contains the latest source:
+
+```sh
+cd source/user-app  && yarn install --immutable && yarn build
+cd source/admin-app && yarn install --immutable && yarn build
+```
+
+Commit the resulting dist changes alongside the version files. Any
+new content-hashed asset files (fonts, icons, JS/CSS bundles) must be
+staged; deleted old hashes must be unstaged/removed.
+
+**Do not rebuild `source/admin-site/web/dist/`** — that is managed by
+the CI `build-web` job and only the placeholder `index.html` is
+tracked.
+
+## Step 5 — Verify
 
 ```sh
 make check-version    # version pin agreement (also wired into CI)
-make check-daemon     # fmt + clippy -D warnings + workspace tests
+make check-daemon     # fmt + clippy -D warnings + workspace tests (embeds rebuilt dists)
 make check-openapi    # drift gate — fails if docs/openapi.json stale
 make check            # full belt-and-braces (SDK + web + site + daemon)
 ```
@@ -132,7 +153,7 @@ On macOS, `check-daemon` runs in a Linux container. `make openapi`
 runs natively even on macOS — the daemon's `build.rs` dependency
 graph is portable enough for this one command.
 
-## Step 5 — Commit, push, open PR
+## Step 6 — Commit, push, open PR
 
 Worktree (per `.claude/rules/worktree-per-session.md`):
 
@@ -157,6 +178,8 @@ Files in the commit:
 - `docs/openapi.json`
 - `source/daemon/Cargo.toml`, `source/daemon/Cargo.lock`
 - `source/web-ui/package.json`, `source/site/package.json`
+- `source/user-app/dist/` — all files (new bundles + deleted old hashes)
+- `source/admin-app/dist/` — all files (new bundles + deleted old hashes)
 - (only if the SDK is being bumped) `source/sdk/wardnet-js/VERSION`,
   `source/sdk/wardnet-js/package.json`
 
@@ -172,7 +195,7 @@ PR body should:
 - List the test plan: `make check-version`, `make check-openapi`,
   `make check-daemon` all green.
 
-## Step 6 — Tag (after merge)
+## Step 7 — Tag (after merge)
 
 **Stop here. Ask the user to confirm the PR is merged before
 tagging.** Tag pushes are not reversible without coordinating across
