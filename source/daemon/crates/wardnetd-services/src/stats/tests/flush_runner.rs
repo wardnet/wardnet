@@ -63,9 +63,12 @@ async fn startup_runs_maintenance_immediately() {
         Duration::ZERO,
         &tracing::Span::current(),
     );
-    // Advance mock time so the spawned task gets scheduled, registers its
-    // zero-duration maintenance timer, and fires it — all deterministically.
-    tokio::time::advance(Duration::from_millis(1)).await;
+    // Yield so the spawned task runs its initial flush_ticker.tick() (first
+    // tick fires at T=0) and enters the select loop, where sleep_until(T=0)
+    // is already past-due and fires maintenance before we get a chance to
+    // cancel. Without this yield, shutdown's cancel() races sleep_until(T=0)
+    // and maintenance only runs ~50% of the time.
+    tokio::task::yield_now().await;
     runner.shutdown().await;
     assert!(
         service.maintenance_count() >= 1,
