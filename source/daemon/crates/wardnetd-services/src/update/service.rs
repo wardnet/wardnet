@@ -412,33 +412,58 @@ impl UpdateServiceImpl {
 /// Compare `CalVer` / dotted-numeric version strings. Returns `true`
 /// if `candidate` is strictly greater than `current`.
 ///
-/// Both versions use the `YYYY.MM.DD` shape published by the release
-/// pipeline (see the workspace-root `CALVER` file). Padded month /
-/// day components like `2026.05.03` are not valid `SemVer` (leading
-/// zeros are rejected), so we can't reuse `semver::Version::parse`
-/// here. Instead, split on `.`, parse each component as `u64`, and
-/// compare the resulting tuples lexicographically — that gives the
-/// right ordering for both padded (`05`) and unpadded (`5`)
-/// components, and for any pre-release suffix we strip first.
+/// Comparison rules, applied in order:
+/// 1. Build metadata (`+…`) is stripped from both sides.
+/// 2. The base version (before the first `-`) is compared
+///    component-by-component as `u64` tuples. If the bases differ,
+///    the result is determined by the base alone.
+/// 3. When base versions are equal a release (no pre-release label)
+///    outranks any pre-release. Two pre-releases with the same label
+///    are ordered by their trailing integer (`beta.2 > beta.1`).
+///    Different labels are compared lexicographically (`rc > beta`).
 ///
-/// Returns `false` on any parse failure rather than panicking, so a
-/// malformed manifest entry can never trigger an install.
+/// Returns `false` on any parse failure so a malformed manifest entry
+/// can never trigger an install.
 fn is_newer(candidate: &str, current: &str) -> bool {
-    fn parts(v: &str) -> Option<Vec<u64>> {
-        // Drop a SemVer-style pre-release / build suffix (`-beta.1`,
-        // `+gabc1234`) before parsing; we don't currently use those for
-        // CalVer releases, but tolerating them future-proofs the
-        // comparator and avoids spurious "not newer" verdicts when
-        // upstream injects a build tag.
-        let head = v.split(['-', '+']).next().unwrap_or(v);
-        let parts: Vec<u64> = head
+    type Parsed = (Vec<u64>, Option<(String, u64)>);
+    fn parse(v: &str) -> Option<Parsed> {
+        // Strip build metadata.
+        let v = v.split('+').next().unwrap_or(v);
+        // Separate base from pre-release on the first '-'.
+        let (base_str, pre) = match v.find('-') {
+            Some(i) => (&v[..i], Some(&v[i + 1..])),
+            None => (v, None),
+        };
+        let base: Vec<u64> = base_str
             .split('.')
             .map(|p| p.parse::<u64>().ok())
             .collect::<Option<Vec<_>>>()?;
-        if parts.is_empty() { None } else { Some(parts) }
+        if base.is_empty() {
+            return None;
+        }
+        // "beta.2" → ("beta", 2), "beta" → ("beta", 0)
+        let pre_parsed = pre.map(|p| match p.rfind('.') {
+            Some(dot) => (
+                p[..dot].to_owned(),
+                p[dot + 1..].parse::<u64>().unwrap_or(0),
+            ),
+            None => (p.to_owned(), 0),
+        });
+        Some((base, pre_parsed))
     }
-    match (parts(candidate), parts(current)) {
-        (Some(c), Some(r)) => c > r,
+
+    match (parse(candidate), parse(current)) {
+        (Some((cb, cp)), Some((rb, rp))) => {
+            if cb != rb {
+                return cb > rb;
+            }
+            // Base versions equal — compare pre-release.
+            match (cp, rp) {
+                (None | Some(_), None) => false,
+                (None, Some(_)) => true, // release > pre-release
+                (Some((cl, cn)), Some((rl, rn))) => (cl, cn) > (rl, rn),
+            }
+        }
         _ => false,
     }
 }
@@ -641,9 +666,8 @@ impl UpdateService for UpdateServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        tracing::info!(
-            "rollback request staged — runner will restore previous binary on next daemon restart",
-        );
+        tracing::info!("rollback staged — cancelling shutdown token to trigger systemd restart");
+        self.shutdown_token.cancel();
         Ok(RollbackResponse {
             message: "rollback staged — daemon will restart".to_owned(),
         })
@@ -763,14 +787,27 @@ mod is_newer_tests {
     }
 
     #[test]
-    fn suffixes_are_stripped_before_comparison() {
-        // A `+gabc1234` build tag or `-beta.1` pre-release suffix on
-        // either side must not mask the underlying ordering. We don't
-        // currently publish pre-releases for CalVer, but tolerating them
-        // keeps the gate from misfiring on a manifest that introduces
-        // them later.
+    fn build_metadata_stripped_base_wins() {
+        // Build tags must not mask the base-version ordering.
         assert!(is_newer("2026.05.10+gabc", "2026.05.03+gdef"));
+        // A pre-release on a newer base is still newer.
         assert!(is_newer("2026.05.10-beta.1", "2026.05.03"));
+    }
+
+    #[test]
+    fn pre_release_ordering() {
+        // beta.2 is newer than beta.1 on the same base.
+        assert!(is_newer("2026.06.00-beta.2", "2026.06.00-beta.1"));
+        assert!(!is_newer("2026.06.00-beta.1", "2026.06.00-beta.2"));
+        // A release outranks any pre-release of the same base.
+        assert!(is_newer("2026.06.00", "2026.06.00-beta.2"));
+        assert!(!is_newer("2026.06.00-beta.2", "2026.06.00"));
+        // A pre-release is still newer than an older base release.
+        assert!(is_newer("2026.06.00-beta.1", "2026.05.03"));
+        // Same pre-release → not newer.
+        assert!(!is_newer("2026.06.00-beta.1", "2026.06.00-beta.1"));
+        // Label without numeric suffix (edge-case tolerance).
+        assert!(is_newer("2026.06.00-rc", "2026.06.00-beta"));
     }
 
     #[test]
