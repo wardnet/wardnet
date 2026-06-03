@@ -127,7 +127,10 @@ export default function Devices() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-0 p-4">
-        <h1 className="mb-4 text-xl font-semibold text-ink">Devices</h1>
+        <div className="mb-4">
+          <h1 className="text-[28px] font-bold text-ink">Devices</h1>
+          <p className="text-[14px] text-ink-3">Manage devices and routing overrides.</p>
+        </div>
         <div className="mb-3 flex gap-2">
           {[80, 100, 90].map((w, i) => (
             <div key={i} className="h-8 animate-pulse rounded-full bg-sunken" style={{ width: w }} />
@@ -148,7 +151,10 @@ export default function Devices() {
 
   return (
     <div className="flex flex-col p-4">
-      <h1 className="mb-4 text-xl font-semibold text-ink">Devices</h1>
+      <div className="mb-4">
+        <h1 className="text-[28px] font-bold text-ink">Devices</h1>
+        <p className="text-[14px] text-ink-3">Manage devices and routing overrides.</p>
+      </div>
 
       <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
 

@@ -39,7 +39,7 @@ struct MockSessionRepo {
     /// Returned by `find_admin_id_by_token_hash` (drives `validate_session`).
     find_result: Mutex<Option<String>>,
     /// Returned by `find_session_for_refresh` (drives `refresh_session`).
-    session_for_refresh: Mutex<Option<(String, bool)>>,
+    session_for_refresh: Mutex<Option<(String, bool, String)>>,
 }
 
 #[async_trait]
@@ -68,11 +68,19 @@ impl SessionRepository for MockSessionRepo {
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn rotate_token(
+        &self,
+        _old_token_hash: &str,
+        _new_token_hash: &str,
+        _new_expires_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn find_session_for_refresh(
         &self,
         _token_hash: &str,
         _now: &str,
-    ) -> anyhow::Result<Option<(String, bool)>> {
+    ) -> anyhow::Result<Option<(String, bool, String)>> {
         Ok(self.session_for_refresh.lock().unwrap().clone())
     }
 }
@@ -134,7 +142,10 @@ fn make_auth_service(
     session_find: Option<String>,
     api_key_hashes: Vec<(String, String)>,
 ) -> AuthServiceImpl {
-    let session_for_refresh = session_find.as_ref().map(|id| (id.clone(), true));
+    let recent_created_at = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    let session_for_refresh = session_find
+        .as_ref()
+        .map(|id| (id.clone(), true, recent_created_at));
     AuthServiceImpl::new(
         Arc::new(MockAdminRepo {
             find_result: Mutex::new(admin_find),
@@ -280,19 +291,21 @@ async fn is_setup_completed_delegates() {
 
 #[tokio::test]
 async fn refresh_session_success() {
-    // Session exists and was created as remember_me=true → extends expiry.
+    // Session exists and was created as remember_me=true → rotates token and extends expiry.
     let admin_uuid = "00000000-0000-0000-0000-000000000001";
     let svc = make_auth_service(None, None, Some(admin_uuid.to_owned()), vec![]);
     let result = auth_context::with_context(
         AuthContext::Admin {
-            admin_id: Uuid::nil(),
+            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
         },
         async { svc.refresh_session("any-token").await },
     )
     .await;
     assert!(result.is_ok());
     let r = result.unwrap();
+    // Token must be rotated: returned token must be non-empty and different from the input.
     assert!(!r.token.is_empty());
+    assert_ne!(r.token, "any-token");
     assert_eq!(r.max_age_seconds, 720 * 3600);
 }
 
@@ -308,7 +321,11 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
         }),
         Arc::new(MockSessionRepo {
             find_result: Mutex::new(Some(admin_uuid.to_owned())),
-            session_for_refresh: Mutex::new(Some((admin_uuid.to_owned(), false))),
+            session_for_refresh: Mutex::new(Some((
+                admin_uuid.to_owned(),
+                false,
+                (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
+            ))),
         }),
         Arc::new(MockApiKeyRepo { hashes: vec![] }),
         Arc::new(MockSystemConfigRepo),
@@ -317,7 +334,7 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
     );
     let result = auth_context::with_context(
         AuthContext::Admin {
-            admin_id: Uuid::nil(),
+            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
         },
         async { svc.refresh_session("any-token").await },
     )

@@ -16,32 +16,8 @@ import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BusyOverlay } from "@/components/BusyOverlay";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-
-function barColor(percent: number): string {
-  if (percent >= 90) return "bg-danger";
-  if (percent >= 70) return "bg-warn";
-  return "bg-accent";
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
-      {children}
-    </p>
-  );
-}
-
-function Bar({ percent }: { percent: number }) {
-  const clamped = Math.min(100, Math.max(0, percent));
-  return (
-    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
-      <div
-        className={`h-full rounded-full transition-all ${barColor(clamped)}`}
-        style={{ width: `${clamped}%` }}
-      />
-    </div>
-  );
-}
+import { SectionLabel } from "@/components/SectionLabel";
+import { Bar } from "@/components/Bar";
 
 export default function System() {
   const { data: status } = useSystemStatus();

@@ -103,6 +103,9 @@ pub trait AuthService: Send + Sync {
     ) -> Result<WizardState, AppError>;
 }
 
+/// Maximum lifetime of a `remember_me` session regardless of sliding-window refreshes.
+const MAX_SESSION_DAYS: i64 = 90;
+
 /// Default implementation of [`AuthService`] backed by repository traits.
 pub struct AuthServiceImpl {
     admins: Arc<dyn AdminRepository>,
@@ -197,19 +200,38 @@ impl AuthService for AuthServiceImpl {
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError> {
         auth_context::require_admin()?;
 
+        // Extract the calling admin's identity for cross-validation below.
+        let wardnet_common::auth::AuthContext::Admin {
+            admin_id: ctx_admin_id,
+        } = auth_context::current()
+        else {
+            return Err(AppError::Forbidden(
+                "must be authenticated as admin".to_owned(),
+            ));
+        };
+
         let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
         let now = chrono::Utc::now();
         let now_str = now.to_rfc3339();
 
         // Single atomic query: validates the session is non-expired and retrieves
-        // remember_me in one round-trip, eliminating the race window where
+        // remember_me + created_at in one round-trip, eliminating the race window where
         // delete_expired() could remove the row between two sequential reads.
-        let (_, is_refreshable) = self
+        let (session_admin_id, is_refreshable, created_at_str) = self
             .sessions
             .find_session_for_refresh(&token_hash, &now_str)
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::Unauthorized("session not found or expired".to_owned()))?;
+
+        // Cross-validate: the session row must belong to the calling admin.
+        let session_admin_uuid = Uuid::parse_str(&session_admin_id)
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid admin_id in session row")))?;
+        if session_admin_uuid != ctx_admin_id {
+            return Err(AppError::Forbidden(
+                "session does not belong to this admin".to_owned(),
+            ));
+        }
 
         if !is_refreshable {
             return Err(AppError::Forbidden(
@@ -217,19 +239,36 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
+        // Enforce an absolute lifetime cap so remember_me sessions cannot refresh indefinitely.
+        let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid created_at in session row")))?
+            .with_timezone(&chrono::Utc);
+        let absolute_expiry = created_at + chrono::Duration::days(MAX_SESSION_DAYS);
+        if now >= absolute_expiry {
+            return Err(AppError::Unauthorized(
+                "session has exceeded maximum lifetime — please log in again".to_owned(),
+            ));
+        }
+
         let expiry_hours_i64 = self
             .remember_me_expiry_hours
             .min(i64::MAX as u64)
             .cast_signed();
-        let new_expires_at = now + chrono::Duration::hours(expiry_hours_i64);
+        let slid_expiry = now + chrono::Duration::hours(expiry_hours_i64);
+        let new_expires_at = slid_expiry.min(absolute_expiry);
+
+        // Rotate token: generate a fresh secret so a captured token cannot be re-used.
+        let new_token_bytes: [u8; 32] = rand::random();
+        let new_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(new_token_bytes);
+        let new_token_hash = hex::encode(Sha256::digest(new_token.as_bytes()));
 
         self.sessions
-            .extend_expiry(&token_hash, &new_expires_at.to_rfc3339())
+            .rotate_token(&token_hash, &new_token_hash, &new_expires_at.to_rfc3339())
             .await
             .map_err(AppError::Internal)?;
 
         Ok(LoginResult {
-            token: token.to_owned(),
+            token: new_token,
             max_age_seconds: self.remember_me_expiry_hours * 3600,
         })
     }

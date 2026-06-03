@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOnlineStatus } from "@wardnet/wardnet-web";
 
@@ -18,8 +18,14 @@ export function OnlineStatusProvider({ children }: { children: React.ReactNode }
     prevReachable.current = status.isDaemonReachable;
   }, [status.isDaemonReachable, qc]);
 
+  const value = useMemo(
+    () => status,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [status.isOnline, status.isDaemonReachable, status.showingLastKnownState],
+  );
+
   return (
-    <OnlineStatusContext.Provider value={status}>
+    <OnlineStatusContext.Provider value={value}>
       {children}
     </OnlineStatusContext.Provider>
   );

@@ -81,13 +81,29 @@ impl SessionRepository for SqliteSessionRepository {
         Ok(())
     }
 
+    async fn rotate_token(
+        &self,
+        old_token_hash: &str,
+        new_token_hash: &str,
+        new_expires_at: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET token_hash = ?, expires_at = ? WHERE token_hash = ?")
+            .bind(new_token_hash)
+            .bind(new_expires_at)
+            .bind(old_token_hash)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
     async fn find_session_for_refresh(
         &self,
         token_hash: &str,
         now: &str,
-    ) -> anyhow::Result<Option<(String, bool)>> {
-        let row = sqlx::query_as::<_, (String, bool)>(
-            "SELECT admin_id, remember_me FROM sessions WHERE token_hash = ? AND expires_at > ?",
+    ) -> anyhow::Result<Option<(String, bool, String)>> {
+        let row = sqlx::query_as::<_, (String, bool, String)>(
+            "SELECT admin_id, remember_me, created_at FROM sessions \
+             WHERE token_hash = ? AND expires_at > ?",
         )
         .bind(token_hash)
         .bind(now)

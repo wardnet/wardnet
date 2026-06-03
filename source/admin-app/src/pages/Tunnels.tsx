@@ -184,7 +184,10 @@ export default function Tunnels() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4 p-4">
-        <h1 className="text-xl font-semibold text-ink">Tunnels</h1>
+        <div>
+          <h1 className="text-[28px] font-bold text-ink">Tunnels</h1>
+          <p className="text-[14px] text-ink-3">VPN tunnel status and throughput.</p>
+        </div>
         <div className="h-24 animate-pulse rounded-xl bg-sunken" />
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="h-48 animate-pulse rounded-xl bg-sunken" />
@@ -195,7 +198,10 @@ export default function Tunnels() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <h1 className="text-xl font-semibold text-ink">Tunnels</h1>
+      <div>
+        <h1 className="text-[28px] font-bold text-ink">Tunnels</h1>
+        <p className="text-[14px] text-ink-3">VPN tunnel status and throughput.</p>
+      </div>
 
       <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
       <div className="flex flex-col gap-4">

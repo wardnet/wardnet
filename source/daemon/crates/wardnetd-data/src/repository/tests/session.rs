@@ -141,13 +141,21 @@ async fn find_session_for_refresh_returns_admin_id_and_flag() {
     let now = "2026-06-01T00:00:00Z";
     assert_eq!(
         repo.find_session_for_refresh("hash-rm", now).await.unwrap(),
-        Some(("admin-1".to_owned(), true))
+        Some((
+            "admin-1".to_owned(),
+            true,
+            "2026-01-01T00:00:00Z".to_owned()
+        ))
     );
     assert_eq!(
         repo.find_session_for_refresh("hash-short", now)
             .await
             .unwrap(),
-        Some(("admin-1".to_owned(), false))
+        Some((
+            "admin-1".to_owned(),
+            false,
+            "2026-01-01T00:00:00Z".to_owned()
+        ))
     );
     // Expired session returns None.
     assert_eq!(
@@ -162,5 +170,43 @@ async fn find_session_for_refresh_returns_admin_id_and_flag() {
             .await
             .unwrap(),
         None
+    );
+}
+
+#[tokio::test]
+async fn rotate_token_replaces_hash_and_expiry() {
+    let pool = test_pool().await;
+    seed_admin(&pool).await;
+    let repo = SqliteSessionRepository::new(pool);
+
+    repo.create(
+        "s1",
+        "admin-1",
+        "old-hash",
+        "2026-01-01T00:00:00Z",
+        "2099-01-01T00:00:00Z",
+        true,
+    )
+    .await
+    .unwrap();
+
+    repo.rotate_token("old-hash", "new-hash", "2099-06-01T00:00:00Z")
+        .await
+        .unwrap();
+
+    // Old hash no longer resolves.
+    assert!(
+        repo.find_admin_id_by_token_hash("old-hash", "2026-06-01T00:00:00Z")
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    // New hash resolves correctly.
+    assert_eq!(
+        repo.find_admin_id_by_token_hash("new-hash", "2026-06-01T00:00:00Z")
+            .await
+            .unwrap(),
+        Some("admin-1".to_owned())
     );
 }
