@@ -460,6 +460,7 @@ fn create_services(
         backends.update,
         event_publisher.clone(),
         config,
+        backends.shutdown_token.clone(),
     );
 
     let backup_service = build_backup_service(
@@ -552,6 +553,7 @@ fn build_update_service(
     update_backends: UpdateBackends,
     event_publisher: Arc<dyn EventPublisher>,
     config: &ApplicationConfiguration,
+    shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Arc<dyn UpdateService> {
     Arc::new(UpdateServiceImpl::new(
         system_config_for_update(repo_factory),
@@ -562,6 +564,7 @@ fn build_update_service(
         event_publisher,
         config.update.require_signature,
         version::VERSION,
+        shutdown_token,
     ))
 }
 

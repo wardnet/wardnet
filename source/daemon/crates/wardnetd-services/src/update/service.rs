@@ -5,6 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::api::{
     InstallUpdateRequest, InstallUpdateResponse, RollbackResponse, UpdateCheckResponse,
@@ -81,11 +82,15 @@ pub struct UpdateServiceImpl {
     require_signature: bool,
     current_version: String,
     inflight: Arc<Mutex<InflightState>>,
+    /// Cancelled after a successful install so systemd's `Restart=always`
+    /// kicks in and the post-upgrade runner runs on the way back up.
+    shutdown_token: CancellationToken,
 }
 
 impl UpdateServiceImpl {
     /// Create a new service. `current_version` is the compile-time
-    /// `WARDNET_VERSION`.
+    /// `WARDNET_VERSION`. `shutdown_token` is cancelled after a successful
+    /// install to trigger a systemd-managed restart.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         system_config: Arc<dyn SystemConfigRepository>,
@@ -96,6 +101,7 @@ impl UpdateServiceImpl {
         events: Arc<dyn EventPublisher>,
         require_signature: bool,
         current_version: impl Into<String>,
+        shutdown_token: CancellationToken,
     ) -> Self {
         Self {
             system_config,
@@ -107,6 +113,7 @@ impl UpdateServiceImpl {
             require_signature,
             current_version: current_version.into(),
             inflight: Arc::new(Mutex::new(InflightState::default())),
+            shutdown_token,
         }
     }
 
@@ -254,9 +261,10 @@ impl UpdateServiceImpl {
                     .map_err(AppError::Internal)?;
                 tracing::info!(
                     target = %target,
-                    "update installed — daemon will be restarted by systemd: target={target}",
+                    "update installed — cancelling shutdown token to trigger systemd restart: target={target}",
                     target = target,
                 );
+                self.shutdown_token.cancel();
                 Ok(())
             }
             Err((phase, err)) => {
@@ -719,6 +727,7 @@ impl UpdateServiceImpl {
             require_signature: self.require_signature,
             current_version: self.current_version.clone(),
             inflight: self.inflight.clone(),
+            shutdown_token: self.shutdown_token.clone(),
         })
     }
 }
