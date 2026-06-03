@@ -35,7 +35,7 @@ function makeWindow(range: StatsRange): {
   return { from: from.toISOString(), to: to.toISOString(), bucket };
 }
 
-function parseLabels(json: string): Record<string, string> {
+export function parseLabels(json: string): Record<string, string> {
   try {
     return JSON.parse(json) as Record<string, string>;
   } catch {
@@ -259,4 +259,22 @@ export function useDashboardDnsStats() {
   }, [data]);
 
   return { data: derived, isLoading, isError, error };
+}
+
+export function useDnsTopBlockedDomains(limit = 10) {
+  return useQuery({
+    queryKey: ["stats", "dns-top-blocked-domains", limit],
+    queryFn: () => {
+      const now = new Date();
+      const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+      return statsService.top({
+        metric: "dns.queries.by_domain",
+        label_key: "domain",
+        from,
+        to: now.toISOString(),
+        limit,
+      });
+    },
+    refetchInterval: 30_000,
+  });
 }

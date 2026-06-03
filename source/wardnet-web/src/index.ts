@@ -117,6 +117,8 @@ export {
   useDnsStatSummary,
   useDnsStatsDashboard,
   useDashboardDnsStats,
+  useDnsTopBlockedDomains,
+  parseLabels,
   RANGES,
   RANGE_HOURS,
 } from "./hooks/useStats";

@@ -5,3 +5,5 @@
 export { ConfirmDialog } from "./ConfirmDialog";
 export { BusyOverlay } from "./BusyOverlay";
 export type { BusyPhase, BusyAction } from "./BusyOverlay";
+export { SectionLabel } from "./SectionLabel";
+export { Bar } from "./Bar";

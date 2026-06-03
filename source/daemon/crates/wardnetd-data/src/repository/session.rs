@@ -30,9 +30,17 @@ pub trait SessionRepository: Send + Sync {
     /// Slide the expiry forward for an existing session (used by the refresh endpoint).
     async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()>;
 
+    /// Atomically replace the token hash and extend expiry (token rotation on refresh).
+    async fn rotate_token(
+        &self,
+        old_token_hash: &str,
+        new_token_hash: &str,
+        new_expires_at: &str,
+    ) -> anyhow::Result<()>;
+
     /// Atomically look up a session for the refresh endpoint.
     ///
-    /// Returns `Some((admin_id, remember_me))` when the session exists and has
+    /// Returns `Some((admin_id, remember_me, created_at))` when the session exists and has
     /// not expired; `None` otherwise. Using a single query eliminates the
     /// race window between the two-call pattern
     /// (`find_admin_id_by_token_hash` + separate `remember_me` lookup) where
@@ -41,5 +49,5 @@ pub trait SessionRepository: Send + Sync {
         &self,
         token_hash: &str,
         now: &str,
-    ) -> anyhow::Result<Option<(String, bool)>>;
+    ) -> anyhow::Result<Option<(String, bool, String)>>;
 }

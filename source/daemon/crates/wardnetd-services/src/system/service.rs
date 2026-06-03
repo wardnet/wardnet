@@ -246,12 +246,17 @@ impl SystemService for SystemServiceImpl {
         };
 
         let (disk_free_bytes, disk_total_bytes) = if let Some(ref db_path) = self.db_path {
-            let disks = Disks::new_with_refreshed_list();
-            let best = disks
-                .iter()
-                .filter(|d| db_path.starts_with(d.mount_point()))
-                .max_by_key(|d| d.mount_point().as_os_str().len());
-            best.map_or((0, 0), |d| (d.available_space(), d.total_space()))
+            let path = db_path.clone();
+            tokio::task::spawn_blocking(move || {
+                let disks = Disks::new_with_refreshed_list();
+                let best = disks
+                    .iter()
+                    .filter(|d| path.starts_with(d.mount_point()))
+                    .max_by_key(|d| d.mount_point().as_os_str().len());
+                best.map_or((0, 0), |d| (d.available_space(), d.total_space()))
+            })
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?
         } else {
             (0, 0)
         };
