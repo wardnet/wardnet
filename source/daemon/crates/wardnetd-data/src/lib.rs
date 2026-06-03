@@ -15,9 +15,10 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 use crate::db::DbPools;
 use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
-    DnsFilterRepository, DnsRepository, MaintenanceRepository, SessionRepository,
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsRepository,
+    DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository,
+    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository,
     SqliteMaintenanceRepository, SqliteSessionRepository, SqliteStatsRepository,
     SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository,
     SystemConfigRepository, TunnelRepository, UpdateRepository,
@@ -37,6 +38,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn dns(&self) -> Arc<dyn DnsRepository>;
     fn dns_events(&self) -> Arc<dyn DnsEventsRepository>;
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository>;
+    fn dns_local(&self) -> Arc<dyn DnsLocalRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
     fn stats(&self) -> Arc<dyn StatsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
@@ -157,6 +159,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository> {
         Arc::new(SqliteDnsFilterRepository::new_pools(self.pools.clone()))
+    }
+
+    fn dns_local(&self) -> Arc<dyn DnsLocalRepository> {
+        Arc::new(SqliteDnsLocalRepository::new_pools(self.pools.clone()))
     }
 
     fn tunnel(&self) -> Arc<dyn TunnelRepository> {
