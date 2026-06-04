@@ -120,6 +120,41 @@ Both endpoints require admin auth. `StatsService` enforces this via `auth_contex
 
 `DnsRepository` previously exposed `query_stats`, `top_domains`, `top_clients`, and `series_buckets`. These on-the-fly aggregation methods were removed in PR 2. DNS stats are now served entirely through the generic `StatsService` + `/api/stats` / `/api/stats/top` endpoints using the four `dns.*` metrics recorded by `DnsLogSink`.
 
+## Local-DNS subsystem (issue #217)
+
+Zones, custom records, and conditional forwarding rules managed via the admin UI. Three storage layers in `wardnetd-data`: `DnsZone`, `CustomDnsRecord`, `ConditionalForwardingRule` tables, all CRUD'd through `DnsLocalRepository`. The service layer is `DnsLocalServiceImpl` in `wardnetd-services/dns_local/`.
+
+### AuthoritativeView — lock-free in-memory snapshot
+
+`AuthoritativeView` (`wardnetd-services/dns/authoritative.rs`) is an immutable snapshot of all **enabled** records and forwarding rules, built from the repository at startup and replaced atomically on every `WardnetEvent::DnsLocalChanged`. It is held behind an `Arc<ArcSwap<AuthoritativeView>>` in `UdpDnsServer` so each query reads a consistent snapshot lock-free, with no contention on the write path.
+
+Key design rule: records whose zone has `enabled = false` are excluded even if the record itself is enabled. Records with no zone are included when their own flag is set. Forwarding rules are sorted longest-domain-first so the first suffix match is always the most specific one.
+
+### Resolution pipeline (per-query order)
+
+| Step | What happens | Notes |
+|---|---|---|
+| **0 — upstream selection** | Client IP → `UpstreamId` from routing snapshot | Miss = `Default` (system-wide upstream) |
+| **0.5 — authoritative** | `AuthoritativeView::lookup` — answers directly, sets AA bit | Bypasses cache and filter entirely; returns `DnsQueryResult::Authoritative` |
+| **0.6 — conditional forwarding rule match** | `AuthoritativeView::match_forwarding_rule` — selects per-domain upstream | Captured before the cache check; forwarding fires at step 3 if filter passes |
+| **1 — cache** | Per-`UpstreamId` response cache | Tunnel and LAN devices have separate cache namespaces |
+| **2 — filter** | `DnsFilterService::check` — block / rewrite / pass | Applies even to conditionally-forwarded domains |
+| **3 — forward** | Conditional upstream (if matched at 0.6 and filter passed), otherwise default or tunnel upstream | `forward_via_conditional` binds an undeviced socket; `forward_via_tunnel` uses `SO_BINDTODEVICE` |
+
+Authoritative answers fully short-circuit the pipeline (no cache store, no filter). CNAME handling: for A/AAAA queries on a domain that has only a CNAME record in the view, the CNAME goes into the answer section and the target A/AAAA record (if also in the view) goes into the additional section.
+
+### Event-driven rebuild
+
+`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation:
+- Zone mutations set `domain: None` — triggers a full view rebuild, no per-domain eviction.
+- Record and forwarding-rule mutations set `domain: Some(domain)` — triggers a view rebuild **and** evicts that domain from the DNS response cache.
+
+`DnsRunner` handles `DnsLocalChanged` by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and, if `domain` is `Some`, `DnsServer::invalidate_domain`.
+
+### Why `DnsRunner` reads `dns_local_repo` directly
+
+`DnsRunner` receives a `Arc<dyn DnsLocalRepository>` rather than going through `DnsLocalService`. This is intentional: `DnsLocalService` is auth-gated (every method calls `require_admin()`), but `DnsRunner` is a background system component with no auth context. The `Services` struct exposes `dns_local_repo` for this purpose — it is **not** a general bypass pattern.
+
 ## Bridge service (issue #435)
 
 Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).

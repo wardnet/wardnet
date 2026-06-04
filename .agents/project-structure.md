@@ -21,7 +21,9 @@ source/
 │       │       ├── device/          # DeviceService + DeviceDiscoveryService
 │       │       │   └── discovery/   # Background ARP scan + observation loop
 │       │       ├── dhcp/            # DhcpService + DhcpRunner lifecycle
-│       │       ├── dns/             # DnsService + DNS filter + blocklist downloader
+│       │       ├── dns/             # DnsService, DnsRunner, cache, AuthoritativeView, log sink, blocklist downloader
+│       │       ├── dns_filter/      # DnsFilterService + DnsFilterRunner: blocklist CRUD, rebuild pipeline
+│       │       ├── dns_local/       # DnsLocalService: zones, custom records, forwarding rules CRUD; emits DnsLocalChanged
 │       │       ├── tunnel/          # TunnelService: VPN tunnel lifecycle management (+ KeyStoreAdapter over SecretStore)
 │       │       ├── routing/         # RoutingService: policy rules, per-device routing
 │       │       ├── vpn/             # VpnProviderService: provider credentials, server list

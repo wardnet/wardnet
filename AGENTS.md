@@ -36,6 +36,11 @@ you're about to make, rather than the whole set.
   `StatsService` with time-series and top-N queries; `/api/stats` and
   `/api/stats/top` endpoints. Also covers the DNS stats migration away from
   `DnsRepository`.
+- **[Local-DNS subsystem](.agents/architecture.md#local-dns-subsystem-issue-217)** —
+  `AuthoritativeView` (ArcSwap-backed, lock-free), resolution pipeline order
+  (authoritative → cache → filter → conditional/tunnel upstream),
+  event-driven rebuild on `DnsLocalChanged`, and why `DnsRunner` reads
+  `dns_local_repo` directly instead of going through `DnsLocalService`.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
