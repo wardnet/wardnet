@@ -135,6 +135,7 @@ export type {
 // Services — DNS
 export { DnsService } from "./services/dns.js";
 export { DnsFilterService } from "./services/dns-filter.js";
+export { DnsLocalService } from "./services/dns-local.js";
 export { DnsLogStreamService } from "./services/dnsLogStream.js";
 export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
@@ -249,3 +250,32 @@ export type {
   DnsFilterConfigResponse,
   UpdateDnsFilterConfigRequest,
 } from "./types/dns-filter.js";
+
+// Types — Local DNS (authoritative zones, custom records, forwarding rules)
+export type {
+  DnsRecordType,
+  DnsZone,
+  CustomDnsRecord,
+  ConditionalForwardingRule,
+  ListZonesResponse,
+  GetZoneResponse,
+  CreateZoneRequest,
+  CreateZoneResponse,
+  UpdateZoneRequest,
+  UpdateZoneResponse,
+  DeleteZoneResponse,
+  ListRecordsResponse,
+  GetRecordResponse,
+  CreateRecordRequest,
+  CreateRecordResponse,
+  UpdateRecordRequest,
+  UpdateRecordResponse,
+  DeleteRecordResponse,
+  ListForwardingRulesResponse,
+  GetForwardingRuleResponse,
+  CreateForwardingRuleRequest,
+  CreateForwardingRuleResponse,
+  UpdateForwardingRuleRequest,
+  UpdateForwardingRuleResponse,
+  DeleteForwardingRuleResponse,
+} from "./types/dns-local.js";

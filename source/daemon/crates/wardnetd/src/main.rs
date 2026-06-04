@@ -552,6 +552,7 @@ async fn run(
         services.dhcp.clone(),
         services.dns.clone(),
         services.dns_filter.clone(),
+        services.dns_local.clone(),
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),

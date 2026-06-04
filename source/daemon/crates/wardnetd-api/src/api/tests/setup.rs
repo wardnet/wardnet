@@ -14,8 +14,8 @@ use wardnet_common::api::{AdvanceWizardResponse, SetupStatusResponse, WizardMode
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
-    StubDnsFilterService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
-    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
+    StubLogService, StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
@@ -105,6 +105,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

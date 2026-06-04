@@ -16,6 +16,7 @@ pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
+pub mod dns_local;
 pub mod garp;
 pub mod logging;
 pub mod routing;
@@ -49,6 +50,7 @@ use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
 use crate::dns::DnsServiceImpl;
 use crate::dns_filter::DnsFilterServiceImpl;
+use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
@@ -63,6 +65,7 @@ pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
 pub use crate::dns_filter::DnsFilterService;
+pub use crate::dns_local::DnsLocalService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::routing::RoutingService;
@@ -148,6 +151,7 @@ pub struct Services {
     pub dhcp: Arc<dyn DhcpService>,
     pub dns: Arc<dyn DnsService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
+    pub dns_local: Arc<dyn DnsLocalService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
@@ -363,6 +367,7 @@ fn create_services(
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
     let dns_filter_repo = repo_factory.dns_filter();
+    let dns_local_repo = repo_factory.dns_local();
     let maintenance_repo = repo_factory.maintenance();
     let tunnel_repo = repo_factory.tunnel();
     let update_repo = repo_factory.update();
@@ -420,6 +425,9 @@ fn create_services(
         job_service.clone(),
         backends.blocklist_fetcher.clone(),
     ));
+
+    let dns_local_service: Arc<dyn DnsLocalService> =
+        Arc::new(DnsLocalServiceImpl::new(dns_local_repo));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
         system_config_repo,
@@ -494,6 +502,7 @@ fn create_services(
         dhcp: dhcp_service,
         dns: dns_service,
         dns_filter: dns_filter_service,
+        dns_local: dns_local_service,
         log: log_service,
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,

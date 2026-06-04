@@ -24,9 +24,9 @@ use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpServer, StubDiscoveryService, StubDnsFilterService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    StubDeviceService, StubDhcpServer, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -209,6 +209,7 @@ fn build_state(dhcp_svc: impl DhcpService + 'static) -> AppState {
         Arc::new(dhcp_svc),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

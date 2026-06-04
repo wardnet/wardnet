@@ -5,8 +5,8 @@ use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
-    AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, DnsQueryLogEntry,
-    DnsQueryResult, UpstreamDns,
+    AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordType, DnsZone, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
@@ -1276,4 +1276,186 @@ pub struct DnsCaptureSettingsResponse {
     pub cap_days: i64,
     pub row_count: i64,
     pub size_bytes: i64,
+}
+
+// ===========================================================================
+// Local DNS — authoritative zones, custom records, forwarding rules (issue
+// #217). CRUD surface under /api/dns/local/..., parallel to /api/dns/filter.
+// Resolver lookup and upsert are deferred to later chunks; these are plain
+// CRUD DTOs over the C1 `DnsLocalRepository`.
+// ===========================================================================
+
+// --- Zones -----------------------------------------------------------------
+
+/// Response for GET /api/dns/local/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListZonesResponse {
+    pub zones: Vec<DnsZone>,
+}
+
+/// Response for GET /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetZoneResponse {
+    pub zone: DnsZone,
+}
+
+/// Request body for POST /api/dns/local/zones.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneRequest {
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/dns/local/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneResponse {
+    pub zone: DnsZone,
+    pub message: String,
+}
+
+/// Request body for PUT /api/dns/local/zones/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneResponse {
+    pub zone: DnsZone,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteZoneResponse {
+    pub message: String,
+}
+
+// --- Records ---------------------------------------------------------------
+
+/// Response for GET /api/dns/local/records and
+/// GET /api/dns/local/zones/{id}/records.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListRecordsResponse {
+    pub records: Vec<CustomDnsRecord>,
+}
+
+/// Response for GET /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetRecordResponse {
+    pub record: CustomDnsRecord,
+}
+
+/// Request body for POST /api/dns/local/records.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRecordRequest {
+    /// Optional owning zone. `null`/omitted creates an unzoned record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_id: Option<Uuid>,
+    pub domain: String,
+    pub record_type: DnsRecordType,
+    pub value: String,
+    pub ttl: u32,
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/dns/local/records/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRecordRequest {
+    /// Three-state: omitted = leave zone link unchanged, `null` = clear to
+    /// NULL (unzoned), value = reassign. See [`crate::serde_util::nullable_field`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_field"
+    )]
+    #[schema(value_type = Option<Uuid>)]
+    pub zone_id: Option<Option<Uuid>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_type: Option<DnsRecordType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for POST /api/dns/local/records.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRecordResponse {
+    pub record: CustomDnsRecord,
+    pub message: String,
+}
+
+/// Response for PUT /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRecordResponse {
+    pub record: CustomDnsRecord,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteRecordResponse {
+    pub message: String,
+}
+
+// --- Forwarding rules ------------------------------------------------------
+
+/// Response for GET /api/dns/local/forwarding.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListForwardingRulesResponse {
+    pub rules: Vec<ConditionalForwardingRule>,
+}
+
+/// Response for GET /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+}
+
+/// Request body for POST /api/dns/local/forwarding.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateForwardingRuleRequest {
+    pub domain: String,
+    pub upstream: String,
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/dns/local/forwarding/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateForwardingRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for POST /api/dns/local/forwarding.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+    pub message: String,
+}
+
+/// Response for PUT /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteForwardingRuleResponse {
+    pub message: String,
 }

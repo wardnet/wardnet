@@ -5,8 +5,8 @@ use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsService, JobService, LogService, RoutingService, StatsService,
-    SystemService, TunnelService, UpdateService, VpnProviderService,
+    DnsFilterService, DnsLocalService, DnsService, JobService, LogService, RoutingService,
+    StatsService, SystemService, TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -25,6 +25,7 @@ struct Inner {
     dhcp_service: Arc<dyn DhcpService>,
     dns_service: Arc<dyn DnsService>,
     dns_filter_service: Arc<dyn DnsFilterService>,
+    dns_local_service: Arc<dyn DnsLocalService>,
     discovery_service: Arc<dyn DeviceDiscoveryService>,
     log_service: Arc<dyn LogService>,
     provider_service: Arc<dyn VpnProviderService>,
@@ -49,6 +50,7 @@ impl AppState {
         dhcp_service: Arc<dyn DhcpService>,
         dns_service: Arc<dyn DnsService>,
         dns_filter_service: Arc<dyn DnsFilterService>,
+        dns_local_service: Arc<dyn DnsLocalService>,
         discovery_service: Arc<dyn DeviceDiscoveryService>,
         log_service: Arc<dyn LogService>,
         provider_service: Arc<dyn VpnProviderService>,
@@ -70,6 +72,7 @@ impl AppState {
                 dhcp_service,
                 dns_service,
                 dns_filter_service,
+                dns_local_service,
                 discovery_service,
                 log_service,
                 provider_service,
@@ -119,6 +122,13 @@ impl AppState {
     #[must_use]
     pub fn dns_filter_service(&self) -> &dyn DnsFilterService {
         self.inner.dns_filter_service.as_ref()
+    }
+
+    /// Access the local-DNS service (authoritative zones, custom records,
+    /// forwarding rules — issue #217).
+    #[must_use]
+    pub fn dns_local_service(&self) -> &dyn DnsLocalService {
+        self.inner.dns_local_service.as_ref()
     }
 
     #[must_use]

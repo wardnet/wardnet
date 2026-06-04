@@ -757,6 +757,108 @@ impl wardnetd_services::DnsFilterService for StubDnsFilterService {
 }
 
 // ---------------------------------------------------------------------------
+// StubDnsLocalService
+// ---------------------------------------------------------------------------
+
+pub struct StubDnsLocalService;
+
+#[async_trait]
+impl wardnetd_services::DnsLocalService for StubDnsLocalService {
+    async fn list_zones(&self) -> Result<wardnet_common::api::ListZonesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_zone(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_zone(
+        &self,
+        _r: wardnet_common::api::CreateZoneRequest,
+    ) -> Result<wardnet_common::api::CreateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_zone(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateZoneRequest,
+    ) -> Result<wardnet_common::api::UpdateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_zone(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_zone_records(
+        &self,
+        _zone_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_records(&self) -> Result<wardnet_common::api::ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_record(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_record(
+        &self,
+        _r: wardnet_common::api::CreateRecordRequest,
+    ) -> Result<wardnet_common::api::CreateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_record(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateRecordRequest,
+    ) -> Result<wardnet_common::api::UpdateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_record(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_forwarding_rules(
+        &self,
+    ) -> Result<wardnet_common::api::ListForwardingRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_forwarding_rule(
+        &self,
+        _r: wardnet_common::api::CreateForwardingRuleRequest,
+    ) -> Result<wardnet_common::api::CreateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateForwardingRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubLogService
 // ---------------------------------------------------------------------------
 
@@ -941,6 +1043,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService),
         Arc::new(StubProviderService),

@@ -385,6 +385,80 @@ impl wardnetd_services::DnsFilterService for StubDnsFilterService {
     }
 }
 
+pub struct StubDnsLocalService;
+#[async_trait]
+impl wardnetd_services::DnsLocalService for StubDnsLocalService {
+    async fn list_zones(&self) -> Result<ListZonesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_zone(&self, _id: Uuid) -> Result<GetZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_zone(&self, _r: CreateZoneRequest) -> Result<CreateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_zone(
+        &self,
+        _id: Uuid,
+        _r: UpdateZoneRequest,
+    ) -> Result<UpdateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_zone(&self, _id: Uuid) -> Result<DeleteZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_zone_records(&self, _zone_id: Uuid) -> Result<ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_records(&self) -> Result<ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_record(&self, _id: Uuid) -> Result<GetRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_record(
+        &self,
+        _r: CreateRecordRequest,
+    ) -> Result<CreateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_record(
+        &self,
+        _id: Uuid,
+        _r: UpdateRecordRequest,
+    ) -> Result<UpdateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_record(&self, _id: Uuid) -> Result<DeleteRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_forwarding_rules(&self) -> Result<ListForwardingRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_forwarding_rule(&self, _id: Uuid) -> Result<GetForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_forwarding_rule(
+        &self,
+        _r: CreateForwardingRuleRequest,
+    ) -> Result<CreateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_forwarding_rule(
+        &self,
+        _id: Uuid,
+        _r: UpdateForwardingRuleRequest,
+    ) -> Result<UpdateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_forwarding_rule(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+}
+
 pub struct StubDiscoveryService;
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
@@ -868,6 +942,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
