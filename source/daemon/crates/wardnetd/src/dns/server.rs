@@ -121,7 +121,17 @@ pub struct UdpDnsServer {
     /// whenever `DnsLocalChanged` fires so each query reads a consistent
     /// view without taking a lock.
     authoritative_view: Arc<ArcSwap<AuthoritativeView>>,
+    /// Pool of pre-bound UDP sockets for conditional forwarding. Re-using sockets
+    /// avoids the per-query `bind` syscall. Each socket is `connect`-ed to the
+    /// target upstream just before use, which also restricts the kernel to
+    /// accepting responses only from that peer address (closing the off-path
+    /// spoofing window). The pool is capped at [`CONDITIONAL_SOCKET_POOL_SIZE`];
+    /// under-capacity sockets are created on demand.
+    conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 }
+
+/// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
+const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
 
 impl Drop for UdpDnsServer {
     fn drop(&mut self) {
@@ -207,6 +217,7 @@ impl UdpDnsServer {
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
             cache_invalidator_cancel,
             authoritative_view: Arc::new(ArcSwap::from_pointee(AuthoritativeView::empty())),
+            conditional_socket_pool: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -262,6 +273,7 @@ impl DnsServer for UdpDnsServer {
         let tunnel_repo = Arc::clone(&self.tunnel_repo);
         let tunnel_forwarders = Arc::clone(&self.tunnel_forwarders);
         let authoritative_view = Arc::clone(&self.authoritative_view);
+        let conditional_socket_pool = Arc::clone(&self.conditional_socket_pool);
 
         let new_cancel = CancellationToken::new();
         let cancel = new_cancel.clone();
@@ -288,6 +300,7 @@ impl DnsServer for UdpDnsServer {
                 tunnel_repo,
                 tunnel_forwarders,
                 authoritative_view,
+                conditional_socket_pool,
             )
             .await;
             running.store(false, Ordering::SeqCst);
@@ -364,6 +377,7 @@ async fn server_loop(
     tunnel_repo: Arc<dyn TunnelRepository>,
     tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
     authoritative_view: Arc<ArcSwap<AuthoritativeView>>,
+    conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) {
     let mut buf = vec![0u8; 4096];
 
@@ -393,6 +407,7 @@ async fn server_loop(
                         let tunnel_repo = Arc::clone(&tunnel_repo);
                         let tunnel_forwarders = Arc::clone(&tunnel_forwarders);
                         let authoritative_view = Arc::clone(&authoritative_view);
+                        let conditional_socket_pool = Arc::clone(&conditional_socket_pool);
 
                         // Tracker.spawn keeps the Arc<DnsSocket> clone in
                         // this task observable to `stop()`, which awaits
@@ -411,6 +426,7 @@ async fn server_loop(
                                 &tunnel_repo,
                                 &tunnel_forwarders,
                                 &authoritative_view,
+                                &conditional_socket_pool,
                             )
                             .await
                             {
@@ -442,6 +458,7 @@ async fn handle_query(
     tunnel_repo: &Arc<dyn TunnelRepository>,
     tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
     authoritative_view: &Arc<ArcSwap<AuthoritativeView>>,
+    conditional_socket_pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) -> anyhow::Result<()> {
     use hickory_proto::rr::{Name, RData, Record};
 
@@ -557,9 +574,19 @@ async fn handle_query(
 
     // 0.6. Conditional forwarding check — applies to queries that fall
     //      through the authoritative path (domain not in local view).
-    let conditional_upstream: Option<SocketAddr> = view
-        .match_forwarding_rule(&domain_lower)
-        .and_then(|r| parse_conditional_upstream(&r.upstream).ok());
+    let conditional_upstream: Option<SocketAddr> =
+        view.match_forwarding_rule(&domain_lower).and_then(|r| {
+            parse_conditional_upstream(&r.upstream)
+                .map_err(|e| {
+                    tracing::warn!(
+                        upstream = %r.upstream,
+                        domain = %domain_lower,
+                        error = %e,
+                        "malformed conditional forwarding upstream — falling through to default"
+                    );
+                })
+                .ok()
+        });
 
     // Drop the ArcSwap guard before any await point.
     drop(view);
@@ -674,6 +701,7 @@ async fn handle_query(
             start,
             pass_result,
             upstream_id,
+            conditional_socket_pool,
         )
         .await
         {
@@ -884,14 +912,16 @@ async fn forward_via_tunnel(
     // syscall cost is negligible relative to the DNS round-trip.
     let bound = bind_socket_to_device(&forwarder.interface_name)?;
 
-    bound.send_to(packet, forwarder.upstream).await?;
+    // Connect so the kernel only delivers datagrams from `forwarder.upstream`,
+    // rejecting off-path spoofed responses at the socket layer.
+    bound.connect(forwarder.upstream).await?;
+    bound.send(packet).await?;
 
     let mut buf = vec![0u8; 4096];
-    let recv =
-        tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv_from(&mut buf)).await;
+    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
 
     let n = match recv {
-        Ok(Ok((n, _))) => n,
+        Ok(Ok(n)) => n,
         Ok(Err(e)) => {
             return Err(anyhow::anyhow!("tunnel upstream recv error: {e}"));
         }
@@ -1204,8 +1234,13 @@ fn make_rdata(
 }
 
 /// Forward a DNS query to a conditional upstream (no `SO_BINDTODEVICE`).
-/// Mirrors `forward_via_tunnel` but binds an undeviced socket so the
-/// packet egresses via the default route.
+///
+/// Borrows a socket from `pool` (or creates a new one if the pool is empty),
+/// `connect`s it to `upstream` (so the kernel only delivers responses from that
+/// peer), sends the query, then validates the response transaction ID and question
+/// before forwarding to the client. Without txid validation, a pooled socket that
+/// already has a late/duplicate response buffered from a previous query could
+/// deliver it to the wrong client.
 #[allow(clippy::too_many_arguments)]
 async fn forward_via_conditional(
     upstream: SocketAddr,
@@ -1214,37 +1249,70 @@ async fn forward_via_conditional(
     config: &Arc<RwLock<DnsConfig>>,
     log_sink: Option<&DnsLogSink>,
     packet: &[u8],
-    _request: &Message,
-    _id: u16,
+    request: &Message,
+    id: u16,
     src: SocketAddr,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) -> anyhow::Result<()> {
+    // Check out a socket from the pool, or create a new one.
     let bound = {
-        let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
-        std_socket.set_nonblocking(true)?;
-        tokio::net::UdpSocket::from_std(std_socket)?
+        let mut guard = pool.lock().await;
+        if let Some(s) = guard.pop() {
+            s
+        } else {
+            let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+            std_socket.set_nonblocking(true)?;
+            tokio::net::UdpSocket::from_std(std_socket)?
+        }
     };
 
-    bound.send_to(packet, upstream).await?;
+    // connect() restricts the kernel to only accepting datagrams from `upstream`,
+    // eliminating off-path response spoofing at the OS layer.
+    bound.connect(upstream).await?;
+    bound.send(packet).await?;
 
     let mut buf = vec![0u8; 4096];
-    let recv =
-        tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv_from(&mut buf)).await;
+    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
 
     let n = match recv {
-        Ok(Ok((n, _))) => n,
-        Ok(Err(e)) => return Err(anyhow::anyhow!("conditional upstream recv error: {e}")),
-        Err(_) => return Err(anyhow::anyhow!("conditional upstream timeout")),
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!("conditional upstream recv error: {e}"));
+        }
+        Err(_) => {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!("conditional upstream timeout"));
+        }
     };
     buf.truncate(n);
 
-    socket.send_to(&buf, src).await?;
-
+    // Validate the response before forwarding: txid and question must match the
+    // outbound query. A pooled socket could in theory receive a late response to a
+    // prior query; txid validation ensures stale datagrams are never served or cached.
     if let Ok(parsed) = Message::from_bytes(&buf) {
+        if parsed.metadata.id != id {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!(
+                "conditional upstream response txid mismatch (got {}, expected {id})",
+                parsed.metadata.id
+            ));
+        }
+        if parsed.queries.first().map(|q| q.name()) != request.queries.first().map(|q| q.name()) {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!(
+                "conditional upstream response question mismatch"
+            ));
+        }
+
+        socket.send_to(&buf, src).await?;
+        return_socket_to_pool(pool, bound).await;
+
         let mut min_ttl = u32::MAX;
         for record in &parsed.answers {
             min_ttl = min_ttl.min(record.ttl);
@@ -1262,6 +1330,10 @@ async fn forward_via_conditional(
                 cfg.cache_ttl_max_secs,
             );
         }
+    } else {
+        // Parse failed — send raw bytes and don't cache.
+        socket.send_to(&buf, src).await?;
+        return_socket_to_pool(pool, bound).await;
     }
 
     let elapsed = start.elapsed();
@@ -1276,6 +1348,14 @@ async fn forward_via_conditional(
         elapsed,
     );
     Ok(())
+}
+
+async fn return_socket_to_pool(pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>, socket: UdpSocket) {
+    let mut guard = pool.lock().await;
+    if guard.len() < CONDITIONAL_SOCKET_POOL_SIZE {
+        guard.push(socket);
+    }
+    // If the pool is at capacity, the socket is simply dropped (closed).
 }
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;

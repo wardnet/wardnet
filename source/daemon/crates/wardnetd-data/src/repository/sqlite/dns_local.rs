@@ -139,26 +139,40 @@ impl DbRuleRow {
     }
 }
 
-const ZONE_COLS: &str = "id, name, enabled, created_at, updated_at";
-const RECORD_COLS: &str =
-    "id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at";
-const RULE_COLS: &str = "id, domain, upstream, enabled, created_at";
+// Static SQL strings — all column lists are inlined so no runtime format!() is needed
+// for the fixed SELECT/GET queries. UPDATE queries use AssertSqlSafe because their SET
+// clauses are dynamically assembled from static &str fragments (no user input is interpolated).
+
+const LIST_ZONES_SQL: &str =
+    "SELECT id, name, enabled, created_at, updated_at FROM dns_zones ORDER BY name ASC";
+const GET_ZONE_SQL: &str =
+    "SELECT id, name, enabled, created_at, updated_at FROM dns_zones WHERE id = ?";
+
+const LIST_RECORDS_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+     FROM dns_custom_records ORDER BY domain ASC";
+const LIST_RECORDS_BY_ZONE_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+     FROM dns_custom_records WHERE zone_id = ? ORDER BY domain ASC";
+const GET_RECORD_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+     FROM dns_custom_records WHERE id = ?";
+
+const LIST_RULES_SQL: &str = "SELECT id, domain, upstream, enabled, created_at \
+     FROM dns_conditional_rules ORDER BY domain ASC";
+const GET_RULE_SQL: &str = "SELECT id, domain, upstream, enabled, created_at \
+     FROM dns_conditional_rules WHERE id = ?";
 
 #[async_trait]
 impl DnsLocalRepository for SqliteDnsLocalRepository {
     // ── Zones ───────────────────────────────────────────────────────────
 
     async fn list_zones(&self) -> anyhow::Result<Vec<DnsZone>> {
-        let sql = format!("SELECT {ZONE_COLS} FROM dns_zones ORDER BY name ASC");
-        let rows = sqlx::query_as::<_, DbZoneRow>(sqlx::AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, DbZoneRow>(LIST_ZONES_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DbZoneRow::into_zone).collect()
     }
 
     async fn get_zone(&self, id: Uuid) -> anyhow::Result<Option<DnsZone>> {
-        let sql = format!("SELECT {ZONE_COLS} FROM dns_zones WHERE id = ?");
-        let row = sqlx::query_as::<_, DbZoneRow>(sqlx::AssertSqlSafe(sql))
+        let row = sqlx::query_as::<_, DbZoneRow>(GET_ZONE_SQL)
             .bind(id.to_string())
             .fetch_optional(&self.pools.read)
             .await?;
@@ -187,11 +201,9 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         })
     }
 
-    async fn update_zone(&self, id: Uuid, update: &ZoneUpdate) -> anyhow::Result<bool> {
-        if update.name.is_none() && update.enabled.is_none() {
-            return Ok(true);
-        }
+    async fn update_zone(&self, id: Uuid, update: &ZoneUpdate) -> anyhow::Result<Option<DnsZone>> {
         let now = now_iso();
+        // Always touch updated_at so the UPDATE reliably tells us whether the row exists.
         let mut set_parts: Vec<&str> = vec!["updated_at = ?"];
         if update.name.is_some() {
             set_parts.push("name = ?");
@@ -199,6 +211,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         if update.enabled.is_some() {
             set_parts.push("enabled = ?");
         }
+        // SET clause built from &'static str fragments only — no user input is interpolated.
         let sql = format!("UPDATE dns_zones SET {} WHERE id = ?", set_parts.join(", "));
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&now);
         if let Some(ref name) = update.name {
@@ -209,7 +222,14 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         }
         q = q.bind(id.to_string());
         let result = q.execute(&self.pools.write).await?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query_as::<_, DbZoneRow>(GET_ZONE_SQL)
+            .bind(id.to_string())
+            .fetch_optional(&self.pools.write)
+            .await?;
+        row.map(DbZoneRow::into_zone).transpose()
     }
 
     async fn delete_zone(&self, id: Uuid) -> anyhow::Result<bool> {
@@ -223,18 +243,14 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
     // ── Custom records ──────────────────────────────────────────────────
 
     async fn list_records(&self) -> anyhow::Result<Vec<CustomDnsRecord>> {
-        let sql = format!("SELECT {RECORD_COLS} FROM dns_custom_records ORDER BY domain ASC");
-        let rows = sqlx::query_as::<_, DbRecordRow>(sqlx::AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, DbRecordRow>(LIST_RECORDS_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DbRecordRow::into_record).collect()
     }
 
     async fn list_records_by_zone(&self, zone_id: Uuid) -> anyhow::Result<Vec<CustomDnsRecord>> {
-        let sql = format!(
-            "SELECT {RECORD_COLS} FROM dns_custom_records WHERE zone_id = ? ORDER BY domain ASC"
-        );
-        let rows = sqlx::query_as::<_, DbRecordRow>(sqlx::AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, DbRecordRow>(LIST_RECORDS_BY_ZONE_SQL)
             .bind(zone_id.to_string())
             .fetch_all(&self.pools.read)
             .await?;
@@ -242,8 +258,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
     }
 
     async fn get_record(&self, id: Uuid) -> anyhow::Result<Option<CustomDnsRecord>> {
-        let sql = format!("SELECT {RECORD_COLS} FROM dns_custom_records WHERE id = ?");
-        let row = sqlx::query_as::<_, DbRecordRow>(sqlx::AssertSqlSafe(sql))
+        let row = sqlx::query_as::<_, DbRecordRow>(GET_RECORD_SQL)
             .bind(id.to_string())
             .fetch_optional(&self.pools.read)
             .await?;
@@ -282,7 +297,11 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         })
     }
 
-    async fn update_record(&self, id: Uuid, update: &RecordUpdate) -> anyhow::Result<bool> {
+    async fn update_record(
+        &self,
+        id: Uuid,
+        update: &RecordUpdate,
+    ) -> anyhow::Result<Option<CustomDnsRecord>> {
         let RecordUpdate {
             zone_id,
             domain,
@@ -291,15 +310,6 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
             ttl,
             enabled,
         } = update;
-        if zone_id.is_none()
-            && domain.is_none()
-            && record_type.is_none()
-            && value.is_none()
-            && ttl.is_none()
-            && enabled.is_none()
-        {
-            return Ok(true);
-        }
         let now = now_iso();
         let mut set_parts: Vec<&str> = vec!["updated_at = ?"];
         if zone_id.is_some() {
@@ -320,6 +330,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         if enabled.is_some() {
             set_parts.push("enabled = ?");
         }
+        // SET clause built from &'static str fragments only — no user input is interpolated.
         let sql = format!(
             "UPDATE dns_custom_records SET {} WHERE id = ?",
             set_parts.join(", ")
@@ -346,7 +357,14 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         }
         q = q.bind(id.to_string());
         let result = q.execute(&self.pools.write).await?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query_as::<_, DbRecordRow>(GET_RECORD_SQL)
+            .bind(id.to_string())
+            .fetch_optional(&self.pools.write)
+            .await?;
+        row.map(DbRecordRow::into_record).transpose()
     }
 
     async fn delete_record(&self, id: Uuid) -> anyhow::Result<bool> {
@@ -360,16 +378,14 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
     // ── Conditional forwarding rules ────────────────────────────────────
 
     async fn list_rules(&self) -> anyhow::Result<Vec<ConditionalForwardingRule>> {
-        let sql = format!("SELECT {RULE_COLS} FROM dns_conditional_rules ORDER BY domain ASC");
-        let rows = sqlx::query_as::<_, DbRuleRow>(sqlx::AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, DbRuleRow>(LIST_RULES_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DbRuleRow::into_rule).collect()
     }
 
     async fn get_rule(&self, id: Uuid) -> anyhow::Result<Option<ConditionalForwardingRule>> {
-        let sql = format!("SELECT {RULE_COLS} FROM dns_conditional_rules WHERE id = ?");
-        let row = sqlx::query_as::<_, DbRuleRow>(sqlx::AssertSqlSafe(sql))
+        let row = sqlx::query_as::<_, DbRuleRow>(GET_RULE_SQL)
             .bind(id.to_string())
             .fetch_optional(&self.pools.read)
             .await?;
@@ -398,12 +414,29 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         })
     }
 
-    async fn update_rule(&self, id: Uuid, update: &RuleUpdate) -> anyhow::Result<bool> {
+    async fn update_rule(
+        &self,
+        id: Uuid,
+        update: &RuleUpdate,
+    ) -> anyhow::Result<Option<ConditionalForwardingRule>> {
+        // dns_conditional_rules has no updated_at column. When all fields are None,
+        // do an existence check rather than emitting invalid SQL with an empty SET clause.
         if update.domain.is_none() && update.upstream.is_none() && update.enabled.is_none() {
-            return Ok(true);
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM dns_conditional_rules WHERE id = ?)",
+            )
+            .bind(id.to_string())
+            .fetch_one(&self.pools.read)
+            .await?;
+            if !exists {
+                return Ok(None);
+            }
+            let row = sqlx::query_as::<_, DbRuleRow>(GET_RULE_SQL)
+                .bind(id.to_string())
+                .fetch_optional(&self.pools.read)
+                .await?;
+            return row.map(DbRuleRow::into_rule).transpose();
         }
-        // `dns_conditional_rules` has no `updated_at` column — only the
-        // mutable fields are touched.
         let mut set_parts: Vec<&str> = Vec::new();
         if update.domain.is_some() {
             set_parts.push("domain = ?");
@@ -414,6 +447,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         if update.enabled.is_some() {
             set_parts.push("enabled = ?");
         }
+        // SET clause built from &'static str fragments only — no user input is interpolated.
         let sql = format!(
             "UPDATE dns_conditional_rules SET {} WHERE id = ?",
             set_parts.join(", ")
@@ -430,7 +464,14 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         }
         q = q.bind(id.to_string());
         let result = q.execute(&self.pools.write).await?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query_as::<_, DbRuleRow>(GET_RULE_SQL)
+            .bind(id.to_string())
+            .fetch_optional(&self.pools.write)
+            .await?;
+        row.map(DbRuleRow::into_rule).transpose()
     }
 
     async fn delete_rule(&self, id: Uuid) -> anyhow::Result<bool> {

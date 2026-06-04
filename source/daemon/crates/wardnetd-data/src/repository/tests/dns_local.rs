@@ -66,11 +66,10 @@ async fn zone_crud_round_trip() {
             },
         )
         .await
-        .unwrap();
-    assert!(updated);
-    let fetched = repo.get_zone(id).await.unwrap().unwrap();
-    assert_eq!(fetched.name, "homelab");
-    assert!(!fetched.enabled);
+        .unwrap()
+        .expect("updated zone returned");
+    assert_eq!(updated.name, "homelab");
+    assert!(!updated.enabled);
 
     assert!(repo.delete_zone(id).await.unwrap());
     assert!(repo.get_zone(id).await.unwrap().is_none());
@@ -141,13 +140,12 @@ async fn record_crud_round_trip() {
             },
         )
         .await
-        .unwrap();
-    assert!(updated);
-    let fetched = repo.get_record(id).await.unwrap().unwrap();
-    assert_eq!(fetched.record_type, DnsRecordType::Aaaa);
-    assert_eq!(fetched.value, "fd00::1");
-    assert_eq!(fetched.ttl, 600);
-    assert!(!fetched.enabled);
+        .unwrap()
+        .expect("updated record returned");
+    assert_eq!(updated.record_type, DnsRecordType::Aaaa);
+    assert_eq!(updated.value, "fd00::1");
+    assert_eq!(updated.ttl, 600);
+    assert!(!updated.enabled);
 
     assert!(repo.delete_record(id).await.unwrap());
     assert!(repo.get_record(id).await.unwrap().is_none());
@@ -219,9 +217,9 @@ async fn update_record_can_clear_zone_id() {
             },
         )
         .await
-        .unwrap();
-    assert!(updated);
-    assert_eq!(repo.get_record(id).await.unwrap().unwrap().zone_id, None);
+        .unwrap()
+        .expect("updated record returned");
+    assert_eq!(updated.zone_id, None);
 }
 
 #[tokio::test]
@@ -263,11 +261,10 @@ async fn rule_crud_round_trip() {
             },
         )
         .await
-        .unwrap();
-    assert!(updated);
-    let fetched = repo.get_rule(id).await.unwrap().unwrap();
-    assert_eq!(fetched.upstream, "10.0.0.54");
-    assert!(!fetched.enabled);
+        .unwrap()
+        .expect("updated rule returned");
+    assert_eq!(updated.upstream, "10.0.0.54");
+    assert!(!updated.enabled);
 
     assert!(repo.delete_rule(id).await.unwrap());
     assert!(repo.get_rule(id).await.unwrap().is_none());

@@ -237,8 +237,6 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: UpdateZoneRequest,
     ) -> Result<UpdateZoneResponse, AppError> {
         auth_context::require_admin()?;
-        // `update_zone` returns Ok(true) even for a missing id, so check first.
-        self.ensure_zone(id).await?;
         if let Some(name) = req.name.as_deref() {
             Self::validate_zone_name(name)?;
         }
@@ -246,11 +244,12 @@ impl DnsLocalService for DnsLocalServiceImpl {
             name: req.name,
             enabled: req.enabled,
         };
-        self.repo
+        let zone = self
+            .repo
             .update_zone(id, &update)
             .await
-            .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
-        let zone = self.ensure_zone(id).await?;
+            .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?
+            .ok_or_else(|| AppError::NotFound(format!("zone {id} not found")))?;
         self.emit_zone_changed();
         Ok(UpdateZoneResponse {
             zone,
@@ -334,7 +333,8 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: UpdateRecordRequest,
     ) -> Result<UpdateRecordResponse, AppError> {
         auth_context::require_admin()?;
-        self.ensure_record(id).await?;
+        // Capture the pre-update record to detect domain renames for cache eviction.
+        let old_record = self.ensure_record(id).await?;
         if let Some(domain) = req.domain.as_deref() {
             Self::validate_domain(domain)?;
         }
@@ -354,10 +354,18 @@ impl DnsLocalService for DnsLocalServiceImpl {
             ttl: req.ttl,
             enabled: req.enabled,
         };
-        self.repo.update_record(id, &update).await.map_err(|e| {
-            Self::map_repo_err(e, "a record with this domain and type already exists")
-        })?;
-        let record = self.ensure_record(id).await?;
+        let record = self
+            .repo
+            .update_record(id, &update)
+            .await
+            .map_err(|e| {
+                Self::map_repo_err(e, "a record with this domain and type already exists")
+            })?
+            .ok_or_else(|| AppError::NotFound(format!("record {id} not found")))?;
+        // Evict the old domain from the DNS cache if the domain name changed.
+        if old_record.domain != record.domain {
+            self.emit_domain_changed(old_record.domain);
+        }
         self.emit_domain_changed(record.domain.clone());
         Ok(UpdateRecordResponse {
             record,
@@ -426,7 +434,8 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: UpdateForwardingRuleRequest,
     ) -> Result<UpdateForwardingRuleResponse, AppError> {
         auth_context::require_admin()?;
-        self.ensure_forwarding_rule(id).await?;
+        // Capture the pre-update rule to detect domain renames for cache eviction.
+        let old_rule = self.ensure_forwarding_rule(id).await?;
         if let Some(domain) = req.domain.as_deref() {
             Self::validate_domain(domain)?;
         }
@@ -438,10 +447,16 @@ impl DnsLocalService for DnsLocalServiceImpl {
             upstream: req.upstream,
             enabled: req.enabled,
         };
-        self.repo.update_rule(id, &update).await.map_err(|e| {
-            Self::map_repo_err(e, "a forwarding rule for this domain already exists")
-        })?;
-        let rule = self.ensure_forwarding_rule(id).await?;
+        let rule = self
+            .repo
+            .update_rule(id, &update)
+            .await
+            .map_err(|e| Self::map_repo_err(e, "a forwarding rule for this domain already exists"))?
+            .ok_or_else(|| AppError::NotFound(format!("forwarding rule {id} not found")))?;
+        // Evict the old domain from the DNS cache if the domain name changed.
+        if old_rule.domain != rule.domain {
+            self.emit_domain_changed(old_rule.domain);
+        }
         self.emit_domain_changed(rule.domain.clone());
         Ok(UpdateForwardingRuleResponse {
             rule,

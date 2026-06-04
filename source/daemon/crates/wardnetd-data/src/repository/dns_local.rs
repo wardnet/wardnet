@@ -81,8 +81,8 @@ pub trait DnsLocalRepository: Send + Sync {
     async fn list_zones(&self) -> anyhow::Result<Vec<DnsZone>>;
     async fn get_zone(&self, id: Uuid) -> anyhow::Result<Option<DnsZone>>;
     async fn create_zone(&self, row: &ZoneRow) -> anyhow::Result<DnsZone>;
-    /// Update mutable fields on a zone. Returns `Ok(false)` if no row matched.
-    async fn update_zone(&self, id: Uuid, update: &ZoneUpdate) -> anyhow::Result<bool>;
+    /// Update mutable fields on a zone. Returns the updated zone, or `None` if no row matched.
+    async fn update_zone(&self, id: Uuid, update: &ZoneUpdate) -> anyhow::Result<Option<DnsZone>>;
     /// Delete a zone. Returns `Ok(false)` if no row matched. Records pointing
     /// at it have their `zone_id` cleared to NULL (`ON DELETE SET NULL`).
     async fn delete_zone(&self, id: Uuid) -> anyhow::Result<bool>;
@@ -95,8 +95,12 @@ pub trait DnsLocalRepository: Send + Sync {
     async fn list_records_by_zone(&self, zone_id: Uuid) -> anyhow::Result<Vec<CustomDnsRecord>>;
     async fn get_record(&self, id: Uuid) -> anyhow::Result<Option<CustomDnsRecord>>;
     async fn create_record(&self, row: &RecordRow) -> anyhow::Result<CustomDnsRecord>;
-    /// Update mutable fields on a record. Returns `Ok(false)` if no row matched.
-    async fn update_record(&self, id: Uuid, update: &RecordUpdate) -> anyhow::Result<bool>;
+    /// Update mutable fields on a record. Returns the updated record, or `None` if no row matched.
+    async fn update_record(
+        &self,
+        id: Uuid,
+        update: &RecordUpdate,
+    ) -> anyhow::Result<Option<CustomDnsRecord>>;
     async fn delete_record(&self, id: Uuid) -> anyhow::Result<bool>;
 
     // ── Conditional forwarding rules ────────────────────────────────────
@@ -104,7 +108,11 @@ pub trait DnsLocalRepository: Send + Sync {
     async fn list_rules(&self) -> anyhow::Result<Vec<ConditionalForwardingRule>>;
     async fn get_rule(&self, id: Uuid) -> anyhow::Result<Option<ConditionalForwardingRule>>;
     async fn create_rule(&self, row: &RuleRow) -> anyhow::Result<ConditionalForwardingRule>;
-    /// Update mutable fields on a rule. Returns `Ok(false)` if no row matched.
-    async fn update_rule(&self, id: Uuid, update: &RuleUpdate) -> anyhow::Result<bool>;
+    /// Update mutable fields on a rule. Returns the updated rule, or `None` if no row matched.
+    async fn update_rule(
+        &self,
+        id: Uuid,
+        update: &RuleUpdate,
+    ) -> anyhow::Result<Option<ConditionalForwardingRule>>;
     async fn delete_rule(&self, id: Uuid) -> anyhow::Result<bool>;
 }

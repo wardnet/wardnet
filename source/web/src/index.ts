@@ -139,6 +139,7 @@ export {
   dhcpService,
   dnsService,
   dnsFilterService,
+  dnsLocalService,
   dnsLogStreamService,
   jobsService,
   logService,
@@ -274,6 +275,25 @@ export {
   useUpdateDnsConfig,
   useFlushDnsCache,
 } from "./hooks/useDns";
+
+export {
+  useDnsZones,
+  useDnsZone,
+  useDnsZoneRecords,
+  useCreateDnsZone,
+  useUpdateDnsZone,
+  useDeleteDnsZone,
+  useDnsRecords,
+  useDnsRecord,
+  useCreateDnsRecord,
+  useUpdateDnsRecord,
+  useDeleteDnsRecord,
+  useForwardingRules,
+  useForwardingRule,
+  useCreateForwardingRule,
+  useUpdateForwardingRule,
+  useDeleteForwardingRule,
+} from "./hooks/useDnsLocal";
 
 export {
   useDnsFilterProfiles,

@@ -1,6 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordType, DnsZone};
 
@@ -11,11 +12,13 @@ use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordT
 /// Held behind an `Arc<ArcSwap<AuthoritativeView>>` in the server so readers
 /// get a consistent, lock-free snapshot for the duration of each query.
 pub struct AuthoritativeView {
-    /// All enabled records for a domain ([`Self::lookup_all`], existence check).
-    all_records: HashMap<String, Vec<CustomDnsRecord>>,
-    /// Records keyed by (domain, type) for fast typed lookup.
-    typed_records: HashMap<(String, DnsRecordType), Vec<CustomDnsRecord>>,
-    /// Enabled conditional forwarding rules sorted by domain length descending
+    /// All enabled records for a domain ([`Self::lookup_all`], existence check, CNAME search).
+    /// Values are `Arc`-wrapped so `typed_records` can share the same heap allocations.
+    all_records: HashMap<String, Vec<Arc<CustomDnsRecord>>>,
+    /// Records keyed by domain (outer) then record type (inner). The outer key accepts
+    /// `&str` directly — no `to_owned()` allocation on the per-query hot path.
+    typed_records: HashMap<String, HashMap<DnsRecordType, Vec<Arc<CustomDnsRecord>>>>,
+    /// Enabled forwarding rules with domains pre-lowercased, sorted longest-first
     /// so the first suffix match is always the most specific one.
     forwarding_rules: Vec<ConditionalForwardingRule>,
 }
@@ -35,7 +38,8 @@ impl AuthoritativeView {
     ///
     /// Only records that are both `enabled` and whose zone (if any) is also
     /// `enabled` are included. Records with `zone_id IS NULL` are always
-    /// included when their own `enabled` flag is set.
+    /// included when their own `enabled` flag is set. Forwarding-rule domains
+    /// are pre-lowercased here so per-query matching requires no allocations.
     #[must_use]
     pub fn build(
         zones: &[DnsZone],
@@ -45,8 +49,8 @@ impl AuthoritativeView {
         let enabled_zone_ids: std::collections::HashSet<uuid::Uuid> =
             zones.iter().filter(|z| z.enabled).map(|z| z.id).collect();
 
-        let mut all_records: HashMap<String, Vec<CustomDnsRecord>> = HashMap::new();
-        let mut typed_records: HashMap<(String, DnsRecordType), Vec<CustomDnsRecord>> =
+        let mut all_records: HashMap<String, Vec<Arc<CustomDnsRecord>>> = HashMap::new();
+        let mut typed_records: HashMap<String, HashMap<DnsRecordType, Vec<Arc<CustomDnsRecord>>>> =
             HashMap::new();
 
         for record in records {
@@ -60,13 +64,26 @@ impl AuthoritativeView {
                 continue;
             }
             let domain = record.domain.trim_end_matches('.').to_ascii_lowercase();
-            let key = (domain.clone(), record.record_type);
-            typed_records.entry(key).or_default().push(record.clone());
+            let rtype = record.record_type;
+            let record = Arc::new(record);
+            // Shared Arc: one heap allocation, two map entries.
+            typed_records
+                .entry(domain.clone())
+                .or_default()
+                .entry(rtype)
+                .or_default()
+                .push(Arc::clone(&record));
             all_records.entry(domain).or_default().push(record);
         }
 
-        let mut forwarding_rules: Vec<ConditionalForwardingRule> =
-            rules.into_iter().filter(|r| r.enabled).collect();
+        let mut forwarding_rules: Vec<ConditionalForwardingRule> = rules
+            .into_iter()
+            .filter(|r| r.enabled)
+            .map(|r| ConditionalForwardingRule {
+                domain: r.domain.to_ascii_lowercase(),
+                ..r
+            })
+            .collect();
         forwarding_rules.sort_by_key(|r| Reverse(r.domain.len()));
 
         Self {
@@ -80,44 +97,49 @@ impl AuthoritativeView {
     ///
     /// Returns `None` if the domain is unknown entirely (fall through to
     /// cache + upstream). Returns `Some(&[])` if the domain is known but
-    /// has no records of `rtype` (NOERROR empty with AA bit).
+    /// has no records of `rtype` (NOERROR empty with AA bit). No heap
+    /// allocation — the outer map accepts `&str` directly.
     #[must_use]
-    pub fn lookup(&self, domain_lower: &str, rtype: DnsRecordType) -> Option<&[CustomDnsRecord]> {
-        if !self.all_records.contains_key(domain_lower) {
-            return None;
-        }
-        Some(
-            self.typed_records
-                .get(&(domain_lower.to_owned(), rtype))
-                .map_or(&[], Vec::as_slice),
-        )
+    pub fn lookup(
+        &self,
+        domain_lower: &str,
+        rtype: DnsRecordType,
+    ) -> Option<&[Arc<CustomDnsRecord>]> {
+        let type_map = self.typed_records.get(domain_lower)?;
+        Some(type_map.get(&rtype).map_or(&[], Vec::as_slice))
     }
 
     /// All enabled records for `domain_lower` regardless of type (ANY queries).
     /// Returns `None` if the domain is unknown.
     #[must_use]
-    pub fn lookup_all(&self, domain_lower: &str) -> Option<&[CustomDnsRecord]> {
+    pub fn lookup_all(&self, domain_lower: &str) -> Option<&[Arc<CustomDnsRecord>]> {
         self.all_records.get(domain_lower).map(Vec::as_slice)
     }
 
     /// The first CNAME record for `domain_lower`, if any.
     #[must_use]
-    pub fn lookup_cname(&self, domain_lower: &str) -> Option<&CustomDnsRecord> {
+    pub fn lookup_cname(&self, domain_lower: &str) -> Option<&Arc<CustomDnsRecord>> {
         self.typed_records
-            .get(&(domain_lower.to_owned(), DnsRecordType::Cname))
+            .get(domain_lower)?
+            .get(&DnsRecordType::Cname)
             .and_then(|v| v.first())
     }
 
     /// First-match conditional forwarding rule for `domain_lower`.
     ///
-    /// Checks exact match and suffix match (`domain_lower` ends with
-    /// `"." + rule.domain`). Because `forwarding_rules` is sorted longest-
-    /// first, the first match is always the most specific one.
+    /// Performs exact match and suffix match with no heap allocations: rule
+    /// domains are pre-lowercased in [`Self::build`], and the suffix check
+    /// uses `str::strip_suffix` rather than `format!`. Because
+    /// `forwarding_rules` is sorted longest-first, the first match is always
+    /// the most specific one.
     #[must_use]
     pub fn match_forwarding_rule(&self, domain_lower: &str) -> Option<&ConditionalForwardingRule> {
         self.forwarding_rules.iter().find(|r| {
-            let rule_domain = r.domain.to_ascii_lowercase();
-            domain_lower == rule_domain || domain_lower.ends_with(&format!(".{rule_domain}"))
+            // Exact match or valid subdomain suffix (must be preceded by '.').
+            domain_lower == r.domain.as_str()
+                || domain_lower
+                    .strip_suffix(r.domain.as_str())
+                    .is_some_and(|prefix| prefix.ends_with('.'))
         })
     }
 }
