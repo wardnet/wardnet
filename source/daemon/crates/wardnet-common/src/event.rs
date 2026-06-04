@@ -147,6 +147,14 @@ pub enum WardnetEvent {
     DnsFilterRebuilt {
         timestamp: DateTime<Utc>,
     },
+    /// A local DNS zone, custom record, or forwarding rule was created,
+    /// updated, or deleted. `domain` is set for record and rule mutations
+    /// (the specific domain that changed); `None` for zone mutations
+    /// (which require a view rebuild but no per-domain cache eviction).
+    DnsLocalChanged {
+        domain: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
     UpdateAvailable {
         current_version: String,
         latest_version: String,

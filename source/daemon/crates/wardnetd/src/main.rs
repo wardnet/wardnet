@@ -472,6 +472,7 @@ async fn run(
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
+        services.dns_local_repo.clone(),
         services.event_publisher.as_ref(),
         &root_span,
     );

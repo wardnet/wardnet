@@ -1,3 +1,4 @@
+mod authoritative;
 mod cache;
 mod capture_runner;
 mod filter_parser;

@@ -38,7 +38,9 @@ async fn test_pool() -> SqlitePool {
 async fn build() -> DnsLocalServiceImpl {
     let pool = test_pool().await;
     let repo = Arc::new(SqliteDnsLocalRepository::new(pool));
-    DnsLocalServiceImpl::new(repo)
+    let events: Arc<dyn crate::event::EventPublisher> =
+        Arc::new(crate::event::BroadcastEventBus::new(16));
+    DnsLocalServiceImpl::new(repo, events)
 }
 
 /// Run a future inside an `Admin` task-local context. Every service method

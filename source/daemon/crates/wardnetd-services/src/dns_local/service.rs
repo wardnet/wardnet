@@ -21,6 +21,7 @@ use wardnetd_data::repository::{
 
 use crate::auth_context;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 
 #[async_trait]
 pub trait DnsLocalService: Send + Sync {
@@ -71,12 +72,29 @@ pub trait DnsLocalService: Send + Sync {
 
 pub struct DnsLocalServiceImpl {
     repo: Arc<dyn DnsLocalRepository>,
+    events: Arc<dyn EventPublisher>,
 }
 
 impl DnsLocalServiceImpl {
     #[must_use]
-    pub fn new(repo: Arc<dyn DnsLocalRepository>) -> Self {
-        Self { repo }
+    pub fn new(repo: Arc<dyn DnsLocalRepository>, events: Arc<dyn EventPublisher>) -> Self {
+        Self { repo, events }
+    }
+
+    fn emit_zone_changed(&self) {
+        use wardnet_common::event::WardnetEvent;
+        self.events.publish(WardnetEvent::DnsLocalChanged {
+            domain: None,
+            timestamp: chrono::Utc::now(),
+        });
+    }
+
+    fn emit_domain_changed(&self, domain: String) {
+        use wardnet_common::event::WardnetEvent;
+        self.events.publish(WardnetEvent::DnsLocalChanged {
+            domain: Some(domain),
+            timestamp: chrono::Utc::now(),
+        });
     }
 
     /// FQDN-style validation for record / forwarding domains (requires a dot).
@@ -206,6 +224,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             .create_zone(&row)
             .await
             .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
+        self.emit_zone_changed();
         Ok(CreateZoneResponse {
             zone,
             message: "zone created".to_owned(),
@@ -232,6 +251,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             .await
             .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
         let zone = self.ensure_zone(id).await?;
+        self.emit_zone_changed();
         Ok(UpdateZoneResponse {
             zone,
             message: "zone updated".to_owned(),
@@ -248,6 +268,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         if !deleted {
             return Err(AppError::NotFound(format!("zone {id} not found")));
         }
+        self.emit_zone_changed();
         Ok(DeleteZoneResponse {
             message: format!("zone {id} deleted"),
         })
@@ -300,6 +321,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         let record = self.repo.create_record(&row).await.map_err(|e| {
             Self::map_repo_err(e, "a record with this domain and type already exists")
         })?;
+        self.emit_domain_changed(record.domain.clone());
         Ok(CreateRecordResponse {
             record,
             message: "record created".to_owned(),
@@ -336,6 +358,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             Self::map_repo_err(e, "a record with this domain and type already exists")
         })?;
         let record = self.ensure_record(id).await?;
+        self.emit_domain_changed(record.domain.clone());
         Ok(UpdateRecordResponse {
             record,
             message: "record updated".to_owned(),
@@ -344,6 +367,8 @@ impl DnsLocalService for DnsLocalServiceImpl {
 
     async fn delete_record(&self, id: Uuid) -> Result<DeleteRecordResponse, AppError> {
         auth_context::require_admin()?;
+        let record = self.ensure_record(id).await?;
+        let domain = record.domain.clone();
         let deleted = self
             .repo
             .delete_record(id)
@@ -352,6 +377,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         if !deleted {
             return Err(AppError::NotFound(format!("record {id} not found")));
         }
+        self.emit_domain_changed(domain);
         Ok(DeleteRecordResponse {
             message: format!("record {id} deleted"),
         })
@@ -387,6 +413,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         let rule = self.repo.create_rule(&row).await.map_err(|e| {
             Self::map_repo_err(e, "a forwarding rule for this domain already exists")
         })?;
+        self.emit_domain_changed(rule.domain.clone());
         Ok(CreateForwardingRuleResponse {
             rule,
             message: "forwarding rule created".to_owned(),
@@ -415,6 +442,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             Self::map_repo_err(e, "a forwarding rule for this domain already exists")
         })?;
         let rule = self.ensure_forwarding_rule(id).await?;
+        self.emit_domain_changed(rule.domain.clone());
         Ok(UpdateForwardingRuleResponse {
             rule,
             message: "forwarding rule updated".to_owned(),
@@ -426,6 +454,8 @@ impl DnsLocalService for DnsLocalServiceImpl {
         id: Uuid,
     ) -> Result<DeleteForwardingRuleResponse, AppError> {
         auth_context::require_admin()?;
+        let rule = self.ensure_forwarding_rule(id).await?;
+        let domain = rule.domain.clone();
         let deleted = self
             .repo
             .delete_rule(id)
@@ -436,6 +466,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
                 "forwarding rule {id} not found"
             )));
         }
+        self.emit_domain_changed(domain);
         Ok(DeleteForwardingRuleResponse {
             message: format!("forwarding rule {id} deleted"),
         })

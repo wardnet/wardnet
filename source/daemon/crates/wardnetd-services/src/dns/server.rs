@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use async_trait::async_trait;
 use wardnet_common::dns::DnsConfig;
 
+use crate::dns::authoritative::AuthoritativeView;
+
 // ---------------------------------------------------------------------------
 // DnsSocket trait
 // ---------------------------------------------------------------------------
@@ -41,4 +43,13 @@ pub trait DnsServer: Send + Sync {
 
     /// Update the DNS configuration at runtime.
     async fn update_config(&self, config: DnsConfig);
+
+    /// Replace the in-memory authoritative view (zones + custom records +
+    /// forwarding rules). Called by the DNS runner whenever a
+    /// `DnsLocalChanged` event arrives.
+    async fn update_authoritative_view(&self, view: AuthoritativeView);
+
+    /// Evict all cache entries for `domain` so the next query for that
+    /// domain is re-resolved rather than served from a stale cached answer.
+    async fn invalidate_domain(&self, domain: &str);
 }

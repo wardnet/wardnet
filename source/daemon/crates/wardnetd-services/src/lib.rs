@@ -35,7 +35,7 @@ use tokio::sync::mpsc;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    DnsEventsRepository, DnsFilterRepository, DnsRepository, QueryLogRow,
+    DnsEventsRepository, DnsFilterRepository, DnsLocalRepository, DnsRepository, QueryLogRow,
 };
 
 use crate::dns::log_sink::{DnsLogSink, DnsLogSinkChannels};
@@ -164,6 +164,10 @@ pub struct Services {
     pub device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
+    /// Local-DNS repository — exposed so `DnsRunner` can reload zones /
+    /// records / rules on `DnsLocalChanged` without going through the
+    /// auth-gated local-DNS service.
+    pub dns_local_repo: Arc<dyn DnsLocalRepository>,
     /// Cross-cutting DB maintenance (incremental vacuum etc.). Exposed
     /// here so the DNS query-log cleanup runner can release freed
     /// pages back to the filesystem after retention deletes.
@@ -426,8 +430,10 @@ fn create_services(
         backends.blocklist_fetcher.clone(),
     ));
 
-    let dns_local_service: Arc<dyn DnsLocalService> =
-        Arc::new(DnsLocalServiceImpl::new(dns_local_repo));
+    let dns_local_service: Arc<dyn DnsLocalService> = Arc::new(DnsLocalServiceImpl::new(
+        dns_local_repo.clone(),
+        event_publisher.clone(),
+    ));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
         system_config_repo,
@@ -515,6 +521,7 @@ fn create_services(
         device_repo,
         dns_repo,
         dns_filter_repo,
+        dns_local_repo,
         maintenance_repo,
         tunnel_repo,
         dns_log_sink,

@@ -111,6 +111,16 @@ impl DnsCache {
         );
     }
 
+    /// Remove all cache entries for `domain` across all upstream pools and
+    /// record types. Returns the number of entries removed.
+    pub fn invalidate_domain(&mut self, domain: &str) -> u64 {
+        let d = domain.trim_end_matches('.').to_ascii_lowercase();
+        let before = self.entries.len() as u64;
+        self.entries
+            .retain(|(_, cached_domain, _), _| cached_domain != &d);
+        before - self.entries.len() as u64
+    }
+
     /// Remove all entries from the cache. Returns the number of entries cleared.
     pub fn flush(&mut self) -> u64 {
         let count = self.entries.len() as u64;

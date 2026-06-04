@@ -1,3 +1,4 @@
+pub mod authoritative;
 pub mod cache;
 pub mod capture_runner;
 pub mod cron_parse;
@@ -8,6 +9,7 @@ pub mod runner;
 pub mod server;
 pub mod service;
 
+pub use authoritative::AuthoritativeView;
 pub use cache::DnsCache;
 pub use capture_runner::DnsCaptureRunner;
 pub use log_sink::{DnsLogSink, DnsLogSinkChannels, row_to_event};

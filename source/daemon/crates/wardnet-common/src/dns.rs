@@ -110,7 +110,7 @@ impl Default for DnsConfig {
 }
 
 /// DNS record type for custom local records.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DnsRecordType {
     A,
@@ -224,6 +224,8 @@ pub enum DnsQueryResult {
     Recursive,
     /// Upstream resolver returned an error — resolver string `"upstream_error"`.
     UpstreamError,
+    /// Answered directly from a local authoritative record — resolver string `"authoritative"`.
+    Authoritative,
     /// Resolution failed (parse fallback for unrecognised strings).
     Error,
 }
@@ -241,6 +243,7 @@ impl DnsQueryResult {
             Self::Rewritten => "rewritten",
             Self::Recursive => "recursive",
             Self::UpstreamError => "upstream_error",
+            Self::Authoritative => "authoritative",
             Self::Error => "error",
         }
     }
@@ -260,6 +263,7 @@ impl DnsQueryResult {
             "rewritten" => Self::Rewritten,
             "recursive" => Self::Recursive,
             "upstream_error" => Self::UpstreamError,
+            "authoritative" => Self::Authoritative,
             other => {
                 tracing::warn!(
                     result = other,
@@ -299,6 +303,10 @@ mod tests {
             DnsQueryResult::parse("upstream_error"),
             DnsQueryResult::UpstreamError
         );
+        assert_eq!(
+            DnsQueryResult::parse("authoritative"),
+            DnsQueryResult::Authoritative
+        );
     }
 
     #[test]
@@ -320,6 +328,7 @@ mod tests {
             DnsQueryResult::Rewritten,
             DnsQueryResult::Recursive,
             DnsQueryResult::UpstreamError,
+            DnsQueryResult::Authoritative,
             DnsQueryResult::Error,
         ];
         for v in variants {
