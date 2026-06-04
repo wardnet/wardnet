@@ -135,6 +135,20 @@ impl DnsLocalServiceImpl {
         Ok(())
     }
 
+    /// Map a repository error to an [`AppError`], translating a `SQLite`
+    /// UNIQUE-constraint violation (duplicate zone name, `(domain,
+    /// record_type)` pair, or forwarding domain) into a 409 `Conflict` rather
+    /// than a 500. Mirrors the `anyhow → sqlx::Error` downcast in
+    /// [`crate::db_busy::is_busy_error`].
+    fn map_repo_err(err: anyhow::Error, conflict_msg: &str) -> AppError {
+        if let Some(sqlx::Error::Database(db_err)) = err.downcast_ref::<sqlx::Error>()
+            && db_err.is_unique_violation()
+        {
+            return AppError::Conflict(conflict_msg.to_owned());
+        }
+        AppError::Internal(err)
+    }
+
     async fn ensure_zone(&self, id: Uuid) -> Result<DnsZone, AppError> {
         self.repo
             .get_zone(id)
@@ -191,7 +205,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             .repo
             .create_zone(&row)
             .await
-            .map_err(AppError::Internal)?;
+            .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
         Ok(CreateZoneResponse {
             zone,
             message: "zone created".to_owned(),
@@ -216,7 +230,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         self.repo
             .update_zone(id, &update)
             .await
-            .map_err(AppError::Internal)?;
+            .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
         let zone = self.ensure_zone(id).await?;
         Ok(UpdateZoneResponse {
             zone,
@@ -283,11 +297,9 @@ impl DnsLocalService for DnsLocalServiceImpl {
             ttl: req.ttl,
             enabled: req.enabled,
         };
-        let record = self
-            .repo
-            .create_record(&row)
-            .await
-            .map_err(AppError::Internal)?;
+        let record = self.repo.create_record(&row).await.map_err(|e| {
+            Self::map_repo_err(e, "a record with this domain and type already exists")
+        })?;
         Ok(CreateRecordResponse {
             record,
             message: "record created".to_owned(),
@@ -320,10 +332,9 @@ impl DnsLocalService for DnsLocalServiceImpl {
             ttl: req.ttl,
             enabled: req.enabled,
         };
-        self.repo
-            .update_record(id, &update)
-            .await
-            .map_err(AppError::Internal)?;
+        self.repo.update_record(id, &update).await.map_err(|e| {
+            Self::map_repo_err(e, "a record with this domain and type already exists")
+        })?;
         let record = self.ensure_record(id).await?;
         Ok(UpdateRecordResponse {
             record,
@@ -373,11 +384,9 @@ impl DnsLocalService for DnsLocalServiceImpl {
             upstream: req.upstream,
             enabled: req.enabled,
         };
-        let rule = self
-            .repo
-            .create_rule(&row)
-            .await
-            .map_err(AppError::Internal)?;
+        let rule = self.repo.create_rule(&row).await.map_err(|e| {
+            Self::map_repo_err(e, "a forwarding rule for this domain already exists")
+        })?;
         Ok(CreateForwardingRuleResponse {
             rule,
             message: "forwarding rule created".to_owned(),
@@ -402,10 +411,9 @@ impl DnsLocalService for DnsLocalServiceImpl {
             upstream: req.upstream,
             enabled: req.enabled,
         };
-        self.repo
-            .update_rule(id, &update)
-            .await
-            .map_err(AppError::Internal)?;
+        self.repo.update_rule(id, &update).await.map_err(|e| {
+            Self::map_repo_err(e, "a forwarding rule for this domain already exists")
+        })?;
         let rule = self.ensure_forwarding_rule(id).await?;
         Ok(UpdateForwardingRuleResponse {
             rule,

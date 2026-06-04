@@ -339,6 +339,52 @@ async fn delete_forwarding_rule_missing_is_not_found() {
     .await;
 }
 
+// ── Duplicate (UNIQUE constraint) → 409 Conflict ───────────────────────
+
+#[tokio::test]
+async fn create_zone_duplicate_name_is_conflict() {
+    let svc = build().await;
+    as_admin(async {
+        svc.create_zone(create_zone_req("lab")).await.unwrap();
+        let err = svc.create_zone(create_zone_req("lab")).await.unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_record_duplicate_domain_type_is_conflict() {
+    let svc = build().await;
+    as_admin(async {
+        svc.create_record(create_record_req(None, "nas.lab"))
+            .await
+            .unwrap();
+        // Same (domain, record_type) — A record for nas.lab again.
+        let err = svc
+            .create_record(create_record_req(None, "nas.lab"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_forwarding_rule_duplicate_domain_is_conflict() {
+    let svc = build().await;
+    as_admin(async {
+        svc.create_forwarding_rule(create_rule_req("corp.example.com"))
+            .await
+            .unwrap();
+        let err = svc
+            .create_forwarding_rule(create_rule_req("corp.example.com"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)));
+    })
+    .await;
+}
+
 // ── Auth gate ──────────────────────────────────────────────────────────
 
 #[tokio::test]
