@@ -795,6 +795,8 @@ impl DnsServer for StubDnsServer {
         0.0
     }
     async fn update_config(&self, _config: wardnet_common::dns::DnsConfig) {}
+    async fn update_authoritative_view(&self, _view: wardnetd_services::dns::AuthoritativeView) {}
+    async fn invalidate_domain(&self, _domain: &str) {}
 }
 
 pub struct StubJobService;

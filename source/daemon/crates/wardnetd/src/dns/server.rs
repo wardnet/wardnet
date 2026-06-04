@@ -460,7 +460,7 @@ async fn handle_query(
     authoritative_view: &Arc<ArcSwap<AuthoritativeView>>,
     conditional_socket_pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) -> anyhow::Result<()> {
-    use hickory_proto::rr::{Name, RData, Record};
+    use hickory_proto::rr::{Name, Record};
 
     let request = Message::from_bytes(packet)?;
     let id = request.metadata.id;
@@ -525,10 +525,8 @@ async fn handle_query(
             // For A/AAAA queries on a domain with only a CNAME record,
             // add the CNAME to the answer and the target A record (if
             // present) to the additional section.
-            if matches!(
-                our_rtype,
-                Some(DnsRecordType::A) | Some(DnsRecordType::Aaaa)
-            ) && response.answers.is_empty()
+            if matches!(our_rtype, Some(DnsRecordType::A | DnsRecordType::Aaaa))
+                && response.answers.is_empty()
             {
                 if let Some(cname_rec) = view.lookup_cname(&domain_lower) {
                     let target_domain = cname_rec.value.trim_end_matches('.').to_ascii_lowercase();
@@ -1176,7 +1174,6 @@ fn make_rdata(
         RData,
         rdata::{A, AAAA, CNAME, MX, SRV, TXT},
     };
-    use std::str::FromStr;
 
     match rt {
         DnsRecordType::A => {
@@ -1196,7 +1193,7 @@ fn make_rdata(
                 .map_err(|e| anyhow::anyhow!("invalid CNAME target {value:?}: {e}"))?;
             Ok(RData::CNAME(CNAME(target)))
         }
-        DnsRecordType::Txt => Ok(RData::TXT(TXT::new(vec![value.as_bytes().to_vec()]))),
+        DnsRecordType::Txt => Ok(RData::TXT(TXT::new(vec![value.to_owned()]))),
         DnsRecordType::Mx => {
             // Format: "<priority> <exchange>" e.g. "10 mail.example.com"
             let (prio_str, exchange_str) = value.split_once(' ').ok_or_else(|| {

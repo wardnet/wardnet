@@ -49,4 +49,8 @@ impl DnsServer for NoopDnsServer {
     async fn update_config(&self, _config: DnsConfig) {
         tracing::debug!("mock DNS update_config");
     }
+
+    async fn update_authoritative_view(&self, _view: wardnetd_services::dns::AuthoritativeView) {}
+
+    async fn invalidate_domain(&self, _domain: &str) {}
 }
