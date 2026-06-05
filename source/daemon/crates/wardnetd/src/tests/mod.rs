@@ -11,6 +11,7 @@ mod profiling;
 mod routing_listener;
 pub mod stubs;
 mod systemctl_power_ops;
+mod tls_server;
 mod tunnel_idle;
 mod tunnel_interface_wireguard;
 mod tunnel_monitor;

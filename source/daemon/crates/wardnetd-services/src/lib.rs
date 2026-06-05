@@ -23,6 +23,7 @@ pub mod logging;
 pub mod maintenance;
 pub mod routing;
 pub mod system;
+pub mod tls;
 pub mod tunnel;
 pub mod update;
 pub mod vpn;
@@ -58,6 +59,7 @@ use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::system::SystemServiceImpl;
+use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
@@ -79,6 +81,8 @@ pub use crate::stats::{
     StatsService,
 };
 pub use crate::system::SystemService;
+pub use crate::tls::runner::TlsRenewalRunner;
+pub use crate::tls::{CertActivator, TlsService, TlsStatus};
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
 pub use crate::vpn::VpnProviderService;
@@ -137,6 +141,12 @@ pub struct Backends {
     /// `pnet` to send the farewell/claim sequences; the mock is a
     /// logging no-op. See [`garp::GarpOps`] and issue #213.
     pub garp_ops: Arc<dyn garp::GarpOps>,
+    /// Hot-swaps the live `:443` certificate. Real impl in `wardnetd` wraps the
+    /// `axum-server` `RustlsConfig` + `provisioned` flag; the mock is a no-op.
+    /// Injected here (rather than constructed in `create_services`) so the
+    /// serving stack — and thus `axum-server` — stays out of this crate. See
+    /// [`tls::CertActivator`].
+    pub cert_activator: Arc<dyn tls::CertActivator>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -160,6 +170,9 @@ pub struct Services {
     /// Dynamic-DNS service: registers/keeps the public A record current via the
     /// active provider (bridge or BYOD Cloudflare). Driven by `DdnsUpdateRunner`.
     pub ddns: Arc<dyn DdnsService>,
+    /// Daemon-owned TLS: ACME issuance/renewal + live-cert hot-swap. Driven by
+    /// `TlsRenewalRunner`; also called by the wizard (C9) and Settings (C10).
+    pub tls: Arc<dyn TlsService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
@@ -447,6 +460,17 @@ fn create_services(
         backends.secret_store.clone(),
     ));
 
+    // TLS service — ACME issuance/renewal. Publishes DNS-01 challenges through
+    // `ddns`, persists cert material in the shared secret store, and hot-swaps
+    // the live `:443` cert via the `wardnetd`-provided `CertActivator`. Idle
+    // until DDNS is configured (no active FQDN → issuance is inert).
+    let tls: Arc<dyn TlsService> = Arc::new(TlsServiceImpl::new(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+        ddns.clone(),
+        backends.cert_activator.clone(),
+    ));
+
     let maintenance_service: Arc<dyn MaintenanceService> =
         Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
 
@@ -525,6 +549,7 @@ fn create_services(
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,
         ddns,
+        tls,
         log: log_service,
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,

@@ -55,3 +55,11 @@
 **Path-based app routing** — All three surfaces are served from a single domain (`<id>.wardnet.network`) at different paths (`/`, `/admin-app/`, `/admin/`). Each PWA has its own `manifest.json` with a distinct `scope` and `start_url`, making them independently installable despite sharing an origin.
 
 **Caddy** — Reverse proxy bundled in the wardnet release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443, certificate provisioning via Let's Encrypt DNS-01 (using the wardnet DDNS service as the ACME bridge), and forwards all traffic to the daemon on port 7411. The daemon manages the Caddyfile on startup and config changes.
+
+**Daemon-owned TLS termination** — `wardnetd` terminating TLS itself on port 443, replacing Caddy. The daemon obtains a certificate via ACME DNS-01 (publishing `_acme-challenge` TXT through the **DnsProvider**), serves `:443` with it, hot-swaps it on renewal, and 308-redirects `:80`→`:443`. The leaf private key is generated on the Pi and never leaves the LAN; cert + key are stored only through the **SecretStore** abstraction.
+
+**Placeholder cert** — A throwaway self-signed certificate generated at boot to seed the `:443` listener before a real certificate has been issued, so the port is always bound (TLS can't handshake without *a* cert). It is never trusted by clients: while it is in use the **TLS provisioning** gate is closed and every `:443` route returns `503`, pointing the operator at the plain-HTTP `:7411` fallback.
+
+**TLS provisioning** — The boolean state of whether the daemon is serving a real (vs **placeholder**) certificate on `:443`. A shared `provisioned` flag gates a 503 guard on the `:443` app; it flips to `true` when the first real certificate is activated. Pre-provisioning, `:7411` plain HTTP is the honest admin surface.
+
+**TLS renewal** — The background re-issuance of the certificate before expiry. `TlsService::ensure_certificate()` is a single idempotent operation — issue-if-missing or renew-if-within-30-days — driven on a 12-hour tick by `TlsRenewalRunner` and inert until DDNS (and therefore the public FQDN) is configured.

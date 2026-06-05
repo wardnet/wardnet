@@ -17,9 +17,12 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
   ├── backup_cleanup_runner{}                  # background task (.bak-* sweep)
   ├── stats_flush_runner{}                     # background task (10s buffer flush + 1h rollup/trim)
   ├── ddns_update_runner{}                      # background task (keeps the public A record current)
+  ├── tls_renewal_runner{}                      # background task (ACME issuance/renewal of the :443 cert)
   ├── mdns{}                                   # background task (advertises wardnet.local)
-  └── api_server{}                             # axum serve
-        └── http_request{method=GET, path=/api/devices}  # per-request (tower-http TraceLayer)
+  ├── api_server{}                             # axum serve (:7411 plain HTTP)
+  │     └── http_request{method=GET, path=/api/devices}  # per-request (tower-http TraceLayer)
+  ├── https_server{}                           # axum-server serve (:443 TLS, always bound)
+  └── http_redirect_server{}                   # axum serve (:80 → 308 https)
 ```
 
 ### Rules for new components

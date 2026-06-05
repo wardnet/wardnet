@@ -20,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_api::state::AppState;
 use wardnetd_data::create_repository_factory;
+use wardnetd_mock::backends::noop_cert_activator::NoopCertActivator;
 use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
@@ -243,6 +244,7 @@ async fn run(
         }),
         network_probe: Arc::new(NoopNetworkProbe),
         garp_ops: Arc::new(NoopGarpOps),
+        cert_activator: Arc::new(NoopCertActivator),
     };
 
     let services = init_services_with_factory(

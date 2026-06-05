@@ -85,6 +85,12 @@ flate2.workspace = true
 tar.workspace = true
 # https://crates.io/crates/age — symmetric passphrase encryption for backup bundles
 age.workspace = true
+# https://crates.io/crates/instant-acme — ACME DNS-01 certificate issuance
+instant-acme.workspace = true
+# https://crates.io/crates/rcgen — ACME CSR + leaf keypair generation
+rcgen.workspace = true
+# https://crates.io/crates/x509-parser — parse cert `not_after` for renewal scheduling
+x509-parser.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

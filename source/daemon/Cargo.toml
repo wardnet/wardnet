@@ -188,6 +188,23 @@ utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # https://crates.io/crates/utoipa-axum
 utoipa-axum = "0.2"
 
+# https://crates.io/crates/axum-server — TLS-terminating server with in-memory
+# RustlsConfig hot-reload (lock-free cert swap on ACME renewal).
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+# https://crates.io/crates/instant-acme — async ACME (RFC 8555) client for
+# DNS-01 certificate issuance; bundles its own hyper-rustls transport.
+instant-acme = "0.8.5"
+# https://crates.io/crates/rcgen — generate the placeholder self-signed cert
+# (pre-provisioning :443) and the ACME CSR + leaf keypair.
+rcgen = "0.14.8"
+# https://crates.io/crates/x509-parser — parse `not_after` from the issued
+# chain to schedule renewal.
+x509-parser = "0.18"
+# https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as the
+# process default for :443 TLS (both ring + aws-lc-rs are in the tree, so rustls
+# 0.23 can't auto-pick).
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+
 # https://crates.io/crates/tempfile
 tempfile = "=3.27"
 # https://crates.io/crates/wiremock — mock HTTP server for DDNS provider tests

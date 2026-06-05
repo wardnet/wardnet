@@ -33,6 +33,12 @@ impl DdnsService for CountingDdns {
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         unreachable!("not called by the runner")
     }
+    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+        unreachable!("not called by the runner")
+    }
+    async fn clear_acme_challenge(&self) -> Result<(), AppError> {
+        unreachable!("not called by the runner")
+    }
 }
 
 #[tokio::test]

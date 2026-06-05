@@ -219,6 +219,56 @@ Providers are **rebuilt per call** from stored config + secrets (`build_provider
 | `refresh_public_ip()` | Discovers WAN IP, short-circuits if unchanged, calls `provider.upsert_a(ip)` |
 | `status()` | Reads provider, FQDN, and last-published IP from config; returns `DdnsStatus` |
 
+## Daemon-owned TLS (issue #528 / #521 umbrella)
+
+`wardnetd` terminates TLS itself — no Caddy. ACME DNS-01 issuance reuses the
+DDNS providers (via `DdnsService::set_acme_challenge` / `clear_acme_challenge`)
+to publish `_acme-challenge` TXT records.
+
+### Shape
+
+```text
+TlsRenewalRunner ─(admin ctx)─▶ TlsService ─▶ acme (instant-acme) ─▶ DdnsService.set_acme_challenge
+ (12h tick)                     (auth-gated)  └▶ CertActivator.activate (hot-swap :443)
+```
+
+`TlsRenewalRunner` holds `Arc<dyn TlsService>` and calls it under an admin
+context — never an ACME client, provider, or repository directly (runner
+contract). `TlsService::ensure_certificate()` is one idempotent
+issue-if-missing-or-renew-if-<30d method; inert (`TlsStatus::NotConfigured`)
+when no FQDN is active, so the runner is idle until DDNS is configured. The
+wizard (C9) and Settings (C10) call the same method. Cert + key (and the ACME
+account credentials) are read/written **only** through the `SecretStore`
+abstraction — never direct filesystem access.
+
+### Always-bound `:443` / 503-until-provisioned serving
+
+The `:443` listener is **always bound**, seeded at boot from the stored real
+cert if present, else from a throwaway rcgen **placeholder** self-signed cert. A
+shared `provisioned: Arc<AtomicBool>` (default `false` for the placeholder) gates
+a **503 guard layer** on the `:443` app: every route returns
+`503 "TLS not provisioned"` until a real cert loads, so the admin API is never
+served under the untrusted placeholder. Pre-provisioning, the operator uses
+`:7411` plain HTTP (unguarded). `:80` 308-redirects to HTTPS. The listener is
+constant — no supervisor, no mid-run listener start.
+
+### `CertActivator` abstraction boundary
+
+The serving stack (`axum-server` + `RustlsConfig`) lives in `wardnetd`, not in
+`wardnetd-services`. The `CertActivator` trait (defined in `wardnetd-services`,
+implemented by `wardnetd::tls_server::CertActivatorImpl`) is the seam:
+`activate(chain, key)` calls `RustlsConfig::reload_from_pem` (lock-free in-memory
+swap) and flips the `provisioned` flag. It is injected via `Backends` so the
+TLS service can swap the live cert without the services crate depending on the
+serving stack. The aws-lc-rs crypto provider is installed once in `main` (both
+ring + aws-lc-rs are in the tree → rustls can't auto-pick).
+
+| Module (`wardnetd-services/src/tls/`) | Purpose |
+|---|---|
+| `mod.rs` | `TlsService` trait + impl, `CertActivator` trait, `TlsStatus`, `load_stored_cert` |
+| `acme.rs` | instant-acme DNS-01 orchestration; CSR/leaf key via rcgen; `parse_not_after` (x509-parser) |
+| `runner.rs` | `TlsRenewalRunner` — idle-until-configured 12h tick; follows the runner contract |
+
 ## Bridge service (issue #435)
 
 Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).

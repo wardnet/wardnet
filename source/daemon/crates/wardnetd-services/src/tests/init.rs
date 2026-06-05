@@ -222,6 +222,15 @@ fn stub_backends() -> Backends {
         network_inspector: Arc::new(StubNetworkInspector),
         network_probe: Arc::new(StubNetworkProbe),
         garp_ops: Arc::new(StubGarpOps),
+        cert_activator: Arc::new(StubCertActivator),
+    }
+}
+
+struct StubCertActivator;
+#[async_trait]
+impl crate::tls::CertActivator for StubCertActivator {
+    async fn activate(&self, _chain_pem: Vec<u8>, _key_pem: Vec<u8>) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 

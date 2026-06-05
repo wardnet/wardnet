@@ -103,6 +103,18 @@ pub trait DdnsService: Send + Sync {
 
     /// Read the current DDNS status.
     async fn status(&self) -> Result<DdnsStatus, AppError>;
+
+    /// Publish the ACME DNS-01 `_acme-challenge` TXT record for the active
+    /// installation through the configured provider. Errors with
+    /// [`AppError::Conflict`] when DDNS is unconfigured — a challenge can't be
+    /// published without a provider. Called by the TLS service during
+    /// certificate issuance.
+    async fn set_acme_challenge(&self, value: &str) -> Result<(), AppError>;
+
+    /// Remove the `_acme-challenge` TXT record. Idempotent at the provider
+    /// level (absence is success). Errors with [`AppError::Conflict`] when DDNS
+    /// is unconfigured. Called by the TLS service to clean up after issuance.
+    async fn clear_acme_challenge(&self) -> Result<(), AppError>;
 }
 
 /// Tunable base URLs, overridable in tests to point at wiremock servers.
@@ -351,6 +363,28 @@ impl DdnsService for DdnsServiceImpl {
             fqdn,
             last_public_ip,
         })
+    }
+
+    async fn set_acme_challenge(&self, value: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        let provider = self.build_provider().await?.ok_or_else(|| {
+            AppError::Conflict("DDNS is not configured — cannot publish ACME challenge".to_owned())
+        })?;
+        provider
+            .set_txt(value)
+            .await
+            .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))
+    }
+
+    async fn clear_acme_challenge(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        let provider = self.build_provider().await?.ok_or_else(|| {
+            AppError::Conflict("DDNS is not configured — cannot clear ACME challenge".to_owned())
+        })?;
+        provider
+            .delete_txt()
+            .await
+            .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))
     }
 }
 

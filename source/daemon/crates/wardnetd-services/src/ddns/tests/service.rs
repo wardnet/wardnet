@@ -305,3 +305,92 @@ async fn refresh_publishes_when_ip_changed() {
         Some("9.9.9.9")
     );
 }
+
+#[tokio::test]
+async fn acme_challenge_requires_admin() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    assert!(matches!(
+        svc.set_acme_challenge("token").await.unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+    assert!(matches!(
+        svc.clear_acme_challenge().await.unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+}
+
+#[tokio::test]
+async fn acme_challenge_errors_when_unconfigured() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    // Unconfigured DDNS → no provider → Conflict (can't publish a challenge).
+    assert!(matches!(
+        auth_context::with_context(admin_ctx(), svc.set_acme_challenge("token"))
+            .await
+            .unwrap_err(),
+        AppError::Conflict(_)
+    ));
+    assert!(matches!(
+        auth_context::with_context(admin_ctx(), svc.clear_acme_challenge())
+            .await
+            .unwrap_err(),
+        AppError::Conflict(_)
+    ));
+}
+
+#[tokio::test]
+async fn set_acme_challenge_publishes_txt_via_bridge() {
+    let bridge = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/v1/installs/inst-1/acme-challenge"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&bridge)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
+
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(Some(bridge.uri()), vec![]),
+    );
+
+    auth_context::with_context(admin_ctx(), svc.set_acme_challenge("challenge-value"))
+        .await
+        .unwrap();
+    // `.expect(1)` is verified when `bridge` drops here.
+}
+
+#[tokio::test]
+async fn clear_acme_challenge_deletes_txt_via_bridge() {
+    let bridge = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/installs/inst-1/acme-challenge"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&bridge)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
+
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(Some(bridge.uri()), vec![]),
+    );
+
+    auth_context::with_context(admin_ctx(), svc.clear_acme_challenge())
+        .await
+        .unwrap();
+    // `.expect(1)` is verified when `bridge` drops here.
+}
