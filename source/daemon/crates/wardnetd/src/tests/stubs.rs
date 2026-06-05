@@ -554,6 +554,15 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     async fn get_dns_config(&self) -> Result<wardnet_common::dns::DnsConfig, AppError> {
         unimplemented!()
     }
+    async fn insert_query_log_batch(
+        &self,
+        _entries: &[wardnetd_data::repository::QueryLogRow],
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_query_log(&self, _retention_days: u32) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn list_query_log(
         &self,
         _params: wardnet_common::api::ListQueryLogParams,
@@ -826,6 +835,12 @@ impl wardnetd_services::DnsLocalService for StubDnsLocalService {
     ) -> Result<wardnet_common::api::DeleteRecordResponse, AppError> {
         unimplemented!()
     }
+    async fn upsert_record(
+        &self,
+        _r: wardnet_common::api::UpsertRecordRequest,
+    ) -> Result<wardnet_common::api::UpsertRecordResponse, AppError> {
+        unimplemented!()
+    }
     async fn list_forwarding_rules(
         &self,
     ) -> Result<wardnet_common::api::ListForwardingRulesResponse, AppError> {
@@ -996,6 +1011,8 @@ impl wardnetd_services::dns::server::DnsServer for StubDnsServer {
         0.0
     }
     async fn update_config(&self, _config: wardnet_common::dns::DnsConfig) {}
+    async fn update_authoritative_view(&self, _view: wardnetd_services::dns::AuthoritativeView) {}
+    async fn invalidate_domain(&self, _domain: &str) {}
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 use chrono::Utc;
 use uuid::Uuid;
-use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordType, DnsZone};
+use wardnet_common::dns::{
+    ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+};
 
 use crate::dns::authoritative::{AuthoritativeView, parse_conditional_upstream};
 
@@ -29,6 +31,7 @@ fn record(
         value: value.to_owned(),
         ttl: 60,
         enabled,
+        source: DnsRecordSource::Manual,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }

@@ -5,11 +5,14 @@ use chrono::{NaiveDateTime, TimeZone, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordType, DnsZone};
+use wardnet_common::dns::{
+    ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+};
 
 use crate::db::DbPools;
 use crate::repository::dns_local::{
-    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, ZoneRow, ZoneUpdate,
+    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
+    ZoneUpdate,
 };
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
@@ -47,6 +50,26 @@ fn record_type_from_db(s: &str) -> anyhow::Result<DnsRecordType> {
         "SRV" => DnsRecordType::Srv,
         other => anyhow::bail!("unknown DNS record type in database: {other}"),
     })
+}
+
+/// Map a [`DnsRecordSource`] to the `snake_case` string stored in the
+/// `dns_custom_records.source` column (matches the enum's serde repr).
+fn source_to_db(source: DnsRecordSource) -> &'static str {
+    match source {
+        DnsRecordSource::Manual => "manual",
+        DnsRecordSource::Dhcp => "dhcp",
+        DnsRecordSource::System => "system",
+    }
+}
+
+/// Inverse of [`source_to_db`]. Unknown values fall back to `Manual` so a
+/// stray row never fails the whole list query.
+fn source_from_db(s: &str) -> DnsRecordSource {
+    match s {
+        "dhcp" => DnsRecordSource::Dhcp,
+        "system" => DnsRecordSource::System,
+        _ => DnsRecordSource::Manual,
+    }
 }
 
 /// SQLite-backed local-DNS repository.
@@ -98,6 +121,7 @@ struct DbRecordRow {
     value: String,
     ttl: i64,
     enabled: i64,
+    source: String,
     created_at: String,
     updated_at: String,
 }
@@ -112,6 +136,7 @@ impl DbRecordRow {
             value: self.value,
             ttl: u32::try_from(self.ttl)?,
             enabled: self.enabled != 0,
+            source: source_from_db(&self.source),
             created_at: parse_ts(&self.created_at)?,
             updated_at: parse_ts(&self.updated_at)?,
         })
@@ -148,11 +173,11 @@ const LIST_ZONES_SQL: &str =
 const GET_ZONE_SQL: &str =
     "SELECT id, name, enabled, created_at, updated_at FROM dns_zones WHERE id = ?";
 
-const LIST_RECORDS_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+const LIST_RECORDS_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at \
      FROM dns_custom_records ORDER BY domain ASC";
-const LIST_RECORDS_BY_ZONE_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+const LIST_RECORDS_BY_ZONE_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at \
      FROM dns_custom_records WHERE zone_id = ? ORDER BY domain ASC";
-const GET_RECORD_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at \
+const GET_RECORD_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at \
      FROM dns_custom_records WHERE id = ?";
 
 const LIST_RULES_SQL: &str = "SELECT id, domain, upstream, enabled, created_at \
@@ -270,8 +295,8 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         let zone_id = row.zone_id.map(|z| z.to_string());
         sqlx::query(
             "INSERT INTO dns_custom_records \
-                 (id, zone_id, domain, record_type, value, ttl, enabled, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 (id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&zone_id)
@@ -280,6 +305,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
         .bind(&row.value)
         .bind(i64::from(row.ttl))
         .bind(row.enabled)
+        .bind(source_to_db(row.source))
         .bind(&now)
         .bind(&now)
         .execute(&self.pools.write)
@@ -292,9 +318,57 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
             value: row.value.clone(),
             ttl: row.ttl,
             enabled: row.enabled,
+            source: row.source,
             created_at: parse_ts(&now)?,
             updated_at: parse_ts(&now)?,
         })
+    }
+
+    async fn upsert_record(
+        &self,
+        domain: &str,
+        record_type: DnsRecordType,
+        row: &UpsertRecordRow,
+    ) -> anyhow::Result<Option<CustomDnsRecord>> {
+        let now = now_iso();
+        let id = Uuid::new_v4().to_string();
+        let zone_id = row.zone_id.map(|z| z.to_string());
+        // Conflict target is the UNIQUE(domain, record_type) index. On insert a
+        // fresh id is used; on conflict the existing row keeps its id while the
+        // mutable columns are overwritten — but the `WHERE source = excluded.source`
+        // guard means an upsert only overwrites a row of the *same* provenance.
+        // A DHCP upsert therefore cannot clobber a `manual`/`system` record; the
+        // guarded UPDATE matches zero rows, RETURNING yields nothing, and we
+        // return `Ok(None)`. created_at is left untouched on conflict. RETURNING
+        // gives back the canonical stored row (mapped by column name via FromRow),
+        // so the preserved id surfaces correctly on the renew path.
+        let db_row = sqlx::query_as::<_, DbRecordRow>(
+            "INSERT INTO dns_custom_records \
+                 (id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(domain, record_type) DO UPDATE SET \
+                 zone_id = excluded.zone_id, \
+                 value = excluded.value, \
+                 ttl = excluded.ttl, \
+                 enabled = excluded.enabled, \
+                 source = excluded.source, \
+                 updated_at = excluded.updated_at \
+             WHERE dns_custom_records.source = excluded.source \
+             RETURNING id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at",
+        )
+        .bind(&id)
+        .bind(&zone_id)
+        .bind(domain)
+        .bind(record_type_to_db(record_type))
+        .bind(&row.value)
+        .bind(i64::from(row.ttl))
+        .bind(row.enabled)
+        .bind(source_to_db(row.source))
+        .bind(&now)
+        .bind(&now)
+        .fetch_optional(&self.pools.write)
+        .await?;
+        db_row.map(DbRecordRow::into_record).transpose()
     }
 
     async fn update_record(

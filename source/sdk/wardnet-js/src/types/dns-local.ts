@@ -5,6 +5,13 @@
 /** DNS record type for custom local records. Wire form is SCREAMING_SNAKE_CASE. */
 export type DnsRecordType = "A" | "AAAA" | "CNAME" | "TXT" | "MX" | "SRV";
 
+/**
+ * Provenance of a custom local DNS record. `manual` = admin-created,
+ * `dhcp` = auto-registered from a DHCP lease ({hostname}.lan), `system` =
+ * daemon-seeded.
+ */
+export type DnsRecordSource = "manual" | "dhcp" | "system";
+
 /** An authoritative local DNS zone (e.g. "lan", "home"). */
 export interface DnsZone {
   id: string;
@@ -24,6 +31,7 @@ export interface CustomDnsRecord {
   value: string;
   ttl: number;
   enabled: boolean;
+  source: DnsRecordSource;
   created_at: string;
   updated_at: string;
 }

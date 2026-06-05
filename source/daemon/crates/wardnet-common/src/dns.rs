@@ -121,6 +121,20 @@ pub enum DnsRecordType {
     Srv,
 }
 
+/// Provenance of a custom local DNS record.
+///
+/// `Manual` records are admin-created via the API. `Dhcp` records are
+/// auto-registered by [`crate::event::WardnetEvent::DhcpLeaseAssigned`] /
+/// `DhcpLeaseRenewed` (the `{hostname}.lan` integration). `System` is
+/// reserved for daemon-seeded records that must not be hand-edited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsRecordSource {
+    Manual,
+    Dhcp,
+    System,
+}
+
 /// A user-defined local DNS record.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CustomDnsRecord {
@@ -131,6 +145,7 @@ pub struct CustomDnsRecord {
     pub value: String,
     pub ttl: u32,
     pub enabled: bool,
+    pub source: DnsRecordSource,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

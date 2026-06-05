@@ -3,12 +3,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
-
-use wardnetd_data::repository::MaintenanceRepository;
+use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 
 use crate::db_maintenance_runner::{DbMaintenanceRunner, run_vacuum};
+use crate::error::AppError;
+use crate::maintenance::MaintenanceService;
 
-// ── Mock maintenance repository ───────────────────────────────────────────────
+// ── Mock maintenance service ──────────────────────────────────────────────────
 
 struct MockMaintenance {
     result: anyhow::Result<u64>,
@@ -36,13 +38,19 @@ impl MockMaintenance {
 }
 
 #[async_trait]
-impl MaintenanceRepository for MockMaintenance {
-    async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
+impl MaintenanceService for MockMaintenance {
+    async fn run_incremental_vacuum(&self) -> Result<u64, AppError> {
         *self.calls.lock().unwrap() += 1;
         match &self.result {
             Ok(n) => Ok(*n),
-            Err(e) => Err(anyhow::anyhow!("{e}")),
+            Err(e) => Err(AppError::Internal(anyhow::anyhow!("{e}"))),
         }
+    }
+}
+
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::nil(),
     }
 }
 
@@ -51,21 +59,21 @@ impl MaintenanceRepository for MockMaintenance {
 #[tokio::test]
 async fn run_vacuum_logs_when_pages_reclaimed() {
     let repo = MockMaintenance::ok(42);
-    run_vacuum(repo.as_ref()).await;
+    run_vacuum(repo.as_ref(), &admin_ctx()).await;
     assert_eq!(repo.call_count(), 1);
 }
 
 #[tokio::test]
 async fn run_vacuum_silent_when_nothing_reclaimed() {
     let repo = MockMaintenance::ok(0);
-    run_vacuum(repo.as_ref()).await;
+    run_vacuum(repo.as_ref(), &admin_ctx()).await;
     assert_eq!(repo.call_count(), 1);
 }
 
 #[tokio::test]
 async fn run_vacuum_warns_and_does_not_panic_on_error() {
     let repo = MockMaintenance::err();
-    run_vacuum(repo.as_ref()).await; // must not panic
+    run_vacuum(repo.as_ref(), &admin_ctx()).await; // must not panic
     assert_eq!(repo.call_count(), 1);
 }
 

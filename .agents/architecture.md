@@ -151,9 +151,25 @@ Authoritative answers fully short-circuit the pipeline (no cache store, no filte
 
 `DnsRunner` handles `DnsLocalChanged` by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and, if `domain` is `Some`, `DnsServer::invalidate_domain`.
 
-### Why `DnsRunner` reads `dns_local_repo` directly
+### Background runners call auth-gated services, never repositories
 
-`DnsRunner` receives a `Arc<dyn DnsLocalRepository>` rather than going through `DnsLocalService`. This is intentional: `DnsLocalService` is auth-gated (every method calls `require_admin()`), but `DnsRunner` is a background system component with no auth context. The `Services` struct exposes `dns_local_repo` for this purpose — it is **not** a general bypass pattern.
+Background runners (`DnsRunner`, `DnsFilterRunner`, `DnsQueryLogRunner`,
+`DbMaintenanceRunner`, `DhcpLanRunner`) hold `Arc<dyn *Service>` trait
+objects, **not** repository handles. Each runs its service calls under an
+admin auth context:
+
+```rust
+let admin_ctx = AuthContext::Admin { admin_id: Uuid::nil() };
+auth_context::with_context(admin_ctx.clone(), service.some_method()).await
+```
+
+This keeps the service layer the single auth-and-events chokepoint:
+`DnsLocalService::upsert_record`, for example, owns `DnsLocalChanged`
+emission, so the DHCP `.lan` runner can never write a record without
+triggering the authoritative-view rebuild. The `Services` struct does **not**
+expose `dns_local_repo`; `DbMaintenanceRunner` takes a thin
+`MaintenanceService` rather than `MaintenanceRepository`. Reaching for a
+`Arc<dyn *Repository>` inside a runner is a layering violation.
 
 ## Bridge service (issue #435)
 

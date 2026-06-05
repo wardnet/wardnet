@@ -25,7 +25,8 @@ pub use dns_filter::{
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
 };
 pub use dns_local::{
-    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, ZoneRow, ZoneUpdate,
+    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
+    ZoneUpdate,
 };
 pub use maintenance::MaintenanceRepository;
 pub use session::SessionRepository;

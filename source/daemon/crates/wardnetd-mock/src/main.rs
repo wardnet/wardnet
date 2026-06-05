@@ -294,13 +294,12 @@ async fn run(
         .expect("dns log persist rx taken twice");
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
-        services.dns_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &tracing::Span::current(),
     );
     let db_maintenance_runner =
-        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &tracing::Span::current());
+        DbMaintenanceRunner::start(services.maintenance.clone(), &tracing::Span::current());
 
     // Drain the in-memory stats buffer into stats_intraday so the fake DNS
     // queries emitted by FakeEventEmitter show up in the live stats charts.

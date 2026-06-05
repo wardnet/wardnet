@@ -19,6 +19,7 @@ pub mod dns_filter;
 pub mod dns_local;
 pub mod garp;
 pub mod logging;
+pub mod maintenance;
 pub mod routing;
 pub mod system;
 pub mod tunnel;
@@ -68,6 +69,7 @@ pub use crate::dns_filter::DnsFilterService;
 pub use crate::dns_local::DnsLocalService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
+pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::routing::RoutingService;
 pub use crate::stats::{
     DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
@@ -164,14 +166,10 @@ pub struct Services {
     pub device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
-    /// Local-DNS repository — exposed so `DnsRunner` can reload zones /
-    /// records / rules on `DnsLocalChanged` without going through the
-    /// auth-gated local-DNS service.
-    pub dns_local_repo: Arc<dyn DnsLocalRepository>,
-    /// Cross-cutting DB maintenance (incremental vacuum etc.). Exposed
-    /// here so the DNS query-log cleanup runner can release freed
-    /// pages back to the filesystem after retention deletes.
-    pub maintenance_repo: Arc<dyn wardnetd_data::repository::MaintenanceRepository>,
+    /// Cross-cutting DB maintenance (incremental vacuum etc.) as an
+    /// auth-gated service, so `DbMaintenanceRunner` calls it under an admin
+    /// context rather than holding the repository directly.
+    pub maintenance: Arc<dyn MaintenanceService>,
     /// Tunnel repository — exposed so the DNS server can resolve
     /// `UpstreamId::Tunnel(_)` entries from the routing snapshot into a
     /// concrete (interface name, DNS upstream) pair without going through
@@ -435,6 +433,9 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    let maintenance_service: Arc<dyn MaintenanceService> =
+        Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
+
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
         system_config_repo,
         tunnel_repo.clone(),
@@ -521,8 +522,7 @@ fn create_services(
         device_repo,
         dns_repo,
         dns_filter_repo,
-        dns_local_repo,
-        maintenance_repo,
+        maintenance: maintenance_service,
         tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),

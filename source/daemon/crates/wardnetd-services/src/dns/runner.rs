@@ -14,12 +14,12 @@ use tracing::Instrument;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
-use wardnetd_data::repository::DnsLocalRepository;
 
 use crate::auth_context;
 use crate::dns::authoritative::AuthoritativeView;
 use crate::dns::server::DnsServer;
 use crate::dns::service::DnsService;
+use crate::dns_local::DnsLocalService;
 use crate::event::EventPublisher;
 
 pub struct DnsRunner {
@@ -31,7 +31,7 @@ impl DnsRunner {
     pub fn start(
         service: Arc<dyn DnsService>,
         server: Arc<dyn DnsServer>,
-        dns_local_repo: Arc<dyn DnsLocalRepository>,
+        dns_local: Arc<dyn DnsLocalService>,
         events: &dyn EventPublisher,
         parent: &tracing::Span,
     ) -> Self {
@@ -40,7 +40,7 @@ impl DnsRunner {
         let event_rx = events.subscribe();
 
         let handle = tokio::spawn(
-            runner_loop(service, server, dns_local_repo, event_rx, cancel.clone()).instrument(span),
+            runner_loop(service, server, dns_local, event_rx, cancel.clone()).instrument(span),
         );
 
         Self { cancel, handle }
@@ -53,13 +53,22 @@ impl DnsRunner {
     }
 }
 
-/// Build an `AuthoritativeView` from the local-DNS repository.
-/// Errors are logged and result in an empty view so the server can still start.
-async fn build_authoritative_view(repo: &dyn DnsLocalRepository) -> AuthoritativeView {
-    let (zones, records, rules) =
-        tokio::join!(repo.list_zones(), repo.list_records(), repo.list_rules(),);
+/// Build an `AuthoritativeView` from the local-DNS service.
+///
+/// `DnsLocalService` is auth-gated, so each read runs under an admin
+/// [`auth_context`] just like the other background runners. Errors are logged
+/// and result in an empty view so the server can still start.
+async fn build_authoritative_view(
+    service: &Arc<dyn DnsLocalService>,
+    admin_ctx: &AuthContext,
+) -> AuthoritativeView {
+    let (zones, records, rules) = tokio::join!(
+        auth_context::with_context(admin_ctx.clone(), service.list_zones()),
+        auth_context::with_context(admin_ctx.clone(), service.list_records()),
+        auth_context::with_context(admin_ctx.clone(), service.list_forwarding_rules()),
+    );
     match (zones, records, rules) {
-        (Ok(z), Ok(r), Ok(ru)) => AuthoritativeView::build(&z, r, ru),
+        (Ok(z), Ok(r), Ok(ru)) => AuthoritativeView::build(&z.zones, r.records, ru.rules),
         (zones, records, rules) => {
             if let Err(e) = &zones {
                 tracing::error!(error = %e, "failed to load DNS zones for authoritative view");
@@ -78,7 +87,7 @@ async fn build_authoritative_view(repo: &dyn DnsLocalRepository) -> Authoritativ
 async fn runner_loop(
     service: Arc<dyn DnsService>,
     server: Arc<dyn DnsServer>,
-    dns_local_repo: Arc<dyn DnsLocalRepository>,
+    dns_local: Arc<dyn DnsLocalService>,
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
 ) {
@@ -104,7 +113,7 @@ async fn runner_loop(
 
     // Load the initial authoritative view so local records are served from the
     // very first query — before any DnsLocalChanged event fires.
-    let initial_view = build_authoritative_view(dns_local_repo.as_ref()).await;
+    let initial_view = build_authoritative_view(&dns_local, &admin_ctx).await;
     server.update_authoritative_view(initial_view).await;
 
     loop {
@@ -136,7 +145,7 @@ async fn runner_loop(
                         }
                     }
                     Ok(WardnetEvent::DnsLocalChanged { domain, .. }) => {
-                        let view = build_authoritative_view(dns_local_repo.as_ref()).await;
+                        let view = build_authoritative_view(&dns_local, &admin_ctx).await;
                         server.update_authoritative_view(view).await;
                         if let Some(ref d) = domain {
                             server.invalidate_domain(d).await;

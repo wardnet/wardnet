@@ -16865,6 +16865,7 @@
           "value",
           "ttl",
           "enabled",
+          "source",
           "created_at",
           "updated_at"
         ],
@@ -16885,6 +16886,9 @@
           },
           "record_type": {
             "$ref": "#/components/schemas/DnsRecordType"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DnsRecordSource"
           },
           "ttl": {
             "type": "integer",
@@ -17845,7 +17849,17 @@
           "rewritten",
           "recursive",
           "upstream_error",
+          "authoritative",
           "error"
+        ]
+      },
+      "DnsRecordSource": {
+        "type": "string",
+        "description": "Provenance of a custom local DNS record.\n\n`Manual` records are admin-created via the API. `Dhcp` records are\nauto-registered by [`crate::event::WardnetEvent::DhcpLeaseAssigned`] /\n`DhcpLeaseRenewed` (the `{hostname}.lan` integration). `System` is\nreserved for daemon-seeded records that must not be hand-edited.",
+        "enum": [
+          "manual",
+          "dhcp",
+          "system"
         ]
       },
       "DnsRecordType": {

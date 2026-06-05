@@ -13,7 +13,9 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordType, DnsZone};
+use wardnet_common::dns::{
+    ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+};
 
 /// Insert struct for an authoritative local DNS zone.
 #[derive(Debug, Clone)]
@@ -40,6 +42,20 @@ pub struct RecordRow {
     pub value: String,
     pub ttl: u32,
     pub enabled: bool,
+    pub source: DnsRecordSource,
+}
+
+/// Upsert struct for a custom local DNS record keyed on
+/// `(domain, record_type)`. Unlike [`RecordRow`] it carries no `id`: a fresh
+/// id is generated on insert, while a conflicting row keeps its existing id.
+/// Used by the DHCP `.lan` auto-registration path.
+#[derive(Debug, Clone)]
+pub struct UpsertRecordRow {
+    pub zone_id: Option<Uuid>,
+    pub value: String,
+    pub ttl: u32,
+    pub enabled: bool,
+    pub source: DnsRecordSource,
 }
 
 /// Partial update for a custom record. `None` leaves a field unchanged;
@@ -95,6 +111,22 @@ pub trait DnsLocalRepository: Send + Sync {
     async fn list_records_by_zone(&self, zone_id: Uuid) -> anyhow::Result<Vec<CustomDnsRecord>>;
     async fn get_record(&self, id: Uuid) -> anyhow::Result<Option<CustomDnsRecord>>;
     async fn create_record(&self, row: &RecordRow) -> anyhow::Result<CustomDnsRecord>;
+    /// Insert-or-update a record keyed on `(domain, record_type)`.
+    ///
+    /// On insert a fresh id is generated. On conflict the existing row's id is
+    /// preserved and `zone_id`, `value`, `ttl`, `enabled`, `source`,
+    /// `updated_at` are overwritten — **but only when the existing row's
+    /// `source` matches the incoming `source`**. This stops a DHCP-sourced
+    /// upsert from clobbering an admin-created (`manual`) or daemon-seeded
+    /// (`system`) record (a LAN client could otherwise repoint `nas.lan` at
+    /// its own IP via DHCP option-12). A blocked overwrite returns `Ok(None)`;
+    /// a successful insert/update returns `Ok(Some(record))`.
+    async fn upsert_record(
+        &self,
+        domain: &str,
+        record_type: DnsRecordType,
+        row: &UpsertRecordRow,
+    ) -> anyhow::Result<Option<CustomDnsRecord>>;
     /// Update mutable fields on a record. Returns the updated record, or `None` if no row matched.
     async fn update_record(
         &self,

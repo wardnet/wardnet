@@ -10,9 +10,10 @@ use uuid::Uuid;
 use super::test_pool;
 use crate::repository::SqliteDnsLocalRepository;
 use crate::repository::dns_local::{
-    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, ZoneRow, ZoneUpdate,
+    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
+    ZoneUpdate,
 };
-use wardnet_common::dns::DnsRecordType;
+use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
 
 const SEEDED_LAN_ZONE: &str = "00000000-0000-0000-0000-000000000010";
 
@@ -92,6 +93,7 @@ fn record_row(id: Uuid, zone_id: Option<Uuid>, domain: &str) -> RecordRow {
         value: "10.0.0.1".to_owned(),
         ttl: 300,
         enabled: true,
+        source: DnsRecordSource::Manual,
     }
 }
 
@@ -226,6 +228,130 @@ async fn update_record_can_clear_zone_id() {
 async fn delete_missing_record_returns_false() {
     let repo = new_repo(test_pool().await);
     assert!(!repo.delete_record(Uuid::new_v4()).await.unwrap());
+}
+
+// ── Upsert (DHCP .lan auto-registration) ────────────────────────────────────
+
+fn upsert_row(value: &str) -> UpsertRecordRow {
+    let zone_id: Uuid = SEEDED_LAN_ZONE.parse().unwrap();
+    UpsertRecordRow {
+        zone_id: Some(zone_id),
+        value: value.to_owned(),
+        ttl: 600,
+        enabled: true,
+        source: DnsRecordSource::Dhcp,
+    }
+}
+
+#[tokio::test]
+async fn upsert_record_inserts_on_first_call() {
+    let repo = new_repo(test_pool().await);
+
+    let record = repo
+        .upsert_record("mypc.lan", DnsRecordType::A, &upsert_row("10.0.0.5"))
+        .await
+        .unwrap()
+        .expect("insert returns the row");
+
+    assert_eq!(record.domain, "mypc.lan");
+    assert_eq!(record.value, "10.0.0.5");
+    assert_eq!(record.record_type, DnsRecordType::A);
+    assert_eq!(record.source, DnsRecordSource::Dhcp);
+
+    let fetched = repo.get_record(record.id).await.unwrap().expect("exists");
+    assert_eq!(fetched.value, "10.0.0.5");
+}
+
+#[tokio::test]
+async fn upsert_record_updates_value_on_conflict() {
+    let repo = new_repo(test_pool().await);
+
+    repo.upsert_record("mypc.lan", DnsRecordType::A, &upsert_row("10.0.0.5"))
+        .await
+        .unwrap()
+        .expect("insert returns the row");
+    let updated = repo
+        .upsert_record("mypc.lan", DnsRecordType::A, &upsert_row("10.0.0.9"))
+        .await
+        .unwrap()
+        .expect("same-source conflict updates and returns the row");
+
+    assert_eq!(updated.value, "10.0.0.9");
+    // Still a single row for that (domain, record_type).
+    let all = repo.list_records().await.unwrap();
+    let matching: Vec<_> = all
+        .iter()
+        .filter(|r| r.domain == "mypc.lan" && r.record_type == DnsRecordType::A)
+        .collect();
+    assert_eq!(matching.len(), 1);
+}
+
+#[tokio::test]
+async fn upsert_record_preserves_id_on_conflict() {
+    let repo = new_repo(test_pool().await);
+
+    let first = repo
+        .upsert_record("mypc.lan", DnsRecordType::A, &upsert_row("10.0.0.5"))
+        .await
+        .unwrap()
+        .expect("insert returns the row");
+    let second = repo
+        .upsert_record("mypc.lan", DnsRecordType::A, &upsert_row("10.0.0.9"))
+        .await
+        .unwrap()
+        .expect("same-source conflict updates and returns the row");
+
+    assert_eq!(
+        first.id, second.id,
+        "conflicting upsert must keep the existing row id"
+    );
+    assert_eq!(first.created_at, second.created_at);
+}
+
+#[tokio::test]
+async fn upsert_record_source_stored_and_returned() {
+    let repo = new_repo(test_pool().await);
+
+    let record = repo
+        .upsert_record("nas.lan", DnsRecordType::A, &upsert_row("10.0.0.7"))
+        .await
+        .unwrap()
+        .expect("insert returns the row");
+    assert_eq!(record.source, DnsRecordSource::Dhcp);
+
+    // Survives a round-trip through the read path.
+    let fetched = repo.get_record(record.id).await.unwrap().expect("exists");
+    assert_eq!(fetched.source, DnsRecordSource::Dhcp);
+}
+
+#[tokio::test]
+async fn upsert_record_does_not_clobber_other_source() {
+    let repo = new_repo(test_pool().await);
+    let zone_id: Uuid = SEEDED_LAN_ZONE.parse().unwrap();
+
+    // Admin creates a manual record for `nas.lan`.
+    repo.create_record(&record_row(Uuid::new_v4(), Some(zone_id), "nas.lan"))
+        .await
+        .unwrap();
+
+    // A DHCP upsert for the same name must NOT overwrite the manual record.
+    let blocked = repo
+        .upsert_record("nas.lan", DnsRecordType::A, &upsert_row("66.66.66.66"))
+        .await
+        .unwrap();
+    assert!(
+        blocked.is_none(),
+        "DHCP upsert must not clobber a manual record"
+    );
+
+    // The original manual record is untouched.
+    let all = repo.list_records().await.unwrap();
+    let existing = all
+        .iter()
+        .find(|r| r.domain == "nas.lan" && r.record_type == DnsRecordType::A)
+        .expect("manual record still present");
+    assert_eq!(existing.value, "10.0.0.1");
+    assert_eq!(existing.source, DnsRecordSource::Manual);
 }
 
 // ── Conditional forwarding rules ────────────────────────────────────────────

@@ -6,7 +6,8 @@ use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
-    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordType, DnsZone, UpstreamDns,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
+    DnsZone, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
@@ -1404,6 +1405,28 @@ pub struct UpdateRecordResponse {
 /// Response for DELETE /api/dns/local/records/{id}.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeleteRecordResponse {
+    pub message: String,
+}
+
+/// Insert-or-update request for a custom record keyed on
+/// `(domain, record_type)`. Used internally by the DHCP `.lan`
+/// auto-registration runner — not exposed as an HTTP endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpsertRecordRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_id: Option<Uuid>,
+    pub domain: String,
+    pub record_type: DnsRecordType,
+    pub value: String,
+    pub ttl: u32,
+    pub enabled: bool,
+    pub source: DnsRecordSource,
+}
+
+/// Response for an upsert of a custom record.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpsertRecordResponse {
+    pub record: CustomDnsRecord,
     pub message: String,
 }
 

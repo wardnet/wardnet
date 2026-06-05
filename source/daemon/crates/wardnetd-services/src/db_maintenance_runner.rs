@@ -1,10 +1,13 @@
 //! Daily database-maintenance runner.
 //!
-//! Calls [`MaintenanceRepository::incremental_vacuum`] once per calendar day
+//! Calls [`MaintenanceService::run_incremental_vacuum`] once per calendar day
 //! to return freed `SQLite` pages to the filesystem. Fires independently of
 //! any domain-level feature flag so it benefits **all** retention-driven
 //! tables (DNS query log, future event logs, audit trails), not just the ones
 //! whose per-feature runner happens to be active.
+//!
+//! Like every background component, it calls the auth-gated service under an
+//! admin [`crate::auth_context`] rather than holding a repository directly.
 //!
 //! The daily cadence is enforced by checking the calendar date on every hourly
 //! tick rather than sleeping for 24 hours, so the runner stays responsive to
@@ -15,8 +18,11 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 
-use wardnetd_data::repository::MaintenanceRepository;
+use crate::auth_context;
+use crate::maintenance::MaintenanceService;
 
 /// How often the runner wakes to check whether a day has rolled over.
 pub const TICK_INTERVAL: Duration = Duration::from_hours(1);
@@ -30,24 +36,24 @@ pub struct DbMaintenanceRunner {
 
 impl DbMaintenanceRunner {
     /// Start with the default hourly tick. Production entry point.
-    pub fn start(maintenance_repo: Arc<dyn MaintenanceRepository>, parent: &tracing::Span) -> Self {
-        Self::start_with_interval(maintenance_repo, TICK_INTERVAL, parent)
+    pub fn start(maintenance: Arc<dyn MaintenanceService>, parent: &tracing::Span) -> Self {
+        Self::start_with_interval(maintenance, TICK_INTERVAL, parent)
     }
 
     /// Start with a custom tick interval. Tests pass short intervals so they
     /// can exercise the day-rollover logic without sleeping for an hour.
     pub fn start_with_interval(
-        maintenance_repo: Arc<dyn MaintenanceRepository>,
+        maintenance: Arc<dyn MaintenanceService>,
         tick_interval: Duration,
         parent: &tracing::Span,
     ) -> Self {
-        Self::start_with_interval_and_day(maintenance_repo, tick_interval, today(), parent)
+        Self::start_with_interval_and_day(maintenance, tick_interval, today(), parent)
     }
 
     /// Internal constructor that accepts an explicit initial day so tests can
     /// set yesterday's date and have the first tick immediately fire a vacuum.
     pub(crate) fn start_with_interval_and_day(
-        maintenance_repo: Arc<dyn MaintenanceRepository>,
+        maintenance: Arc<dyn MaintenanceService>,
         tick_interval: Duration,
         initial_day: chrono::NaiveDate,
         parent: &tracing::Span,
@@ -56,8 +62,7 @@ impl DbMaintenanceRunner {
         let span = tracing::info_span!(parent: parent, "db_maintenance_runner");
 
         let handle = tokio::spawn(
-            runner_loop(maintenance_repo, tick_interval, cancel.clone(), initial_day)
-                .instrument(span),
+            runner_loop(maintenance, tick_interval, cancel.clone(), initial_day).instrument(span),
         );
 
         Self { cancel, handle }
@@ -72,11 +77,15 @@ impl DbMaintenanceRunner {
 }
 
 async fn runner_loop(
-    maintenance_repo: Arc<dyn MaintenanceRepository>,
+    maintenance: Arc<dyn MaintenanceService>,
     tick_interval: Duration,
     cancel: CancellationToken,
     initial_day: chrono::NaiveDate,
 ) {
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+
     let mut ticker = tokio::time::interval(tick_interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await; // skip the immediate first tick
@@ -93,15 +102,16 @@ async fn runner_loop(
                 let today_now = today();
                 if today_now != last_vacuum_day {
                     last_vacuum_day = today_now;
-                    run_vacuum(maintenance_repo.as_ref()).await;
+                    run_vacuum(maintenance.as_ref(), &admin_ctx).await;
                 }
             }
         }
     }
 }
 
-pub(crate) async fn run_vacuum(maintenance_repo: &dyn MaintenanceRepository) {
-    match maintenance_repo.incremental_vacuum().await {
+pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
+    match auth_context::with_context(admin_ctx.clone(), maintenance.run_incremental_vacuum()).await
+    {
         Ok(reclaimed) if reclaimed > 0 => {
             tracing::info!(
                 reclaimed_pages = reclaimed,

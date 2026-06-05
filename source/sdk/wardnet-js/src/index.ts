@@ -254,6 +254,7 @@ export type {
 // Types — Local DNS (authoritative zones, custom records, forwarding rules)
 export type {
   DnsRecordType,
+  DnsRecordSource,
   DnsZone,
   CustomDnsRecord,
   ConditionalForwardingRule,

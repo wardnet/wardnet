@@ -527,28 +527,25 @@ async fn handle_query(
             // present) to the additional section.
             if matches!(our_rtype, Some(DnsRecordType::A | DnsRecordType::Aaaa))
                 && response.answers.is_empty()
+                && let Some(cname_rec) = view.lookup_cname(&domain_lower)
             {
-                if let Some(cname_rec) = view.lookup_cname(&domain_lower) {
-                    let target_domain = cname_rec.value.trim_end_matches('.').to_ascii_lowercase();
-                    if let Ok(rdata) = make_rdata(DnsRecordType::Cname, &cname_rec.value, &name) {
-                        response.add_answer(Record::from_rdata(name.clone(), cname_rec.ttl, rdata));
-                    }
-                    // Add target A/AAAA to additional section if in view.
-                    if let Some(target_rt) = our_rtype {
-                        if let Some(target_records) = view.lookup(&target_domain, target_rt) {
-                            if let Ok(target_name) = Name::from_str_relaxed(&cname_rec.value) {
-                                for t_rec in target_records {
-                                    if let Ok(rdata) =
-                                        make_rdata(t_rec.record_type, &t_rec.value, &target_name)
-                                    {
-                                        response.add_additional(Record::from_rdata(
-                                            target_name.clone(),
-                                            t_rec.ttl,
-                                            rdata,
-                                        ));
-                                    }
-                                }
-                            }
+                let target_domain = cname_rec.value.trim_end_matches('.').to_ascii_lowercase();
+                if let Ok(rdata) = make_rdata(DnsRecordType::Cname, &cname_rec.value, &name) {
+                    response.add_answer(Record::from_rdata(name.clone(), cname_rec.ttl, rdata));
+                }
+                // Add target A/AAAA to additional section if in view.
+                if let Some(target_rt) = our_rtype
+                    && let Some(target_records) = view.lookup(&target_domain, target_rt)
+                    && let Ok(target_name) = Name::from_str_relaxed(&cname_rec.value)
+                {
+                    for t_rec in target_records {
+                        if let Ok(rdata) = make_rdata(t_rec.record_type, &t_rec.value, &target_name)
+                        {
+                            response.add_additional(Record::from_rdata(
+                                target_name.clone(),
+                                t_rec.ttl,
+                                rdata,
+                            ));
                         }
                     }
                 }
@@ -1168,7 +1165,7 @@ fn rtype_from_hickory(rt: hickory_proto::rr::RecordType) -> Option<DnsRecordType
 fn make_rdata(
     rt: DnsRecordType,
     value: &str,
-    name: &hickory_proto::rr::Name,
+    _name: &hickory_proto::rr::Name,
 ) -> anyhow::Result<hickory_proto::rr::RData> {
     use hickory_proto::rr::{
         RData,
@@ -1300,7 +1297,9 @@ async fn forward_via_conditional(
                 parsed.metadata.id
             ));
         }
-        if parsed.queries.first().map(|q| q.name()) != request.queries.first().map(|q| q.name()) {
+        if parsed.queries.first().map(hickory_proto::op::Query::name)
+            != request.queries.first().map(hickory_proto::op::Query::name)
+        {
             return_socket_to_pool(pool, bound).await;
             return Err(anyhow::anyhow!(
                 "conditional upstream response question mismatch"

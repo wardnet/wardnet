@@ -43,6 +43,7 @@ use wardnetd_api::state::AppState;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
+use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
@@ -472,17 +473,25 @@ async fn run(
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
-        services.dns_local_repo.clone(),
+        services.dns_local.clone(),
         services.event_publisher.as_ref(),
         &root_span,
     );
     let dns_filter_runner = DnsFilterRunner::start(
         services.dns_filter.clone(),
-        services.dns_filter_repo.clone(),
-        blocklist_fetcher,
-        services.event_publisher.clone(),
+        services.event_publisher.as_ref(),
         &root_span,
         Duration::from_mins(1),
+    );
+
+    // Auto-register `{hostname}.lan` A records as DHCP leases are assigned
+    // or renewed. Goes through the auth-gated local-DNS service so the
+    // authoritative view rebuild (and cache eviction) fire automatically.
+    let dhcp_lan_runner = DhcpLanRunner::start(
+        services.dns_local.clone(),
+        services.dhcp.clone(),
+        services.event_publisher.as_ref(),
+        &root_span,
     );
 
     // Drain the DNS query log persistence channel into SQLite and trim the
@@ -497,7 +506,6 @@ async fn run(
         .expect("dns log persist rx taken twice");
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
-        services.dns_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &root_span,
@@ -520,7 +528,7 @@ async fn run(
     // Return freed SQLite pages to the filesystem once per day — fires
     // regardless of any per-feature flag so it covers all tables.
     let db_maintenance_runner =
-        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &root_span);
+        DbMaintenanceRunner::start(services.maintenance.clone(), &root_span);
 
     // Start the auto-update poller. An initial check runs immediately; then
     // every `check_interval_secs` with ±10% jitter.
@@ -636,6 +644,7 @@ async fn run(
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
+    dhcp_lan_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;

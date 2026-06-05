@@ -12,11 +12,13 @@ use wardnet_common::api::{
     DeleteRecordResponse, DeleteZoneResponse, GetForwardingRuleResponse, GetRecordResponse,
     GetZoneResponse, ListForwardingRulesResponse, ListRecordsResponse, ListZonesResponse,
     UpdateForwardingRuleRequest, UpdateForwardingRuleResponse, UpdateRecordRequest,
-    UpdateRecordResponse, UpdateZoneRequest, UpdateZoneResponse,
+    UpdateRecordResponse, UpdateZoneRequest, UpdateZoneResponse, UpsertRecordRequest,
+    UpsertRecordResponse,
 };
-use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsZone};
+use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsZone};
 use wardnetd_data::repository::{
-    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, ZoneRow, ZoneUpdate,
+    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
+    ZoneUpdate,
 };
 
 use crate::auth_context;
@@ -51,6 +53,13 @@ pub trait DnsLocalService: Send + Sync {
         req: UpdateRecordRequest,
     ) -> Result<UpdateRecordResponse, AppError>;
     async fn delete_record(&self, id: Uuid) -> Result<DeleteRecordResponse, AppError>;
+    /// Insert-or-update a record keyed on `(domain, record_type)`, emitting
+    /// `DnsLocalChanged` on success. The service owns the event so no caller
+    /// (e.g. the DHCP `.lan` runner) can forget to fire it.
+    async fn upsert_record(
+        &self,
+        req: UpsertRecordRequest,
+    ) -> Result<UpsertRecordResponse, AppError>;
 
     // ── Forwarding rules ────────────────────────────────────────────────
     async fn list_forwarding_rules(&self) -> Result<ListForwardingRulesResponse, AppError>;
@@ -316,6 +325,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             value: req.value,
             ttl: req.ttl,
             enabled: req.enabled,
+            source: DnsRecordSource::Manual,
         };
         let record = self.repo.create_record(&row).await.map_err(|e| {
             Self::map_repo_err(e, "a record with this domain and type already exists")
@@ -388,6 +398,44 @@ impl DnsLocalService for DnsLocalServiceImpl {
         self.emit_domain_changed(domain);
         Ok(DeleteRecordResponse {
             message: format!("record {id} deleted"),
+        })
+    }
+
+    async fn upsert_record(
+        &self,
+        req: UpsertRecordRequest,
+    ) -> Result<UpsertRecordResponse, AppError> {
+        auth_context::require_admin()?;
+        Self::validate_domain(&req.domain)?;
+        Self::require_non_empty("value", &req.value)?;
+        if let Some(zone_id) = req.zone_id {
+            self.ensure_zone(zone_id).await?;
+        }
+        let row = UpsertRecordRow {
+            zone_id: req.zone_id,
+            value: req.value,
+            ttl: req.ttl,
+            enabled: req.enabled,
+            source: req.source,
+        };
+        // `None` means the repo refused to overwrite an existing record of a
+        // different `source` (e.g. a DHCP upsert hitting an admin/system row).
+        // Surface that as a Conflict and emit no event — nothing changed.
+        let record = self
+            .repo
+            .upsert_record(&req.domain, req.record_type, &row)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::Conflict(format!(
+                    "record {} already exists from a different source",
+                    req.domain
+                ))
+            })?;
+        self.emit_domain_changed(record.domain.clone());
+        Ok(UpsertRecordResponse {
+            record,
+            message: "record upserted".to_owned(),
         })
     }
 
