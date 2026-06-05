@@ -347,6 +347,20 @@ button { font-family: inherit; }
   padding: 0;
 }
 .card__head .sub { font-size: 12px; color: var(--ink-3); margin-left: 6px; }
+/* Subtitle below the card title. The head is `flex-wrap`, so a full-width
+   subtitle drops onto its own line beneath the (uppercase, tracked) title.
+   A touch smaller, sentence-cased, muted, with a small bottom gap before
+   the card content. */
+.card__head .card__subtitle {
+  width: 100%;
+  margin: 2px 0 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
 .card__head .right {
   margin-left: auto;
   display: flex;

@@ -1683,6 +1683,234 @@ async fn cache_invalidator_flushes_defensively_on_lagged() {
     handle.await.expect("task joins after cancel");
 }
 
+// ---------------------------------------------------------------------------
+// Zone suffix-authority: an enabled zone makes the gateway authoritative for
+// the whole `*.zone` namespace, so unknown names under it are answered
+// NXDOMAIN (AA + synthetic SOA) instead of leaking to the upstream resolver.
+// An explicit conditional-forwarding rule under the zone still overrides this.
+// ---------------------------------------------------------------------------
+
+use wardnet_common::dns::{ConditionalForwardingRule, DnsZone};
+use wardnetd_services::dns::authoritative::AuthoritativeView;
+
+fn lan_zone() -> DnsZone {
+    DnsZone {
+        id: Uuid::new_v4(),
+        name: "lan".into(),
+        enabled: true,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+/// Send raw query bytes to `target` and parse the reply from a fresh client.
+async fn send_and_recv(target: SocketAddr, query: &[u8]) -> hickory_proto::op::Message {
+    use hickory_proto::op::Message;
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind");
+    client.send_to(query, target).await.expect("send");
+    let mut buf = vec![0u8; 4096];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(5), client.recv_from(&mut buf))
+        .await
+        .expect("client recv timeout")
+        .expect("client recv");
+    Message::from_bytes(&buf[..n]).expect("parse response")
+}
+
+#[tokio::test]
+async fn authoritative_zone_unknown_name_returns_nxdomain_not_forwarded() {
+    use hickory_proto::op::ResponseCode;
+
+    // Stub upstream would answer NoError+A if we ever forwarded — so an
+    // NXDOMAIN proves the query was answered authoritatively, never forwarded.
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "stub".into(),
+            address: upstream_addr.ip().to_string(),
+            protocol: DnsProtocol::Udp,
+            port: Some(upstream_addr.port()),
+        }],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // Enabled `lan` zone, no records — the namespace is ours but the name
+    // doesn't exist.
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[lan_zone()], vec![], vec![]))
+        .await;
+
+    // Query `unknown.lan` A (id=0xAB1E).
+    let query: &[u8] = &[
+        0xAB, 0x1E, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'u', b'n',
+        b'k', b'n', b'o', b'w', b'n', 0x03, b'l', b'a', b'n', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NXDomain,
+        "unknown name under an authoritative zone must be NXDOMAIN, not forwarded"
+    );
+    assert!(
+        resp.metadata.authoritative,
+        "authoritative NXDOMAIN must set the AA bit"
+    );
+    assert_eq!(
+        resp.authorities.len(),
+        1,
+        "negative answer must carry a synthetic SOA in the authority section"
+    );
+    assert_eq!(
+        resp.authorities[0].record_type(),
+        RecordType::SOA,
+        "authority record must be an SOA"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn authoritative_zone_existing_name_unmodeled_type_is_nodata_not_nxdomain() {
+    use hickory_proto::op::ResponseCode;
+    use wardnet_common::dns::{CustomDnsRecord, DnsRecordSource, DnsRecordType};
+
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // `printer.lan` exists with an A record, in the enabled `lan` zone.
+    let zone = lan_zone();
+    let record = CustomDnsRecord {
+        id: Uuid::new_v4(),
+        zone_id: Some(zone.id),
+        domain: "printer.lan".into(),
+        record_type: DnsRecordType::A,
+        value: "192.168.1.50".into(),
+        ttl: 300,
+        enabled: true,
+        source: DnsRecordSource::Manual,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[zone], vec![record], vec![]))
+        .await;
+
+    // Query `printer.lan` HTTPS (type 65) — a type our record enum doesn't
+    // model. The name exists, so this must be NODATA (NoError), never NXDOMAIN:
+    // a cacheable NXDOMAIN here would poison the valid A record.
+    let query: &[u8] = &[
+        0x0D, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'p', b'r',
+        b'i', b'n', b't', b'e', b'r', 0x03, b'l', b'a', b'n', 0x00, 0x00, 0x41, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "an existing name queried for an unmodeled type must be NODATA, not NXDOMAIN"
+    );
+    assert!(
+        resp.metadata.authoritative,
+        "NODATA answer must set the AA bit"
+    );
+    assert_eq!(
+        resp.authorities.len(),
+        1,
+        "NODATA answer must carry the zone SOA for negative caching"
+    );
+    assert!(
+        resp.answers.is_empty(),
+        "no record of the queried type exists, so the answer section is empty"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn authoritative_zone_apex_with_no_records_is_nodata_not_nxdomain() {
+    use hickory_proto::op::ResponseCode;
+
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // Enabled `lan` zone with no records at all — the apex still "exists"
+    // because the zone is authoritative for it.
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[lan_zone()], vec![], vec![]))
+        .await;
+
+    // Query the apex `lan` A (id=0xAB2E).
+    let query: &[u8] = &[
+        0xAB, 0x2E, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, b'l', b'a',
+        b'n', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "the zone apex exists, so an apex query with no record is NODATA, not NXDOMAIN"
+    );
+    assert!(
+        resp.metadata.authoritative,
+        "apex NODATA must set the AA bit"
+    );
+    assert_eq!(
+        resp.authorities.len(),
+        1,
+        "apex NODATA must carry the zone SOA"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn conditional_forwarding_overrides_zone_authority() {
+    // `corp.lan` is forwarded explicitly even though `lan` is authoritative.
+    // The forward path never sets the AA bit, so `authoritative == false`
+    // distinguishes it from the zone-authority NXDOMAIN path (which always
+    // sets AA) — regardless of whether the forward itself succeeds.
+    let upstream_addr = spawn_stub_upstream().await;
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let rule = ConditionalForwardingRule {
+        id: Uuid::new_v4(),
+        domain: "corp.lan".into(),
+        upstream: format!("{}:{}", upstream_addr.ip(), upstream_addr.port()),
+        enabled: true,
+        created_at: Utc::now(),
+    };
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[lan_zone()], vec![], vec![rule]))
+        .await;
+
+    // Query `host.corp.lan` A (id=0xC0FE).
+    let query: &[u8] = &[
+        0xC0, 0xFE, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, b'h', b'o',
+        b's', b't', 0x04, b'c', b'o', b'r', b'p', 0x03, b'l', b'a', b'n', 0x00, 0x00, 0x01, 0x00,
+        0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert!(
+        !resp.metadata.authoritative,
+        "a forwarded query must NOT be answered authoritatively — the forwarding rule overrides zone authority"
+    );
+
+    server.stop().await.unwrap();
+}
+
 #[tokio::test]
 async fn drop_cancels_cache_invalidator() {
     // `UdpDnsServer::Drop` fires the cancellation token. We can't

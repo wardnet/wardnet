@@ -16,6 +16,7 @@ import Power from "@/pages/Power";
 import Backups from "@/pages/Backups";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
+import DnsLocal from "@/pages/DnsLocal";
 import DnsLogs from "@/pages/DnsLogs";
 import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
@@ -156,6 +157,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Dns />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="dns/local"
+          element={
+            <AdminRoute>
+              <DnsLocal />
             </AdminRoute>
           }
         />

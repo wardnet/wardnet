@@ -7,6 +7,7 @@ import {
   Globe,
   LayoutGrid,
   Monitor,
+  Network,
   Power,
   Router,
   Settings as SettingsIcon,
@@ -52,6 +53,7 @@ const adminSections: NavSection[] = [
     heading: "Resolver",
     items: [
       { to: "/dns", label: "DNS", icon: Globe, end: true },
+      { to: "/dns/local", label: "Local DNS", icon: Network },
       { to: "/dns/filter", label: "DNS Filtering", icon: ShieldCheck },
     ],
   },

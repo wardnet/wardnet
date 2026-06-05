@@ -4,7 +4,7 @@ use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
 };
 
-use crate::dns::authoritative::{AuthoritativeView, parse_conditional_upstream};
+use crate::dns::authoritative::{AuthoritativeView, build_soa, parse_conditional_upstream};
 
 fn zone(name: &str, enabled: bool) -> DnsZone {
     DnsZone {
@@ -181,4 +181,79 @@ fn parse_conditional_upstream_ipv4_with_port() {
 fn parse_conditional_upstream_ipv6_bare() {
     let addr = parse_conditional_upstream("::1").unwrap();
     assert_eq!(addr.port(), 53);
+}
+
+// ---------------------------------------------------------------------------
+// Zone authority — enabled zones claim their suffix so unknown names under
+// them are answered authoritatively (NXDOMAIN) instead of forwarded.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn authoritative_zone_exact_match() {
+    let view = AuthoritativeView::build(&[zone("lan", true)], vec![], vec![]);
+    let z = view
+        .authoritative_zone("lan")
+        .expect("zone apex is authoritative");
+    assert_eq!(z.name, "lan");
+}
+
+#[test]
+fn authoritative_zone_suffix_match() {
+    let view = AuthoritativeView::build(&[zone("lan", true)], vec![], vec![]);
+    assert!(view.authoritative_zone("host.lan").is_some());
+    assert!(view.authoritative_zone("a.b.lan").is_some());
+}
+
+#[test]
+fn authoritative_zone_unrelated_name_not_matched() {
+    let view = AuthoritativeView::build(&[zone("lan", true)], vec![], vec![]);
+    assert!(view.authoritative_zone("host.home").is_none());
+}
+
+#[test]
+fn authoritative_zone_partial_label_not_matched() {
+    // "wlan" must NOT match zone "lan" — the suffix has to follow a dot.
+    let view = AuthoritativeView::build(&[zone("lan", true)], vec![], vec![]);
+    assert!(view.authoritative_zone("wlan").is_none());
+}
+
+#[test]
+fn authoritative_zone_ignores_disabled_zone() {
+    let view = AuthoritativeView::build(&[zone("lan", false)], vec![], vec![]);
+    assert!(view.authoritative_zone("host.lan").is_none());
+}
+
+#[test]
+fn authoritative_zone_longest_suffix_wins() {
+    let view =
+        AuthoritativeView::build(&[zone("lan", true), zone("dev.lan", true)], vec![], vec![]);
+    let z = view
+        .authoritative_zone("box.dev.lan")
+        .expect("nested zone is authoritative");
+    assert_eq!(z.name, "dev.lan");
+}
+
+#[test]
+fn authoritative_zone_serial_from_updated_at() {
+    let mut z = zone("lan", true);
+    z.updated_at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    let view = AuthoritativeView::build(&[z], vec![], vec![]);
+    assert_eq!(
+        view.authoritative_zone("lan").unwrap().serial,
+        1_700_000_000
+    );
+}
+
+#[test]
+fn build_soa_record_shape() {
+    use hickory_proto::rr::{RData, RecordType};
+
+    let rec = build_soa("lan", 42).expect("valid zone name builds an SOA");
+    assert_eq!(rec.record_type(), RecordType::SOA);
+    assert_eq!(rec.name.to_string(), "lan.", "SOA owner is the zone apex");
+    assert_eq!(rec.ttl, 300, "SOA TTL doubles as the negative-cache TTL");
+    assert!(
+        matches!(rec.data, RData::SOA(_)),
+        "authority record must carry SOA rdata"
+    );
 }

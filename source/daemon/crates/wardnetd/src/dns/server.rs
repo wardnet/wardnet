@@ -504,7 +504,15 @@ async fn handle_query(
         response.add_queries(request.queries.clone());
 
         if auth_records.is_empty() {
-            // Known domain, no records of this type → NOERROR with AA bit.
+            // Known domain, no records of this type → NOERROR with AA bit
+            // (NODATA). If the name falls inside an authoritative zone, attach
+            // that zone's pre-built synthetic SOA so the negative answer is
+            // cacheable (cloned, not rebuilt, on the per-query path).
+            if let Some(zone) = view.authoritative_zone(&domain_lower)
+                && let Some(soa) = &zone.soa
+            {
+                response.add_authority(soa.clone());
+            }
         } else {
             for rec in auth_records {
                 match make_rdata(rec.record_type, &rec.value, &name) {
@@ -583,8 +591,56 @@ async fn handle_query(
                 .ok()
         });
 
+    // 0.7. Zone authority — if the name falls under an enabled authoritative
+    //      zone and no conditional-forwarding rule claimed it, the gateway owns
+    //      the namespace: answer authoritatively instead of leaking the query
+    //      upstream. Capture `name_exists` here too: a query type our enum
+    //      doesn't model (e.g. HTTPS/SVCB type 65, CAA) yields `auth_lookup =
+    //      None` even when the name has other records, so we must distinguish
+    //      a truly-absent name (NXDOMAIN) from an existing one with no record
+    //      of this type (NODATA). Returning NXDOMAIN for an existing name would
+    //      poison its negative cache via the SOA we attach. The zone apex
+    //      itself always "exists" (the zone is authoritative for it), so an
+    //      apex query with no record is NODATA, never NXDOMAIN. The pre-built
+    //      SOA is cloned out so it survives `drop(view)`.
+    let authoritative_negative: Option<(Option<Record>, bool)> = if conditional_upstream.is_none() {
+        view.authoritative_zone(&domain_lower).map(|z| {
+            let name_exists = view.lookup_all(&domain_lower).is_some() || domain_lower == z.name;
+            (z.soa.clone(), name_exists)
+        })
+    } else {
+        None
+    };
+
     // Drop the ArcSwap guard before any await point.
     drop(view);
+
+    if let Some((zone_soa, name_exists)) = authoritative_negative {
+        let mut response = Message::response(id, OpCode::Query);
+        response.metadata.recursion_desired = true;
+        response.metadata.recursion_available = true;
+        response.metadata.authoritative = true;
+        // NXDOMAIN is a name-level negative ("no such name"); only valid when
+        // the name is truly absent. If it exists for some other/unmodeled type
+        // this is NODATA (NoError with the SOA in the authority section).
+        if !name_exists {
+            response.metadata.response_code = ResponseCode::NXDomain;
+        }
+        response.add_queries(request.queries.clone());
+        if let Some(soa) = zone_soa {
+            response.add_authority(soa);
+        }
+        let bytes = response.to_bytes()?;
+        socket.send_to(&bytes, src).await?;
+        let result = if name_exists {
+            "authoritative_nodata"
+        } else {
+            "authoritative_nxdomain"
+        };
+        tracing::trace!(%domain, ?rtype, result, "authoritative negative answer: {result}");
+        record_query(log_sink, &domain, rtype, src, result, None, start.elapsed());
+        return Ok(());
+    }
 
     // 1. Cache, keyed by upstream so a tunneled device's answer doesn't
     //    bleed into a LAN device's lookup of the same domain (or vice

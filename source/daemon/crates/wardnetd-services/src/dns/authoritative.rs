@@ -3,7 +3,29 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use hickory_proto::rr::{Name, RData, Record, rdata::SOA};
 use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordType, DnsZone};
+
+/// Negative-cache TTL (seconds) used for the synthetic SOA MINIMUM field and
+/// the SOA record's own TTL on authoritative NXDOMAIN / NODATA answers.
+const NEGATIVE_TTL: u32 = 300;
+
+/// An enabled authoritative zone the gateway answers for directly. Holds the
+/// lowercased zone name (used as a suffix to claim the namespace) and the SOA
+/// serial derived from the zone's `updated_at`, so negative answers under the
+/// zone can carry a synthetic SOA for RFC 2308 negative caching.
+#[derive(Debug, Clone)]
+pub struct ZoneAuthority {
+    /// Lowercased, trailing-dot-trimmed zone name (e.g. `lan`, `home`).
+    pub name: String,
+    /// SOA serial — the zone's `updated_at` as epoch seconds.
+    pub serial: u32,
+    /// Pre-built synthetic SOA for this zone's negative answers, or `None`
+    /// if the zone name can't form a valid DNS name. Built once when the
+    /// view is constructed so the per-query path clones it instead of
+    /// re-allocating three `format!` strings and re-parsing three DNS names.
+    pub soa: Option<Record>,
+}
 
 /// In-memory snapshot of enabled local authoritative records and conditional
 /// forwarding rules. Populated from the database at startup and rebuilt on
@@ -21,6 +43,9 @@ pub struct AuthoritativeView {
     /// Enabled forwarding rules with domains pre-lowercased, sorted longest-first
     /// so the first suffix match is always the most specific one.
     forwarding_rules: Vec<ConditionalForwardingRule>,
+    /// Enabled authoritative zones, sorted longest-name-first so the first
+    /// suffix match is the most specific zone claiming the namespace.
+    zone_authorities: Vec<ZoneAuthority>,
 }
 
 impl AuthoritativeView {
@@ -31,6 +56,7 @@ impl AuthoritativeView {
             all_records: HashMap::new(),
             typed_records: HashMap::new(),
             forwarding_rules: Vec::new(),
+            zone_authorities: Vec::new(),
         }
     }
 
@@ -48,6 +74,44 @@ impl AuthoritativeView {
     ) -> Self {
         let enabled_zone_ids: std::collections::HashSet<uuid::Uuid> =
             zones.iter().filter(|z| z.enabled).map(|z| z.id).collect();
+
+        // Enabled zones double as authoritative suffixes: the gateway owns the
+        // whole namespace, so unknown names under them are answered NXDOMAIN
+        // rather than forwarded upstream. Sorted longest-first for most-specific
+        // suffix matching.
+        let mut zone_authorities: Vec<ZoneAuthority> = zones
+            .iter()
+            .filter(|z| z.enabled)
+            .map(|z| {
+                let name = z.name.trim_end_matches('.').to_ascii_lowercase();
+                // SOA serial = the zone's `updated_at` epoch seconds. The
+                // fallback only triggers for clocks before 1970 or after 2106
+                // (outside u32 range) — surface it rather than swallow it.
+                let serial = u32::try_from(z.updated_at.timestamp()).unwrap_or_else(|_| {
+                    tracing::warn!(
+                        zone = %name,
+                        "zone {name} updated_at outside u32 range; using fallback SOA serial 1"
+                    );
+                    1
+                });
+                // Pre-build the synthetic SOA once. If the (DB-validated) zone
+                // name still can't form a valid DNS name, negative answers for
+                // the zone simply omit the SOA.
+                let soa = match build_soa(&name, serial) {
+                    Ok(record) => Some(record),
+                    Err(e) => {
+                        tracing::warn!(
+                            zone = %name,
+                            error = %e,
+                            "failed to build synthetic SOA for zone {name}: {e}; negative answers will omit it"
+                        );
+                        None
+                    }
+                };
+                ZoneAuthority { name, serial, soa }
+            })
+            .collect();
+        zone_authorities.sort_by_key(|z| Reverse(z.name.len()));
 
         let mut all_records: HashMap<String, Vec<Arc<CustomDnsRecord>>> = HashMap::new();
         let mut typed_records: HashMap<String, HashMap<DnsRecordType, Vec<Arc<CustomDnsRecord>>>> =
@@ -90,6 +154,7 @@ impl AuthoritativeView {
             all_records,
             typed_records,
             forwarding_rules,
+            zone_authorities,
         }
     }
 
@@ -142,6 +207,34 @@ impl AuthoritativeView {
                     .is_some_and(|prefix| prefix.ends_with('.'))
         })
     }
+
+    /// The most specific enabled authoritative zone that `domain_lower` falls
+    /// under — an exact match (`domain == zone`) or a `.zone` suffix. Returns
+    /// `None` if the name is not inside any enabled zone. `zone_authorities` is
+    /// sorted longest-first, so the first match is the most specific zone.
+    #[must_use]
+    pub fn authoritative_zone(&self, domain_lower: &str) -> Option<&ZoneAuthority> {
+        self.zone_authorities.iter().find(|z| {
+            domain_lower == z.name.as_str()
+                || domain_lower
+                    .strip_suffix(z.name.as_str())
+                    .is_some_and(|prefix| prefix.ends_with('.'))
+        })
+    }
+}
+
+/// Build a synthetic SOA record for an authoritative zone, placed in the
+/// authority section of NXDOMAIN / NODATA answers so downstream resolvers can
+/// negatively cache per RFC 2308. The SOA MINIMUM field (and the record TTL)
+/// is [`NEGATIVE_TTL`]. Returns an error only if the zone name can't form a
+/// valid DNS name.
+pub fn build_soa(zone: &str, serial: u32) -> anyhow::Result<Record> {
+    let apex = Name::from_utf8(format!("{zone}."))?;
+    let mname = Name::from_utf8(format!("ns.{zone}."))?;
+    let rname = Name::from_utf8(format!("hostmaster.{zone}."))?;
+    // refresh 1h, retry 10m, expire 7d, minimum = negative TTL.
+    let soa = SOA::new(mname, rname, serial, 3600, 600, 604_800, NEGATIVE_TTL);
+    Ok(Record::from_rdata(apex, NEGATIVE_TTL, RData::SOA(soa)))
 }
 
 /// Parse a forwarding rule upstream string into a `SocketAddr`.
