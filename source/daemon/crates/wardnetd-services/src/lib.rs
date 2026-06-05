@@ -12,6 +12,7 @@ pub mod version;
 
 pub mod auth;
 pub mod backup;
+pub mod ddns;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
@@ -46,6 +47,7 @@ use crate::stats::service::StatsServiceImpl;
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
 use crate::backup::archiver::AgeArchiver;
+use crate::ddns::DdnsServiceImpl;
 use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
@@ -62,6 +64,7 @@ use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
+pub use crate::ddns::DdnsService;
 pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult};
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
@@ -154,6 +157,9 @@ pub struct Services {
     pub dns: Arc<dyn DnsService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
     pub dns_local: Arc<dyn DnsLocalService>,
+    /// Dynamic-DNS service: registers/keeps the public A record current via the
+    /// active provider (bridge or BYOD Cloudflare). Driven by `DdnsUpdateRunner`.
+    pub ddns: Arc<dyn DdnsService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
@@ -433,6 +439,14 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    // DDNS service — reads/writes provider config in `system_config` (fresh
+    // handle) and credentials in the shared secret store. Constructs the active
+    // provider internally from stored config; no extra `Backends` field needed.
+    let ddns: Arc<dyn DdnsService> = Arc::new(DdnsServiceImpl::new(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+    ));
+
     let maintenance_service: Arc<dyn MaintenanceService> =
         Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
 
@@ -510,6 +524,7 @@ fn create_services(
         dns: dns_service,
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,
+        ddns,
         log: log_service,
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,

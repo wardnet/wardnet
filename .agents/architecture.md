@@ -171,6 +171,54 @@ expose `dns_local_repo`; `DbMaintenanceRunner` takes a thin
 `MaintenanceService` rather than `MaintenanceRepository`. Reaching for a
 `Arc<dyn *Repository>` inside a runner is a layering violation.
 
+## DDNS subsystem (issue #527 / #521 umbrella)
+
+Keeps the Pi's public A record current and (in later commits) handles ACME DNS-01 TXT records. Lives entirely in `wardnetd-services/src/ddns/`.
+
+### Shape
+
+```
+DdnsUpdateRunner  ──(admin auth ctx)──▶  DdnsService  ──▶  DnsProvider
+ (5-min tick)                            (auth-gated)       (bridge | cloudflare)
+```
+
+`DdnsUpdateRunner` holds `Arc<dyn DdnsService>` and calls it under an admin auth context — it never touches repositories or providers directly. `DdnsService` is the auth-and-persistence chokepoint: every method opens with `auth_context::require_admin()`.
+
+### Provider abstraction (`provider.rs`)
+
+`DnsProvider` trait with three methods: `upsert_a(ip)`, `set_txt(name, value)`, `delete_txt(name)`. Two impls:
+
+| Impl | File | Auth |
+|---|---|---|
+| `BridgeProvider` | `bridge.rs` | Ed25519-signed requests (seed → `SigningKey`); bearer token in header; PoW-based registration via `register_install` |
+| `CloudflareProvider` | `cloudflare.rs` | Per-request Bearer token; list-then-create/update against CF v4 API |
+
+Providers are **rebuilt per call** from stored config + secrets (`build_provider()`). This is intentional: reads are cheap at the 5-minute cadence, and rebuilding means a provider switch takes effect without any cache-invalidation plumbing. All providers share one pooled `reqwest::Client`.
+
+### Storage split
+
+| Kind | Location | Keys |
+|---|---|---|
+| Non-secret config | `system_config` table | `ddns_provider`, `ddns_install_id`, `ddns_subdomain`, `ddns_region`, `ddns_bridge_base_url`, `ddns_last_public_ip`, `ddns_domain`, `ddns_cf_zone_id` |
+| Secrets | `SecretStore` | `ddns/bridge/signing_key` (32-byte Ed25519 seed), `ddns/bridge/bearer_token`, `ddns/cloudflare/api_token` |
+
+### Supporting modules
+
+| Module | Purpose |
+|---|---|
+| `region.rs` | Built-in region catalog (`REGION_CATALOG`); `select_best` probes all regions concurrently and picks lowest latency |
+| `public_ip.rs` | WAN public-IP discovery; rejects non-global IPv4 (RFC 1918, loopback, link-local); tries multiple echo endpoints in order |
+| `runner.rs` | `DdnsUpdateRunner` — idle-until-configured 5-min tick; follows the runner contract (accepts `&tracing::Span`, instruments spawn) |
+
+### Service methods
+
+| Method | Notes |
+|---|---|
+| `register_with_bridge(name)` | Probes regions, calls `register_install` (PoW), persists secrets first then config, returns `DdnsRegistration{subdomain, region}` |
+| `check_name_available(name)` | Probes best region, asks bridge; used by wizard |
+| `refresh_public_ip()` | Discovers WAN IP, short-circuits if unchanged, calls `provider.upsert_a(ip)` |
+| `status()` | Reads provider, FQDN, and last-published IP from config; returns `DdnsStatus` |
+
 ## Bridge service (issue #435)
 
 Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).

@@ -41,6 +41,10 @@ you're about to make, rather than the whole set.
   (authoritative → cache → filter → conditional/tunnel upstream),
   event-driven rebuild on `DnsLocalChanged`, and why `DnsRunner` reads
   `dns_local_repo` directly instead of going through `DnsLocalService`.
+- **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
+  `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
+  `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
+  tick), region catalog with concurrent latency probing, and WAN IP discovery.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

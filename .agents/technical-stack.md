@@ -11,6 +11,8 @@
 - sysinfo for host CPU/memory monitoring
 - rust-embed to serve web UI from the binary
 - async-trait for trait object interfaces
+- ed25519-dalek for Ed25519 key generation and request signing (DDNS bridge registration and signed IP-update calls)
+- wiremock (dev-only) — mock HTTP server used in DDNS provider integration tests (bridge + Cloudflare)
 - `wardnetd-mock` — local dev binary: full API with no-op network backends, on-disk or in-memory SQLite, real file-backed secret store under `/tmp/wardnet-mock/secrets`
 
 ## SDK (`@wardnet/js`)

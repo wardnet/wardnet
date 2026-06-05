@@ -42,6 +42,16 @@
 
 **DDNS service** — Wardnet-operated service that assigns each installation a unique subdomain (`<install-id>.wardnet.network`) and manages DNS records for it. Also acts as an ACME bridge: handles `_acme-challenge` TXT records on behalf of the Pi so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it.
 
+**DnsProvider** — The daemon-side abstraction over the publish side of DDNS: a provider bound at construction to one target that can `upsert_a` (publish the A record) and `set_txt` / `delete_txt` (the ACME `_acme-challenge` record). Two implementations: the **bridge** provider (default, talks to a wardnet bridge, keyed by install id, every request Ed25519-signed) and the **Cloudflare** provider (Bring-Your-Own-Domain, talks to the user's Cloudflare zone directly). The cert/signing key never leaves the Pi under either.
+
+**Region slug** — A short identifier for a wardnet bridge deployment (e.g. `use1`). It selects which **bridge endpoint** the daemon talks to; it is distinct from the region *label* the bridge embeds in an assigned FQDN (e.g. `…my.us…`), which the bridge owns and returns at registration.
+
+**Region catalog** — The built-in, daemon-shipped table mapping each **region slug** to its **bridge endpoint** URL. The bridge cannot supply this (each bridge is region-specific), so the daemon must already know it. At registration the daemon probes every catalogued region's health endpoint and registers against the lowest-latency one.
+
+**Bridge endpoint** — The base URL of a region's wardnet bridge (e.g. `https://bridge.use1.wardnet.network`), the value a **region slug** resolves to in the **region catalog**.
+
+**Public WAN IP** — The home's internet-facing IPv4 address, discovered by the daemon via an external echo service over its default (WAN) route. This is what DDNS publishes — explicitly *not* a tunnel exit IP (a device's egress address when routed through a VPN tunnel), which the daemon measures separately for routing diagnostics.
+
 **Path-based app routing** — All three surfaces are served from a single domain (`<id>.wardnet.network`) at different paths (`/`, `/admin-app/`, `/admin/`). Each PWA has its own `manifest.json` with a distinct `scope` and `start_url`, making them independently installable despite sharing an origin.
 
 **Caddy** — Reverse proxy bundled in the wardnet release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443, certificate provisioning via Let's Encrypt DNS-01 (using the wardnet DDNS service as the ACME bridge), and forwards all traffic to the daemon on port 7411. The daemon manages the Caddyfile on startup and config changes.

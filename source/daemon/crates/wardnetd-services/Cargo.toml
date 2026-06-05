@@ -59,6 +59,8 @@ base64.workspace = true
 sha2.workspace = true
 # https://crates.io/crates/hex
 hex.workspace = true
+# https://crates.io/crates/ed25519-dalek — Ed25519 keygen + signing for DDNS bridge registration
+ed25519-dalek.workspace = true
 # https://crates.io/crates/rand
 rand.workspace = true
 # https://crates.io/crates/reqwest
@@ -91,3 +93,5 @@ tokio = { workspace = true, features = ["test-util"] }
 minisign.workspace = true
 # https://crates.io/crates/tempfile
 tempfile.workspace = true
+# https://crates.io/crates/wiremock — mock bridge + mock Cloudflare HTTP servers for DDNS provider tests
+wiremock.workspace = true

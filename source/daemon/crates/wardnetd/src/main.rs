@@ -41,6 +41,7 @@ use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
+use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
@@ -554,6 +555,10 @@ async fn run(
         &root_span,
     );
 
+    // DDNS update runner — keeps the public A record current. Inert (no network
+    // calls) until a DDNS provider is configured by the setup wizard.
+    let ddns_update_runner = DdnsUpdateRunner::start(services.ddns.clone(), &root_span);
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -651,6 +656,7 @@ async fn run(
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
+    ddns_update_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {
         advertiser.shutdown().await;

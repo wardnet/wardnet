@@ -94,6 +94,12 @@ base64 = "0.22"
 sha2 = "0.11"
 # https://crates.io/crates/hex
 hex = "0.4"
+# https://crates.io/crates/ed25519-dalek — Ed25519 keygen + signing for DDNS
+# bridge registration and authenticated request signing. The signing key never
+# leaves the Pi. `std` implies the `signature` feature; keys are built from
+# random seed bytes via `SigningKey::from_bytes`, so the `rand_core` feature
+# (which pins an older rand_core than the workspace `rand`) is not needed.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # https://crates.io/crates/mime_guess
 mime_guess = "2"
 
@@ -184,3 +190,6 @@ utoipa-axum = "0.2"
 
 # https://crates.io/crates/tempfile
 tempfile = "=3.27"
+# https://crates.io/crates/wiremock — mock HTTP server for DDNS provider tests
+# (mock bridge + mock Cloudflare). Dev/test only.
+wiremock = "0.6"
