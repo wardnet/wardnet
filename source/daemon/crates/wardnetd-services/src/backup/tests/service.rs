@@ -87,6 +87,11 @@ impl SystemConfigRepository for MockSystemConfig {
         Ok(())
     }
 
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.values.lock().unwrap().remove(key);
+        Ok(())
+    }
+
     async fn device_count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }

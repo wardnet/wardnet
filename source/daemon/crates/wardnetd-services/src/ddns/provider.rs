@@ -37,4 +37,15 @@ pub trait DnsProvider: Send + Sync {
     /// Remove the `_acme-challenge` TXT record. Idempotent — succeeds even if
     /// no record is currently set.
     async fn delete_txt(&self) -> anyhow::Result<()>;
+
+    /// Remove this installation's published presence from the backend — the
+    /// "forget my domain" half of a teardown. The **bridge** provider calls
+    /// `DELETE /v1/installs/{id}`, which drops the upstream A + ACME TXT records
+    /// and the install row in one shot; the **Cloudflare** provider deletes its
+    /// A record (and any lingering `_acme-challenge` TXT). Best-effort by
+    /// contract: the caller ([`DdnsService::teardown`](super::DdnsService)) wipes
+    /// local config + secrets regardless, so a dead-backend error here must not
+    /// trap the operator in a configured state — it is logged and swallowed.
+    /// Idempotent: an already-absent record/install is success.
+    async fn teardown(&self) -> anyhow::Result<()>;
 }

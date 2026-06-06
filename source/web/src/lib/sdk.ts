@@ -18,7 +18,7 @@ import {
   LogService,
   StatsService,
   UpdateService,
-  SecureAccessService,
+  RemoteAccessService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -45,4 +45,4 @@ export const logService = new LogService(client, window.location.origin);
 export const statsService = new StatsService(client);
 export const updateService = new UpdateService(client);
 export const backupService = new BackupService(client);
-export const secureAccessService = new SecureAccessService(client);
+export const remoteAccessService = new RemoteAccessService(client);

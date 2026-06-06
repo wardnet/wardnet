@@ -134,6 +134,20 @@ impl CertActivator for ServingControl {
         );
         Ok(())
     }
+
+    async fn deactivate(&self) -> anyhow::Result<()> {
+        // Close the gate *before* swapping the cert: a reader that still observes
+        // `Some(domain)` must always see a real cert, so clear the domain first
+        // (503 guard re-engages) and only then drop the placeholder in. The
+        // mirror of `activate`'s reload-then-publish ordering.
+        self.served_domain.store(None);
+        let (cert, key) = generate_placeholder_pem()?;
+        self.config.reload_from_pem(cert, key).await?;
+        tracing::info!(
+            "deactivated TLS on :443; reverted to placeholder cert, provisioning gate closed"
+        );
+        Ok(())
+    }
 }
 
 /// Build the `:443` [`RustlsConfig`] and its [`ServingControl`].

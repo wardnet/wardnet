@@ -63,6 +63,9 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     async fn set(&self, _key: &str, _value: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn delete(&self, _key: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn device_count(&self) -> anyhow::Result<i64> {
         Ok(self.devices)
     }
@@ -506,6 +509,10 @@ impl SystemConfigRepository for RecordingSystemConfig {
             .lock()
             .unwrap()
             .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.store.lock().unwrap().remove(key);
         Ok(())
     }
     async fn device_count(&self) -> anyhow::Result<i64> {

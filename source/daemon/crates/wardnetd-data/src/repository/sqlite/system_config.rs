@@ -120,6 +120,14 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
         Ok(())
     }
 
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM system_config WHERE key = ?")
+            .bind(key)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
     async fn device_count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM devices")
             .fetch_one(&self.pools.read)

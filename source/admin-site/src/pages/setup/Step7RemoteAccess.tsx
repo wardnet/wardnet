@@ -10,14 +10,14 @@ import {
   useRegisterDdns,
   useTlsStatus,
 } from "@wardnet/wardnet-web";
-import { SecureAccessProgress } from "@/components/features/SecureAccessProgress";
+import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
 import { isReservedName, isValidName, suggestName } from "@/lib/suggestName";
 
 type Provider = "bridge" | "cloudflare";
 type Availability = "unknown" | "checking" | "available" | "taken" | "invalid" | "error";
 
 /**
- * Step 7 — enable secure access (HTTPS).
+ * Step 7 — enable remote access (HTTPS).
  *
  * Lets the operator give the Pi a public hostname and a real certificate via
  * either the wardnet bridge (default, zero-config) or their own Cloudflare
@@ -26,7 +26,7 @@ type Availability = "unknown" | "checking" | "available" | "taken" | "invalid" |
  * for the green "live" state, or Continue/Skip at any time. Issuance can also
  * be retried later from Settings, so an offline Pi still completes setup.
  */
-export default function Step7SecureAccess() {
+export default function Step7RemoteAccess() {
   const advance = useAdvanceWizard();
   const register = useRegisterDdns();
   const configureCf = useConfigureCloudflare();
@@ -135,7 +135,7 @@ export default function Step7SecureAccess() {
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h2 className="h-title">Secure access</h2>
+          <h2 className="h-title">Remote access</h2>
           <p className="h-sub">
             Your hostname is registered. The certificate is being issued in the background — you can
             wait here or finish setup; it'll keep going.
@@ -143,7 +143,7 @@ export default function Step7SecureAccess() {
         </div>
 
         {tlsStatus ? (
-          <SecureAccessProgress status={tlsStatus} />
+          <RemoteAccessProgress status={tlsStatus} />
         ) : (
           <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
             Starting certificate issuance…
@@ -169,18 +169,18 @@ export default function Step7SecureAccess() {
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h2 className="h-title">Secure access (HTTPS)</h2>
+          <h2 className="h-title">Remote access (HTTPS)</h2>
           <p className="h-sub">Wardnet couldn't reach the {serviceName} right now.</p>
         </div>
 
         <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
-          This is usually temporary. You can finish setup now and enable secure access later from
+          This is usually temporary. You can finish setup now and enable remote access later from
           Settings — the rest of your configuration is unaffected.
         </div>
 
         <div className="flex flex-col gap-2">
           <Button onClick={finish} disabled={advance.isPending} className="w-full">
-            {advance.isPending ? "Continuing…" : "Continue without secure access"}
+            {advance.isPending ? "Continuing…" : "Continue without remote access"}
           </Button>
           <Button
             variant="outline"
@@ -202,7 +202,7 @@ export default function Step7SecureAccess() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">Secure access (HTTPS)</h2>
+        <h2 className="h-title">Remote access (HTTPS)</h2>
         <p className="h-sub">
           Give Wardnet a public hostname and a valid certificate so you can reach it securely from
           anywhere. This step is optional, you can skip and set this up later from Settings.
@@ -275,7 +275,7 @@ export default function Step7SecureAccess() {
       <div className="flex flex-col gap-2">
         {provider === "bridge" ? (
           <Button onClick={handleEnableBridge} disabled={bridgeDisabled} className="w-full">
-            {register.isPending ? "Registering…" : "Enable secure access"}
+            {register.isPending ? "Registering…" : "Enable remote access"}
           </Button>
         ) : (
           <Button
@@ -283,7 +283,7 @@ export default function Step7SecureAccess() {
             disabled={busy || domain.length === 0 || token.length === 0}
             className="w-full"
           >
-            {configureCf.isPending ? "Configuring…" : "Enable secure access"}
+            {configureCf.isPending ? "Configuring…" : "Enable remote access"}
           </Button>
         )}
         <Button variant="outline" onClick={finish} disabled={advance.isPending} className="w-full">

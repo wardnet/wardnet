@@ -18,5 +18,6 @@ pub mod noop_latency_prober;
 pub mod noop_network_inspector;
 pub mod noop_network_probe;
 pub mod noop_power_ops;
+pub mod noop_remote_access;
 pub mod noop_routing;
 pub mod noop_tunnel;

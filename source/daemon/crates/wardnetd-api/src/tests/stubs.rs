@@ -975,6 +975,14 @@ impl wardnetd_services::DdnsService for StubDdnsService {
     async fn status(&self) -> Result<wardnetd_services::ddns::DdnsStatus, AppError> {
         unimplemented!()
     }
+    async fn teardown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn resolution_check(
+        &self,
+    ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
+        unimplemented!()
+    }
     async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -999,6 +1007,9 @@ impl wardnetd_services::TlsService for StubTlsService {
     async fn provisioning_status(
         &self,
     ) -> Result<wardnet_common::api::TlsStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn teardown(&self) -> Result<(), AppError> {
         unimplemented!()
     }
 }

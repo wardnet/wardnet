@@ -4,7 +4,7 @@ import { Button } from "@wardnet/web";
 /**
  * Step 8 — wizard finished.
  *
- * Reached after step 7 (secure access) advances `wizard_step` to
+ * Reached after step 7 (remote access) advances `wizard_step` to
  * `"completed"`. The stepper renders the "Done" pill and this page lets the
  * operator jump to the dashboard. SetupGuard sees `wizard_step === "completed"`
  * and stops redirecting back to /setup.

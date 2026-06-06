@@ -5,7 +5,7 @@ import Step3DhcpOnboarding from "@/pages/setup/Step3DhcpOnboarding";
 import Step4RouterMac from "@/pages/setup/Step4RouterMac";
 import Step5Tunnel from "@/pages/setup/Step5Tunnel";
 import Step6Policy from "@/pages/setup/Step6Policy";
-import Step7SecureAccess from "@/pages/setup/Step7SecureAccess";
+import Step7RemoteAccess from "@/pages/setup/Step7RemoteAccess";
 import Step8Confirm from "@/pages/setup/Step8Confirm";
 import { WizardStepper } from "@/pages/setup/WizardStepper";
 
@@ -45,7 +45,7 @@ export default function Setup() {
           {data.wizard_step === "router_mac" && <Step4RouterMac />}
           {data.wizard_step === "tunnel" && <Step5Tunnel />}
           {data.wizard_step === "policy" && <Step6Policy />}
-          {data.wizard_step === "secure_access" && <Step7SecureAccess />}
+          {data.wizard_step === "remote_access" && <Step7RemoteAccess />}
           {data.wizard_step === "completed" && <Step8Confirm />}
         </>
       )}

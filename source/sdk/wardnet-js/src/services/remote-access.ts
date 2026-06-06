@@ -4,16 +4,17 @@ import type {
   DdnsCheckResponse,
   DdnsRegisterRequest,
   DdnsRegisterResponse,
+  DdnsResolutionCheckResponse,
   DdnsStatusResponse,
   TlsStatusResponse,
-} from "../types/secure-access.js";
+} from "../types/remote-access.js";
 
 /**
- * Secure-access service: DDNS registration (bridge / BYOD-Cloudflare) and TLS
- * provisioning status. Drives the setup wizard's "Secure access" step and the
+ * Remote-access service: DDNS registration (bridge / BYOD-Cloudflare) and TLS
+ * provisioning status. Drives the setup wizard's "Remote access" step and the
  * dashboard provisioning indicator. All endpoints are admin-authenticated.
  */
-export class SecureAccessService {
+export class RemoteAccessService {
   constructor(private readonly client: WardnetClient) {}
 
   /** Check whether a bridge short name is available. */
@@ -43,8 +44,24 @@ export class SecureAccessService {
     return this.client.request<DdnsStatusResponse>("/ddns/status");
   }
 
+  /**
+   * Check whether public DNS resolves the active FQDN to the published IP
+   * (queries external resolvers, bypassing the local split-horizon override).
+   */
+  async resolutionCheck(): Promise<DdnsResolutionCheckResponse> {
+    return this.client.request<DdnsResolutionCheckResponse>("/ddns/resolution-check");
+  }
+
   /** Read the current TLS provisioning status (phase + cert details). */
   async tlsStatus(): Promise<TlsStatusResponse> {
     return this.client.request<TlsStatusResponse>("/tls/status");
+  }
+
+  /**
+   * Disable remote access: remove the published record + provider identity, drop
+   * the certificate, and revert `:443` to the unprovisioned placeholder.
+   */
+  async teardown(): Promise<void> {
+    await this.client.request<void>("/ddns", { method: "DELETE" });
   }
 }

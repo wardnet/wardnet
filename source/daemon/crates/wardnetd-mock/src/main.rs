@@ -30,6 +30,9 @@ use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
+use wardnetd_mock::backends::noop_remote_access::{
+    MockDdnsService, MockRemoteAccessState, MockTlsService,
+};
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
@@ -264,6 +267,18 @@ async fn run(
     let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> =
         Arc::new(NoopDnsServer::default());
 
+    // Remote access (DDNS + TLS): swap in the stateful in-memory mock so the UI's
+    // HTTPS/DDNS flow — registration, the issuing→issued progress, the resolution
+    // check, and teardown — works fully offline (no real bridge / Cloudflare /
+    // Let's Encrypt). The real services from `init_services_with_factory` would
+    // reach out to live upstreams; we discard them here. See
+    // `backends::noop_remote_access`.
+    let remote_access_state = MockRemoteAccessState::new();
+    let mock_ddns: Arc<dyn wardnetd_services::ddns::DdnsService> =
+        Arc::new(MockDdnsService::new(remote_access_state.clone()));
+    let mock_tls: Arc<dyn wardnetd_services::tls::TlsService> =
+        Arc::new(MockTlsService::new(remote_access_state.clone()));
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -272,8 +287,8 @@ async fn run(
         services.dns.clone(),
         services.dns_filter.clone(),
         services.dns_local.clone(),
-        services.ddns.clone(),
-        services.tls.clone(),
+        mock_ddns,
+        mock_tls,
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),

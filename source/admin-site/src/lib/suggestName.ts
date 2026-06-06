@@ -1,5 +1,5 @@
 /**
- * Two-word hostname suggestions for the secure-access wizard step.
+ * Two-word hostname suggestions for the remote-access wizard step.
  *
  * Produces `adjective-scientist` slugs (e.g. `happy-einstein`) the operator can
  * accept or override. The generator deliberately mirrors the bridge's own name

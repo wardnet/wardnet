@@ -12,6 +12,7 @@ import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
+import RemoteAccess from "@/pages/RemoteAccess";
 import Power from "@/pages/Power";
 import Backups from "@/pages/Backups";
 import Dhcp from "@/pages/Dhcp";
@@ -205,6 +206,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Settings />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="remote-access"
+          element={
+            <AdminRoute>
+              <RemoteAccess />
             </AdminRoute>
           }
         />

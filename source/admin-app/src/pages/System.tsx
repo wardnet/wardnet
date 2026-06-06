@@ -9,9 +9,14 @@ import {
   useRestart,
   useReboot,
   useAuth,
+  useDdnsStatus,
+  useTlsStatus,
+  useResolutionCheck,
   formatBytes,
+  formatDate,
   formatUptime,
 } from "@wardnet/web";
+import type { DdnsResolutionVerdict } from "@wardnet/js";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BusyOverlay } from "@/components/BusyOverlay";
@@ -19,9 +24,31 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Bar } from "@/components/Bar";
 
+/** Pill variant + label for the read-only resolution verdict. */
+function verdictPill(verdict: DdnsResolutionVerdict): {
+  variant: "ok" | "warn" | "down" | "info";
+  label: string;
+} {
+  switch (verdict) {
+    case "match":
+      return { variant: "ok", label: "Reachable" };
+    case "mismatch":
+      return { variant: "down", label: "Wrong IP" };
+    case "pending":
+      return { variant: "warn", label: "Propagating" };
+    case "not_configured":
+      return { variant: "info", label: "Not set up" };
+  }
+}
+
 export default function System() {
   const { data: status } = useSystemStatus();
   const { data: daemonStatus } = useDaemonStatus();
+  const { data: ddns } = useDdnsStatus();
+  const secureEnabled = !!ddns?.provider;
+  const { data: tls } = useTlsStatus({ enabled: secureEnabled });
+  const { data: resolution } = useResolutionCheck(secureEnabled);
+  const pill = resolution ? verdictPill(resolution.verdict) : null;
   const { showingLastKnownState } = useOnlineStatusContext();
   const { logout } = useAuth();
   const biometric = useBiometric();
@@ -140,23 +167,66 @@ export default function System() {
                 </div>
               </div>
 
-              {/* Disk — full-width below the grid */}
+              {/* Disk — full-width below the grid. Same label → value → bar
+                  stack as the CPU/Memory tiles above. */}
               {status && status.disk_total_bytes > 0 && (
                 <div className="mt-4 border-t border-line pt-4">
-                  <div className="flex items-baseline justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
-                      Disk
-                    </p>
-                    <p className="text-[13px] text-ink">
-                      {formatBytes(status.disk_free_bytes)} free of{" "}
-                      {formatBytes(status.disk_total_bytes)}
-                    </p>
-                  </div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                    Disk
+                  </p>
+                  <p className="mt-1 text-[14px] text-ink">
+                    {formatBytes(status.disk_free_bytes)} free of{" "}
+                    {formatBytes(status.disk_total_bytes)}
+                  </p>
                   <Bar percent={diskPercent} />
                 </div>
               )}
             </div>
           </div>
+
+          {/* ── Remote access section (read-only) ── */}
+          {secureEnabled && (
+            <div>
+              <SectionLabel>Remote access</SectionLabel>
+              <div className="rounded-xl border border-line bg-card p-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                    Domain
+                  </p>
+                  <p className="mt-1 break-all font-mono text-[13px] text-ink">
+                    {ddns?.fqdn ?? "—"}
+                  </p>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                      Public DNS
+                    </p>
+                    <div className="mt-1">
+                      {pill ? (
+                        <Pill variant={pill.variant}>{pill.label}</Pill>
+                      ) : (
+                        <span className="text-[14px] text-ink">—</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                      Certificate
+                    </p>
+                    <p className="mt-1 text-[14px] text-ink">
+                      {tls?.not_after
+                        ? `Until ${formatDate(tls.not_after)}`
+                        : tls?.phase === "issuing"
+                          ? "Issuing…"
+                          : "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Power section ── */}
           <div>

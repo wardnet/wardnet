@@ -5,6 +5,7 @@ import {
   Archive,
   Cable,
   Globe,
+  GlobeLock,
   LayoutGrid,
   Monitor,
   Network,
@@ -61,6 +62,7 @@ const adminSections: NavSection[] = [
     heading: "System",
     items: [
       { to: "/settings", label: "Settings", icon: SettingsIcon },
+      { to: "/remote-access", label: "Remote access", icon: GlobeLock },
       { to: "/backups", label: "Backups", icon: Archive },
       { to: "/power", label: "Power", icon: Power },
     ],

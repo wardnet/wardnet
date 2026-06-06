@@ -882,6 +882,124 @@
         ]
       }
     },
+    "/api/ddns": {
+      "delete": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Disable remote access: remove the published DNS record and provider identity (bridge install / Cloudflare record), drop the stored certificate, and revert :443 to the unprovisioned placeholder. Idempotent. Admin only.",
+        "operationId": "ddns_teardown",
+        "responses": {
+          "204": {
+            "description": "Remote access torn down (or already absent)"
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/ddns/check": {
       "get": {
         "tags": [
@@ -1241,6 +1359,131 @@
                       "description": "Request ID for correlation with server logs."
                     }
                   }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/ddns/resolution-check": {
+      "get": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Check whether the public internet resolves the active FQDN to the IP the daemon last published. Queries fixed external resolvers (1.1.1.1 / 8.8.8.8) by IP, deliberately bypassing the local split-horizon override. `pending` means no public A record yet (normal right after registration). Admin only.",
+        "operationId": "ddns_resolution_check",
+        "responses": {
+          "200": {
+            "description": "Resolution-check result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DdnsResolutionCheckResponse"
                 }
               }
             }
@@ -17737,6 +17980,51 @@
           }
         }
       },
+      "DdnsResolutionCheckResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/ddns/resolution-check`.",
+        "required": [
+          "verdict",
+          "resolved_ips"
+        ],
+        "properties": {
+          "expected_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IP the daemon last published (the value public DNS is expected to\nreturn), if any."
+          },
+          "fqdn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The canonical FQDN that was queried, if DDNS is configured."
+          },
+          "resolved_ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The A records the external resolver actually returned for `fqdn`."
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/DdnsResolutionVerdict",
+            "description": "Overall verdict."
+          }
+        }
+      },
+      "DdnsResolutionVerdict": {
+        "type": "string",
+        "description": "Verdict of the external [resolution check](DdnsResolutionCheckResponse):\nwhether the *public* internet resolves the canonical FQDN to the IP the\ndaemon last published. Deliberately bypasses the local split-horizon override.",
+        "enum": [
+          "not_configured",
+          "match",
+          "mismatch",
+          "pending"
+        ]
+      },
       "DdnsStatusResponse": {
         "type": "object",
         "description": "Response for `GET /api/ddns/status`.",
@@ -21428,7 +21716,7 @@
       },
       "WizardStep": {
         "type": "string",
-        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ SecureAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]\nand the `SetupGuard` redirect logic) is derived from\n`wizard_step == Completed`, so existing installs that already finished\nsetup are not re-routed through the new wizard after an upgrade.\n\nSteps are persisted by their stable storage string (not their ordinal), so\ninserting [`Self::SecureAccess`] ahead of [`Self::Completed`] needs no\nmigration: finished installs (`\"completed\"`) and in-progress ones keep\nresolving to the same variant.",
+        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ RemoteAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]\nand the `SetupGuard` redirect logic) is derived from\n`wizard_step == Completed`, so existing installs that already finished\nsetup are not re-routed through the new wizard after an upgrade.\n\nSteps are persisted by their stable storage string (not their ordinal), so\ninserting [`Self::RemoteAccess`] ahead of [`Self::Completed`] needs no\nmigration: finished installs (`\"completed\"`) and in-progress ones keep\nresolving to the same variant.",
         "enum": [
           "admin",
           "network",
@@ -21436,7 +21724,7 @@
           "router_mac",
           "tunnel",
           "policy",
-          "secure_access",
+          "remote_access",
           "completed"
         ]
       }

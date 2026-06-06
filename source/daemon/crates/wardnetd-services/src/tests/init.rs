@@ -237,6 +237,9 @@ impl crate::tls::CertActivator for StubCertActivator {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn deactivate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 struct StubGarpOps;

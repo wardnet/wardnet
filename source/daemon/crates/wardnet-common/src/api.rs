@@ -310,13 +310,13 @@ pub struct UpdateDeviceRequest {
 /// Linear stage in the first-run setup wizard.
 ///
 /// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
-/// → SecureAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]
+/// → RemoteAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]
 /// and the `SetupGuard` redirect logic) is derived from
 /// `wizard_step == Completed`, so existing installs that already finished
 /// setup are not re-routed through the new wizard after an upgrade.
 ///
 /// Steps are persisted by their stable storage string (not their ordinal), so
-/// inserting [`Self::SecureAccess`] ahead of [`Self::Completed`] needs no
+/// inserting [`Self::RemoteAccess`] ahead of [`Self::Completed`] needs no
 /// migration: finished installs (`"completed"`) and in-progress ones keep
 /// resolving to the same variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
@@ -334,9 +334,9 @@ pub enum WizardStep {
     Tunnel,
     /// Step 6 — pick the global default routing policy.
     Policy,
-    /// Step 7 — enable secure access (HTTPS): register a public hostname via
+    /// Step 7 — enable remote access (HTTPS): register a public hostname via
     /// the bridge or BYOD-Cloudflare and issue a certificate. Skippable.
-    SecureAccess,
+    RemoteAccess,
     /// Step 8 — wizard finished; the dashboard takes over.
     Completed,
 }
@@ -364,7 +364,7 @@ impl WizardStep {
             Self::RouterMac => "router_mac",
             Self::Tunnel => "tunnel",
             Self::Policy => "policy",
-            Self::SecureAccess => "secure_access",
+            Self::RemoteAccess => "remote_access",
             Self::Completed => "completed",
         }
     }
@@ -382,7 +382,7 @@ impl WizardStep {
             "router_mac" => Self::RouterMac,
             "tunnel" => Self::Tunnel,
             "policy" => Self::Policy,
-            "secure_access" => Self::SecureAccess,
+            "remote_access" => Self::RemoteAccess,
             "completed" => Self::Completed,
             _ => Self::Admin,
         }
@@ -398,7 +398,7 @@ impl WizardStep {
             Self::RouterMac => 3,
             Self::Tunnel => 4,
             Self::Policy => 5,
-            Self::SecureAccess => 6,
+            Self::RemoteAccess => 6,
             Self::Completed => 7,
         }
     }
@@ -470,7 +470,7 @@ pub struct SetDefaultPolicyRequest {
     pub policy: String,
 }
 
-// ── Secure access: DDNS + TLS (issues #527–#530) ─────────────────────────────
+// ── Remote access: DDNS + TLS (issues #527–#530) ─────────────────────────────
 
 /// Response for `GET /api/ddns/check`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -514,6 +514,38 @@ pub struct DdnsStatusResponse {
     pub fqdn: Option<String>,
     /// The IP last published by the daemon, if any.
     pub last_public_ip: Option<String>,
+}
+
+/// Verdict of the external [resolution check](DdnsResolutionCheckResponse):
+/// whether the *public* internet resolves the canonical FQDN to the IP the
+/// daemon last published. Deliberately bypasses the local split-horizon override.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DdnsResolutionVerdict {
+    /// DDNS is not configured — there is nothing to resolve.
+    NotConfigured,
+    /// Public DNS resolves the FQDN to the published IP — propagation complete.
+    Match,
+    /// Public DNS resolves the FQDN, but to a different IP (stale record or a
+    /// recent WAN-IP change not yet propagated).
+    Mismatch,
+    /// No A record is visible publicly yet — the normal state during the
+    /// propagation window right after registration.
+    Pending,
+}
+
+/// Response for `GET /api/ddns/resolution-check`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsResolutionCheckResponse {
+    /// Overall verdict.
+    pub verdict: DdnsResolutionVerdict,
+    /// The canonical FQDN that was queried, if DDNS is configured.
+    pub fqdn: Option<String>,
+    /// The IP the daemon last published (the value public DNS is expected to
+    /// return), if any.
+    pub expected_ip: Option<String>,
+    /// The A records the external resolver actually returned for `fqdn`.
+    pub resolved_ips: Vec<String>,
 }
 
 /// Coarse stage of the daemon's TLS-certificate provisioning, surfaced so the

@@ -26,6 +26,7 @@
 
 pub mod bridge;
 pub mod cloudflare;
+pub mod doh;
 pub mod provider;
 pub mod public_ip;
 pub mod region;
@@ -38,6 +39,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use wardnet_common::api::{DdnsResolutionCheckResponse, DdnsResolutionVerdict};
 use wardnetd_data::repository::SystemConfigRepository;
 
 use crate::auth_context;
@@ -114,6 +116,21 @@ pub trait DdnsService: Send + Sync {
     /// Read the current DDNS status.
     async fn status(&self) -> Result<DdnsStatus, AppError>;
 
+    /// Tear down the active provider and return DDNS to the unconfigured state:
+    /// best-effort remove the upstream presence (bridge install / Cloudflare A
+    /// record), then wipe all DDNS config keys + secrets. Idempotent — `Ok(())`
+    /// when nothing is configured. The upstream delete is **non-fatal**: a dead
+    /// backend is logged, never trapping the operator in a configured state.
+    /// The caller is responsible for the TLS-side teardown (cert + serving), see
+    /// [`TlsService::teardown`](crate::tls::TlsService::teardown).
+    async fn teardown(&self) -> Result<(), AppError>;
+
+    /// Resolve the active FQDN through **external** public resolvers (deliberately
+    /// bypassing the local split-horizon override) and compare the result to the
+    /// last published IP. Returns [`DdnsResolutionVerdict::NotConfigured`] when no
+    /// provider is active.
+    async fn resolution_check(&self) -> Result<DdnsResolutionCheckResponse, AppError>;
+
     /// Publish the ACME DNS-01 `_acme-challenge` TXT record for the active
     /// installation through the configured provider. Errors with
     /// [`AppError::Conflict`] when DDNS is unconfigured — a challenge can't be
@@ -135,6 +152,8 @@ pub(crate) struct DdnsSettings {
     echo_endpoints: Vec<String>,
     /// Cloudflare API base URL.
     cf_base_url: String,
+    /// DoH-JSON resolver URLs for the external resolution check, tried in order.
+    doh_resolvers: Vec<String>,
 }
 
 impl Default for DdnsSettings {
@@ -149,6 +168,7 @@ impl Default for DdnsSettings {
                 .map(|s| (*s).to_owned())
                 .collect(),
             cf_base_url: cloudflare::CF_API_BASE.to_owned(),
+            doh_resolvers: doh::DOH_RESOLVERS.iter().map(|s| (*s).to_owned()).collect(),
         }
     }
 }
@@ -277,6 +297,82 @@ impl DdnsServiceImpl {
             _ => Ok(None),
         }
     }
+
+    /// Delete the config keys + secrets specific to one provider `kind`. Used by
+    /// [`Self::teardown`] (full wipe) and by the provider-switch path (clearing a
+    /// superseded *other* provider's residue). Shared keys (`KEY_PROVIDER`,
+    /// `KEY_LAST_IP`) are NOT touched here — the switch path keeps them for the
+    /// new provider; teardown clears them separately.
+    async fn clear_provider_state(&self, kind: &str) -> Result<(), AppError> {
+        let (keys, secrets): (&[&str], &[&str]) = match kind {
+            PROVIDER_BRIDGE => (
+                &[
+                    KEY_INSTALL_ID,
+                    KEY_SUBDOMAIN,
+                    KEY_REGION,
+                    KEY_BRIDGE_BASE_URL,
+                ],
+                &[SECRET_BRIDGE_SIGNING_KEY, SECRET_BRIDGE_BEARER],
+            ),
+            PROVIDER_CLOUDFLARE => (&[KEY_DOMAIN, KEY_CF_ZONE_ID], &[SECRET_CF_TOKEN]),
+            _ => (&[], &[]),
+        };
+        for key in keys {
+            self.config.delete(key).await.map_err(AppError::Internal)?;
+        }
+        for path in secrets {
+            self.secrets
+                .delete(path)
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        Ok(())
+    }
+
+    /// After a successful provider (re)configuration, deregister a now-superseded
+    /// prior provider so its public record is not orphaned — the "new-first, then
+    /// best-effort teardown-old" switch policy. Skipped when the target is
+    /// unchanged (same kind + same FQDN, e.g. re-saving the same Cloudflare
+    /// domain) so we never delete a record we just re-published.
+    ///
+    /// Best-effort throughout: the new provider is already live, so neither the
+    /// upstream delete nor the residue cleanup may surface as an error.
+    async fn teardown_superseded(
+        &self,
+        old_provider: Option<Box<dyn DnsProvider>>,
+        old_kind: Option<&str>,
+        old_fqdn: Option<&str>,
+        new_kind: &str,
+        new_fqdn: &str,
+    ) {
+        let superseded = old_kind != Some(new_kind) || old_fqdn != Some(new_fqdn);
+        if !superseded {
+            return;
+        }
+        if let Some(provider) = old_provider {
+            let old_fqdn = old_fqdn.unwrap_or("?");
+            match provider.teardown().await {
+                Ok(()) => tracing::info!(
+                    old_fqdn,
+                    "deregistered superseded DDNS provider after switch: old_fqdn={old_fqdn}"
+                ),
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    old_fqdn,
+                    "failed to deregister superseded DDNS provider old_fqdn={old_fqdn}; its old public record may linger: {e}"
+                ),
+            }
+        }
+        // Cross-kind switch leaves the old kind's config/secret residue behind
+        // (the new provider writes different keys); clear it. Same-kind switches
+        // overwrote their own keys already.
+        if let Some(old) = old_kind
+            && old != new_kind
+            && let Err(e) = self.clear_provider_state(old).await
+        {
+            tracing::warn!(error = %e, "failed to clear superseded DDNS provider residue: {e}");
+        }
+    }
 }
 
 /// Whether `name` is a syntactically valid bridge subdomain label.
@@ -302,6 +398,14 @@ fn is_valid_bridge_name(name: &str) -> bool {
 impl DdnsService for DdnsServiceImpl {
     async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
         auth_context::require_admin()?;
+
+        // Capture the prior provider (bound to its old identity) before any
+        // overwrite, so a switch can deregister it after the new one commits. A
+        // half-written prior config must never block a fresh registration, so a
+        // build failure is treated as "no old provider" rather than propagated.
+        let old_provider = self.build_provider().await.ok().flatten();
+        let old_kind = self.get_cfg(KEY_PROVIDER).await?;
+        let old_fqdn = self.active_fqdn(old_kind.as_deref()).await?;
 
         if !is_valid_bridge_name(&name) {
             return Err(AppError::BadRequest(
@@ -342,6 +446,15 @@ impl DdnsService for DdnsServiceImpl {
             "registered DDNS installation with bridge"
         );
 
+        self.teardown_superseded(
+            old_provider,
+            old_kind.as_deref(),
+            old_fqdn.as_deref(),
+            PROVIDER_BRIDGE,
+            &identity.subdomain,
+        )
+        .await;
+
         Ok(DdnsRegistration {
             subdomain: identity.subdomain,
             region: identity.region,
@@ -371,6 +484,11 @@ impl DdnsService for DdnsServiceImpl {
     ) -> Result<DdnsRegistration, AppError> {
         auth_context::require_admin()?;
 
+        // Capture the prior provider before any overwrite (see register_with_bridge).
+        let old_provider = self.build_provider().await.ok().flatten();
+        let old_kind = self.get_cfg(KEY_PROVIDER).await?;
+        let old_fqdn = self.active_fqdn(old_kind.as_deref()).await?;
+
         // Resolving the zone id both maps domain → zone and validates the token.
         // `lookup_zone_id` already classifies the failure: a rejected token or an
         // uncovered domain is `BadRequest`, only a transport failure is
@@ -398,6 +516,15 @@ impl DdnsService for DdnsServiceImpl {
             .map_err(AppError::Internal)?;
 
         tracing::info!(%domain, "configured BYOD Cloudflare DDNS provider");
+
+        self.teardown_superseded(
+            old_provider,
+            old_kind.as_deref(),
+            old_fqdn.as_deref(),
+            PROVIDER_CLOUDFLARE,
+            &domain,
+        )
+        .await;
 
         Ok(DdnsRegistration {
             subdomain: domain,
@@ -446,6 +573,99 @@ impl DdnsService for DdnsServiceImpl {
             provider,
             fqdn,
             last_public_ip,
+        })
+    }
+
+    async fn teardown(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let Some(kind) = self.get_cfg(KEY_PROVIDER).await? else {
+            return Ok(()); // already unconfigured — idempotent
+        };
+
+        // Remove the upstream presence first, while the provider's config +
+        // secrets are still present to build it. Non-fatal: a dead backend must
+        // not trap the operator configured, so log and continue to the wipe.
+        if let Some(provider) = self.build_provider().await?
+            && let Err(e) = provider.teardown().await
+        {
+            tracing::warn!(
+                error = %e,
+                "failed to remove upstream DDNS record on teardown: {e}; wiping local state anyway"
+            );
+        }
+
+        self.clear_provider_state(&kind).await?;
+        self.config
+            .delete(KEY_PROVIDER)
+            .await
+            .map_err(AppError::Internal)?;
+        self.config
+            .delete(KEY_LAST_IP)
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!("tore down DDNS provider; public hostname released");
+        Ok(())
+    }
+
+    async fn resolution_check(&self) -> Result<DdnsResolutionCheckResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let status = self.status().await?;
+        let Some(fqdn) = status.fqdn else {
+            return Ok(DdnsResolutionCheckResponse {
+                verdict: DdnsResolutionVerdict::NotConfigured,
+                fqdn: None,
+                expected_ip: None,
+                resolved_ips: Vec::new(),
+            });
+        };
+
+        // Query the fixed public resolvers (by IP, bypassing split-horizon) in
+        // order; the first definitive answer wins. Only if every resolver fails
+        // on transport do we report the check itself as unavailable.
+        let mut resolved: Option<Vec<Ipv4Addr>> = None;
+        let mut last_err: Option<String> = None;
+        for resolver in &self.settings.doh_resolvers {
+            match doh::resolve_a(&self.http, resolver, &fqdn).await {
+                Ok(ips) => {
+                    resolved = Some(ips);
+                    break;
+                }
+                Err(e) => last_err = Some(e.to_string()),
+            }
+        }
+        let resolved_ips = resolved.ok_or_else(|| {
+            AppError::UpstreamUnavailable(format!(
+                "no public resolver could be reached for the resolution check: {}",
+                last_err.unwrap_or_else(|| "unknown error".to_owned())
+            ))
+        })?;
+
+        let expected = status
+            .last_public_ip
+            .as_deref()
+            .and_then(|s| s.parse::<Ipv4Addr>().ok());
+
+        // `Pending` covers both "no A record visible yet" and "nothing published
+        // yet to compare against" — the benign states in the propagation window.
+        let verdict = match (expected, resolved_ips.is_empty()) {
+            (_, true) | (None, false) => DdnsResolutionVerdict::Pending,
+            (Some(exp), false) => {
+                if resolved_ips.contains(&exp) {
+                    DdnsResolutionVerdict::Match
+                } else {
+                    DdnsResolutionVerdict::Mismatch
+                }
+            }
+        };
+
+        Ok(DdnsResolutionCheckResponse {
+            verdict,
+            fqdn: Some(fqdn),
+            expected_ip: status.last_public_ip,
+            resolved_ips: resolved_ips.iter().map(ToString::to_string).collect(),
         })
     }
 

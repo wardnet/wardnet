@@ -8,7 +8,7 @@ const STEPS: { id: WizardStep; label: string }[] = [
   { id: "router_mac", label: "Router" },
   { id: "tunnel", label: "Tunnel" },
   { id: "policy", label: "Policy" },
-  { id: "secure_access", label: "HTTPS" },
+  { id: "remote_access", label: "HTTPS" },
   { id: "completed", label: "Done" },
 ];
 

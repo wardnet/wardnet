@@ -2,7 +2,7 @@
  * Linear stage in the first-run setup wizard.
  *
  * The wizard advances `admin → network → dhcp → router_mac → tunnel →
- * policy → secure_access → completed`. `setup_completed` (in
+ * policy → remote_access → completed`. `setup_completed` (in
  * `SetupStatusResponse` and the `SetupGuard` redirect logic) is derived from
  * `wizard_step === "completed"`.
  */
@@ -13,7 +13,7 @@ export type WizardStep =
   | "router_mac"
   | "tunnel"
   | "policy"
-  | "secure_access"
+  | "remote_access"
   | "completed";
 
 /**

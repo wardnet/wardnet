@@ -132,6 +132,22 @@ impl CloudflareProvider {
     fn acme_name(&self) -> String {
         format!("_acme-challenge.{}", self.record_name)
     }
+
+    /// Delete the single `(record_type, name)` record if present. Idempotent —
+    /// absence is success. Shared by [`DnsProvider::delete_txt`] and
+    /// [`DnsProvider::teardown`].
+    async fn delete_by_name(&self, record_type: &str, name: &str) -> anyhow::Result<()> {
+        if let Some(id) = self.find_record_id(record_type, name).await? {
+            let response = self
+                .http
+                .delete(self.record_url(&id))
+                .bearer_auth(&self.api_token)
+                .send()
+                .await?;
+            let _: CfResponse<DnsRecordResult> = parse_json(response).await?;
+        }
+        Ok(())
+    }
 }
 
 /// Resolve the Cloudflare **zone id** that owns `domain`, authenticating with
@@ -215,17 +231,14 @@ impl DnsProvider for CloudflareProvider {
     async fn delete_txt(&self) -> anyhow::Result<()> {
         // ACME publishes a single `_acme-challenge` TXT, so deleting the one
         // matching record is sufficient. Idempotent: absence is success.
-        let name = self.acme_name();
-        if let Some(id) = self.find_record_id("TXT", &name).await? {
-            let response = self
-                .http
-                .delete(self.record_url(&id))
-                .bearer_auth(&self.api_token)
-                .send()
-                .await?;
-            let _: CfResponse<DnsRecordResult> = parse_json(response).await?;
-        }
-        Ok(())
+        self.delete_by_name("TXT", &self.acme_name()).await
+    }
+
+    async fn teardown(&self) -> anyhow::Result<()> {
+        // Remove the published A record and any lingering ACME challenge so the
+        // user's zone is left clean. Both deletes are idempotent.
+        self.delete_by_name("A", &self.record_name).await?;
+        self.delete_by_name("TXT", &self.acme_name()).await
     }
 }
 

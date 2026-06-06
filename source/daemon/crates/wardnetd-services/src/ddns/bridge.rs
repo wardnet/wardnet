@@ -158,6 +158,12 @@ impl BridgeProvider {
     fn acme_path(&self) -> String {
         format!("/v1/installs/{}/acme-challenge", self.install_id)
     }
+
+    /// Path of this install's deregister endpoint (`DELETE` removes the A + ACME
+    /// records and the install row).
+    fn install_path(&self) -> String {
+        format!("/v1/installs/{}", self.install_id)
+    }
 }
 
 #[async_trait]
@@ -176,6 +182,15 @@ impl DnsProvider for BridgeProvider {
 
     async fn delete_txt(&self) -> anyhow::Result<()> {
         self.send_signed(reqwest::Method::DELETE, &self.acme_path(), None)
+            .await
+    }
+
+    async fn teardown(&self) -> anyhow::Result<()> {
+        // `DELETE /v1/installs/{id}` drops the upstream A + ACME TXT records and
+        // the install row in one call. Signed like every install-owned request;
+        // the bridge also authenticates the bearer, so this works whether or not
+        // a signature is required on the deregister route.
+        self.send_signed(reqwest::Method::DELETE, &self.install_path(), None)
             .await
     }
 }

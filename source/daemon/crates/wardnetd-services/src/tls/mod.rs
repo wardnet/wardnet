@@ -160,6 +160,13 @@ pub trait CertActivator: Send + Sync {
         key_pem: Vec<u8>,
         fqdn: String,
     ) -> anyhow::Result<()>;
+
+    /// Revert `:443` to the unprovisioned state: swap a fresh placeholder cert
+    /// back in and clear the served domain, so the 503 gate closes and the
+    /// short-name redirect target goes inert. The inverse of [`Self::activate`],
+    /// called by [`TlsService::teardown`] when remote access is removed.
+    /// Idempotent: deactivating when already unprovisioned is a no-op swap.
+    async fn deactivate(&self) -> anyhow::Result<()>;
 }
 
 /// Current TLS state, surfaced to Settings / status views (C10) and logged by
@@ -210,6 +217,20 @@ pub trait TlsService: Send + Sync {
     /// Coarse provisioning status (phase + domain + expiry + error) for the
     /// setup wizard and dashboard indicator. Does not touch the ACME server.
     async fn provisioning_status(&self) -> Result<TlsStatusResponse, AppError>;
+
+    /// Tear down TLS provisioning: revert `:443` to the placeholder cert (closing
+    /// the 503 gate), prune the split-horizon record for the torn-down domain,
+    /// and clear the stored certificate + provisioning state. The ACME **account**
+    /// credential is deliberately kept, so a later re-enable reuses it rather than
+    /// registering a fresh account (avoiding CA rate-limit churn). Idempotent and
+    /// best-effort on the serving + DNS side — those failures are logged, never
+    /// fatal. Paired with [`DdnsService::teardown`](crate::ddns::DdnsService::teardown)
+    /// by the disable handler.
+    ///
+    /// **Precondition:** an admin [`auth_context`] must be active — the nested
+    /// `DnsLocalService` calls open with `require_admin()?` (see
+    /// [`TlsServiceImpl::reconcile_split_horizon`]).
+    async fn teardown(&self) -> Result<(), AppError>;
 }
 
 /// The concrete [`TlsService`].
@@ -582,5 +603,46 @@ impl TlsService for TlsServiceImpl {
             not_after: not_after.map(|t| t.to_rfc3339()),
             error,
         })
+    }
+
+    async fn teardown(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        // Revert :443 to the placeholder cert (503 gate re-engages). Best-effort:
+        // a failure leaves the old cert live until the next restart, which is
+        // harmless once the FQDN no longer resolves to us.
+        if let Err(e) = self.activator.deactivate().await {
+            tracing::warn!(error = %e, "failed to revert :443 to placeholder on TLS teardown: {e}");
+        }
+
+        // Prune the split-horizon record for the torn-down domain. Read from our
+        // own `tls_cert_domain` (not DDNS, which the caller may already have
+        // wiped). Non-fatal, like every split-horizon mutation.
+        if let Some(domain) = self.get_cfg(KEY_CERT_DOMAIN).await? {
+            self.delete_system_record(&domain).await;
+        }
+
+        // Drop the stored certificate. The ACME account secret is kept on purpose
+        // (reused on re-enable), so it is NOT deleted here.
+        self.secrets
+            .delete(SECRET_CERT_CHAIN)
+            .await
+            .map_err(AppError::Internal)?;
+        self.secrets
+            .delete(SECRET_CERT_KEY)
+            .await
+            .map_err(AppError::Internal)?;
+
+        for key in [
+            KEY_CERT_DOMAIN,
+            KEY_CERT_NOT_AFTER,
+            KEY_TLS_PHASE,
+            KEY_TLS_LAST_ERROR,
+        ] {
+            self.config.delete(key).await.map_err(AppError::Internal)?;
+        }
+
+        tracing::info!("tore down TLS provisioning; reverted :443 to placeholder cert");
+        Ok(())
     }
 }

@@ -26,8 +26,8 @@ use crate::error::AppError;
 use crate::event::BroadcastEventBus;
 use crate::secret_store::SecretStore;
 use crate::tls::{
-    CertActivator, KEY_CERT_DOMAIN, KEY_CERT_NOT_AFTER, TlsService, TlsServiceImpl, TlsStatus,
-    within_renewal_window,
+    CertActivator, KEY_CERT_DOMAIN, KEY_CERT_NOT_AFTER, KEY_TLS_PHASE, SECRET_CERT_CHAIN,
+    SECRET_CERT_KEY, TlsService, TlsServiceImpl, TlsStatus, within_renewal_window,
 };
 use wardnet_common::api::TlsProvisioningPhase;
 
@@ -67,6 +67,10 @@ impl SystemConfigRepository for MockSystemConfig {
             .lock()
             .unwrap()
             .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.store.lock().unwrap().remove(key);
         Ok(())
     }
     async fn device_count(&self) -> anyhow::Result<i64> {
@@ -145,6 +149,14 @@ impl DdnsService for MockDdns {
             last_public_ip: None,
         })
     }
+    async fn teardown(&self) -> Result<(), AppError> {
+        unreachable!("not used in TLS tests")
+    }
+    async fn resolution_check(
+        &self,
+    ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
+        unreachable!("not used in TLS tests")
+    }
     async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
         unreachable!("no live issuance in TLS tests")
     }
@@ -159,6 +171,7 @@ impl DdnsService for MockDdns {
 struct MockActivator {
     activated: Mutex<bool>,
     fqdn: Mutex<Option<String>>,
+    deactivated: Mutex<bool>,
 }
 
 #[async_trait]
@@ -171,6 +184,12 @@ impl CertActivator for MockActivator {
     ) -> anyhow::Result<()> {
         *self.activated.lock().unwrap() = true;
         *self.fqdn.lock().unwrap() = Some(fqdn);
+        Ok(())
+    }
+
+    async fn deactivate(&self) -> anyhow::Result<()> {
+        *self.deactivated.lock().unwrap() = true;
+        *self.fqdn.lock().unwrap() = None;
         Ok(())
     }
 }
@@ -626,4 +645,44 @@ fn parse_not_after_reads_certificate_validity() {
         not_after > Utc::now() + Duration::days(3650),
         "expected far-future not_after, got {not_after}"
     );
+}
+
+#[tokio::test]
+async fn teardown_clears_cert_state_and_deactivates() {
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let activator = Arc::new(MockActivator::default());
+
+    // Seed an issued-certificate state: cert secrets + domain/expiry/phase config.
+    config
+        .set(KEY_CERT_DOMAIN, "home.example.net")
+        .await
+        .unwrap();
+    config
+        .set(KEY_CERT_NOT_AFTER, "2030-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    config.set(KEY_TLS_PHASE, "issued").await.unwrap();
+    secrets.put(SECRET_CERT_CHAIN, b"chain").await.unwrap();
+    secrets.put(SECRET_CERT_KEY, b"key").await.unwrap();
+
+    let svc = build_service(
+        config.clone(),
+        secrets.clone(),
+        Some("home.example.net"),
+        activator.clone(),
+        new_dns_local().await,
+    );
+
+    auth_context::with_context(admin_ctx(), svc.teardown())
+        .await
+        .unwrap();
+
+    // :443 reverted to placeholder, cert secrets + config keys wiped.
+    assert!(*activator.deactivated.lock().unwrap());
+    assert_eq!(config.get(KEY_CERT_DOMAIN).await.unwrap(), None);
+    assert_eq!(config.get(KEY_CERT_NOT_AFTER).await.unwrap(), None);
+    assert_eq!(config.get(KEY_TLS_PHASE).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CERT_CHAIN).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CERT_KEY).await.unwrap(), None);
 }

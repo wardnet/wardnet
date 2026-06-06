@@ -22,4 +22,9 @@ impl CertActivator for NoopCertActivator {
         tracing::debug!("NoopCertActivator::activate called (mock)");
         Ok(())
     }
+
+    async fn deactivate(&self) -> anyhow::Result<()> {
+        tracing::debug!("NoopCertActivator::deactivate called (mock)");
+        Ok(())
+    }
 }

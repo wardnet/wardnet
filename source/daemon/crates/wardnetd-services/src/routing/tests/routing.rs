@@ -255,6 +255,11 @@ impl SystemConfigRepository for MockSystemConfigRepo {
         Ok(())
     }
 
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.store.lock().await.remove(key);
+        Ok(())
+    }
+
     async fn device_count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }

@@ -1,4 +1,4 @@
-// Secure access — DDNS + TLS provisioning (issues #527–#530).
+// Remote access — DDNS + TLS provisioning (issues #527–#530).
 
 /** Response for `GET /api/ddns/check`. */
 export interface DdnsCheckResponse {
@@ -36,6 +36,24 @@ export interface DdnsStatusResponse {
   fqdn: string | null;
   /** The IP last published by the daemon, if any. */
   last_public_ip: string | null;
+}
+
+/**
+ * Verdict of the external resolution check — whether public DNS resolves the
+ * canonical FQDN to the IP the daemon published, bypassing the local override.
+ */
+export type DdnsResolutionVerdict = "not_configured" | "match" | "mismatch" | "pending";
+
+/** Response for `GET /api/ddns/resolution-check`. */
+export interface DdnsResolutionCheckResponse {
+  /** Overall verdict. */
+  verdict: DdnsResolutionVerdict;
+  /** The canonical FQDN that was queried, if DDNS is configured. */
+  fqdn: string | null;
+  /** The IP the daemon last published (what public DNS is expected to return). */
+  expected_ip: string | null;
+  /** The A records the external resolver actually returned. */
+  resolved_ips: string[];
 }
 
 /**

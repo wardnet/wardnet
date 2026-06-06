@@ -148,19 +148,21 @@ export { UpdateService } from "./services/update.js";
 // Services — backup
 export { BackupService } from "./services/backup.js";
 
-// Services — secure access (DDNS + TLS)
-export { SecureAccessService } from "./services/secure-access.js";
+// Services — remote access (DDNS + TLS)
+export { RemoteAccessService } from "./services/remote-access.js";
 
-// Types — secure access (DDNS + TLS)
+// Types — remote access (DDNS + TLS)
 export type {
   DdnsCheckResponse,
   DdnsRegisterRequest,
   ConfigureCloudflareRequest,
   DdnsRegisterResponse,
   DdnsStatusResponse,
+  DdnsResolutionVerdict,
+  DdnsResolutionCheckResponse,
   TlsProvisioningPhase,
   TlsStatusResponse,
-} from "./types/secure-access.js";
+} from "./types/remote-access.js";
 
 // Types — backup
 export type {

@@ -362,14 +362,16 @@ export {
 // Hooks — setup wizard
 export { useSetupStatus, useSetup, useAdvanceWizard } from "./hooks/useSetup";
 
-// Hooks — secure access (DDNS + TLS)
+// Hooks — remote access (DDNS + TLS)
 export {
   useCheckDdnsName,
   useRegisterDdns,
   useConfigureCloudflare,
   useDdnsStatus,
   useTlsStatus,
-} from "./hooks/useSecureAccess";
+  useResolutionCheck,
+  useDeleteDdns,
+} from "./hooks/useRemoteAccess";
 
 // PWA helpers
 export { registerSW } from "./lib/registerSW";

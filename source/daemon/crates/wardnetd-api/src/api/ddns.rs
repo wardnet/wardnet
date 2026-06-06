@@ -1,6 +1,6 @@
 //! Dynamic-DNS HTTP handlers — `/api/ddns/...` (issues #527/#530).
 //!
-//! Drives the setup wizard's "Secure access (HTTPS)" step and (later) the
+//! Drives the setup wizard's "Remote access (HTTPS)" step and (later) the
 //! Settings surface: name-availability checks, bridge registration, BYOD-
 //! Cloudflare configuration, and the current DDNS status. All endpoints are
 //! admin-gated — the wizard runs the operator as the auto-logged-in admin from
@@ -15,6 +15,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
+use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::Instrument;
 use utoipa_axum::router::OpenApiRouter;
@@ -24,7 +25,7 @@ use wardnet_common::auth::AuthContext;
 
 use wardnet_common::api::{
     ConfigureCloudflareRequest, DdnsCheckResponse, DdnsRegisterRequest, DdnsRegisterResponse,
-    DdnsStatusResponse,
+    DdnsResolutionCheckResponse, DdnsStatusResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -38,6 +39,8 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(ddns_register))
         .routes(routes!(ddns_cloudflare))
         .routes(routes!(ddns_status))
+        .routes(routes!(ddns_resolution_check))
+        .routes(routes!(ddns_teardown))
 }
 
 /// Query string for `GET /api/ddns/check`.
@@ -57,19 +60,19 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
     let ctx = AuthContext::Admin { admin_id };
     // Spawned tasks do not inherit the request's span, so attach our own child
     // span (rooted at the current request span) — see `.agents/observability.md`.
-    let span = tracing::info_span!("secure_access_provisioning");
+    let span = tracing::info_span!("remote_access_provisioning");
     tokio::spawn(
         async move {
             wardnetd_services::auth_context::with_context(ctx, async move {
                 if let Err(e) = ddns.refresh_public_ip().await {
-                    tracing::warn!(error = %e, "secure-access provisioning: public A-record publish failed: {e}");
+                    tracing::warn!(error = %e, "remote-access provisioning: public A-record publish failed: {e}");
                 }
                 match tls.ensure_certificate().await {
                     Ok(status) => {
-                        tracing::info!(?status, "secure-access provisioning: certificate issuance finished");
+                        tracing::info!(?status, "remote-access provisioning: certificate issuance finished");
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "secure-access provisioning: certificate issuance failed: {e}");
+                        tracing::warn!(error = %e, "remote-access provisioning: certificate issuance failed: {e}");
                     }
                 }
             })
@@ -194,4 +197,54 @@ pub async fn ddns_status(
         fqdn: status.fqdn,
         last_public_ip: status.last_public_ip,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/ddns/resolution-check",
+    tag = "ddns",
+    description = "Check whether the public internet resolves the active FQDN to \
+                   the IP the daemon last published. Queries fixed external \
+                   resolvers (1.1.1.1 / 8.8.8.8) by IP, deliberately bypassing the \
+                   local split-horizon override. `pending` means no public A \
+                   record yet (normal right after registration). Admin only.",
+    responses(
+        (status = 200, description = "Resolution-check result", body = DdnsResolutionCheckResponse),
+        AuthErrors,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn ddns_resolution_check(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<DdnsResolutionCheckResponse>, AppError> {
+    let result = state.ddns_service().resolution_check().await?;
+    Ok(Json(result))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/ddns",
+    tag = "ddns",
+    description = "Disable remote access: remove the published DNS record and \
+                   provider identity (bridge install / Cloudflare record), drop \
+                   the stored certificate, and revert :443 to the unprovisioned \
+                   placeholder. Idempotent. Admin only.",
+    responses(
+        (status = 204, description = "Remote access torn down (or already absent)"),
+        AuthErrors,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn ddns_teardown(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<StatusCode, AppError> {
+    // Revert serving + drop the cert first, then release the DDNS identity. The
+    // two services own disjoint state, so order only affects the brief window
+    // between the cert going away and the public record being removed — closing
+    // :443 first is the cleaner shutdown sequence.
+    state.tls_service().teardown().await?;
+    state.ddns_service().teardown().await?;
+    Ok(StatusCode::NO_CONTENT)
 }

@@ -1,4 +1,4 @@
-//! Tests for the secure-access API endpoints (`/api/ddns/*`, `/api/tls/status`).
+//! Tests for the remote-access API endpoints (`/api/ddns/*`, `/api/tls/status`).
 //!
 //! The background provisioning that `POST /api/ddns/register` kicks off is not
 //! exercised here (it spawns a detached task); these cover the synchronous,
@@ -11,12 +11,12 @@ use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_common::api::{
-    DdnsCheckResponse, DdnsRegisterResponse, DdnsStatusResponse, TlsProvisioningPhase,
-    TlsStatusResponse,
+    DdnsCheckResponse, DdnsRegisterResponse, DdnsResolutionCheckResponse, DdnsResolutionVerdict,
+    DdnsStatusResponse, TlsProvisioningPhase, TlsStatusResponse,
 };
 
 use crate::state::AppState;
@@ -103,6 +103,17 @@ impl DdnsService for MockDdns {
             last_public_ip: Some("9.9.9.9".to_owned()),
         })
     }
+    async fn teardown(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn resolution_check(&self) -> Result<DdnsResolutionCheckResponse, AppError> {
+        Ok(DdnsResolutionCheckResponse {
+            verdict: DdnsResolutionVerdict::Match,
+            fqdn: Some("happy-einstein.my.us.wardnet.network".to_owned()),
+            expected_ip: Some("9.9.9.9".to_owned()),
+            resolved_ips: vec!["9.9.9.9".to_owned()],
+        })
+    }
     async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -132,6 +143,9 @@ impl TlsService for MockTls {
             not_after: None,
             error: None,
         })
+    }
+    async fn teardown(&self) -> Result<(), AppError> {
+        Ok(())
     }
 }
 
@@ -168,6 +182,11 @@ fn app(state: AppState) -> Router {
         .route("/api/ddns/check", get(crate::api::ddns::ddns_check))
         .route("/api/ddns/register", post(crate::api::ddns::ddns_register))
         .route("/api/ddns/status", get(crate::api::ddns::ddns_status))
+        .route(
+            "/api/ddns/resolution-check",
+            get(crate::api::ddns::ddns_resolution_check),
+        )
+        .route("/api/ddns", delete(crate::api::ddns::ddns_teardown))
         .route("/api/tls/status", get(crate::api::tls::tls_status))
         .with_state(state)
 }
@@ -263,4 +282,31 @@ async fn tls_status_rejects_unauthenticated() {
         .unwrap();
     let resp = app(state).oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn ddns_resolution_check_returns_verdict() {
+    let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
+    let resp = app(state)
+        .oneshot(admin_get("/api/ddns/resolution-check"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: DdnsResolutionCheckResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json.verdict, DdnsResolutionVerdict::Match);
+    assert_eq!(json.resolved_ips, vec!["9.9.9.9".to_owned()]);
+}
+
+#[tokio::test]
+async fn ddns_teardown_returns_no_content() {
+    let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/ddns")
+        .header("Cookie", "wardnet_session=test")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 }

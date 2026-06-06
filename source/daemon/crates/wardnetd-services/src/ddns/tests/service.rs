@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use uuid::Uuid;
+use wardnet_common::api::DdnsResolutionVerdict;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::SystemConfigRepository;
 use wiremock::matchers::{method, path};
@@ -39,6 +40,10 @@ impl SystemConfigRepository for MockSystemConfig {
             .lock()
             .unwrap()
             .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.store.lock().unwrap().remove(key);
         Ok(())
     }
     async fn device_count(&self) -> anyhow::Result<i64> {
@@ -100,6 +105,7 @@ fn settings(bridge_url: Option<String>, echo: Vec<String>) -> DdnsSettings {
             .unwrap_or_default(),
         echo_endpoints: echo,
         cf_base_url: String::new(),
+        doh_resolvers: vec![],
     }
 }
 
@@ -383,6 +389,7 @@ async fn configure_cloudflare_resolves_zone_and_persists_identity() {
             region_catalog: vec![],
             echo_endpoints: vec![],
             cf_base_url: cf.uri(),
+            doh_resolvers: vec![],
         },
     );
 
@@ -425,6 +432,7 @@ async fn configure_cloudflare_errors_when_no_zone_covers_domain() {
             region_catalog: vec![],
             echo_endpoints: vec![],
             cf_base_url: cf.uri(),
+            doh_resolvers: vec![],
         },
     );
 
@@ -467,6 +475,7 @@ async fn configure_cloudflare_rejected_token_is_bad_request() {
             region_catalog: vec![],
             echo_endpoints: vec![],
             cf_base_url: cf.uri(),
+            doh_resolvers: vec![],
         },
     );
 
@@ -568,4 +577,262 @@ async fn clear_acme_challenge_deletes_txt_via_bridge() {
         .await
         .unwrap();
     // `.expect(1)` is verified when `bridge` drops here.
+}
+
+// ── Teardown (#531) ──────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn teardown_deregisters_bridge_and_wipes_state() {
+    let bridge = MockServer::start().await;
+    // The bridge deregister endpoint must be hit exactly once.
+    Mock::given(method("DELETE"))
+        .and(path("/v1/installs/inst-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&bridge)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_bridge_identity(&config, &secrets, &bridge.uri(), Some("9.9.9.9")).await;
+    config
+        .set(KEY_SUBDOMAIN, "happy.example.net")
+        .await
+        .unwrap();
+
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(Some(bridge.uri()), vec![]),
+    );
+
+    auth_context::with_context(admin_ctx(), svc.teardown())
+        .await
+        .unwrap();
+
+    // Config + secrets are wiped → `status()` reports unconfigured.
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(config.get(KEY_INSTALL_ID).await.unwrap(), None);
+    assert_eq!(config.get(KEY_SUBDOMAIN).await.unwrap(), None);
+    assert_eq!(config.get(KEY_LAST_IP).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_BRIDGE_SIGNING_KEY).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_BRIDGE_BEARER).await.unwrap(), None);
+    // `.expect(1)` on the DELETE is verified when `bridge` drops here.
+}
+
+#[tokio::test]
+async fn teardown_is_idempotent_when_unconfigured() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    // No provider configured → no network call, returns Ok.
+    auth_context::with_context(admin_ctx(), svc.teardown())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn teardown_deletes_cloudflare_records_and_wipes_state() {
+    let cf = MockServer::start().await;
+    // Record lookup: both the A and the ACME TXT queries resolve to a record id.
+    Mock::given(method("GET"))
+        .and(path("/zones/zone-eg/dns_records"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "success": true, "errors": [], "result": [{ "id": "rec-1" }],
+        })))
+        .mount(&cf)
+        .await;
+    // CloudflareProvider::teardown deletes the A record, then the TXT — two DELETEs.
+    Mock::given(method("DELETE"))
+        .and(path("/zones/zone-eg/dns_records/rec-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "success": true, "errors": [], "result": { "id": "rec-1" },
+        })))
+        .expect(2)
+        .mount(&cf)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    config.set(KEY_PROVIDER, PROVIDER_CLOUDFLARE).await.unwrap();
+    config.set(KEY_DOMAIN, "home.example.com").await.unwrap();
+    config.set(KEY_CF_ZONE_ID, "zone-eg").await.unwrap();
+    secrets.put(SECRET_CF_TOKEN, b"cf-token").await.unwrap();
+
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        DdnsSettings {
+            region_catalog: vec![],
+            echo_endpoints: vec![],
+            cf_base_url: cf.uri(),
+            doh_resolvers: vec![],
+        },
+    );
+
+    auth_context::with_context(admin_ctx(), svc.teardown())
+        .await
+        .unwrap();
+
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(config.get(KEY_DOMAIN).await.unwrap(), None);
+    assert_eq!(config.get(KEY_CF_ZONE_ID).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
+    // `.expect(2)` (A + TXT delete) is verified when `cf` drops here.
+}
+
+#[tokio::test]
+async fn switching_to_cloudflare_deregisters_old_bridge() {
+    // Old bridge: its deregister endpoint must be called once by the switch.
+    let bridge = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/v1/installs/inst-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&bridge)
+        .await;
+    let cf = cf_zones_server().await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
+    config
+        .set(KEY_SUBDOMAIN, "happy.example.net")
+        .await
+        .unwrap();
+
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        DdnsSettings {
+            region_catalog: vec![],
+            echo_endpoints: vec![],
+            cf_base_url: cf.uri(),
+            doh_resolvers: vec![],
+        },
+    );
+
+    auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("cf-token".to_owned(), "home.example.com".to_owned()),
+    )
+    .await
+    .unwrap();
+
+    // New provider is committed; the old bridge identity + secret are cleared.
+    assert_eq!(
+        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
+        Some(PROVIDER_CLOUDFLARE)
+    );
+    assert_eq!(config.get(KEY_INSTALL_ID).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_BRIDGE_SIGNING_KEY).await.unwrap(), None);
+    // `.expect(1)` on the old-bridge DELETE is verified when `bridge` drops here.
+}
+
+// ── Resolution check (#531) ──────────────────────────────────────────────────────
+
+/// Build a DoH-JSON resolver mock returning `answer_ips` as A records with the
+/// given `status` code (0 = NOERROR, 3 = NXDOMAIN).
+async fn doh_server(status: u32, answer_ips: &[&str]) -> MockServer {
+    let server = MockServer::start().await;
+    let answer: Vec<_> = answer_ips
+        .iter()
+        .map(|ip| serde_json::json!({ "type": 1, "data": ip }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path("/dns-query"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "Status": status, "Answer": answer })),
+        )
+        .mount(&server)
+        .await;
+    server
+}
+
+fn resolution_settings(doh: &MockServer) -> DdnsSettings {
+    DdnsSettings {
+        region_catalog: vec![],
+        echo_endpoints: vec![],
+        cf_base_url: String::new(),
+        doh_resolvers: vec![format!("{}/dns-query", doh.uri())],
+    }
+}
+
+/// Seed a configured bridge identity with a known FQDN + last-published IP, for
+/// the resolution-check tests (which only read `status()` + query `DoH`).
+async fn seed_for_resolution(config: &MockSystemConfig, last_ip: &str) {
+    config.set(KEY_PROVIDER, PROVIDER_BRIDGE).await.unwrap();
+    config
+        .set(KEY_SUBDOMAIN, "happy.example.net")
+        .await
+        .unwrap();
+    config.set(KEY_LAST_IP, last_ip).await.unwrap();
+}
+
+#[tokio::test]
+async fn resolution_check_not_configured() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let result = auth_context::with_context(admin_ctx(), svc.resolution_check())
+        .await
+        .unwrap();
+    assert_eq!(result.verdict, DdnsResolutionVerdict::NotConfigured);
+    assert_eq!(result.fqdn, None);
+}
+
+#[tokio::test]
+async fn resolution_check_reports_match() {
+    let doh = doh_server(0, &["9.9.9.9"]).await;
+    let config = Arc::new(MockSystemConfig::default());
+    seed_for_resolution(&config, "9.9.9.9").await;
+    let svc = DdnsServiceImpl::with_settings(
+        config,
+        Arc::new(MockSecretStore::default()),
+        resolution_settings(&doh),
+    );
+
+    let result = auth_context::with_context(admin_ctx(), svc.resolution_check())
+        .await
+        .unwrap();
+    assert_eq!(result.verdict, DdnsResolutionVerdict::Match);
+    assert_eq!(result.fqdn.as_deref(), Some("happy.example.net"));
+    assert_eq!(result.resolved_ips, vec!["9.9.9.9".to_owned()]);
+}
+
+#[tokio::test]
+async fn resolution_check_reports_mismatch() {
+    let doh = doh_server(0, &["1.2.3.4"]).await;
+    let config = Arc::new(MockSystemConfig::default());
+    seed_for_resolution(&config, "9.9.9.9").await;
+    let svc = DdnsServiceImpl::with_settings(
+        config,
+        Arc::new(MockSecretStore::default()),
+        resolution_settings(&doh),
+    );
+
+    let result = auth_context::with_context(admin_ctx(), svc.resolution_check())
+        .await
+        .unwrap();
+    assert_eq!(result.verdict, DdnsResolutionVerdict::Mismatch);
+}
+
+#[tokio::test]
+async fn resolution_check_reports_pending_on_nxdomain() {
+    let doh = doh_server(3, &[]).await;
+    let config = Arc::new(MockSystemConfig::default());
+    seed_for_resolution(&config, "9.9.9.9").await;
+    let svc = DdnsServiceImpl::with_settings(
+        config,
+        Arc::new(MockSecretStore::default()),
+        resolution_settings(&doh),
+    );
+
+    let result = auth_context::with_context(admin_ctx(), svc.resolution_check())
+        .await
+        .unwrap();
+    assert_eq!(result.verdict, DdnsResolutionVerdict::Pending);
 }
