@@ -24,7 +24,7 @@ pub struct RegionEndpoint {
 /// The built-in catalog. Extend this to add regions.
 pub const REGION_CATALOG: &[RegionEndpoint] = &[RegionEndpoint {
     slug: "use1",
-    base_url: "https://bridge.use1.wardnet.network",
+    base_url: "https://bridge.prod.use1.wardnet.network",
 }];
 
 /// A region chosen by [`select_region`].

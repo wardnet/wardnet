@@ -448,6 +448,8 @@ fn build_state_with_dhcp(
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
         Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(discovery_svc),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

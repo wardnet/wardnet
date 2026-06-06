@@ -272,6 +272,8 @@ async fn run(
         services.dns.clone(),
         services.dns_filter.clone(),
         services.dns_local.clone(),
+        services.ddns.clone(),
+        services.tls.clone(),
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),

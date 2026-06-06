@@ -50,7 +50,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use wardnet_common::api::UpsertRecordRequest;
+use wardnet_common::api::{TlsProvisioningPhase, TlsStatusResponse, UpsertRecordRequest};
 use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
 use wardnetd_data::repository::SystemConfigRepository;
 
@@ -69,6 +69,34 @@ const SYSTEM_RECORD_TTL_SECS: u32 = 300;
 pub(crate) const KEY_CERT_DOMAIN: &str = "tls_cert_domain";
 pub(crate) const KEY_CERT_NOT_AFTER: &str = "tls_cert_not_after";
 pub(crate) const KEY_ACME_DIRECTORY_URL: &str = "acme_directory_url";
+/// Coarse provisioning phase (`idle`/`issuing`/`issued`/`failed`), surfaced to
+/// the wizard + dashboard so they can show live progress without instrumenting
+/// the opaque ACME round-trip.
+pub(crate) const KEY_TLS_PHASE: &str = "tls_provisioning_phase";
+/// Human-readable error from the last failed issuance (set with `failed`).
+pub(crate) const KEY_TLS_LAST_ERROR: &str = "tls_provisioning_error";
+
+/// Stable lowercase identifier persisted for [`TlsProvisioningPhase`]. Mirrors
+/// the serde `snake_case` representation, kept explicit so persistence is
+/// decoupled from the wire format.
+fn phase_storage_str(phase: TlsProvisioningPhase) -> &'static str {
+    match phase {
+        TlsProvisioningPhase::Idle => "idle",
+        TlsProvisioningPhase::Issuing => "issuing",
+        TlsProvisioningPhase::Issued => "issued",
+        TlsProvisioningPhase::Failed => "failed",
+    }
+}
+
+/// Parse a persisted phase; unknown/missing values are treated as `Idle`.
+fn phase_from_storage(s: &str) -> TlsProvisioningPhase {
+    match s {
+        "issuing" => TlsProvisioningPhase::Issuing,
+        "issued" => TlsProvisioningPhase::Issued,
+        "failed" => TlsProvisioningPhase::Failed,
+        _ => TlsProvisioningPhase::Idle,
+    }
+}
 
 // ── secret-store paths ───────────────────────────────────────────────────────────
 pub(crate) const SECRET_ACME_ACCOUNT: &str = "tls/acme/account";
@@ -172,6 +200,16 @@ pub trait TlsService: Send + Sync {
 
     /// Read the current TLS status without touching the ACME server.
     async fn status(&self) -> Result<TlsStatus, AppError>;
+
+    /// Mark provisioning as started (phase → `Issuing`, error cleared). Called
+    /// synchronously by the wizard's register endpoint *before* it spawns the
+    /// background issuance task, so a status poll immediately after register
+    /// already reflects `issuing` rather than racing the spawned task.
+    async fn mark_provisioning_started(&self) -> Result<(), AppError>;
+
+    /// Coarse provisioning status (phase + domain + expiry + error) for the
+    /// setup wizard and dashboard indicator. Does not touch the ACME server.
+    async fn provisioning_status(&self) -> Result<TlsStatusResponse, AppError>;
 }
 
 /// The concrete [`TlsService`].
@@ -293,6 +331,29 @@ impl TlsServiceImpl {
             .map_err(AppError::Internal)
     }
 
+    /// Persist the provisioning phase, recording `error` only for `Failed` and
+    /// clearing any stale error otherwise.
+    async fn set_phase(
+        &self,
+        phase: TlsProvisioningPhase,
+        error: Option<&str>,
+    ) -> Result<(), AppError> {
+        self.set_cfg(KEY_TLS_PHASE, phase_storage_str(phase))
+            .await?;
+        self.set_cfg(KEY_TLS_LAST_ERROR, error.unwrap_or("")).await
+    }
+
+    /// Record a failed issuance — best-effort, so it never masks the original
+    /// error it is annotating.
+    async fn record_failure(&self, msg: &str) {
+        if let Err(e) = self
+            .set_phase(TlsProvisioningPhase::Failed, Some(msg))
+            .await
+        {
+            tracing::warn!(error = %e, "failed to persist TLS provisioning failure marker");
+        }
+    }
+
     /// The configured ACME directory URL, or the Let's Encrypt prod default.
     ///
     /// Rejects a non-`https://` value (defence-in-depth: the key is admin-gated
@@ -341,39 +402,23 @@ impl TlsServiceImpl {
             Ok(Some(not_after))
         }
     }
-}
 
-#[async_trait]
-impl TlsService for TlsServiceImpl {
-    async fn ensure_certificate(&self) -> Result<TlsStatus, AppError> {
-        auth_context::require_admin()?;
-
-        // Inert when DDNS (and therefore the public FQDN) is unconfigured —
-        // mirrors DdnsUpdateRunner's inert-until-config behaviour.
-        let Some(domain) = self.ddns.status().await?.fqdn else {
-            return Ok(TlsStatus::NotConfigured);
-        };
-
-        // The domain a prior issuance recorded (for stale split-horizon cleanup
-        // on a domain change) — captured before any `set_cfg` overwrites it.
-        let previous_domain = self.get_cfg(KEY_CERT_DOMAIN).await?;
-
-        if let Some(not_after) = self.stored_cert_is_fresh(&domain).await? {
-            // Steady state: the cert is already live (seeded at boot or activated
-            // earlier). Still reconcile the split-horizon record every tick so it
-            // self-heals if it was ever lost. The domain is unchanged here (a fresh
-            // stored cert *is* for `domain`), so there is nothing stale to prune —
-            // pass `None` rather than `previous_domain` (which equals `domain`).
-            self.reconcile_split_horizon(&domain, None).await;
-            return Ok(TlsStatus::UpToDate { domain, not_after });
-        }
-
+    /// Run a full ACME issuance for `domain`: obtain the cert, persist it, swap
+    /// it onto `:443`, reconcile the split-horizon record (pruning
+    /// `previous_domain` on a change), and record the new domain + expiry.
+    /// Returns the issued cert's `not_after`. Phase bookkeeping is the caller's
+    /// (`ensure_certificate`) responsibility.
+    async fn issue_and_activate(
+        &self,
+        domain: &str,
+        previous_domain: Option<&str>,
+    ) -> Result<DateTime<Utc>, AppError> {
         let directory_url = self.directory_url().await?;
         let issued = acme::issue(
             self.ddns.as_ref(),
             self.secrets.as_ref(),
             &directory_url,
-            &domain,
+            domain,
         )
         .await
         .map_err(|e| AppError::UpstreamUnavailable(format!("ACME issuance failed: {e}")))?;
@@ -399,20 +444,19 @@ impl TlsService for TlsServiceImpl {
             .activate(
                 issued.chain_pem.into_bytes(),
                 issued.key_pem.into_bytes(),
-                domain.clone(),
+                domain.to_owned(),
             )
             .await
             .map_err(AppError::Internal)?;
 
-        self.reconcile_split_horizon(&domain, previous_domain.as_deref())
-            .await;
+        self.reconcile_split_horizon(domain, previous_domain).await;
 
         // `activate` is irreversible: the cert + served domain are already live in
         // `ServingControl`. If either `set_cfg` below fails (transient DB error),
         // `tls_cert_domain` in `system_config` lags the live identity, so
         // `status()` may briefly report `Pending`/the old domain. This is benign
         // and self-correcting on the next renewal tick — serving is unaffected.
-        self.set_cfg(KEY_CERT_DOMAIN, &domain).await?;
+        self.set_cfg(KEY_CERT_DOMAIN, domain).await?;
         self.set_cfg(KEY_CERT_NOT_AFTER, &not_after.to_rfc3339())
             .await?;
 
@@ -421,7 +465,54 @@ impl TlsService for TlsServiceImpl {
             %not_after,
             "issued/renewed TLS certificate for {domain}, valid until {not_after}"
         );
-        Ok(TlsStatus::Issued { domain, not_after })
+        Ok(not_after)
+    }
+}
+
+#[async_trait]
+impl TlsService for TlsServiceImpl {
+    async fn ensure_certificate(&self) -> Result<TlsStatus, AppError> {
+        auth_context::require_admin()?;
+
+        // Inert when DDNS (and therefore the public FQDN) is unconfigured —
+        // mirrors DdnsUpdateRunner's inert-until-config behaviour.
+        let Some(domain) = self.ddns.status().await?.fqdn else {
+            return Ok(TlsStatus::NotConfigured);
+        };
+
+        // The domain a prior issuance recorded (for stale split-horizon cleanup
+        // on a domain change) — captured before any `set_cfg` overwrites it.
+        let previous_domain = self.get_cfg(KEY_CERT_DOMAIN).await?;
+
+        if let Some(not_after) = self.stored_cert_is_fresh(&domain).await? {
+            // Steady state: the cert is already live (seeded at boot or activated
+            // earlier). Still reconcile the split-horizon record every tick so it
+            // self-heals if it was ever lost. The domain is unchanged here (a fresh
+            // stored cert *is* for `domain`), so there is nothing stale to prune —
+            // pass `None` rather than `previous_domain` (which equals `domain`).
+            self.reconcile_split_horizon(&domain, None).await;
+            self.set_phase(TlsProvisioningPhase::Issued, None).await?;
+            return Ok(TlsStatus::UpToDate { domain, not_after });
+        }
+
+        // Past the steady-state short-circuit: a real issuance/renewal is about
+        // to run. Mark `Issuing` (idempotent with the wizard's pre-spawn mark)
+        // and record any failure so the dashboard can surface it, while still
+        // propagating the original error to the caller/runner.
+        self.set_phase(TlsProvisioningPhase::Issuing, None).await?;
+        match self
+            .issue_and_activate(&domain, previous_domain.as_deref())
+            .await
+        {
+            Ok(not_after) => {
+                self.set_phase(TlsProvisioningPhase::Issued, None).await?;
+                Ok(TlsStatus::Issued { domain, not_after })
+            }
+            Err(e) => {
+                self.record_failure(&e.to_string()).await;
+                Err(e)
+            }
+        }
     }
 
     async fn status(&self) -> Result<TlsStatus, AppError> {
@@ -441,5 +532,55 @@ impl TlsService for TlsServiceImpl {
             Some(not_after) => Ok(TlsStatus::UpToDate { domain, not_after }),
             None => Ok(TlsStatus::Pending { domain }),
         }
+    }
+
+    async fn mark_provisioning_started(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.set_phase(TlsProvisioningPhase::Issuing, None).await
+    }
+
+    async fn provisioning_status(&self) -> Result<TlsStatusResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let stored_phase = self
+            .get_cfg(KEY_TLS_PHASE)
+            .await?
+            .as_deref()
+            .map_or(TlsProvisioningPhase::Idle, phase_from_storage);
+
+        // Prefer the cert's own domain; fall back to the active FQDN so the UI
+        // can name the target even before the first cert lands.
+        let cert_domain = self.get_cfg(KEY_CERT_DOMAIN).await?;
+        let not_after = self.stored_not_after().await?;
+        let domain = match cert_domain.clone() {
+            Some(d) => Some(d),
+            None => self.ddns.status().await?.fqdn,
+        };
+
+        // A stored, current-domain cert always reads as `Issued`, even if the
+        // marker was never written (e.g. seeded at boot) — the live cert is the
+        // source of truth. A persisted `Failed` is preserved so the UI can show
+        // the error; otherwise fall through to the stored marker.
+        let has_cert = cert_domain.is_some() && not_after.is_some();
+        let phase = match stored_phase {
+            TlsProvisioningPhase::Failed => TlsProvisioningPhase::Failed,
+            _ if has_cert => TlsProvisioningPhase::Issued,
+            other => other,
+        };
+
+        let error = if phase == TlsProvisioningPhase::Failed {
+            self.get_cfg(KEY_TLS_LAST_ERROR)
+                .await?
+                .filter(|s| !s.is_empty())
+        } else {
+            None
+        };
+
+        Ok(TlsStatusResponse {
+            phase,
+            domain,
+            not_after: not_after.map(|t| t.to_rfc3339()),
+            error,
+        })
     }
 }

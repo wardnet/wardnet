@@ -26,6 +26,13 @@ impl DdnsService for CountingDdns {
     async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
         unreachable!("not called by the runner")
     }
+    async fn configure_cloudflare(
+        &self,
+        _token: String,
+        _domain: String,
+    ) -> Result<DdnsRegistration, AppError> {
+        unreachable!("not called by the runner")
+    }
     async fn refresh_public_ip(&self) -> Result<Option<Ipv4Addr>, AppError> {
         self.refreshes.fetch_add(1, Ordering::SeqCst);
         Ok(None)

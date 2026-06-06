@@ -236,6 +236,8 @@ fn make_state(auth: impl AuthService + 'static, system: Arc<MockSystemService>) 
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
         Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

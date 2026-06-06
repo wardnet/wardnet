@@ -404,6 +404,8 @@ fn build_state() -> AppState {
         Arc::new(StubDnsService),
         Arc::new(MockDnsFilterService),
         Arc::new(crate::tests::stubs::StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

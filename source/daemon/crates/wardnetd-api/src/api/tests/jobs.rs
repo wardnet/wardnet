@@ -82,6 +82,8 @@ fn build_state(job_service: Arc<dyn JobService>) -> AppState {
         Arc::new(StubDnsService) as Arc<dyn wardnetd_services::DnsService>,
         Arc::new(StubDnsFilterService) as Arc<dyn wardnetd_services::DnsFilterService>,
         Arc::new(StubDnsLocalService) as Arc<dyn wardnetd_services::DnsLocalService>,
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

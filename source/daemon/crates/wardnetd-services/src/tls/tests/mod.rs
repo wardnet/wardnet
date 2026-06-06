@@ -29,6 +29,7 @@ use crate::tls::{
     CertActivator, KEY_CERT_DOMAIN, KEY_CERT_NOT_AFTER, TlsService, TlsServiceImpl, TlsStatus,
     within_renewal_window,
 };
+use wardnet_common::api::TlsProvisioningPhase;
 
 /// A fixed LAN IP for the split-horizon record under test.
 const TEST_LAN_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 1);
@@ -127,6 +128,13 @@ impl DdnsService for MockDdns {
     async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
         unreachable!("not used in TLS tests")
     }
+    async fn configure_cloudflare(
+        &self,
+        _token: String,
+        _domain: String,
+    ) -> Result<DdnsRegistration, AppError> {
+        unreachable!("not used in TLS tests")
+    }
     async fn refresh_public_ip(&self) -> Result<Option<Ipv4Addr>, AppError> {
         unreachable!("not used in TLS tests")
     }
@@ -209,6 +217,91 @@ async fn ensure_certificate_requires_admin() {
         svc.ensure_certificate().await.unwrap_err(),
         AppError::Forbidden(_)
     ));
+}
+
+#[tokio::test]
+async fn provisioning_status_requires_admin() {
+    let svc = build_service(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        None,
+        Arc::new(MockActivator::default()),
+        new_dns_local().await,
+    );
+    assert!(matches!(
+        svc.provisioning_status().await.unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+    assert!(matches!(
+        svc.mark_provisioning_started().await.unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+}
+
+#[tokio::test]
+async fn provisioning_status_idle_when_unconfigured() {
+    let svc = build_service(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        None,
+        Arc::new(MockActivator::default()),
+        new_dns_local().await,
+    );
+    let status = auth_context::with_context(admin_ctx(), svc.provisioning_status())
+        .await
+        .unwrap();
+    assert_eq!(status.phase, TlsProvisioningPhase::Idle);
+    assert_eq!(status.domain, None);
+    assert_eq!(status.error, None);
+}
+
+#[tokio::test]
+async fn mark_provisioning_started_reports_issuing_with_domain() {
+    let svc = build_service(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        Some("home.example.net"),
+        Arc::new(MockActivator::default()),
+        new_dns_local().await,
+    );
+    auth_context::with_context(admin_ctx(), svc.mark_provisioning_started())
+        .await
+        .unwrap();
+    let status = auth_context::with_context(admin_ctx(), svc.provisioning_status())
+        .await
+        .unwrap();
+    assert_eq!(status.phase, TlsProvisioningPhase::Issuing);
+    // No cert yet, but the active FQDN names the target being provisioned.
+    assert_eq!(status.domain.as_deref(), Some("home.example.net"));
+}
+
+#[tokio::test]
+async fn provisioning_status_issued_when_cert_fresh() {
+    let config = Arc::new(MockSystemConfig::default());
+    config
+        .set(KEY_CERT_DOMAIN, "home.example.net")
+        .await
+        .unwrap();
+    let not_after = Utc::now() + Duration::days(60);
+    config
+        .set(KEY_CERT_NOT_AFTER, &not_after.to_rfc3339())
+        .await
+        .unwrap();
+
+    let svc = build_service(
+        config,
+        Arc::new(MockSecretStore::default()),
+        Some("home.example.net"),
+        Arc::new(MockActivator::default()),
+        new_dns_local().await,
+    );
+    // A stored, current-domain cert reads as Issued even with no phase marker.
+    let status = auth_context::with_context(admin_ctx(), svc.provisioning_status())
+        .await
+        .unwrap();
+    assert_eq!(status.phase, TlsProvisioningPhase::Issued);
+    assert_eq!(status.domain.as_deref(), Some("home.example.net"));
+    assert!(status.not_after.is_some());
 }
 
 #[tokio::test]

@@ -15,9 +15,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::auth_context;
 use crate::ddns::{
-    DdnsService, DdnsServiceImpl, DdnsSettings, KEY_BRIDGE_BASE_URL, KEY_INSTALL_ID, KEY_LAST_IP,
-    KEY_PROVIDER, KEY_REGION, KEY_SUBDOMAIN, PROVIDER_BRIDGE, SECRET_BRIDGE_BEARER,
-    SECRET_BRIDGE_SIGNING_KEY,
+    DdnsService, DdnsServiceImpl, DdnsSettings, KEY_BRIDGE_BASE_URL, KEY_CF_ZONE_ID, KEY_DOMAIN,
+    KEY_INSTALL_ID, KEY_LAST_IP, KEY_PROVIDER, KEY_REGION, KEY_SUBDOMAIN, PROVIDER_BRIDGE,
+    PROVIDER_CLOUDFLARE, SECRET_BRIDGE_BEARER, SECRET_BRIDGE_SIGNING_KEY, SECRET_CF_TOKEN,
 };
 use crate::error::AppError;
 use crate::secret_store::SecretStore;
@@ -227,6 +227,39 @@ async fn register_with_bridge_persists_identity() {
     );
 }
 
+#[tokio::test]
+async fn register_rejects_invalid_name_before_any_network_call() {
+    // A name with a path separator must be rejected locally (BadRequest) so it
+    // can never be interpolated into the bridge URL path. No bridge is wired, so
+    // a network attempt would itself error differently.
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.register_with_bridge("../installs/x/ip".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+#[tokio::test]
+async fn check_name_available_returns_false_for_invalid_name() {
+    // Invalid names short-circuit to `false` with no network call (no bridge
+    // wired here), mirroring the bridge's own availability semantics.
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let available =
+        auth_context::with_context(admin_ctx(), svc.check_name_available("bad/name".to_owned()))
+            .await
+            .unwrap();
+    assert!(!available);
+}
+
 /// Pre-seed a registered bridge identity into the mock config + secrets.
 async fn seed_bridge_identity(
     config: &MockSystemConfig,
@@ -304,6 +337,148 @@ async fn refresh_publishes_when_ip_changed() {
         config.get(KEY_LAST_IP).await.unwrap().as_deref(),
         Some("9.9.9.9")
     );
+}
+
+/// A Cloudflare API mock that serves the zone list for `lookup_zone_id`.
+async fn cf_zones_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/zones"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "success": true,
+            "errors": [],
+            "result": [
+                { "id": "zone-eg", "name": "example.com" },
+                { "id": "zone-other", "name": "other.net" },
+            ],
+        })))
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn configure_cloudflare_requires_admin() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    assert!(matches!(
+        svc.configure_cloudflare("tok".to_owned(), "home.example.com".to_owned())
+            .await
+            .unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+}
+
+#[tokio::test]
+async fn configure_cloudflare_resolves_zone_and_persists_identity() {
+    let cf = cf_zones_server().await;
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        DdnsSettings {
+            region_catalog: vec![],
+            echo_endpoints: vec![],
+            cf_base_url: cf.uri(),
+        },
+    );
+
+    // A subdomain resolves to its registrable apex zone (longest suffix match).
+    let registration = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("cf-token".to_owned(), "home.example.com".to_owned()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(registration.subdomain, "home.example.com");
+
+    assert_eq!(
+        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
+        Some(PROVIDER_CLOUDFLARE)
+    );
+    assert_eq!(
+        config.get(KEY_DOMAIN).await.unwrap().as_deref(),
+        Some("home.example.com")
+    );
+    assert_eq!(
+        config.get(KEY_CF_ZONE_ID).await.unwrap().as_deref(),
+        Some("zone-eg")
+    );
+    assert_eq!(
+        secrets.get(SECRET_CF_TOKEN).await.unwrap().unwrap(),
+        b"cf-token"
+    );
+}
+
+#[tokio::test]
+async fn configure_cloudflare_errors_when_no_zone_covers_domain() {
+    let cf = cf_zones_server().await;
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        DdnsSettings {
+            region_catalog: vec![],
+            echo_endpoints: vec![],
+            cf_base_url: cf.uri(),
+        },
+    );
+
+    // No accessible zone is a suffix of `unrelated.org` — a user-fixable input
+    // error (wrong domain / under-scoped token), so BadRequest, not an outage.
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("cf-token".to_owned(), "unrelated.org".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+    // Nothing should have been persisted on failure.
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn configure_cloudflare_rejected_token_is_bad_request() {
+    // A 403 from Cloudflare (bad/under-scoped token) is a user-fixable error, so
+    // it must surface as BadRequest (keep the operator on the form) rather than
+    // UpstreamUnavailable (which the wizard treats as a retryable outage).
+    let cf = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/zones"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "success": false,
+            "errors": [{ "message": "Invalid API token" }],
+            "result": null,
+        })))
+        .mount(&cf)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        DdnsSettings {
+            region_catalog: vec![],
+            echo_endpoints: vec![],
+            cf_base_url: cf.uri(),
+        },
+    );
+
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("bad-token".to_owned(), "home.example.com".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
 }
 
 #[tokio::test]

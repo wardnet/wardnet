@@ -362,6 +362,15 @@ export {
 // Hooks — setup wizard
 export { useSetupStatus, useSetup, useAdvanceWizard } from "./hooks/useSetup";
 
+// Hooks — secure access (DDNS + TLS)
+export {
+  useCheckDdnsName,
+  useRegisterDdns,
+  useConfigureCloudflare,
+  useDdnsStatus,
+  useTlsStatus,
+} from "./hooks/useSecureAccess";
+
 // PWA helpers
 export { registerSW } from "./lib/registerSW";
 export type { RegisterSWOptions } from "./lib/registerSW";

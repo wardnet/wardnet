@@ -210,6 +210,8 @@ fn build_state(dhcp_svc: impl DhcpService + 'static) -> AppState {
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
         Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

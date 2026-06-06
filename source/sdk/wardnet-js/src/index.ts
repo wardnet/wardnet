@@ -148,6 +148,20 @@ export { UpdateService } from "./services/update.js";
 // Services — backup
 export { BackupService } from "./services/backup.js";
 
+// Services — secure access (DDNS + TLS)
+export { SecureAccessService } from "./services/secure-access.js";
+
+// Types — secure access (DDNS + TLS)
+export type {
+  DdnsCheckResponse,
+  DdnsRegisterRequest,
+  ConfigureCloudflareRequest,
+  DdnsRegisterResponse,
+  DdnsStatusResponse,
+  TlsProvisioningPhase,
+  TlsStatusResponse,
+} from "./types/secure-access.js";
+
 // Types — backup
 export type {
   BundleManifest,

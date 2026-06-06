@@ -48,13 +48,15 @@
 
 **DDNS service** — Wardnet-operated service that assigns each installation a unique subdomain (`<install-id>.wardnet.network`) and manages DNS records for it. Also acts as an ACME bridge: handles `_acme-challenge` TXT records on behalf of the Pi so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it.
 
+**Secure access (setup step)** — The setup wizard's HTTPS step (`wizard_step == secure_access`, between Policy and Completed). The operator picks a **DnsProvider** — the wardnet **bridge** (default; suggests an editable two-word hostname with a live availability check) or **BYOD-Cloudflare** (their own domain + API token) — and the daemon registers it synchronously, then issues the certificate in the background (`POST /api/ddns/register` / `/cloudflare` → `mark_provisioning_started` → detached `ensure_certificate`). Non-blocking: the step is skippable and completes even offline, with issuance retried later from Settings. Progress is the **TLS provisioning phase**.
+
 **DnsProvider** — The daemon-side abstraction over the publish side of DDNS: a provider bound at construction to one target that can `upsert_a` (publish the A record) and `set_txt` / `delete_txt` (the ACME `_acme-challenge` record). Two implementations: the **bridge** provider (default, talks to a wardnet bridge, keyed by install id, every request Ed25519-signed) and the **Cloudflare** provider (Bring-Your-Own-Domain, talks to the user's Cloudflare zone directly). The cert/signing key never leaves the Pi under either.
 
 **Region slug** — A short identifier for a wardnet bridge deployment (e.g. `use1`). It selects which **bridge endpoint** the daemon talks to; it is distinct from the region *label* the bridge embeds in an assigned FQDN (e.g. `…my.us…`), which the bridge owns and returns at registration.
 
 **Region catalog** — The built-in, daemon-shipped table mapping each **region slug** to its **bridge endpoint** URL. The bridge cannot supply this (each bridge is region-specific), so the daemon must already know it. At registration the daemon probes every catalogued region's health endpoint and registers against the lowest-latency one.
 
-**Bridge endpoint** — The base URL of a region's wardnet bridge (e.g. `https://bridge.use1.wardnet.network`), the value a **region slug** resolves to in the **region catalog**.
+**Bridge endpoint** — The base URL of a region's wardnet bridge (e.g. `https://bridge.prod.use1.wardnet.network`), the value a **region slug** resolves to in the **region catalog**.
 
 **Public WAN IP** — The home's internet-facing IPv4 address, discovered by the daemon via an external echo service over its default (WAN) route. This is what DDNS publishes — explicitly *not* a tunnel exit IP (a device's egress address when routed through a VPN tunnel), which the daemon measures separately for routing diagnostics.
 
@@ -69,6 +71,8 @@
 **TLS provisioning** — The boolean state of whether the daemon is serving a real (vs **placeholder**) certificate on `:443`. A shared `provisioned` flag gates a 503 guard on the `:443` app; it flips to `true` when the first real certificate is activated. Pre-provisioning, `:7411` plain HTTP is the honest admin surface.
 
 **TLS renewal** — The background re-issuance of the certificate before expiry. `TlsService::ensure_certificate()` is a single idempotent operation — issue-if-missing or renew-if-within-30-days — driven on a 12-hour tick by `TlsRenewalRunner` and inert until DDNS (and therefore the public FQDN) is configured.
+
+**TLS provisioning phase** — A coarse, persisted progress signal for certificate issuance — `idle` → `issuing` → `issued` / `failed` — surfaced to the **Secure access (setup step)** and the dashboard so an operator can watch the (otherwise opaque) ACME round-trip and see any failure. Distinct from **TLS provisioning** (the boolean serving-a-real-cert gate): the phase narrates the *process*, the gate names the *outcome*. A live cert reads as `issued` even with no marker; `failed` carries the last error. Read via `GET /api/tls/status`.
 
 **Canonical FQDN** — The single public hostname the gateway is reached by and holds a valid certificate for: the **domain the active certificate was issued for** (`tls_cert_domain`), not merely the configured DDNS hostname. The two are normally identical and diverge only transiently (issuance lag, a domain change before re-issuance, an ACME failure); the cert domain is authoritative precisely because it is the name that currently works. It is the primary entry point (PWA `start_url`/`scope`, bookmark) and the target of the **short-name redirect** and the **split-horizon** record. Absent (no cert yet) ⟹ both are inert.
 

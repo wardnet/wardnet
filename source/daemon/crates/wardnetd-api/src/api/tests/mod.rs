@@ -1,5 +1,6 @@
 mod auth;
 mod backup;
+mod ddns;
 mod devices;
 mod dhcp;
 mod dns_capture;

@@ -310,10 +310,15 @@ pub struct UpdateDeviceRequest {
 /// Linear stage in the first-run setup wizard.
 ///
 /// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
-/// → Completed`. `setup_completed` (in [`SetupStatusResponse`] and the
-/// `SetupGuard` redirect logic) is derived from `wizard_step == Completed`,
-/// so existing installs that already finished setup are not re-routed
-/// through the new wizard after an upgrade.
+/// → SecureAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]
+/// and the `SetupGuard` redirect logic) is derived from
+/// `wizard_step == Completed`, so existing installs that already finished
+/// setup are not re-routed through the new wizard after an upgrade.
+///
+/// Steps are persisted by their stable storage string (not their ordinal), so
+/// inserting [`Self::SecureAccess`] ahead of [`Self::Completed`] needs no
+/// migration: finished installs (`"completed"`) and in-progress ones keep
+/// resolving to the same variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WizardStep {
@@ -329,7 +334,10 @@ pub enum WizardStep {
     Tunnel,
     /// Step 6 — pick the global default routing policy.
     Policy,
-    /// Step 7 — wizard finished; the dashboard takes over.
+    /// Step 7 — enable secure access (HTTPS): register a public hostname via
+    /// the bridge or BYOD-Cloudflare and issue a certificate. Skippable.
+    SecureAccess,
+    /// Step 8 — wizard finished; the dashboard takes over.
     Completed,
 }
 
@@ -356,6 +364,7 @@ impl WizardStep {
             Self::RouterMac => "router_mac",
             Self::Tunnel => "tunnel",
             Self::Policy => "policy",
+            Self::SecureAccess => "secure_access",
             Self::Completed => "completed",
         }
     }
@@ -373,6 +382,7 @@ impl WizardStep {
             "router_mac" => Self::RouterMac,
             "tunnel" => Self::Tunnel,
             "policy" => Self::Policy,
+            "secure_access" => Self::SecureAccess,
             "completed" => Self::Completed,
             _ => Self::Admin,
         }
@@ -388,7 +398,8 @@ impl WizardStep {
             Self::RouterMac => 3,
             Self::Tunnel => 4,
             Self::Policy => 5,
-            Self::Completed => 6,
+            Self::SecureAccess => 6,
+            Self::Completed => 7,
         }
     }
 }
@@ -457,6 +468,82 @@ pub struct SetupRequest {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetDefaultPolicyRequest {
     pub policy: String,
+}
+
+// ── Secure access: DDNS + TLS (issues #527–#530) ─────────────────────────────
+
+/// Response for `GET /api/ddns/check`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsCheckResponse {
+    /// `true` when the name is well-formed and unclaimed on the best bridge.
+    pub available: bool,
+}
+
+/// Request body for `POST /api/ddns/register` (bridge provider).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsRegisterRequest {
+    /// The short name to claim, e.g. `happy-einstein`. The bridge validates it
+    /// (3–32 chars, `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
+    pub name: String,
+}
+
+/// Request body for `POST /api/ddns/cloudflare` (BYOD provider).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ConfigureCloudflareRequest {
+    /// A Cloudflare API token scoped to DNS:Edit on the domain's zone.
+    pub token: String,
+    /// The fully-qualified domain the operator controls, e.g. `home.example.com`.
+    pub domain: String,
+}
+
+/// Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsRegisterResponse {
+    /// The public hostname now assigned to this installation.
+    pub fqdn: String,
+    /// The bridge region label (display only); `None` for BYOD-Cloudflare.
+    pub region: Option<String>,
+}
+
+/// Response for `GET /api/ddns/status`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsStatusResponse {
+    /// `None` when DDNS is not configured; otherwise `"bridge"` or `"cloudflare"`.
+    pub provider: Option<String>,
+    /// The active public hostname (bridge subdomain or BYOD domain), if any.
+    pub fqdn: Option<String>,
+    /// The IP last published by the daemon, if any.
+    pub last_public_ip: Option<String>,
+}
+
+/// Coarse stage of the daemon's TLS-certificate provisioning, surfaced so the
+/// setup wizard and dashboard can show live progress without instrumenting the
+/// ACME round-trip. Persisted in `system_config`, so it survives a restart.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsProvisioningPhase {
+    /// No issuance has been attempted (DDNS unconfigured or freshly installed).
+    Idle,
+    /// Issuance is in flight (publishing the ACME challenge / awaiting the CA).
+    Issuing,
+    /// A certificate is live for the active domain.
+    Issued,
+    /// The last issuance attempt failed; see [`TlsStatusResponse::error`].
+    Failed,
+}
+
+/// Response for `GET /api/tls/status`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TlsStatusResponse {
+    /// Current coarse provisioning phase.
+    pub phase: TlsProvisioningPhase,
+    /// The domain being (or already) provisioned, if any.
+    pub domain: Option<String>,
+    /// RFC 3339 expiry of the stored certificate, when one has been issued.
+    pub not_after: Option<String>,
+    /// Human-readable error from the last failed attempt, when `phase` is
+    /// [`TlsProvisioningPhase::Failed`].
+    pub error: Option<String>,
 }
 
 /// How the LAN interface acquired its current IP address.

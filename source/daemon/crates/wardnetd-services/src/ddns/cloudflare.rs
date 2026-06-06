@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::provider::DnsProvider;
+use crate::error::AppError;
 
 /// Cloudflare v4 REST API base URL.
 pub(crate) const CF_API_BASE: &str = "https://api.cloudflare.com/client/v4";
@@ -133,6 +134,72 @@ impl CloudflareProvider {
     }
 }
 
+/// Resolve the Cloudflare **zone id** that owns `domain`, authenticating with
+/// `token`. Used by the BYOD setup path (`configure_cloudflare`) to turn the
+/// operator's domain into the `{zone_id, token}` pair the [`CloudflareProvider`]
+/// binds to — and, as a side effect, to **validate the token** (a bad token
+/// fails the list call).
+///
+/// `domain` may be the apex (`example.com`) or a subdomain (`home.example.com`);
+/// Cloudflare zones are keyed by the registrable apex, so this lists the zones
+/// the token can see and picks the **longest** zone name that is a suffix of
+/// `domain`.
+///
+/// Error mapping is deliberate so the wizard can tell apart a user-fixable
+/// mistake from an outage: a rejected token (HTTP 401/403) or a domain no
+/// accessible zone covers is a [`AppError::BadRequest`] (keep the operator on
+/// the form); only a transport/parse failure is [`AppError::UpstreamUnavailable`]
+/// (offer to continue and retry later).
+pub(crate) async fn lookup_zone_id(
+    http: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    domain: &str,
+) -> Result<String, AppError> {
+    let response = http
+        .get(format!("{base_url}/zones"))
+        .bearer_auth(token)
+        .query(&[("per_page", "50")])
+        .send()
+        .await
+        .map_err(|e| AppError::UpstreamUnavailable(format!("Cloudflare request failed: {e}")))?;
+
+    if matches!(
+        response.status(),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return Err(AppError::BadRequest(
+            "Cloudflare rejected the API token — ensure it is valid and scoped to \
+             DNS:Edit on the domain's zone"
+                .to_owned(),
+        ));
+    }
+
+    let parsed: CfResponse<Vec<ZoneResult>> = parse_json(response)
+        .await
+        .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))?;
+    let zones = parsed.result.unwrap_or_default();
+
+    let best = zones
+        .into_iter()
+        .filter(|z| {
+            // Exact apex, or `domain` is `<sub>.<zone>` — checked without
+            // allocating a `".{zone}"` needle per candidate.
+            domain == z.name
+                || domain
+                    .strip_suffix(z.name.as_str())
+                    .is_some_and(|prefix| prefix.ends_with('.'))
+        })
+        .max_by_key(|z| z.name.len());
+
+    best.map(|zone| zone.id).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "no Cloudflare zone covering '{domain}' is accessible with this token — \
+             check the domain and that the token has DNS:Edit on its zone"
+        ))
+    })
+}
+
 #[async_trait]
 impl DnsProvider for CloudflareProvider {
     async fn upsert_a(&self, ip: Ipv4Addr) -> anyhow::Result<()> {
@@ -176,6 +243,12 @@ struct DnsRecordBody<'a> {
 #[derive(Deserialize)]
 struct DnsRecordResult {
     id: String,
+}
+
+#[derive(Deserialize)]
+struct ZoneResult {
+    id: String,
+    name: String,
 }
 
 #[derive(Deserialize)]

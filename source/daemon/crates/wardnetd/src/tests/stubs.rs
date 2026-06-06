@@ -1046,6 +1046,68 @@ impl StatsService for StubStatsService {
     }
 }
 
+// ---------------------------------------------------------------------------
+// StubDdnsService
+// ---------------------------------------------------------------------------
+
+pub struct StubDdnsService;
+
+#[async_trait]
+impl wardnetd_services::DdnsService for StubDdnsService {
+    async fn register_with_bridge(
+        &self,
+        _name: String,
+    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
+        unimplemented!()
+    }
+    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn configure_cloudflare(
+        &self,
+        _token: String,
+        _domain: String,
+    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_public_ip(&self) -> Result<Option<std::net::Ipv4Addr>, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnetd_services::ddns::DdnsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn clear_acme_challenge(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubTlsService
+// ---------------------------------------------------------------------------
+
+pub struct StubTlsService;
+
+#[async_trait]
+impl wardnetd_services::TlsService for StubTlsService {
+    async fn ensure_certificate(&self) -> Result<wardnetd_services::TlsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnetd_services::TlsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn mark_provisioning_started(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn provisioning_status(
+        &self,
+    ) -> Result<wardnet_common::api::TlsStatusResponse, AppError> {
+        unimplemented!()
+    }
+}
+
 /// Create an [`AppState`] with all stub services and default configuration.
 ///
 /// Useful as a starting point for tests that only need one or two real
@@ -1061,6 +1123,8 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
         Arc::new(StubDnsLocalService),
+        Arc::new(StubDdnsService),
+        Arc::new(StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService),
         Arc::new(StubProviderService),

@@ -882,6 +882,601 @@
         ]
       }
     },
+    "/api/ddns/check": {
+      "get": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Check whether a short name is available on the best-latency bridge. Returns `available: false` for malformed or reserved names too (no error). Admin only.",
+        "operationId": "ddns_check",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "The short name to check, e.g. happy-einstein",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Availability result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DdnsCheckResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/ddns/cloudflare": {
+      "post": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Configure the BYOD-Cloudflare provider for a domain the operator controls (token validated against the zone), then kick off certificate issuance in the background. Poll `GET /api/tls/status` for progress. Admin only.",
+        "operationId": "ddns_cloudflare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureCloudflareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Configured; provisioning started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DdnsRegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/ddns/register": {
+      "post": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Register this installation on the wardnet bridge under the given short name, then kick off certificate issuance in the background. The response returns as soon as the identity is persisted; poll `GET /api/tls/status` for issuance progress. Admin only.",
+        "operationId": "ddns_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DdnsRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Registered; provisioning started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DdnsRegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/ddns/status": {
+      "get": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Report the current DDNS configuration (provider, active hostname, last-published IP). Admin only.",
+        "operationId": "ddns_status",
+        "responses": {
+          "200": {
+            "description": "DDNS status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DdnsStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/devices": {
       "get": {
         "tags": [
@@ -13832,6 +14427,131 @@
         ]
       }
     },
+    "/api/tls/status": {
+      "get": {
+        "tags": [
+          "tls"
+        ],
+        "description": "Report the certificate's coarse provisioning phase (idle/issuing/issued/failed) with the active domain, expiry, and last error. Admin only.",
+        "operationId": "tls_status",
+        "responses": {
+          "200": {
+            "description": "TLS provisioning status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/tunnels": {
       "get": {
         "tags": [
@@ -16464,6 +17184,24 @@
           }
         }
       },
+      "ConfigureCloudflareRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ddns/cloudflare` (BYOD provider).",
+        "required": [
+          "token",
+          "domain"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The fully-qualified domain the operator controls, e.g. `home.example.com`."
+          },
+          "token": {
+            "type": "string",
+            "description": "A Cloudflare API token scoped to DNS:Edit on the domain's zone."
+          }
+        }
+      },
       "CountryInfo": {
         "type": "object",
         "description": "A country available from a VPN provider.",
@@ -16950,6 +17688,79 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DdnsCheckResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/ddns/check`.",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "`true` when the name is well-formed and unclaimed on the best bridge."
+          }
+        }
+      },
+      "DdnsRegisterRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ddns/register` (bridge provider).",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The short name to claim, e.g. `happy-einstein`. The bridge validates it\n(3–32 chars, `[a-z0-9-]`, no leading/trailing hyphen, not reserved)."
+          }
+        }
+      },
+      "DdnsRegisterResponse": {
+        "type": "object",
+        "description": "Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`.",
+        "required": [
+          "fqdn"
+        ],
+        "properties": {
+          "fqdn": {
+            "type": "string",
+            "description": "The public hostname now assigned to this installation."
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The bridge region label (display only); `None` for BYOD-Cloudflare."
+          }
+        }
+      },
+      "DdnsStatusResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/ddns/status`.",
+        "properties": {
+          "fqdn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The active public hostname (bridge subdomain or BYOD domain), if any."
+          },
+          "last_public_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IP last published by the daemon, if any."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` when DDNS is not configured; otherwise `\"bridge\"` or `\"cloudflare\"`."
           }
         }
       },
@@ -19530,6 +20341,50 @@
           }
         }
       },
+      "TlsProvisioningPhase": {
+        "type": "string",
+        "description": "Coarse stage of the daemon's TLS-certificate provisioning, surfaced so the\nsetup wizard and dashboard can show live progress without instrumenting the\nACME round-trip. Persisted in `system_config`, so it survives a restart.",
+        "enum": [
+          "idle",
+          "issuing",
+          "issued",
+          "failed"
+        ]
+      },
+      "TlsStatusResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/tls/status`.",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The domain being (or already) provisioned, if any."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable error from the last failed attempt, when `phase` is\n[`TlsProvisioningPhase::Failed`]."
+          },
+          "not_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 expiry of the stored certificate, when one has been issued."
+          },
+          "phase": {
+            "$ref": "#/components/schemas/TlsProvisioningPhase",
+            "description": "Current coarse provisioning phase."
+          }
+        }
+      },
       "ToggleDhcpRequest": {
         "type": "object",
         "description": "Request body for POST /api/dhcp/config/toggle.",
@@ -20573,7 +21428,7 @@
       },
       "WizardStep": {
         "type": "string",
-        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ Completed`. `setup_completed` (in [`SetupStatusResponse`] and the\n`SetupGuard` redirect logic) is derived from `wizard_step == Completed`,\nso existing installs that already finished setup are not re-routed\nthrough the new wizard after an upgrade.",
+        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ SecureAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]\nand the `SetupGuard` redirect logic) is derived from\n`wizard_step == Completed`, so existing installs that already finished\nsetup are not re-routed through the new wizard after an upgrade.\n\nSteps are persisted by their stable storage string (not their ordinal), so\ninserting [`Self::SecureAccess`] ahead of [`Self::Completed`] needs no\nmigration: finished installs (`\"completed\"`) and in-progress ones keep\nresolving to the same variant.",
         "enum": [
           "admin",
           "network",
@@ -20581,6 +21436,7 @@
           "router_mac",
           "tunnel",
           "policy",
+          "secure_access",
           "completed"
         ]
       }
@@ -20630,6 +21486,14 @@
     {
       "name": "dns",
       "description": "DNS resolver, ad-blocking, filters"
+    },
+    {
+      "name": "ddns",
+      "description": "Dynamic DNS: bridge / BYOD-Cloudflare registration"
+    },
+    {
+      "name": "tls",
+      "description": "Daemon-owned TLS certificate provisioning"
     },
     {
       "name": "system",

@@ -96,6 +96,16 @@ pub trait DdnsService: Send + Sync {
     /// Check whether `name` is available on the best-latency bridge.
     async fn check_name_available(&self, name: String) -> Result<bool, AppError>;
 
+    /// Configure the **BYOD-Cloudflare** provider for a domain the operator
+    /// controls. Resolves the zone id from `domain` (which also validates
+    /// `token`), persists provider identity (config + token secret), and returns
+    /// the active hostname. Used by the wizard's BYOD path.
+    async fn configure_cloudflare(
+        &self,
+        token: String,
+        domain: String,
+    ) -> Result<DdnsRegistration, AppError>;
+
     /// Discover the WAN IP and, if it changed since the last publish, push it
     /// through the active provider. Returns the published IP, or `None` when
     /// DDNS is unconfigured or the IP is unchanged. Called by the runner.
@@ -269,10 +279,37 @@ impl DdnsServiceImpl {
     }
 }
 
+/// Whether `name` is a syntactically valid bridge subdomain label.
+///
+/// **Security boundary:** `name` is interpolated into the bridge request URL
+/// path (`/v1/names/{name}/available`, `/v1/register`), so it must be validated
+/// **before** building that URL — an unchecked `/`, `?`, `.` or whitespace would
+/// let an admin reshape the request path. The bridge enforces the authoritative
+/// rules (incl. the reserved-name list) and is the source of truth; this is the
+/// daemon-side guard against path injection, mirroring the bridge's charset and
+/// length constraints (`source/bridge/src/api/validation.rs`).
+fn is_valid_bridge_name(name: &str) -> bool {
+    let len = name.len();
+    (3..=32).contains(&len)
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 #[async_trait]
 impl DdnsService for DdnsServiceImpl {
     async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
         auth_context::require_admin()?;
+
+        if !is_valid_bridge_name(&name) {
+            return Err(AppError::BadRequest(
+                "hostname must be 3–32 chars of lowercase letters, digits, and hyphens, \
+                 not starting or ending with a hyphen"
+                    .to_owned(),
+            ));
+        }
 
         let region = region::select_best(&self.http, &self.settings.region_catalog)
             .await
@@ -313,12 +350,59 @@ impl DdnsService for DdnsServiceImpl {
 
     async fn check_name_available(&self, name: String) -> Result<bool, AppError> {
         auth_context::require_admin()?;
+        // Reject invalid names locally (no network call) — both to avoid path
+        // injection into the bridge URL and because an invalid name is, by
+        // definition, not an available one (mirrors the bridge's own behaviour).
+        if !is_valid_bridge_name(&name) {
+            return Ok(false);
+        }
         let region = region::select_best(&self.http, &self.settings.region_catalog)
             .await
             .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))?;
         bridge::check_name_available(&self.http, &region.base_url, &name)
             .await
             .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))
+    }
+
+    async fn configure_cloudflare(
+        &self,
+        token: String,
+        domain: String,
+    ) -> Result<DdnsRegistration, AppError> {
+        auth_context::require_admin()?;
+
+        // Resolving the zone id both maps domain → zone and validates the token.
+        // `lookup_zone_id` already classifies the failure: a rejected token or an
+        // uncovered domain is `BadRequest`, only a transport failure is
+        // `UpstreamUnavailable` — so propagate it as-is.
+        let zone_id =
+            cloudflare::lookup_zone_id(&self.http, &self.settings.cf_base_url, &token, &domain)
+                .await?;
+
+        // Non-secret identity first, the credential **last** — the opposite
+        // order to `register_with_bridge`, and deliberately so. There the bridge
+        // signing key is irreplaceable (the bridge mints it once), so it must be
+        // persisted before anything else can orphan it. Here the token is
+        // user-supplied and re-enterable, so we never want to persist the
+        // credential until the identity it belongs to is fully committed: a
+        // transient DB failure then leaves a `configured-but-missing-token` state
+        // that surfaces an error and self-heals on retry, rather than an
+        // orphaned secret with no owning identity.
+        self.set_cfg(KEY_PROVIDER, PROVIDER_CLOUDFLARE).await?;
+        self.set_cfg(KEY_DOMAIN, &domain).await?;
+        self.set_cfg(KEY_CF_ZONE_ID, &zone_id).await?;
+
+        self.secrets
+            .put(SECRET_CF_TOKEN, token.as_bytes())
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(%domain, "configured BYOD Cloudflare DDNS provider");
+
+        Ok(DdnsRegistration {
+            subdomain: domain,
+            region: PROVIDER_CLOUDFLARE.to_owned(),
+        })
     }
 
     async fn refresh_public_ip(&self) -> Result<Option<Ipv4Addr>, AppError> {

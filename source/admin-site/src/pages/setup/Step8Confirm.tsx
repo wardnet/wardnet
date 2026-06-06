@@ -2,14 +2,14 @@ import { useNavigate } from "react-router";
 import { Button } from "@wardnet/web";
 
 /**
- * Step 7 — wizard finished.
+ * Step 8 — wizard finished.
  *
- * Reached after step 6 advances `wizard_step` to `"completed"`. The
- * stepper renders the "Done" pill and this page lets the operator
- * jump to the dashboard. SetupGuard sees `wizard_step === "completed"`
+ * Reached after step 7 (secure access) advances `wizard_step` to
+ * `"completed"`. The stepper renders the "Done" pill and this page lets the
+ * operator jump to the dashboard. SetupGuard sees `wizard_step === "completed"`
  * and stops redirecting back to /setup.
  */
-export default function Step7Confirm() {
+export default function Step8Confirm() {
   const navigate = useNavigate();
 
   return (
