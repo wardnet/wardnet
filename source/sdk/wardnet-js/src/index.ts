@@ -255,6 +255,7 @@ export type {
 export type {
   DnsRecordType,
   DnsRecordSource,
+  DnsZoneSource,
   DnsZone,
   CustomDnsRecord,
   ConditionalForwardingRule,

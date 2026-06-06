@@ -15,7 +15,9 @@ use wardnet_common::api::{
     UpdateRecordResponse, UpdateZoneRequest, UpdateZoneResponse, UpsertRecordRequest,
     UpsertRecordResponse,
 };
-use wardnet_common::dns::{ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsZone};
+use wardnet_common::dns::{
+    ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsZone, DnsZoneSource,
+};
 use wardnetd_data::repository::{
     DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
     ZoneUpdate,
@@ -227,6 +229,9 @@ impl DnsLocalService for DnsLocalServiceImpl {
             id: Uuid::new_v4().to_string(),
             name: req.name,
             enabled: req.enabled,
+            // Admin-created zones are always `Manual`; `System` is reserved for
+            // daemon-seeded zones (the `.lan` zone) and is never settable via the API.
+            source: DnsZoneSource::Manual,
         };
         let zone = self
             .repo
@@ -268,6 +273,14 @@ impl DnsLocalService for DnsLocalServiceImpl {
 
     async fn delete_zone(&self, id: Uuid) -> Result<DeleteZoneResponse, AppError> {
         auth_context::require_admin()?;
+        // System zones (the daemon-seeded `.lan` zone) are non-deletable: reject
+        // before touching the repo. 404 still wins for a non-existent id.
+        let zone = self.ensure_zone(id).await?;
+        if zone.source == DnsZoneSource::System {
+            return Err(AppError::Forbidden(format!(
+                "zone {id} is a system zone and cannot be deleted"
+            )));
+        }
         let deleted = self
             .repo
             .delete_zone(id)

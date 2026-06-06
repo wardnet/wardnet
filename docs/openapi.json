@@ -17922,6 +17922,7 @@
           "id",
           "name",
           "enabled",
+          "source",
           "created_at",
           "updated_at"
         ],
@@ -17940,11 +17941,22 @@
           "name": {
             "type": "string"
           },
+          "source": {
+            "$ref": "#/components/schemas/DnsZoneSource"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
           }
         }
+      },
+      "DnsZoneSource": {
+        "type": "string",
+        "description": "Provenance of an authoritative local DNS zone.\n\n`Manual` zones are admin-created via the API and freely deletable. `System`\nzones are daemon-seeded (currently only the `.lan` zone) and **cannot be\ndeleted** — `DnsLocalService::delete_zone` rejects them. Zones are never\nDHCP-sourced, so (unlike [`DnsRecordSource`]) there is no `Dhcp` variant.",
+        "enum": [
+          "manual",
+          "system"
+        ]
       },
       "ExportBackupRequest": {
         "type": "object",

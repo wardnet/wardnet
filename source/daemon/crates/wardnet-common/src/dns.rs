@@ -150,12 +150,26 @@ pub struct CustomDnsRecord {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Provenance of an authoritative local DNS zone.
+///
+/// `Manual` zones are admin-created via the API and freely deletable. `System`
+/// zones are daemon-seeded (currently only the `.lan` zone) and **cannot be
+/// deleted** — `DnsLocalService::delete_zone` rejects them. Zones are never
+/// DHCP-sourced, so (unlike [`DnsRecordSource`]) there is no `Dhcp` variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsZoneSource {
+    Manual,
+    System,
+}
+
 /// An authoritative local DNS zone (e.g. "lab", "home", "local").
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsZone {
     pub id: Uuid,
     pub name: String,
     pub enabled: bool,
+    pub source: DnsZoneSource,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -31,9 +31,13 @@
 //! ## Live-cert swap
 //!
 //! Serving lives in `wardnetd` (it owns `axum-server`). The
-//! [`CertActivator`] trait is the seam: `wardnetd` provides an impl that holds
-//! the `:443` `RustlsConfig` + a `provisioned` flag; `activate()` reloads the
-//! cert in-memory and flips the flag so the 503 "not provisioned" guard lifts.
+//! [`CertActivator`] trait is the seam: `wardnetd` provides an impl (the
+//! serving-control component) that holds the `:443` `RustlsConfig` + the
+//! currently-served domain; `activate()` reloads the cert in-memory and records
+//! the domain, which lifts the 503 "not provisioned" guard and becomes the
+//! canonical short-name redirect target. The serving component exposes that
+//! state through methods (not a shared flag) so the unauthenticated `:80`/`:443`
+//! listeners never read raw shared memory or call an admin-gated service.
 
 pub mod acme;
 pub mod runner;
@@ -41,16 +45,25 @@ pub mod runner;
 #[cfg(test)]
 mod tests;
 
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use wardnet_common::api::UpsertRecordRequest;
+use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
 use wardnetd_data::repository::SystemConfigRepository;
 
 use crate::auth_context;
 use crate::ddns::DdnsService;
+use crate::dns_local::DnsLocalService;
 use crate::error::AppError;
 use crate::secret_store::SecretStore;
+
+/// TTL (seconds) for the daemon-maintained split-horizon / LAN system records.
+/// Short enough that a canonical-FQDN change propagates to LAN clients within a
+/// bounded window, without being so low it hammers the resolver.
+const SYSTEM_RECORD_TTL_SECS: u32 = 300;
 
 // ── system_config keys (non-secret) ─────────────────────────────────────────────
 pub(crate) const KEY_CERT_DOMAIN: &str = "tls_cert_domain";
@@ -93,15 +106,32 @@ pub async fn load_stored_cert(
     Ok(Some((chain, key)))
 }
 
+/// The domain recorded for the stored certificate (`tls_cert_domain`), if any.
+/// Used by `wardnetd` to seed the serving identity at boot so an already-issued
+/// cert lifts the 503 gate (and becomes the redirect target) without waiting for
+/// the first renewal tick. Kept here so `wardnetd` reads the config key through a
+/// service helper rather than knowing the key name.
+pub async fn load_stored_cert_domain(
+    config: &dyn SystemConfigRepository,
+) -> anyhow::Result<Option<String>> {
+    config.get(KEY_CERT_DOMAIN).await
+}
+
 /// Swaps the live `:443` certificate. Implemented in `wardnetd` (which owns the
 /// `axum-server` listener); kept as a trait here so this crate has no dependency
 /// on the serving stack and the renewal flow stays unit-testable.
 #[async_trait]
 pub trait CertActivator: Send + Sync {
-    /// Hot-swap the live `:443` cert to (`chain_pem`, `key_pem`) and mark TLS
-    /// provisioned. Idempotent on the flag: renewal re-activates with the flag
-    /// already `true`.
-    async fn activate(&self, chain_pem: Vec<u8>, key_pem: Vec<u8>) -> anyhow::Result<()>;
+    /// Hot-swap the live `:443` cert to (`chain_pem`, `key_pem`) and record
+    /// `fqdn` as the domain now being served (which lifts the "not provisioned"
+    /// gate and becomes the canonical redirect target). Idempotent: renewal
+    /// re-activates with the same domain already live.
+    async fn activate(
+        &self,
+        chain_pem: Vec<u8>,
+        key_pem: Vec<u8>,
+        fqdn: String,
+    ) -> anyhow::Result<()>;
 }
 
 /// Current TLS state, surfaced to Settings / status views (C10) and logged by
@@ -150,23 +180,105 @@ pub struct TlsServiceImpl {
     secrets: Arc<dyn SecretStore>,
     ddns: Arc<dyn DdnsService>,
     activator: Arc<dyn CertActivator>,
+    /// Used to maintain the split-horizon `<fqdn> → lan_ip` system record.
+    /// Reached through the auth-gated service (never a repository); calls inherit
+    /// the renewal runner's admin `auth_context`.
+    dns_local: Arc<dyn DnsLocalService>,
+    /// The Pi's LAN-interface IPv4 — the value of the split-horizon record.
+    lan_ip: Ipv4Addr,
 }
 
 impl TlsServiceImpl {
-    /// Build the service from its repository, secret store, DDNS service, and
-    /// the `wardnetd`-provided certificate activator.
+    /// Build the service from its repository, secret store, DDNS service, the
+    /// `wardnetd`-provided certificate activator, the local-DNS service (for the
+    /// split-horizon record), and the Pi's LAN IP.
     #[must_use]
     pub fn new(
         config: Arc<dyn SystemConfigRepository>,
         secrets: Arc<dyn SecretStore>,
         ddns: Arc<dyn DdnsService>,
         activator: Arc<dyn CertActivator>,
+        dns_local: Arc<dyn DnsLocalService>,
+        lan_ip: Ipv4Addr,
     ) -> Self {
         Self {
             config,
             secrets,
             ddns,
             activator,
+            dns_local,
+            lan_ip,
+        }
+    }
+
+    /// Reconcile the split-horizon `<domain> → lan_ip` system A record so LAN
+    /// clients resolving the canonical FQDN reach the Pi directly (with the valid
+    /// cert). Idempotent; called on every successful `ensure_certificate` so the
+    /// record self-heals. When `previous_domain` names a different earlier FQDN,
+    /// its stale system record is removed.
+    ///
+    /// **Non-fatal:** the cert is already live by the time this runs, so a
+    /// local-DNS failure must never surface as an issuance error — it is logged
+    /// and swallowed (mirrors `DhcpLanRunner`).
+    ///
+    /// **Precondition:** must be called from within an admin [`auth_context`] —
+    /// the `DnsLocalService` methods it calls open with `require_admin()?`. Its
+    /// only caller, `ensure_certificate`, runs under the renewal runner's admin
+    /// context, which these nested calls inherit (a service inheriting its
+    /// caller's verified context — *not* a runner force-establishing one).
+    async fn reconcile_split_horizon(&self, domain: &str, previous_domain: Option<&str>) {
+        let lan_ip = self.lan_ip;
+        let req = UpsertRecordRequest {
+            zone_id: None,
+            domain: domain.to_owned(),
+            record_type: DnsRecordType::A,
+            value: lan_ip.to_string(),
+            ttl: SYSTEM_RECORD_TTL_SECS,
+            enabled: true,
+            source: DnsRecordSource::System,
+        };
+        match self.dns_local.upsert_record(req).await {
+            Ok(_) => tracing::info!(
+                %domain, %lan_ip,
+                "reconciled split-horizon record {domain} -> {lan_ip}",
+            ),
+            Err(e) => tracing::warn!(
+                error = %e, %domain,
+                "failed to reconcile split-horizon record for {domain}; LAN clients will hairpin via WAN"
+            ),
+        }
+
+        if let Some(prev) = previous_domain
+            && prev != domain
+        {
+            self.delete_system_record(prev).await;
+        }
+    }
+
+    /// Remove the daemon-seeded `System` A record for `domain` (used when the
+    /// canonical FQDN changes). Non-fatal — a leftover record is harmless. The
+    /// service exposes no delete-by-name, so find-then-delete via the listing.
+    ///
+    /// **Precondition:** an admin [`auth_context`] must be active (see
+    /// [`Self::reconcile_split_horizon`]).
+    async fn delete_system_record(&self, domain: &str) {
+        let records = match self.dns_local.list_records().await {
+            Ok(resp) => resp.records,
+            Err(e) => {
+                tracing::warn!(error = %e, %domain, "failed to list records to prune stale system record for {domain}");
+                return;
+            }
+        };
+        for rec in records.into_iter().filter(|r| {
+            r.domain == domain
+                && r.record_type == DnsRecordType::A
+                && r.source == DnsRecordSource::System
+        }) {
+            if let Err(e) = self.dns_local.delete_record(rec.id).await {
+                tracing::warn!(error = %e, %domain, "failed to delete stale system record for {domain}");
+            } else {
+                tracing::info!(%domain, "pruned stale split-horizon record for {domain}");
+            }
         }
     }
 
@@ -242,7 +354,17 @@ impl TlsService for TlsServiceImpl {
             return Ok(TlsStatus::NotConfigured);
         };
 
+        // The domain a prior issuance recorded (for stale split-horizon cleanup
+        // on a domain change) — captured before any `set_cfg` overwrites it.
+        let previous_domain = self.get_cfg(KEY_CERT_DOMAIN).await?;
+
         if let Some(not_after) = self.stored_cert_is_fresh(&domain).await? {
+            // Steady state: the cert is already live (seeded at boot or activated
+            // earlier). Still reconcile the split-horizon record every tick so it
+            // self-heals if it was ever lost. The domain is unchanged here (a fresh
+            // stored cert *is* for `domain`), so there is nothing stale to prune —
+            // pass `None` rather than `previous_domain` (which equals `domain`).
+            self.reconcile_split_horizon(&domain, None).await;
             return Ok(TlsStatus::UpToDate { domain, not_after });
         }
 
@@ -269,14 +391,30 @@ impl TlsService for TlsServiceImpl {
             .put(SECRET_CERT_KEY, issued.key_pem.as_bytes())
             .await
             .map_err(AppError::Internal)?;
+
+        // Make the cert live, then reconcile the split-horizon record (deleting
+        // the prior domain's record on a change), then record the new domain as
+        // the truth — so the stale-delete above still sees the *old* domain.
+        self.activator
+            .activate(
+                issued.chain_pem.into_bytes(),
+                issued.key_pem.into_bytes(),
+                domain.clone(),
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        self.reconcile_split_horizon(&domain, previous_domain.as_deref())
+            .await;
+
+        // `activate` is irreversible: the cert + served domain are already live in
+        // `ServingControl`. If either `set_cfg` below fails (transient DB error),
+        // `tls_cert_domain` in `system_config` lags the live identity, so
+        // `status()` may briefly report `Pending`/the old domain. This is benign
+        // and self-correcting on the next renewal tick — serving is unaffected.
         self.set_cfg(KEY_CERT_DOMAIN, &domain).await?;
         self.set_cfg(KEY_CERT_NOT_AFTER, &not_after.to_rfc3339())
             .await?;
-
-        self.activator
-            .activate(issued.chain_pem.into_bytes(), issued.key_pem.into_bytes())
-            .await
-            .map_err(AppError::Internal)?;
 
         tracing::info!(
             %domain,

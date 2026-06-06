@@ -9,7 +9,7 @@ use crate::api::{
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
     DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
-    DnsResolutionMode, DnsStats, DnsZone, FilterAction, UpstreamDns,
+    DnsResolutionMode, DnsStats, DnsZone, DnsZoneSource, FilterAction, UpstreamDns,
 };
 use chrono::Utc;
 use std::net::{IpAddr, Ipv4Addr};
@@ -256,6 +256,7 @@ fn dns_zone_round_trip() {
         id: Uuid::new_v4(),
         name: "lab".to_owned(),
         enabled: true,
+        source: DnsZoneSource::System,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -263,6 +264,7 @@ fn dns_zone_round_trip() {
     let back: DnsZone = serde_json::from_str(&json).unwrap();
     assert_eq!(zone.name, back.name);
     assert_eq!(zone.enabled, back.enabled);
+    assert_eq!(zone.source, back.source);
 }
 
 #[test]

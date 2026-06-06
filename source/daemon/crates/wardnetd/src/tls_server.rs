@@ -1,21 +1,33 @@
 //! Daemon-owned TLS serving primitives for `main.rs`.
 //!
 //! `wardnetd` terminates TLS itself (no Caddy). The `:443` listener is **always
-//! bound** — at boot with a throwaway placeholder self-signed cert — and a
-//! shared `provisioned` flag gates a 503 guard on every `:443` route until a
-//! real cert is loaded. The pre-provisioning admin surface is plain HTTP on
-//! `:7411` (unguarded). `:80` 308-redirects to HTTPS.
+//! bound** — at boot with a throwaway placeholder self-signed cert — and a 503
+//! guard short-circuits every `:443` route until a real cert is loaded. The
+//! pre-provisioning admin surface is plain HTTP on `:7411` (unguarded). `:80`
+//! 308-redirects to HTTPS.
 //!
-//! This module owns the `axum-server` dependency (the services crate stays
-//! serving-agnostic) and provides the [`CertActivator`] impl that the TLS
-//! service injects: [`CertActivatorImpl::activate`] hot-swaps the live cert via
-//! `RustlsConfig::reload_from_pem` and flips the `provisioned` flag.
+//! ## Serving identity
+//!
+//! The mutable serving state — *which domain's cert is currently live on `:443`*
+//! — is encapsulated by [`ServingControl`], which exposes it through the
+//! [`ServingIdentity`] read-trait (`is_provisioned` / `canonical_fqdn`) rather
+//! than as a raw shared flag. The unauthenticated `:443` guard and `:80` redirect
+//! depend on `Arc<dyn ServingIdentity>` and **call methods** — they never read
+//! shared memory directly nor elevate to an admin context to call a service. The
+//! authoritative copy of the served domain still lives in `system_config`
+//! (`tls_cert_domain`, owned by `TlsService`); `ServingControl` is the hot-path
+//! projection of it.
+//!
+//! `ServingControl` also implements the [`CertActivator`] write-seam the TLS
+//! service injects: [`ServingControl::activate`] hot-swaps the live cert via
+//! `RustlsConfig::reload_from_pem` and records the served domain (a `Some` domain
+//! ⟺ provisioned, so the 503 gate and the redirect target move together).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::Request;
@@ -57,65 +69,104 @@ pub(crate) fn generate_placeholder_pem() -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
     ))
 }
 
-/// Build the shared `:443` [`RustlsConfig`] and `provisioned` flag.
+/// Read-only view of the live serving identity, consulted by the unauthenticated
+/// `:443` guard and `:80` redirect. Method-based so listeners never touch the
+/// underlying shared cell directly; mockable in tests.
+pub trait ServingIdentity: Send + Sync {
+    /// Whether a real (non-placeholder) certificate is live on `:443`.
+    fn is_provisioned(&self) -> bool;
+    /// The domain whose cert is currently served — the canonical short-name
+    /// redirect target. `None` while only the placeholder cert is loaded. Returns
+    /// a shared `Arc` (cheap atomic refcount, no heap copy) so the per-request
+    /// `:80` path doesn't allocate when no rewrite is needed.
+    fn canonical_fqdn(&self) -> Option<Arc<String>>;
+}
+
+/// Owns the mutable `:443` serving identity: the live [`RustlsConfig`] plus the
+/// domain whose cert it carries. A `Some` domain ⟺ provisioned, so the 503 gate
+/// and the redirect target are flipped together by a single [`Self::activate`].
 ///
-/// Seeds from `seed` (the stored real cert) when present — `provisioned = true`
-/// — otherwise from a freshly generated placeholder cert with `provisioned =
-/// false`. The returned config is cloned into both the `:443` listener and the
-/// [`CertActivatorImpl`], which share its internal `ArcSwap` for lock-free
-/// reloads.
-pub async fn build_tls_state(
-    seed: Option<(Vec<u8>, Vec<u8>)>,
-) -> anyhow::Result<(RustlsConfig, Arc<AtomicBool>)> {
-    let (provisioned, cert, key) = if let Some((cert, key)) = seed {
-        (true, cert, key)
-    } else {
-        let (cert, key) = generate_placeholder_pem()?;
-        (false, cert, key)
-    };
-    let config = RustlsConfig::from_pem(cert, key).await?;
-    Ok((config, Arc::new(AtomicBool::new(provisioned))))
-}
-
-/// Hot-swaps the live `:443` certificate and lifts the provisioning gate.
-/// Injected into the TLS service as `Arc<dyn CertActivator>`.
-pub struct CertActivatorImpl {
+/// Injected into the TLS service as `Arc<dyn CertActivator>` (write seam) and
+/// into the listeners as `Arc<dyn ServingIdentity>` (read seam) — the one object
+/// is the single owner of this state.
+pub struct ServingControl {
     config: RustlsConfig,
-    provisioned: Arc<AtomicBool>,
+    /// The currently-served domain; `None` ⟺ placeholder cert ⟺ unprovisioned.
+    served_domain: ArcSwapOption<String>,
 }
 
-impl CertActivatorImpl {
+impl ServingControl {
     #[must_use]
-    pub fn new(config: RustlsConfig, provisioned: Arc<AtomicBool>) -> Self {
+    pub fn new(config: RustlsConfig, served_domain: Option<String>) -> Self {
         Self {
             config,
-            provisioned,
+            served_domain: ArcSwapOption::from(served_domain.map(Arc::new)),
         }
     }
 }
 
+impl ServingIdentity for ServingControl {
+    fn is_provisioned(&self) -> bool {
+        self.served_domain.load().is_some()
+    }
+
+    fn canonical_fqdn(&self) -> Option<Arc<String>> {
+        // `load_full` clones only the `Arc` (atomic increment), not the `String`.
+        self.served_domain.load_full()
+    }
+}
+
 #[async_trait]
-impl CertActivator for CertActivatorImpl {
-    async fn activate(&self, chain_pem: Vec<u8>, key_pem: Vec<u8>) -> anyhow::Result<()> {
+impl CertActivator for ServingControl {
+    async fn activate(
+        &self,
+        chain_pem: Vec<u8>,
+        key_pem: Vec<u8>,
+        fqdn: String,
+    ) -> anyhow::Result<()> {
+        // Reload the cert *before* publishing the domain: a reader that observes
+        // `Some(domain)` is then guaranteed to also see the matching cert.
         self.config.reload_from_pem(chain_pem, key_pem).await?;
-        // Release pairs with the guard's Acquire load: a reader that observes
-        // `true` is guaranteed to see the reloaded cert. Renewal re-activates
-        // with the flag already `true` — idempotent.
-        self.provisioned.store(true, Ordering::Release);
-        tracing::info!("activated TLS certificate on :443; provisioning gate lifted");
+        self.served_domain.store(Some(Arc::new(fqdn.clone())));
+        tracing::info!(
+            %fqdn,
+            "activated TLS certificate on :443 for {fqdn}; provisioning gate lifted"
+        );
         Ok(())
     }
 }
 
-/// Wrap `app` with the 503 guard: until `provisioned` is set, every request is
-/// short-circuited with a 503 pointing at the plain-HTTP fallback. Applied only
+/// Build the `:443` [`RustlsConfig`] and its [`ServingControl`].
+///
+/// Seeds from `seed` (the stored real cert) when present — provisioned, with
+/// `served_domain` set to `seed_domain` — otherwise from a freshly generated
+/// placeholder cert (unprovisioned, `served_domain = None`). The `RustlsConfig`
+/// is cloned into both the `:443` listener and the `ServingControl`, which share
+/// its internal `ArcSwap` for lock-free reloads.
+pub async fn build_serving_control(
+    seed: Option<(Vec<u8>, Vec<u8>)>,
+    seed_domain: Option<String>,
+) -> anyhow::Result<(RustlsConfig, Arc<ServingControl>)> {
+    let (served_domain, cert, key) = if let Some((cert, key)) = seed {
+        (seed_domain, cert, key)
+    } else {
+        let (cert, key) = generate_placeholder_pem()?;
+        (None, cert, key)
+    };
+    let config = RustlsConfig::from_pem(cert, key).await?;
+    let control = Arc::new(ServingControl::new(config.clone(), served_domain));
+    Ok((config, control))
+}
+
+/// Wrap `app` with the 503 guard: until a real cert is provisioned, every request
+/// is short-circuited with a 503 pointing at the plain-HTTP fallback. Applied only
 /// to the `:443` app — `:7411` is never guarded.
-pub fn guarded_https_app(app: Router, provisioned: Arc<AtomicBool>) -> Router {
+pub fn guarded_https_app(app: Router, serving: Arc<dyn ServingIdentity>) -> Router {
     app.layer(axum::middleware::from_fn(
         move |req: Request, next: Next| {
-            let provisioned = provisioned.clone();
+            let serving = serving.clone();
             async move {
-                if provisioned.load(Ordering::Acquire) {
+                if serving.is_provisioned() {
                     next.run(req).await
                 } else {
                     unprovisioned_response()
@@ -171,15 +222,18 @@ pub fn spawn_https_listener(
     )
 }
 
-/// Spawn the `:80` listener that 308-redirects every request to HTTPS on the
-/// same host. A bind failure is logged, not fatal.
+/// Spawn the `:80` listener that 308-redirects every request to HTTPS. When a
+/// canonical FQDN is provisioned, short-name requests are rewritten to it;
+/// otherwise the redirect is a same-host upgrade. A bind failure is logged, not
+/// fatal.
 pub fn spawn_http_redirect_listener(
     addr: SocketAddr,
     https_port: u16,
+    serving: Arc<dyn ServingIdentity>,
     shutdown: &CancellationToken,
     parent: &tracing::Span,
 ) -> tokio::task::JoinHandle<()> {
-    let app = redirect_router(https_port);
+    let app = redirect_router(https_port, serving);
     let shutdown = shutdown.clone();
     let span = tracing::info_span!(parent: parent, "http_redirect_server");
     tokio::spawn(
@@ -203,34 +257,58 @@ pub fn spawn_http_redirect_listener(
     )
 }
 
-/// A router whose every path 308-redirects to `https://{host}{path}` (adding the
-/// HTTPS port when it isn't the default 443). The canonical-FQDN rewrite for
-/// short names is C8's job; this is a generic same-host upgrade.
-fn redirect_router(https_port: u16) -> Router {
-    Router::new().fallback(move |headers: HeaderMap, uri: Uri| async move {
-        redirect_to_https(https_port, &headers, &uri)
+/// A router whose every path 308-redirects to HTTPS. When the serving identity
+/// has a canonical FQDN and the request arrived under a different host (a short
+/// or LAN name like `wardnet`, `wardnet.lan`, or the bare LAN IP), the redirect
+/// rewrites the host to the canonical FQDN so the client lands on the name with a
+/// valid cert. Otherwise it is a same-host upgrade.
+fn redirect_router(https_port: u16, serving: Arc<dyn ServingIdentity>) -> Router {
+    Router::new().fallback(move |headers: HeaderMap, uri: Uri| {
+        let serving = serving.clone();
+        async move { redirect_to_https(https_port, serving.canonical_fqdn(), &headers, &uri) }
     })
 }
 
-pub(crate) fn redirect_to_https(https_port: u16, headers: &HeaderMap, uri: &Uri) -> Response {
+pub(crate) fn redirect_to_https(
+    https_port: u16,
+    canonical_fqdn: Option<Arc<String>>,
+    headers: &HeaderMap,
+    uri: &Uri,
+) -> Response {
     let host = headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let host_no_port = host.split(':').next().unwrap_or("");
+    // Strip the optional `:port`. IPv6 literals are bracketed (`[::1]` /
+    // `[::1]:443`), so a naive `split(':')` would mangle them — keep the bracketed
+    // address and drop only a trailing port. `wardnetd` runs on non-Pi hosts too,
+    // so this isn't purely theoretical.
+    let host_no_port = if host.starts_with('[') {
+        host.find(']').map_or(host, |end| &host[..=end])
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
     if host_no_port.is_empty() {
         return (StatusCode::BAD_REQUEST, "missing Host header\n").into_response();
     }
+    // Rewrite short/LAN names to the canonical FQDN (the name with a valid cert);
+    // fall back to a same-host upgrade when no FQDN is provisioned or the request
+    // already targets it. The same-host upgrade is genuinely permanent (308), but
+    // a rewrite points at a *mutable* target (the canonical FQDN can change when
+    // the DDNS provider/domain changes), so it must be a 307 the browser won't
+    // cache permanently.
+    let (target_host, status) = match canonical_fqdn {
+        Some(fqdn) if fqdn.as_str() != host_no_port => {
+            (fqdn.as_str().to_owned(), StatusCode::TEMPORARY_REDIRECT)
+        }
+        _ => (host_no_port.to_owned(), StatusCode::PERMANENT_REDIRECT),
+    };
     let authority = if https_port == 443 {
-        host_no_port.to_owned()
+        target_host
     } else {
-        format!("{host_no_port}:{https_port}")
+        format!("{target_host}:{https_port}")
     };
     let path = uri.path_and_query().map_or("/", |p| p.as_str());
     let location = format!("https://{authority}{path}");
-    (
-        StatusCode::PERMANENT_REDIRECT,
-        [(header::LOCATION, location)],
-    )
-        .into_response()
+    (status, [(header::LOCATION, location)]).into_response()
 }

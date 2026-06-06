@@ -126,13 +126,17 @@ export function DnsZonesCard() {
               <RowAction onSelect={() => openEdit(row)} icon={<Pencil aria-hidden />}>
                 Edit
               </RowAction>
-              <RowAction
-                onSelect={() => setDeleteId(row.id)}
-                destructive
-                icon={<Trash2 aria-hidden />}
-              >
-                Delete
-              </RowAction>
+              {/* System zones (the daemon-seeded `.lan` zone) can't be deleted —
+                  the API rejects it, so don't offer the action. */}
+              {row.source !== "system" && (
+                <RowAction
+                  onSelect={() => setDeleteId(row.id)}
+                  destructive
+                  icon={<Trash2 aria-hidden />}
+                >
+                  Delete
+                </RowAction>
+              )}
             </>
           )}
         />

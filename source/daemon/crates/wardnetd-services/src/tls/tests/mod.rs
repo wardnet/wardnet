@@ -11,18 +11,43 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
+use wardnet_common::api::CreateRecordRequest;
 use wardnet_common::auth::AuthContext;
-use wardnetd_data::repository::SystemConfigRepository;
+use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
+use wardnetd_data::repository::{SqliteDnsLocalRepository, SystemConfigRepository};
 
 use crate::auth_context;
 use crate::ddns::{DdnsRegistration, DdnsService, DdnsStatus};
+use crate::dns_local::{DnsLocalService, DnsLocalServiceImpl};
 use crate::error::AppError;
+use crate::event::BroadcastEventBus;
 use crate::secret_store::SecretStore;
 use crate::tls::{
     CertActivator, KEY_CERT_DOMAIN, KEY_CERT_NOT_AFTER, TlsService, TlsServiceImpl, TlsStatus,
     within_renewal_window,
 };
+
+/// A fixed LAN IP for the split-horizon record under test.
+const TEST_LAN_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 1);
+
+/// Build a real in-memory [`DnsLocalService`] (same migration set as the rest of
+/// the workspace) so the split-horizon reconcile can be asserted end-to-end.
+async fn new_dns_local() -> Arc<dyn DnsLocalService> {
+    let pool: SqlitePool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("../wardnetd-data/migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+    let repo = Arc::new(SqliteDnsLocalRepository::new(pool));
+    let events: Arc<dyn crate::event::EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    Arc::new(DnsLocalServiceImpl::new(repo, events))
+}
 
 // ── Mocks ────────────────────────────────────────────────────────────────────────
 
@@ -120,17 +145,24 @@ impl DdnsService for MockDdns {
     }
 }
 
-/// Records whether `activate` was called, so tests can assert the cert is only
-/// swapped on an actual issuance.
+/// Records whether `activate` was called (and with which fqdn), so tests can
+/// assert the cert is only swapped on an actual issuance and carries the domain.
 #[derive(Default)]
 struct MockActivator {
     activated: Mutex<bool>,
+    fqdn: Mutex<Option<String>>,
 }
 
 #[async_trait]
 impl CertActivator for MockActivator {
-    async fn activate(&self, _chain_pem: Vec<u8>, _key_pem: Vec<u8>) -> anyhow::Result<()> {
+    async fn activate(
+        &self,
+        _chain_pem: Vec<u8>,
+        _key_pem: Vec<u8>,
+        fqdn: String,
+    ) -> anyhow::Result<()> {
         *self.activated.lock().unwrap() = true;
+        *self.fqdn.lock().unwrap() = Some(fqdn);
         Ok(())
     }
 }
@@ -148,6 +180,7 @@ fn build_service(
     secrets: Arc<MockSecretStore>,
     fqdn: Option<&str>,
     activator: Arc<MockActivator>,
+    dns_local: Arc<dyn DnsLocalService>,
 ) -> TlsServiceImpl {
     TlsServiceImpl::new(
         config,
@@ -156,6 +189,8 @@ fn build_service(
             fqdn: fqdn.map(str::to_owned),
         }),
         activator,
+        dns_local,
+        TEST_LAN_IP,
     )
 }
 
@@ -168,6 +203,7 @@ async fn ensure_certificate_requires_admin() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert!(matches!(
         svc.ensure_certificate().await.unwrap_err(),
@@ -183,6 +219,7 @@ async fn ensure_certificate_inert_when_no_fqdn() {
         Arc::new(MockSecretStore::default()),
         None,
         activator.clone(),
+        new_dns_local().await,
     );
     let status = auth_context::with_context(admin_ctx(), svc.ensure_certificate())
         .await
@@ -210,6 +247,7 @@ async fn ensure_certificate_up_to_date_when_cert_fresh() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         activator.clone(),
+        new_dns_local().await,
     );
     let status = auth_context::with_context(admin_ctx(), svc.ensure_certificate())
         .await
@@ -221,6 +259,138 @@ async fn ensure_certificate_up_to_date_when_cert_fresh() {
     );
 }
 
+/// Even on the steady-state `UpToDate` path (no re-issuance), the split-horizon
+/// `<fqdn> -> lan_ip` system record is reconciled so it self-heals.
+#[tokio::test]
+async fn ensure_certificate_reconciles_split_horizon_when_fresh() {
+    let config = Arc::new(MockSystemConfig::default());
+    config
+        .set(KEY_CERT_DOMAIN, "home.example.net")
+        .await
+        .unwrap();
+    config
+        .set(
+            KEY_CERT_NOT_AFTER,
+            &(Utc::now() + Duration::days(60)).to_rfc3339(),
+        )
+        .await
+        .unwrap();
+
+    let dns_local = new_dns_local().await;
+    let svc = build_service(
+        config,
+        Arc::new(MockSecretStore::default()),
+        Some("home.example.net"),
+        Arc::new(MockActivator::default()),
+        dns_local.clone(),
+    );
+
+    auth_context::with_context(admin_ctx(), svc.ensure_certificate())
+        .await
+        .unwrap();
+
+    let records = auth_context::with_context(admin_ctx(), dns_local.list_records())
+        .await
+        .unwrap()
+        .records;
+    let split = records
+        .iter()
+        .find(|r| r.domain == "home.example.net")
+        .expect("split-horizon record reconciled");
+    assert_eq!(split.value, TEST_LAN_IP.to_string());
+    assert_eq!(split.record_type, wardnet_common::dns::DnsRecordType::A);
+    assert_eq!(split.source, wardnet_common::dns::DnsRecordSource::System);
+    assert_eq!(split.zone_id, None);
+}
+
+/// On a canonical-FQDN change the old domain's `system` record is removed and the
+/// new one created. Exercises the private `reconcile_split_horizon` directly
+/// (the live-issuance path that triggers it in production needs a real ACME call).
+#[tokio::test]
+async fn reconcile_split_horizon_swaps_domain_on_change() {
+    let dns_local = new_dns_local().await;
+    let svc = build_service(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        Some("b.example.net"),
+        Arc::new(MockActivator::default()),
+        dns_local.clone(),
+    );
+
+    auth_context::with_context(
+        admin_ctx(),
+        svc.reconcile_split_horizon("a.example.net", None),
+    )
+    .await;
+    auth_context::with_context(
+        admin_ctx(),
+        svc.reconcile_split_horizon("b.example.net", Some("a.example.net")),
+    )
+    .await;
+
+    let records = auth_context::with_context(admin_ctx(), dns_local.list_records())
+        .await
+        .unwrap()
+        .records;
+    assert!(
+        records
+            .iter()
+            .any(|r| r.domain == "b.example.net" && r.source == DnsRecordSource::System),
+        "new system record present"
+    );
+    assert!(
+        !records.iter().any(|r| r.domain == "a.example.net"),
+        "old system record pruned"
+    );
+}
+
+/// The stale-record prune must only touch `system` records — a user's `manual`
+/// record for the same name is sacrosanct. This is the one path here that could
+/// destroy user data, so it is pinned explicitly.
+#[tokio::test]
+async fn reconcile_split_horizon_spares_user_records() {
+    let dns_local = new_dns_local().await;
+    // Seed a *manual* A record for the soon-to-be-old domain.
+    auth_context::with_context(
+        admin_ctx(),
+        dns_local.create_record(CreateRecordRequest {
+            zone_id: None,
+            domain: "old.example.net".to_owned(),
+            record_type: DnsRecordType::A,
+            value: "10.9.9.9".to_owned(),
+            ttl: 300,
+            enabled: true,
+        }),
+    )
+    .await
+    .unwrap();
+
+    let svc = build_service(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        Some("new.example.net"),
+        Arc::new(MockActivator::default()),
+        dns_local.clone(),
+    );
+    // Reconcile to a new domain, claiming `old.example.net` was the previous one.
+    auth_context::with_context(
+        admin_ctx(),
+        svc.reconcile_split_horizon("new.example.net", Some("old.example.net")),
+    )
+    .await;
+
+    let records = auth_context::with_context(admin_ctx(), dns_local.list_records())
+        .await
+        .unwrap()
+        .records;
+    let manual = records
+        .iter()
+        .find(|r| r.domain == "old.example.net")
+        .expect("manual record must survive the prune");
+    assert_eq!(manual.source, DnsRecordSource::Manual);
+    assert_eq!(manual.value, "10.9.9.9");
+}
+
 #[tokio::test]
 async fn status_reflects_stored_state() {
     // No FQDN → NotConfigured.
@@ -229,6 +399,7 @@ async fn status_reflects_stored_state() {
         Arc::new(MockSecretStore::default()),
         None,
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert_eq!(
         auth_context::with_context(admin_ctx(), svc.status())
@@ -243,6 +414,7 @@ async fn status_reflects_stored_state() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert!(matches!(
         auth_context::with_context(admin_ctx(), svc.status())
@@ -269,6 +441,7 @@ async fn status_reflects_stored_state() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert!(matches!(
         auth_context::with_context(admin_ctx(), svc.status())
@@ -295,6 +468,7 @@ async fn status_reflects_stored_state() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert!(matches!(
         auth_context::with_context(admin_ctx(), svc.status())
@@ -302,7 +476,10 @@ async fn status_reflects_stored_state() {
             .unwrap(),
         TlsStatus::NeedsRenewal { .. }
     ));
+}
 
+#[tokio::test]
+async fn status_pending_when_stored_cert_is_for_a_different_domain() {
     // Stored cert is for a *different* domain than the active FQDN → Pending.
     let config = Arc::new(MockSystemConfig::default());
     config
@@ -321,6 +498,7 @@ async fn status_reflects_stored_state() {
         Arc::new(MockSecretStore::default()),
         Some("home.example.net"),
         Arc::new(MockActivator::default()),
+        new_dns_local().await,
     );
     assert!(matches!(
         auth_context::with_context(admin_ctx(), svc.status())

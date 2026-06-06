@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+    DnsZoneSource,
 };
 
 /// Insert struct for an authoritative local DNS zone.
@@ -23,6 +24,7 @@ pub struct ZoneRow {
     pub id: String,
     pub name: String,
     pub enabled: bool,
+    pub source: DnsZoneSource,
 }
 
 /// Partial update for a zone. `None` leaves a field unchanged.

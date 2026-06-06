@@ -2,6 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+    DnsZoneSource,
 };
 
 use crate::dns::authoritative::{AuthoritativeView, build_soa, parse_conditional_upstream};
@@ -11,6 +12,7 @@ fn zone(name: &str, enabled: bool) -> DnsZone {
         id: Uuid::new_v4(),
         name: name.to_owned(),
         enabled,
+        source: DnsZoneSource::Manual,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }

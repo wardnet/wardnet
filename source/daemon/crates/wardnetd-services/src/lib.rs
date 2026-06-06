@@ -469,6 +469,8 @@ fn create_services(
         backends.secret_store.clone(),
         ddns.clone(),
         backends.cert_activator.clone(),
+        dns_local_service.clone(),
+        lan_ip,
     ));
 
     let maintenance_service: Arc<dyn MaintenanceService> =

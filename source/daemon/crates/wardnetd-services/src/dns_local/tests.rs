@@ -179,6 +179,37 @@ async fn delete_zone_then_missing_is_not_found() {
 }
 
 #[tokio::test]
+async fn create_zone_is_manual_sourced() {
+    use wardnet_common::dns::DnsZoneSource;
+    let svc = build().await;
+    as_admin(async {
+        let created = svc.create_zone(create_zone_req("lab")).await.unwrap();
+        assert_eq!(created.zone.source, DnsZoneSource::Manual);
+    })
+    .await;
+}
+
+/// The seeded `.lan` zone is `source = 'system'` and must not be deletable.
+#[tokio::test]
+async fn delete_system_zone_is_forbidden() {
+    use wardnet_common::dns::DnsZoneSource;
+    let lan_zone_id = uuid::uuid!("00000000-0000-0000-0000-000000000010");
+    let svc = build().await;
+    as_admin(async {
+        // Sanity: the seeded zone really is a system zone.
+        let zone = svc.get_zone(lan_zone_id).await.unwrap().zone;
+        assert_eq!(zone.source, DnsZoneSource::System);
+
+        let err = svc.delete_zone(lan_zone_id).await.unwrap_err();
+        assert!(matches!(err, AppError::Forbidden(_)));
+
+        // Still present after the rejected delete.
+        assert!(svc.get_zone(lan_zone_id).await.is_ok());
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn list_zone_records_missing_zone_is_not_found() {
     let svc = build().await;
     as_admin(async {

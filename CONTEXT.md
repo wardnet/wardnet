@@ -38,6 +38,12 @@
 
 **Forwarding rule** — Also called *conditional forwarding*: a `domain → upstream` override that sends queries under a specific domain to a chosen upstream resolver instead of the default upstream pool (e.g. `corp.example.com → 10.0.0.53`). It is the per-domain form of the gateway-wide **Forwarding** resolution mode; the latter forwards *all* queries to the default upstreams.
 
+**Zone provenance** — Whether an **authoritative local zone** was created by an admin (`manual`) or seeded by the daemon (`system`). A **system zone** — currently only the seeded `.lan` zone — cannot be deleted: the admin API rejects the attempt and the UI hides the delete control. Manual zones are freely deletable. (Custom records carry an analogous provenance: `manual`, `dhcp`, or `system`.)
+
+**System DNS record** — A **custom DNS record** the daemon maintains for itself (provenance `system`), as opposed to admin- or DHCP-created ones. Two exist: the **split-horizon** record (the canonical FQDN → the Pi's LAN IP) and the convenience `wardnet.lan` → Pi LAN IP. The daemon owns their lifecycle; a DHCP-sourced upsert can never overwrite them.
+
+**Split-horizon resolution** — Answering the public **canonical FQDN** with the Pi's *LAN* IP for clients querying through the gateway, while the same name resolves to the **Public WAN IP** on the public internet. Lets a LAN device reach the Pi directly (and get the valid certificate for that name) instead of hair-pinning out through the WAN.
+
 ## Infrastructure
 
 **DDNS service** — Wardnet-operated service that assigns each installation a unique subdomain (`<install-id>.wardnet.network`) and manages DNS records for it. Also acts as an ACME bridge: handles `_acme-challenge` TXT records on behalf of the Pi so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it.
@@ -63,3 +69,9 @@
 **TLS provisioning** — The boolean state of whether the daemon is serving a real (vs **placeholder**) certificate on `:443`. A shared `provisioned` flag gates a 503 guard on the `:443` app; it flips to `true` when the first real certificate is activated. Pre-provisioning, `:7411` plain HTTP is the honest admin surface.
 
 **TLS renewal** — The background re-issuance of the certificate before expiry. `TlsService::ensure_certificate()` is a single idempotent operation — issue-if-missing or renew-if-within-30-days — driven on a 12-hour tick by `TlsRenewalRunner` and inert until DDNS (and therefore the public FQDN) is configured.
+
+**Canonical FQDN** — The single public hostname the gateway is reached by and holds a valid certificate for: the **domain the active certificate was issued for** (`tls_cert_domain`), not merely the configured DDNS hostname. The two are normally identical and diverge only transiently (issuance lag, a domain change before re-issuance, an ACME failure); the cert domain is authoritative precisely because it is the name that currently works. It is the primary entry point (PWA `start_url`/`scope`, bookmark) and the target of the **short-name redirect** and the **split-horizon** record. Absent (no cert yet) ⟹ both are inert.
+
+**Short-name redirect** — The `:80` listener's behaviour of 308-redirecting a request arriving under a short or LAN name (`wardnet`, `wardnet.lan`, the bare LAN IP) to `https://<canonical-FQDN>`, so the client lands on the name with a valid cert. When no canonical FQDN is provisioned, or the request already targets it, the redirect is a plain same-host HTTP→HTTPS upgrade.
+
+**Serving identity** — The daemon's current `:443` serving state — *which domain's certificate is live* — exposed to the unauthenticated `:80`/`:443` listeners through methods (`is_provisioned` / `canonical_fqdn`) rather than a shared flag or an admin-gated call. It is the hot-path projection of the authoritative served domain (`tls_cert_domain`, read by the API via `TlsService`); a non-empty serving identity is equivalent to **TLS provisioning** being complete.

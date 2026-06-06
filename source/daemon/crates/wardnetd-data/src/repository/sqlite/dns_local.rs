@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, DnsZone,
+    DnsZoneSource,
 };
 
 use crate::db::DbPools;
@@ -72,6 +73,24 @@ fn source_from_db(s: &str) -> DnsRecordSource {
     }
 }
 
+/// Map a [`DnsZoneSource`] to the `snake_case` string stored in the
+/// `dns_zones.source` column (matches the enum's serde repr).
+fn zone_source_to_db(source: DnsZoneSource) -> &'static str {
+    match source {
+        DnsZoneSource::Manual => "manual",
+        DnsZoneSource::System => "system",
+    }
+}
+
+/// Inverse of [`zone_source_to_db`]. Unknown values fall back to `Manual` so a
+/// stray row never fails the whole list query.
+fn zone_source_from_db(s: &str) -> DnsZoneSource {
+    match s {
+        "system" => DnsZoneSource::System,
+        _ => DnsZoneSource::Manual,
+    }
+}
+
 /// SQLite-backed local-DNS repository.
 pub struct SqliteDnsLocalRepository {
     pools: DbPools,
@@ -96,6 +115,7 @@ struct DbZoneRow {
     id: String,
     name: String,
     enabled: i64,
+    source: String,
     created_at: String,
     updated_at: String,
 }
@@ -106,6 +126,7 @@ impl DbZoneRow {
             id: self.id.parse()?,
             name: self.name,
             enabled: self.enabled != 0,
+            source: zone_source_from_db(&self.source),
             created_at: parse_ts(&self.created_at)?,
             updated_at: parse_ts(&self.updated_at)?,
         })
@@ -169,9 +190,9 @@ impl DbRuleRow {
 // clauses are dynamically assembled from static &str fragments (no user input is interpolated).
 
 const LIST_ZONES_SQL: &str =
-    "SELECT id, name, enabled, created_at, updated_at FROM dns_zones ORDER BY name ASC";
+    "SELECT id, name, enabled, source, created_at, updated_at FROM dns_zones ORDER BY name ASC";
 const GET_ZONE_SQL: &str =
-    "SELECT id, name, enabled, created_at, updated_at FROM dns_zones WHERE id = ?";
+    "SELECT id, name, enabled, source, created_at, updated_at FROM dns_zones WHERE id = ?";
 
 const LIST_RECORDS_SQL: &str = "SELECT id, zone_id, domain, record_type, value, ttl, enabled, source, created_at, updated_at \
      FROM dns_custom_records ORDER BY domain ASC";
@@ -207,12 +228,13 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
     async fn create_zone(&self, row: &ZoneRow) -> anyhow::Result<DnsZone> {
         let now = now_iso();
         sqlx::query(
-            "INSERT INTO dns_zones (id, name, enabled, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO dns_zones (id, name, enabled, source, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.name)
         .bind(row.enabled)
+        .bind(zone_source_to_db(row.source))
         .bind(&now)
         .bind(&now)
         .execute(&self.pools.write)
@@ -221,6 +243,7 @@ impl DnsLocalRepository for SqliteDnsLocalRepository {
             id: row.id.parse()?,
             name: row.name.clone(),
             enabled: row.enabled,
+            source: row.source,
             created_at: parse_ts(&now)?,
             updated_at: parse_ts(&now)?,
         })

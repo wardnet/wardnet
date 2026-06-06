@@ -12,11 +12,19 @@ export type DnsRecordType = "A" | "AAAA" | "CNAME" | "TXT" | "MX" | "SRV";
  */
 export type DnsRecordSource = "manual" | "dhcp" | "system";
 
+/**
+ * Provenance of an authoritative local DNS zone. `manual` = admin-created and
+ * freely deletable; `system` = daemon-seeded (the `.lan` zone) and cannot be
+ * deleted (the API rejects it). Zones are never DHCP-sourced.
+ */
+export type DnsZoneSource = "manual" | "system";
+
 /** An authoritative local DNS zone (e.g. "lan", "home"). */
 export interface DnsZone {
   id: string;
   name: string;
   enabled: boolean;
+  source: DnsZoneSource;
   created_at: string;
   updated_at: string;
 }

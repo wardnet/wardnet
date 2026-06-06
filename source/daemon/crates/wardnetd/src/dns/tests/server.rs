@@ -1698,6 +1698,7 @@ fn lan_zone() -> DnsZone {
         id: Uuid::new_v4(),
         name: "lan".into(),
         enabled: true,
+        source: wardnet_common::dns::DnsZoneSource::System,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }

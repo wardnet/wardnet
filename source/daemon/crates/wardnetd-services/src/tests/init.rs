@@ -229,7 +229,12 @@ fn stub_backends() -> Backends {
 struct StubCertActivator;
 #[async_trait]
 impl crate::tls::CertActivator for StubCertActivator {
-    async fn activate(&self, _chain_pem: Vec<u8>, _key_pem: Vec<u8>) -> anyhow::Result<()> {
+    async fn activate(
+        &self,
+        _chain_pem: Vec<u8>,
+        _key_pem: Vec<u8>,
+        _fqdn: String,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 }

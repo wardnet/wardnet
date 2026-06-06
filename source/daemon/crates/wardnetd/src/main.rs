@@ -34,7 +34,7 @@ use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::system::{PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps};
-use wardnetd::tls_server::{self, CertActivatorImpl};
+use wardnetd::tls_server;
 use wardnetd::tunnel_exit_probe::ReqwestTunnelExitProbe;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
@@ -254,10 +254,10 @@ async fn run(
     // by the time `init_services_with_factory` builds the TLS service.
     let secret_store = build_secret_store(config.secret_store.as_ref());
 
-    // Build the shared `:443` TLS state: seed from the stored real cert if one
-    // exists, else from a placeholder self-signed cert (provisioned = false).
-    // A SecretStore error at boot is non-fatal — fall back to the placeholder so
-    // `:7411` and `:443` still come up.
+    // Build the `:443` serving identity: seed from the stored real cert + its
+    // recorded domain if one exists (provisioned), else from a placeholder
+    // self-signed cert (unprovisioned). A SecretStore/config error at boot is
+    // non-fatal — fall back to the placeholder so `:7411` and `:443` still come up.
     let stored_cert = match wardnetd_services::tls::load_stored_cert(secret_store.as_ref()).await {
         Ok(seed) => seed,
         Err(e) => {
@@ -265,12 +265,19 @@ async fn run(
             None
         }
     };
-    let (rustls_config, provisioned) = tls_server::build_tls_state(stored_cert)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to build :443 TLS config: {e}"))?;
-    let cert_activator: Arc<dyn wardnetd_services::CertActivator> = Arc::new(
-        CertActivatorImpl::new(rustls_config.clone(), provisioned.clone()),
-    );
+    let stored_cert_domain =
+        match wardnetd_services::tls::load_stored_cert_domain(system_config_repo.as_ref()).await {
+            Ok(domain) => domain,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to read stored TLS cert domain");
+                None
+            }
+        };
+    let (rustls_config, serving_control) =
+        tls_server::build_serving_control(stored_cert, stored_cert_domain)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to build :443 TLS config: {e}"))?;
+    let cert_activator: Arc<dyn wardnetd_services::CertActivator> = serving_control.clone();
 
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
@@ -345,6 +352,43 @@ async fn run(
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
+    // can reach the Pi by a friendly name (and `http://wardnet` works via the
+    // search-domain hop + `:80` redirect). Cert-independent, so seeded at boot;
+    // idempotent (`source = system` upsert) and non-fatal.
+    {
+        use wardnet_common::api::UpsertRecordRequest;
+        use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
+        // The seeded `.lan` zone id (see `20260414000000_dns.sql`).
+        const LAN_ZONE_ID: uuid::Uuid = uuid::uuid!("00000000-0000-0000-0000-000000000010");
+        let req = UpsertRecordRequest {
+            zone_id: Some(LAN_ZONE_ID),
+            domain: "wardnet.lan".to_owned(),
+            record_type: DnsRecordType::A,
+            value: lan_ip.to_string(),
+            ttl: 300,
+            enabled: true,
+            source: DnsRecordSource::System,
+        };
+        match auth_context::with_context(
+            AuthContext::Admin {
+                admin_id: uuid::Uuid::nil(),
+            },
+            services.dns_local.upsert_record(req),
+        )
+        .await
+        {
+            Ok(_) => tracing::info!(
+                lan_ip = %lan_ip,
+                "seeded wardnet.lan -> {lan_ip} system record",
+                lan_ip = lan_ip,
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to seed wardnet.lan system record; continuing bootstrap");
+            }
+        }
+    }
 
     // Broadcast the GARP claim *before* any user-facing runner starts,
     // so managed clients see "dhcp_router_ip is at the Pi's MAC again"
@@ -667,7 +711,8 @@ async fn run(
     //   - `:80` — 308-redirects to HTTPS. Spawned.
     // The `:443`/`:80` tasks drain on cancellation; we join them after the
     // blocking `:7411` serve returns, before the teardown sequence.
-    let https_app = tls_server::guarded_https_app(app.clone(), provisioned.clone());
+    let serving: Arc<dyn tls_server::ServingIdentity> = serving_control.clone();
+    let https_app = tls_server::guarded_https_app(app.clone(), serving.clone());
     let https_handle = tls_server::spawn_https_listener(
         https_addr,
         https_app,
@@ -678,6 +723,7 @@ async fn run(
     let http_redirect_handle = tls_server::spawn_http_redirect_listener(
         redirect_addr,
         config.server.https_port,
+        serving,
         &shutdown_token,
         &root_span,
     );

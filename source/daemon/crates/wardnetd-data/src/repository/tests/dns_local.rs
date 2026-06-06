@@ -6,6 +6,7 @@
 //! `ON DELETE SET NULL` behaviour of `dns_custom_records.zone_id`.
 
 use uuid::Uuid;
+use wardnet_common::dns::DnsZoneSource;
 
 use super::test_pool;
 use crate::repository::SqliteDnsLocalRepository;
@@ -48,15 +49,18 @@ async fn zone_crud_round_trip() {
             id: id.to_string(),
             name: "lab".to_owned(),
             enabled: true,
+            source: DnsZoneSource::Manual,
         })
         .await
         .unwrap();
     assert_eq!(created.id, id);
     assert_eq!(created.name, "lab");
     assert!(created.enabled);
+    assert_eq!(created.source, DnsZoneSource::Manual);
 
     let fetched = repo.get_zone(id).await.unwrap().expect("zone exists");
     assert_eq!(fetched.name, "lab");
+    assert_eq!(fetched.source, DnsZoneSource::Manual);
 
     let updated = repo
         .update_zone(
@@ -80,6 +84,21 @@ async fn zone_crud_round_trip() {
 async fn delete_missing_zone_returns_false() {
     let repo = new_repo(test_pool().await);
     assert!(!repo.delete_zone(Uuid::new_v4()).await.unwrap());
+}
+
+/// The migration promotes the seeded `.lan` zone to `source = 'system'`. The
+/// service layer relies on this to refuse its deletion.
+#[tokio::test]
+async fn seeded_lan_zone_is_system_sourced() {
+    let repo = new_repo(test_pool().await);
+    let lan_id: Uuid = SEEDED_LAN_ZONE.parse().unwrap();
+    let zone = repo
+        .get_zone(lan_id)
+        .await
+        .unwrap()
+        .expect("lan zone seeded");
+    assert_eq!(zone.name, "lan");
+    assert_eq!(zone.source, DnsZoneSource::System);
 }
 
 // ── Records ───────────────────────────────────────────────────────────────
@@ -184,6 +203,7 @@ async fn deleting_zone_nulls_record_zone_id() {
         id: zone_id.to_string(),
         name: "tmp".to_owned(),
         enabled: true,
+        source: DnsZoneSource::Manual,
     })
     .await
     .unwrap();
