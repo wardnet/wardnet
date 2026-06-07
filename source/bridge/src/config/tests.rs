@@ -3,7 +3,7 @@ use crate::config::Config;
 fn test_config() -> Config {
     Config {
         listen_addr: "127.0.0.1:8080".to_string(),
-        database_url: "mysql://ignored".to_string(),
+        database_url: "postgres://ignored".to_string(),
         cloudflare_api_token: "token".to_string(),
         cloudflare_zone_id: "zone-id".to_string(),
         region: "us".to_string(),
@@ -34,7 +34,7 @@ fn from_env_reads_required_and_optional_vars() {
 
     // SAFETY: single-threaded test binary; no concurrent env access.
     unsafe {
-        std::env::set_var("DATABASE_URL", "mysql://test:test@localhost/db");
+        std::env::set_var("DATABASE_URL", "postgres://test:test@localhost/db");
         std::env::set_var("CLOUDFLARE_API_TOKEN", "cf-token");
         std::env::set_var("CLOUDFLARE_ZONE_ID", "cf-zone");
         std::env::set_var("REGION", "us");

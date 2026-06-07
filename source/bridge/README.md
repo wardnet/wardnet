@@ -147,7 +147,7 @@ make check-bridge   # clippy -D warnings + tests
 make build-bridge   # release binary
 ```
 
-Repository/integration tests run against a real Postgres via `testcontainers` (Docker required) `[#444]`. For a local smoke run, point `DATABASE_URL` at a local or Neon dev database and use `FileSecrets`/env for the Cloudflare values.
+Repository/integration tests run against a live Postgres started via `docker compose up -d` before running the tests. For a local smoke run, point `DATABASE_URL` at a local or Neon dev database and use `FileSecrets`/env for the Cloudflare values.
 
 ## Crate layout
 

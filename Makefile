@@ -310,7 +310,7 @@ check-bridge:
 	cd $(BRIDGE_DIR) && cargo test
 
 # coverage-bridge: generate line coverage for the bridge (local dev).
-# Requires cargo-llvm-cov and a running MySQL (docker compose up -d).
+# Requires cargo-llvm-cov and a running Postgres (docker compose up -d).
 # CI uses coverage-bridge-ci which drives nextest with --run-ignored all.
 COV_IGNORE_BRIDGE := (main\.rs|db/mod\.rs)
 coverage-bridge:

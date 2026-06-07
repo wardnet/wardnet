@@ -22,7 +22,7 @@ pub struct Config {
     /// TCP address to listen on for the HTTP API. Defaults to `127.0.0.1:8080`.
     pub listen_addr: String,
 
-    /// `MySQL` DSN, e.g. `mysql://user:pass@host:3306/wardnet`.
+    /// `PostgreSQL` DSN, e.g. `postgres://user:pass@host:5432/wardnet`.
     pub database_url: String,
 
     /// Cloudflare API token scoped to DNS:Edit on the `cloudflare_zone_id` zone only.

@@ -6,7 +6,7 @@ use wardnet_bridge::{
     cloudflare::CloudflareDnsProvider,
     config::Config,
     db,
-    repository::{MySqlChallengeRepository, MySqlInstallRepository},
+    repository::{PgChallengeRepository, PgInstallRepository},
     sni,
     state::AppState,
     tunnel::TunnelRegistry,
@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
 
     let pools = db::init(&config.database_url).await?;
 
-    let installs = Arc::new(MySqlInstallRepository::new_pools(pools.clone()));
-    let challenges = Arc::new(MySqlChallengeRepository::new_pools(pools.clone()));
+    let installs = Arc::new(PgInstallRepository::new_pools(pools.clone()));
+    let challenges = Arc::new(PgChallengeRepository::new_pools(pools.clone()));
     let dns = Arc::new(CloudflareDnsProvider::new(
         &config.cloudflare_api_token,
         &config.cloudflare_zone_id,

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::MySqlPool;
+use sqlx::PgPool;
 
 use crate::db::DbPools;
 
@@ -20,12 +20,15 @@ pub struct RegistrationChallenge {
     pub used_at: Option<DateTime<Utc>>,
 }
 
-/// Raw `MySQL` row for `sqlx::query_as` mapping.
+/// Raw `PostgreSQL` row for `sqlx::query_as` mapping.
+///
+/// `difficulty` is stored as `INTEGER` (Postgres has no unsigned types) and
+/// converted to the domain `u32` at the boundary — never with `as`.
 #[derive(sqlx::FromRow)]
 struct ChallengeRow {
     id: String,
     nonce: String,
-    difficulty: u32,
+    difficulty: i32,
     remote_ip: String,
     created_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
@@ -33,21 +36,28 @@ struct ChallengeRow {
 }
 
 impl ChallengeRow {
-    fn into_challenge(self) -> RegistrationChallenge {
-        RegistrationChallenge {
+    fn into_challenge(self) -> anyhow::Result<RegistrationChallenge> {
+        let difficulty = u32::try_from(self.difficulty).map_err(|_| {
+            anyhow::anyhow!(
+                "difficulty for challenge {} is negative: {}",
+                self.id,
+                self.difficulty
+            )
+        })?;
+        Ok(RegistrationChallenge {
             id: self.id,
             nonce: self.nonce,
-            difficulty: self.difficulty,
+            difficulty,
             remote_ip: self.remote_ip,
             created_at: self.created_at,
             expires_at: self.expires_at,
             used_at: self.used_at,
-        }
+        })
     }
 }
 
 const FIND_BY_ID: &str = "SELECT id, nonce, difficulty, remote_ip, created_at, expires_at, used_at \
-     FROM registration_challenges WHERE id = ?";
+     FROM registration_challenges WHERE id = $1";
 
 /// Data access for `registration_challenges`.
 #[async_trait]
@@ -70,14 +80,14 @@ pub trait ChallengeRepository: Send + Sync {
     async fn count_from_ip(&self, remote_ip: &str, since: DateTime<Utc>) -> anyhow::Result<i64>;
 }
 
-/// MySQL-backed [`ChallengeRepository`].
-pub struct MySqlChallengeRepository {
+/// PostgreSQL-backed [`ChallengeRepository`].
+pub struct PgChallengeRepository {
     pools: DbPools,
 }
 
-impl MySqlChallengeRepository {
+impl PgChallengeRepository {
     #[must_use]
-    pub fn new(pool: MySqlPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self {
             pools: DbPools::single(pool),
         }
@@ -90,16 +100,20 @@ impl MySqlChallengeRepository {
 }
 
 #[async_trait]
-impl ChallengeRepository for MySqlChallengeRepository {
+impl ChallengeRepository for PgChallengeRepository {
     async fn insert(&self, c: &RegistrationChallenge) -> anyhow::Result<()> {
+        // Postgres has no unsigned integers — convert the domain `u32` to the
+        // stored `INTEGER` explicitly at the boundary (never `as`).
+        let difficulty = i32::try_from(c.difficulty)
+            .map_err(|_| anyhow::anyhow!("difficulty {} exceeds i32::MAX", c.difficulty))?;
         sqlx::query(
             "INSERT INTO registration_challenges
              (id, nonce, difficulty, remote_ip, created_at, expires_at, used_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&c.id)
         .bind(&c.nonce)
-        .bind(c.difficulty)
+        .bind(difficulty)
         .bind(&c.remote_ip)
         .bind(c.created_at)
         .bind(c.expires_at)
@@ -110,18 +124,19 @@ impl ChallengeRepository for MySqlChallengeRepository {
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<RegistrationChallenge>> {
-        Ok(sqlx::query_as::<_, ChallengeRow>(FIND_BY_ID)
+        sqlx::query_as::<_, ChallengeRow>(FIND_BY_ID)
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?
-            .map(ChallengeRow::into_challenge))
+            .map(ChallengeRow::into_challenge)
+            .transpose()
     }
 
     async fn consume(&self, id: &str, used_at: DateTime<Utc>) -> anyhow::Result<bool> {
         let rows = sqlx::query(
             "UPDATE registration_challenges
-             SET used_at = ?
-             WHERE id = ? AND used_at IS NULL",
+             SET used_at = $1
+             WHERE id = $2 AND used_at IS NULL",
         )
         .bind(used_at)
         .bind(id)
@@ -134,7 +149,7 @@ impl ChallengeRepository for MySqlChallengeRepository {
     async fn count_from_ip(&self, remote_ip: &str, since: DateTime<Utc>) -> anyhow::Result<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM registration_challenges
-             WHERE remote_ip = ? AND created_at > ?",
+             WHERE remote_ip = $1 AND created_at > $2",
         )
         .bind(remote_ip)
         .bind(since)

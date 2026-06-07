@@ -115,7 +115,7 @@ impl DnsProvider for MockDnsProvider {
 fn test_config() -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_string(),
-        database_url: "mysql://ignored".to_string(),
+        database_url: "postgres://ignored".to_string(),
         cloudflare_api_token: "test-cf-token".to_string(),
         cloudflare_zone_id: "test-cf-zone".to_string(),
         region: "test".to_string(),
@@ -174,8 +174,8 @@ fn dummy_pools() -> wardnet_bridge::db::DbPools {
     // SAFETY: The AppState stores DbPools but mock repos own their own state
     // and never touch the pool. We construct a pool that connects lazily so
     // it doesn't fail at construction time.
-    // Use sqlx's lazy connect: MySqlPool::connect_lazy returns immediately.
-    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy")
+    // Use sqlx's lazy connect: PgPool::connect_lazy returns immediately.
+    let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/dummy")
         .expect("lazy connect should not fail at construction");
     wardnet_bridge::db::DbPools::single(pool)
 }

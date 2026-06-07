@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use sqlx::MySqlPool;
+use sqlx::PgPool;
 
 use crate::db::DbPools;
 
@@ -35,7 +35,7 @@ pub struct Install {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Raw `MySQL` row — used for `sqlx::query_as` mapping.
+/// Raw `PostgreSQL` row — used for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct InstallRow {
     id: String,
@@ -79,13 +79,13 @@ impl InstallRow {
 }
 
 const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE id = ?";
+     created_at, updated_at FROM installs WHERE id = $1";
 
 const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE name = ?";
+     created_at, updated_at FROM installs WHERE name = $1";
 
 const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE token_hash = ?";
+     created_at, updated_at FROM installs WHERE token_hash = $1";
 
 /// Data access for the `installs` and `registration_log` tables.
 ///
@@ -142,15 +142,15 @@ pub trait InstallRepository: Send + Sync {
     ) -> anyhow::Result<()>;
 }
 
-/// MySQL-backed [`InstallRepository`].
-pub struct MySqlInstallRepository {
+/// PostgreSQL-backed [`InstallRepository`].
+pub struct PgInstallRepository {
     pools: DbPools,
 }
 
-impl MySqlInstallRepository {
+impl PgInstallRepository {
     /// Create a repository backed by a single pool (tests).
     #[must_use]
-    pub fn new(pool: MySqlPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self {
             pools: DbPools::single(pool),
         }
@@ -164,7 +164,7 @@ impl MySqlInstallRepository {
 }
 
 #[async_trait]
-impl InstallRepository for MySqlInstallRepository {
+impl InstallRepository for PgInstallRepository {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Install>> {
         sqlx::query_as::<_, InstallRow>(FIND_BY_ID)
             .bind(id)
@@ -197,7 +197,7 @@ impl InstallRepository for MySqlInstallRepository {
             "INSERT INTO installs
              (id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id,
               created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(&install.id)
         .bind(&install.name)
@@ -220,13 +220,15 @@ impl InstallRepository for MySqlInstallRepository {
         cf_a_record_id: &str,
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE installs SET ip = ?, cf_a_record_id = ?, updated_at = ? WHERE id = ?")
-            .bind(ip)
-            .bind(cf_a_record_id)
-            .bind(updated_at)
-            .bind(id)
-            .execute(&self.pools.write)
-            .await?;
+        sqlx::query(
+            "UPDATE installs SET ip = $1, cf_a_record_id = $2, updated_at = $3 WHERE id = $4",
+        )
+        .bind(ip)
+        .bind(cf_a_record_id)
+        .bind(updated_at)
+        .bind(id)
+        .execute(&self.pools.write)
+        .await?;
         Ok(())
     }
 
@@ -236,7 +238,7 @@ impl InstallRepository for MySqlInstallRepository {
         cf_acme_record_id: Option<&str>,
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE installs SET cf_acme_record_id = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE installs SET cf_acme_record_id = $1, updated_at = $2 WHERE id = $3")
             .bind(cf_acme_record_id)
             .bind(updated_at)
             .bind(id)
@@ -246,7 +248,7 @@ impl InstallRepository for MySqlInstallRepository {
     }
 
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM installs WHERE id = ?")
+        sqlx::query("DELETE FROM installs WHERE id = $1")
             .bind(id)
             .execute(&self.pools.write)
             .await?;
@@ -259,7 +261,7 @@ impl InstallRepository for MySqlInstallRepository {
         since: DateTime<Utc>,
     ) -> anyhow::Result<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM registration_log WHERE remote_ip = ? AND created_at > ?",
+            "SELECT COUNT(*) FROM registration_log WHERE remote_ip = $1 AND created_at > $2",
         )
         .bind(remote_ip)
         .bind(since)
@@ -273,7 +275,7 @@ impl InstallRepository for MySqlInstallRepository {
         remote_ip: &str,
         created_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES (?, ?)")
+        sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES ($1, $2)")
             .bind(remote_ip)
             .bind(created_at)
             .execute(&self.pools.write)

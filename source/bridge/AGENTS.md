@@ -38,7 +38,7 @@ Tests **must not** be inline (`mod tests { ... }` inside the source file). They 
 - `src/<module>/tests.rs` — unit tests of a single module
 - `src/tests/<module>.rs` — repository integration tests
 
-Declare them with `#[cfg(test)] mod tests;` at the bottom of the source file. Repository/integration tests run against a real Postgres via `testcontainers` (Docker required) `[#444]`.
+Declare them with `#[cfg(test)] mod tests;` at the bottom of the source file. Repository/integration tests run against a live Postgres started via `docker compose up -d` before running the tests.
 
 ## SQL conventions
 

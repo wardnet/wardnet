@@ -2,20 +2,21 @@ use chrono::Utc;
 
 use crate::db::DbPools;
 use crate::repository::challenge::{
-    ChallengeRepository, MySqlChallengeRepository, RegistrationChallenge,
+    ChallengeRepository, PgChallengeRepository, RegistrationChallenge,
 };
 use crate::test_helpers::test_pool;
 
-/// `new()` is a trivial one-liner; call it once without `MySQL` so it shows covered.
+/// `new()` is a trivial one-liner; call it once without `Postgres` so it shows covered.
 #[tokio::test]
 async fn new_from_lazy_pool() {
-    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy").unwrap();
-    let _ = MySqlChallengeRepository::new(pool);
+    let pool =
+        sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/dummy").unwrap();
+    let _ = PgChallengeRepository::new(pool);
 }
 
-async fn repo() -> MySqlChallengeRepository {
+async fn repo() -> PgChallengeRepository {
     let pool = test_pool().await;
-    MySqlChallengeRepository::new_pools(DbPools::single(pool))
+    PgChallengeRepository::new_pools(DbPools::single(pool))
 }
 
 fn sample(id: &str, ip: &str) -> RegistrationChallenge {
@@ -32,7 +33,7 @@ fn sample(id: &str, ip: &str) -> RegistrationChallenge {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn insert_and_find() {
     let repo = repo().await;
     repo.insert(&sample("c-1", "1.2.3.4")).await.unwrap();
@@ -43,7 +44,7 @@ async fn insert_and_find() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn consume_marks_used() {
     let repo = repo().await;
     repo.insert(&sample("c-2", "1.2.3.4")).await.unwrap();
@@ -56,7 +57,7 @@ async fn consume_marks_used() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn consume_missing_returns_false() {
     let repo = repo().await;
     let consumed = repo.consume("no-such-id", Utc::now()).await.unwrap();
@@ -64,7 +65,7 @@ async fn consume_missing_returns_false() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn count_from_ip() {
     let repo = repo().await;
     repo.insert(&sample("c-3", "10.0.0.1")).await.unwrap();

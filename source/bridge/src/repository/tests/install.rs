@@ -1,19 +1,20 @@
 use chrono::Utc;
 
 use crate::db::DbPools;
-use crate::repository::install::{Install, InstallRepository, MySqlInstallRepository};
+use crate::repository::install::{Install, InstallRepository, PgInstallRepository};
 use crate::test_helpers::test_pool;
 
-/// `new()` is a trivial one-liner; call it once without `MySQL` so it shows covered.
+/// `new()` is a trivial one-liner; call it once without `Postgres` so it shows covered.
 #[tokio::test]
 async fn new_from_lazy_pool() {
-    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy").unwrap();
-    let _ = MySqlInstallRepository::new(pool);
+    let pool =
+        sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/dummy").unwrap();
+    let _ = PgInstallRepository::new(pool);
 }
 
-async fn repo() -> MySqlInstallRepository {
+async fn repo() -> PgInstallRepository {
     let pool = test_pool().await;
-    MySqlInstallRepository::new_pools(DbPools::single(pool))
+    PgInstallRepository::new_pools(DbPools::single(pool))
 }
 
 const TEST_PUBLIC_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -35,7 +36,7 @@ fn sample_install(id: &str, name: &str) -> Install {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn insert_and_find_by_id() {
     let repo = repo().await;
     let install = sample_install("id-1", "happy-einstein");
@@ -51,7 +52,7 @@ async fn insert_and_find_by_id() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_by_name() {
     let repo = repo().await;
     repo.insert(&sample_install("id-2", "brave-newton"))
@@ -67,7 +68,7 @@ async fn find_by_name() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_by_token_hash() {
     let repo = repo().await;
     repo.insert(&sample_install("id-3", "calm-darwin"))
@@ -83,14 +84,14 @@ async fn find_by_token_hash() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_missing_returns_none() {
     let repo = repo().await;
     assert!(repo.find_by_id("no-such-id").await.unwrap().is_none());
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn update_ip() {
     let repo = repo().await;
     repo.insert(&sample_install("id-4", "eager-curie"))
@@ -107,7 +108,7 @@ async fn update_ip() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn update_acme_record_set_and_clear() {
     let repo = repo().await;
     repo.insert(&sample_install("id-5", "fair-turing"))
@@ -128,7 +129,7 @@ async fn update_acme_record_set_and_clear() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn delete() {
     let repo = repo().await;
     repo.insert(&sample_install("id-6", "gentle-tesla"))
@@ -140,7 +141,7 @@ async fn delete() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn registration_rate_limit_log() {
     let repo = repo().await;
 
