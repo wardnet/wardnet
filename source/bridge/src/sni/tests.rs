@@ -69,9 +69,9 @@ fn make_client_hello(sni: &str) -> Vec<u8> {
 
 #[test]
 fn parse_sni_extracts_hostname() {
-    let buf = make_client_hello("happy-einstein.my.us.wardnet.network");
+    let buf = make_client_hello("happy-einstein.my.wardnet.services");
     let sni = parse_sni(&buf);
-    assert_eq!(sni.as_deref(), Some("happy-einstein.my.us.wardnet.network"));
+    assert_eq!(sni.as_deref(), Some("happy-einstein.my.wardnet.services"));
 }
 
 #[test]
@@ -97,29 +97,24 @@ fn parse_sni_returns_none_for_truncated_buffer() {
 #[test]
 fn extract_install_name_simple() {
     assert_eq!(
-        extract_install_name(
-            "happy-einstein.my.us.wardnet.network",
-            ".my.us.wardnet.network"
-        ),
+        extract_install_name("happy-einstein.my.wardnet.services", ".my.wardnet.services"),
         Some("happy-einstein")
     );
 }
 
 #[test]
 fn extract_install_name_rejects_multi_label() {
-    assert!(
-        extract_install_name("foo.bar.my.us.wardnet.network", ".my.us.wardnet.network").is_none()
-    );
+    assert!(extract_install_name("foo.bar.my.wardnet.services", ".my.wardnet.services").is_none());
 }
 
 #[test]
 fn extract_install_name_rejects_wrong_parent() {
-    assert!(extract_install_name("foo.other.network", ".my.us.wardnet.network").is_none());
+    assert!(extract_install_name("foo.other.network", ".my.wardnet.services").is_none());
 }
 
 #[test]
 fn extract_install_name_rejects_bare_parent() {
-    assert!(extract_install_name("my.us.wardnet.network", ".my.us.wardnet.network").is_none());
+    assert!(extract_install_name("my.wardnet.services", ".my.wardnet.services").is_none());
 }
 
 // ── run() integration test ────────────────────────────────────────────────────
@@ -165,7 +160,7 @@ fn make_test_config(caddy_addr: &str) -> Config {
         cloudflare_api_token: "test-token".to_string(),
         cloudflare_zone_id: "test-zone".to_string(),
         region: "test".to_string(),
-        subdomain_parent: "my.us.wardnet.network".to_string(),
+        subdomain_parent: "my.wardnet.services".to_string(),
         sni_listen_addr: "0.0.0.0:443".to_string(),
         dot_listen_addr: "0.0.0.0:853".to_string(),
         caddy_addr: caddy_addr.to_string(),
@@ -225,7 +220,7 @@ async fn route_drops_connection_when_install_not_connected() {
     // No tunnel registered for "install" → registry.forward returns NotConnected
     let suffix = format!(".{}", config.subdomain_parent);
 
-    let hello = make_client_hello("install.my.us.wardnet.network");
+    let hello = make_client_hello("install.my.wardnet.services");
     client.write_all(&hello).await.unwrap();
     drop(client);
 

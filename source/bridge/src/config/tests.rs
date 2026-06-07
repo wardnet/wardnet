@@ -7,7 +7,7 @@ fn test_config() -> Config {
         cloudflare_api_token: "token".to_string(),
         cloudflare_zone_id: "zone-id".to_string(),
         region: "us".to_string(),
-        subdomain_parent: "my.us.wardnet.network".to_string(),
+        subdomain_parent: "my.wardnet.services".to_string(),
         sni_listen_addr: "0.0.0.0:443".to_string(),
         dot_listen_addr: "0.0.0.0:853".to_string(),
         caddy_addr: "127.0.0.1:8443".to_string(),
@@ -38,7 +38,7 @@ fn from_env_reads_required_and_optional_vars() {
         std::env::set_var("CLOUDFLARE_API_TOKEN", "cf-token");
         std::env::set_var("CLOUDFLARE_ZONE_ID", "cf-zone");
         std::env::set_var("REGION", "us");
-        std::env::set_var("SUBDOMAIN_PARENT", "my.us.wardnet.network");
+        std::env::set_var("SUBDOMAIN_PARENT", "my.wardnet.services");
         std::env::set_var("BRIDGE_HOSTNAME", "bridge.us.wardnet.network");
         std::env::remove_var("LISTEN_ADDR");
         std::env::remove_var("SNI_LISTEN_ADDR");
@@ -71,7 +71,7 @@ fn install_fqdn() {
     let cfg = test_config();
     assert_eq!(
         cfg.install_fqdn("happy-einstein"),
-        "happy-einstein.my.us.wardnet.network"
+        "happy-einstein.my.wardnet.services"
     );
 }
 
@@ -80,23 +80,26 @@ fn acme_fqdn() {
     let cfg = test_config();
     assert_eq!(
         cfg.acme_fqdn("happy-einstein"),
-        "_acme-challenge.happy-einstein.my.us.wardnet.network"
+        "_acme-challenge.happy-einstein.my.wardnet.services"
     );
 }
 
 #[test]
-fn eu_region_fqdns() {
+fn region_label_independent_of_user_fqdn() {
+    // The user-facing host is region-free: an EU bridge (`region = "eu"`) uses the
+    // same flat `my.wardnet.services` parent as US, so the generated FQDNs carry no
+    // region label. Region lives only in `region`/`bridge_hostname`, never the host.
     let cfg = Config {
         region: "eu".to_string(),
-        subdomain_parent: "my.eu.wardnet.network".to_string(),
+        subdomain_parent: "my.wardnet.services".to_string(),
         ..test_config()
     };
     assert_eq!(
         cfg.install_fqdn("bold-newton"),
-        "bold-newton.my.eu.wardnet.network"
+        "bold-newton.my.wardnet.services"
     );
     assert_eq!(
         cfg.acme_fqdn("bold-newton"),
-        "_acme-challenge.bold-newton.my.eu.wardnet.network"
+        "_acme-challenge.bold-newton.my.wardnet.services"
     );
 }

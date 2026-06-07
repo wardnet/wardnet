@@ -129,7 +129,7 @@ async fn registerable_bridge() -> MockServer {
         .and(path("/v1/register"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "install-9", "bearer_token": "tok-9",
-            "subdomain": "happy-einstein.my.us.wardnet.network", "region": "us",
+            "subdomain": "happy-einstein.my.wardnet.services", "region": "us",
         })))
         .mount(&server)
         .await;
@@ -194,10 +194,7 @@ async fn register_with_bridge_persists_identity() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        registration.subdomain,
-        "happy-einstein.my.us.wardnet.network"
-    );
+    assert_eq!(registration.subdomain, "happy-einstein.my.wardnet.services");
     assert_eq!(registration.region, "us");
 
     assert_eq!(
@@ -210,7 +207,7 @@ async fn register_with_bridge_persists_identity() {
     );
     assert_eq!(
         config.get(KEY_SUBDOMAIN).await.unwrap().as_deref(),
-        Some("happy-einstein.my.us.wardnet.network")
+        Some("happy-einstein.my.wardnet.services")
     );
     assert_eq!(config.get(KEY_REGION).await.unwrap().as_deref(), Some("us"));
     assert_eq!(

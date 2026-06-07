@@ -77,7 +77,7 @@ struct MockDdns {
 impl DdnsService for MockDdns {
     async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
         Ok(DdnsRegistration {
-            subdomain: format!("{name}.my.us.wardnet.network"),
+            subdomain: format!("{name}.my.wardnet.services"),
             region: "us".to_owned(),
         })
     }
@@ -99,7 +99,7 @@ impl DdnsService for MockDdns {
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         Ok(DdnsStatus {
             provider: Some("bridge".to_owned()),
-            fqdn: Some("happy-einstein.my.us.wardnet.network".to_owned()),
+            fqdn: Some("happy-einstein.my.wardnet.services".to_owned()),
             last_public_ip: Some("9.9.9.9".to_owned()),
         })
     }
@@ -109,7 +109,7 @@ impl DdnsService for MockDdns {
     async fn resolution_check(&self) -> Result<DdnsResolutionCheckResponse, AppError> {
         Ok(DdnsResolutionCheckResponse {
             verdict: DdnsResolutionVerdict::Match,
-            fqdn: Some("happy-einstein.my.us.wardnet.network".to_owned()),
+            fqdn: Some("happy-einstein.my.wardnet.services".to_owned()),
             expected_ip: Some("9.9.9.9".to_owned()),
             resolved_ips: vec!["9.9.9.9".to_owned()],
         })
@@ -139,7 +139,7 @@ impl TlsService for MockTls {
     async fn provisioning_status(&self) -> Result<TlsStatusResponse, AppError> {
         Ok(TlsStatusResponse {
             phase: TlsProvisioningPhase::Issuing,
-            domain: Some("happy-einstein.my.us.wardnet.network".to_owned()),
+            domain: Some("happy-einstein.my.wardnet.services".to_owned()),
             not_after: None,
             error: None,
         })
@@ -234,7 +234,7 @@ async fn ddns_register_returns_assigned_fqdn() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: DdnsRegisterResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json.fqdn, "happy-einstein.my.us.wardnet.network");
+    assert_eq!(json.fqdn, "happy-einstein.my.wardnet.services");
     assert_eq!(json.region.as_deref(), Some("us"));
 }
 
@@ -251,7 +251,7 @@ async fn ddns_status_maps_service_status() {
     assert_eq!(json.provider.as_deref(), Some("bridge"));
     assert_eq!(
         json.fqdn.as_deref(),
-        Some("happy-einstein.my.us.wardnet.network")
+        Some("happy-einstein.my.wardnet.services")
     );
 }
 
@@ -268,7 +268,7 @@ async fn tls_status_reports_phase() {
     assert_eq!(json.phase, TlsProvisioningPhase::Issuing);
     assert_eq!(
         json.domain.as_deref(),
-        Some("happy-einstein.my.us.wardnet.network")
+        Some("happy-einstein.my.wardnet.services")
     );
 }
 

@@ -170,7 +170,7 @@ async fn register_install_solves_pow_and_returns_identity() {
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "install-9",
             "bearer_token": "tok-9",
-            "subdomain": "happy-einstein.my.us.wardnet.network",
+            "subdomain": "happy-einstein.my.wardnet.services",
             "region": "us",
         })))
         .mount(&server)
@@ -181,7 +181,7 @@ async fn register_install_solves_pow_and_returns_identity() {
         .unwrap();
     assert_eq!(identity.install_id, "install-9");
     assert_eq!(identity.bearer_token, "tok-9");
-    assert_eq!(identity.subdomain, "happy-einstein.my.us.wardnet.network");
+    assert_eq!(identity.subdomain, "happy-einstein.my.wardnet.services");
     assert_eq!(identity.region, "us");
 
     // The register request must carry a PoW solution that satisfies difficulty.

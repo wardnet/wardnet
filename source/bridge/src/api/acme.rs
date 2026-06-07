@@ -29,7 +29,7 @@ pub struct SetAcmeChallengeRequest {
     path = "/v1/installs/{id}/acme-challenge",
     tag = "installs",
     description = "Set the DNS-01 ACME challenge TXT record for this installation. \
-                   Creates `_acme-challenge.<name>.my.<region>.wardnet.network`. \
+                   Creates `_acme-challenge.<name>.my.wardnet.services`. \
                    \n\n\
                    Called by the daemon's `AcmeManager` before presenting the DNS-01 \
                    challenge to Let's Encrypt. The daemon must wait for DNS propagation \

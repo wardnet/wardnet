@@ -176,7 +176,7 @@ export default function RemoteAccess() {
       <div className="flex flex-col gap-2">
         <ProviderOption
           label="Wardnet bridge"
-          description="Zero-config. We assign a hostname under wardnet.network and handle DNS."
+          description="Zero-config. We assign a hostname under wardnet.services and handle DNS."
           selected={provider === "bridge"}
           onSelect={() => setProvider("bridge")}
         />

@@ -12,7 +12,12 @@
 /// | Variable | Example (US) | Example (EU) |
 /// |---|---|---|
 /// | `REGION` | `us` | `eu` |
-/// | `SUBDOMAIN_PARENT` | `my.us.wardnet.network` | `my.eu.wardnet.network` |
+/// | `SUBDOMAIN_PARENT` | `my.wardnet.services` | `my.wardnet.services` |
+///
+/// The region is **not** part of the user-facing host: `SUBDOMAIN_PARENT` is the
+/// same flat `my.wardnet.services` in every region. Region is carried only by the
+/// `REGION` label and the operational `BRIDGE_HOSTNAME` — so a user can be migrated
+/// between regions without their host, bookmarks, or certificate changing.
 ///
 /// Devices registered here receive subdomains under `SUBDOMAIN_PARENT`.
 /// There is no cross-region record synchronisation — the Pi selects a
@@ -29,7 +34,7 @@ pub struct Config {
     pub cloudflare_api_token: String,
 
     /// Cloudflare zone ID that owns `subdomain_parent`
-    /// (e.g. the zone for `wardnet.network`).
+    /// (e.g. the zone for `wardnet.services`).
     pub cloudflare_zone_id: String,
 
     /// Short region label used in API responses and log fields,
@@ -38,7 +43,7 @@ pub struct Config {
     pub region: String,
 
     /// DNS parent domain under which user subdomains are created,
-    /// e.g. `"my.us.wardnet.network"`. Must be inside the zone owned by
+    /// e.g. `"my.wardnet.services"`. Must be inside the zone owned by
     /// `cloudflare_zone_id`.
     pub subdomain_parent: String,
 
@@ -94,7 +99,7 @@ impl Config {
 
     /// Construct the fully-qualified domain name for an install's A record.
     ///
-    /// `"happy-einstein"` → `"happy-einstein.my.us.wardnet.network"`
+    /// `"happy-einstein"` → `"happy-einstein.my.wardnet.services"`
     #[must_use]
     pub fn install_fqdn(&self, name: &str) -> String {
         format!("{name}.{}", self.subdomain_parent)
@@ -102,7 +107,7 @@ impl Config {
 
     /// Construct the FQDN for an install's ACME DNS-01 TXT record.
     ///
-    /// `"happy-einstein"` → `"_acme-challenge.happy-einstein.my.us.wardnet.network"`
+    /// `"happy-einstein"` → `"_acme-challenge.happy-einstein.my.wardnet.services"`
     #[must_use]
     pub fn acme_fqdn(&self, name: &str) -> String {
         format!("_acme-challenge.{name}.{}", self.subdomain_parent)

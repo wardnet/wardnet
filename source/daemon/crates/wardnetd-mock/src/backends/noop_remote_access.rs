@@ -145,7 +145,7 @@ impl MockDdnsService {
 #[async_trait]
 impl DdnsService for MockDdnsService {
     async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
-        let fqdn = format!("{name}.my.us.wardnet.network");
+        let fqdn = format!("{name}.my.wardnet.services");
         *self.state.sim.lock().unwrap() = Some(Sim {
             provider: "bridge",
             fqdn: fqdn.clone(),

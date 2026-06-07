@@ -53,7 +53,7 @@ pub struct RegisterResponse {
     /// raw value is returned.
     pub bearer_token: String,
     /// Fully-qualified subdomain assigned to this installation,
-    /// e.g. `"happy-einstein.my.us.wardnet.network"`.
+    /// e.g. `"happy-einstein.my.wardnet.services"`.
     pub subdomain: String,
     /// Region this bridge instance serves, e.g. `"us"` or `"eu"`.
     pub region: String,

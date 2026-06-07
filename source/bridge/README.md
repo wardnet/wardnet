@@ -20,7 +20,7 @@ It runs on a public VM in each region (Caddy fronts only the bridge's own API ho
 Pi devices talk to the bridge to:
 
 1. **Register** — claim a subdomain slug, prove ownership of an Ed25519 key-pair, and receive a bearer token.
-2. **Update IP** — push their current public IPv4; the bridge upserts a Cloudflare A record for `<slug>.my.<region>.wardnet.network`.
+2. **Update IP** — push their current public IPv4; the bridge upserts a Cloudflare A record for `<slug>.my.wardnet.services`.
 3. **Provision ACME** — store and delete the Cloudflare TXT record needed for DNS-01 Let's Encrypt certificate issuance.
 4. **Deregister** — delete the installation and its Cloudflare records.
 5. **Open a tunnel** `[#444]` — dial a persistent WebSocket (`GET /v1/installs/:id/tunnel`) that the bridge uses to relay inbound `:443`/`:853` streams down to the Pi. The bridge **never terminates TLS** — it peeks the SNI, routes, and splices the raw stream.
@@ -130,7 +130,7 @@ Non-secret configuration is read from the environment at startup; **secrets are 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `REGION` | ✓ | — | Short region label, e.g. `"us"` |
-| `SUBDOMAIN_PARENT` | ✓ | — | DNS parent, e.g. `"my.us.wardnet.network"` |
+| `SUBDOMAIN_PARENT` | ✓ | — | DNS parent (user host, region-free), e.g. `"my.wardnet.services"` |
 | `BRIDGE_HOSTNAME` `[#444]` | ✓ | — | The bridge's own API hostname, e.g. `bridge.use1.wardnet.network` |
 | `SNI_LISTEN_ADDR` / `DOT_LISTEN_ADDR` / `CADDY_ADDR` `[#444]` | — | `:443` / `:853` / `127.0.0.1:8443` | Demuxer + Caddy bind addresses |
 | `NODE_ADDR` `[#445]` | — | — | This node's private-network address for inter-node forwarding |

@@ -27,7 +27,7 @@ pub struct UpdateIpRequest {
     path = "/v1/installs/{id}/ip",
     tag = "installs",
     description = "Update the public IP address of a registered installation. \
-                   The bridge creates or updates the `<name>.my.<region>.wardnet.network` \
+                   The bridge creates or updates the `<name>.my.wardnet.services` \
                    A record in Cloudflare. \
                    \n\n\
                    Requires `Authorization: Bearer`, `X-Wardnet-Timestamp`, and \

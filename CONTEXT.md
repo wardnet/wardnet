@@ -2,11 +2,11 @@
 
 ## Surfaces
 
-**Admin site** — The full desktop web admin. Served at `<id>.wardnet.network/admin/`. Not a PWA; intended for desktop use only. Source package: `source/admin-site`.
+**Admin site** — The full desktop web admin. Served at `<vanity>.my.wardnet.services/admin/`. Not a PWA; intended for desktop use only. Source package: `source/admin-site`.
 
-**User PWA** — Installable mobile app for non-admin household members. Served at `<id>.wardnet.network/`. Scope: self-service only (own device routing, own DNS stats, own connection status). Cannot manage other devices.
+**User PWA** — Installable mobile app for non-admin household members. Served at `<vanity>.my.wardnet.services/`. Scope: self-service only (own device routing, own DNS stats, own connection status). Cannot manage other devices.
 
-**Admin mobile PWA** — Installable mobile app for admins. Served at `<id>.wardnet.network/admin-app/`. Scope: daily operational tasks (device management, tunnel status, power actions). Not a replacement for the admin site; configuration work (DHCP, filter profiles, tunnel creation) stays on the desktop.
+**Admin mobile PWA** — Installable mobile app for admins. Served at `<vanity>.my.wardnet.services/admin-app/`. Scope: daily operational tasks (device management, tunnel status, power actions). Not a replacement for the admin site; configuration work (DHCP, filter profiles, tunnel creation) stays on the desktop.
 
 ## Identity and access
 
@@ -70,7 +70,7 @@
 
 **Resolution check** — A diagnostic that confirms the *public* internet resolves the **canonical FQDN** to the IP the daemon last published. The daemon queries a fixed pair of public resolvers (Cloudflare `1.1.1.1` + Google `8.8.8.8`) **by IP over DoH**, which deliberately bypasses the daemon's own **split-horizon** record (that record only answers LAN clients). It has three outcomes: **match** (public DNS agrees with the published IP — propagation complete), **mismatch** (resolves to a different IP — stale record or wrong config), and **pending** (no A record yet — the normal state in the propagation window right after registration). It compares against the *last published* IP, not the current WAN IP; detecting a WAN-IP change is the DDNS runner's job, not the check's. Read via `GET /api/ddns/resolution-check`.
 
-**Path-based app routing** — All three surfaces are served from a single domain (`<id>.wardnet.network`) at different paths (`/`, `/admin-app/`, `/admin/`). Each PWA has its own `manifest.json` with a distinct `scope` and `start_url`, making them independently installable despite sharing an origin.
+**Path-based app routing** — All three surfaces are served from a single host (`<vanity>.my.wardnet.services`) at different paths (`/`, `/admin-app/`, `/admin/`). Each PWA has its own `manifest.json` with a distinct `scope` and `start_url`, making them independently installable despite sharing an origin.
 
 **Caddy** — Reverse proxy bundled in the wardnet release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443, certificate provisioning via Let's Encrypt DNS-01 (using the wardnet DDNS service as the ACME bridge), and forwards all traffic to the daemon on port 7411. The daemon manages the Caddyfile on startup and config changes.
 

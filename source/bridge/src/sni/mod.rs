@@ -108,7 +108,7 @@ async fn route(
 
 /// Extract the install slug from an SNI hostname.
 ///
-/// `"happy-einstein.my.us.wardnet.network"` with suffix `".my.us.wardnet.network"`
+/// `"happy-einstein.my.wardnet.services"` with suffix `".my.wardnet.services"`
 /// returns `Some("happy-einstein")`. Returns `None` when the hostname does not
 /// end with the suffix or the prefix contains a dot (multi-level).
 fn extract_install_name<'a>(hostname: &'a str, subdomain_dot_suffix: &str) -> Option<&'a str> {

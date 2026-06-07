@@ -50,7 +50,7 @@ pub struct BridgeIdentity {
     /// only time the raw value is available.
     pub bearer_token: String,
     /// Fully-qualified subdomain assigned by the bridge, e.g.
-    /// `happy-einstein.my.us.wardnet.network`. The bridge owns this string.
+    /// `happy-einstein.my.wardnet.services`. The bridge owns this string.
     pub subdomain: String,
     /// Region the registering bridge serves (its own slug, e.g. `us`).
     pub region: String,

@@ -71,7 +71,7 @@ const PROVIDER_CLOUDFLARE: &str = "cloudflare";
 /// Outcome of a successful bridge registration, surfaced to the wizard (C9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdnsRegistration {
-    /// The FQDN the bridge assigned, e.g. `happy-einstein.my.us.wardnet.network`.
+    /// The FQDN the bridge assigned, e.g. `happy-einstein.my.wardnet.services`.
     pub subdomain: String,
     /// The bridge's region label (display only).
     pub region: String,
