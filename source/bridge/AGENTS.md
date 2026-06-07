@@ -12,7 +12,7 @@ Conventions and invariants for agents working inside `source/bridge/`.
 
 2. **DB token lookup is path-gated.** `auth_layer` only queries the DB when the request path starts with `/v1/installs/`. Adding a new public endpoint under that prefix would silently require auth — use a different path prefix.
 
-3. **Uniqueness before challenge burn.** In `register.rs`, the `find_by_name` check always runs _before_ `challenges().consume()`. Reversing the order would consume the user's PoW proof on a name-conflict error.
+3. **Uniqueness before challenge burn.** In `register.rs`, the global `names().reserve()` (the atomic slug allocation — its unique violation is the name-clash guard) always runs _before_ `challenges().consume()`. Reversing the order would consume the user's PoW proof on a name-conflict error. Registration is a **two-database saga** (global `names` + regional `installs`); any failure after `reserve` must `release` both rows.
 
 4. **ReplayCache keyed on `{install_id}:{timestamp}:{body_hash}`.** Do not change this format without updating the replay window constant and tests. The window is ±120 s (double the timestamp window) for clock-skew at the cache boundary.
 

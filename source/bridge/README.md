@@ -136,6 +136,7 @@ Non-secret configuration is read from the environment at startup; **secrets are 
 | `NODE_ADDR` `[#445]` | — | — | This node's private-network address for inter-node forwarding |
 | `LISTEN_ADDR` | — | `127.0.0.1:8080` | Control-plane API bind (loopback — behind Caddy) |
 | `DATABASE_URL`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | ✓ | — | Resolved via `SecretsProvider` in prod; env/`FileSecrets` in dev |
+| `GLOBAL_DATABASE_URL` | ✓ | — | DSN for the **global naming authority** (separate global Postgres holding the `names` table; shared fleet-wide, distinct from the regional `DATABASE_URL`) |
 
 ## Building and running
 

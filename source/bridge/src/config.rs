@@ -27,8 +27,15 @@ pub struct Config {
     /// TCP address to listen on for the HTTP API. Defaults to `127.0.0.1:8080`.
     pub listen_addr: String,
 
-    /// `PostgreSQL` DSN, e.g. `postgres://user:pass@host:5432/wardnet`.
+    /// `PostgreSQL` DSN for this bridge's **regional** install DB,
+    /// e.g. `postgres://user:pass@host:5432/wardnet`.
     pub database_url: String,
+
+    /// `PostgreSQL` DSN for the **global naming authority** — a separate global
+    /// DB (shared across the whole bridge fleet) holding the `names` table whose
+    /// `slug` PRIMARY KEY is the cross-region allocation lock. Distinct from
+    /// `database_url`; every region connects to the same global instance.
+    pub global_database_url: String,
 
     /// Cloudflare API token scoped to DNS:Edit on the `cloudflare_zone_id` zone only.
     pub cloudflare_api_token: String,
@@ -83,6 +90,7 @@ impl Config {
             listen_addr: std::env::var("LISTEN_ADDR")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_string()),
             database_url: required("DATABASE_URL")?,
+            global_database_url: required("GLOBAL_DATABASE_URL")?,
             cloudflare_api_token: required("CLOUDFLARE_API_TOKEN")?,
             cloudflare_zone_id: required("CLOUDFLARE_ZONE_ID")?,
             region: required("REGION")?,

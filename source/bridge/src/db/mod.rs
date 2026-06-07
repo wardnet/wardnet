@@ -25,20 +25,29 @@ impl DbPools {
     }
 }
 
-/// Initialise the connection pool and run pending migrations.
-pub async fn init(database_url: &str) -> anyhow::Result<DbPools> {
-    let pool = PgPoolOptions::new()
+async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
+    Ok(PgPoolOptions::new()
         .max_connections(10)
         .min_connections(0)
         .acquire_timeout(Duration::from_secs(5))
         .connect(database_url)
-        .await?;
+        .await?)
+}
 
+/// Initialise the **regional** install pool and run its pending migrations.
+pub async fn init(database_url: &str) -> anyhow::Result<DbPools> {
+    let pool = connect(database_url).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
-    tracing::info!("database initialised");
+    tracing::info!("regional database initialised");
+    Ok(DbPools::single(pool))
+}
 
-    Ok(DbPools {
-        read: pool.clone(),
-        write: pool,
-    })
+/// Initialise the **global naming authority** pool and run its pending
+/// migrations (the `names` table). This is a separate database from the
+/// regional pool, shared across the whole bridge fleet.
+pub async fn init_global(database_url: &str) -> anyhow::Result<DbPools> {
+    let pool = connect(database_url).await?;
+    sqlx::migrate!("./migrations-global").run(&pool).await?;
+    tracing::info!("global naming database initialised");
+    Ok(DbPools::single(pool))
 }

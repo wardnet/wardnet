@@ -32,10 +32,12 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use common::{MockChallengeRepository, MockInstallRepository};
+use common::{MockChallengeRepository, MockInstallRepository, MockNameRepository};
 use wardnet_bridge::config::Config;
 use wardnet_bridge::dns_provider::DnsProvider;
-use wardnet_bridge::repository::{Install, InstallRepository, RegistrationChallenge};
+use wardnet_bridge::repository::{
+    Install, InstallRepository, NameRepository, RegistrationChallenge,
+};
 use wardnet_bridge::state::AppState;
 use wardnet_bridge::tunnel::TunnelRegistry;
 
@@ -116,6 +118,7 @@ fn test_config() -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_string(),
         database_url: "postgres://ignored".to_string(),
+        global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "test-cf-token".to_string(),
         cloudflare_zone_id: "test-cf-zone".to_string(),
         region: "test".to_string(),
@@ -130,12 +133,14 @@ fn test_config() -> Config {
 fn test_state() -> (AppState, Arc<MockDnsProvider>) {
     let dns = Arc::new(MockDnsProvider::new());
     let installs = Arc::new(MockInstallRepository::new());
+    let names = Arc::new(MockNameRepository::new());
     let challenges = Arc::new(MockChallengeRepository::new());
     let tunnel_registry = Arc::new(TunnelRegistry::new());
     let state = AppState::new(
         test_config(),
         dummy_pools(),
         installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
         challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
         Arc::clone(&dns) as Arc<dyn DnsProvider>,
         tunnel_registry,
@@ -145,12 +150,14 @@ fn test_state() -> (AppState, Arc<MockDnsProvider>) {
 
 fn test_state_with_error_dns(dns: Arc<MockDnsProvider>) -> AppState {
     let installs = Arc::new(MockInstallRepository::new());
+    let names = Arc::new(MockNameRepository::new());
     let challenges = Arc::new(MockChallengeRepository::new());
     let tunnel_registry = Arc::new(TunnelRegistry::new());
     AppState::new(
         test_config(),
         dummy_pools(),
         installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
         challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
         dns as Arc<dyn DnsProvider>,
         tunnel_registry,
@@ -219,6 +226,25 @@ async fn insert_test_install(state: &AppState, name: &str) -> (Install, String) 
     };
     state.installs().insert(&install).await.unwrap();
     (install, raw_token)
+}
+
+/// Claim a name in the global naming authority (reserve + confirm), simulating
+/// a name already taken by a prior registration. Availability and registration
+/// both consult the names registry, not the installs table.
+async fn claim_name(state: &AppState, name: &str) {
+    let reserved = state
+        .names()
+        .reserve(
+            name,
+            &Uuid::new_v4().to_string(),
+            "test",
+            Utc::now(),
+            Utc::now() + chrono::Duration::minutes(5),
+        )
+        .await
+        .unwrap();
+    assert!(reserved, "name should have been free to claim");
+    state.names().confirm(name).await.unwrap();
 }
 
 /// Insert a challenge with `difficulty = 0` (any `proof` satisfies it).
@@ -367,7 +393,35 @@ async fn name_available_for_fresh_name() {
 #[tokio::test]
 async fn name_unavailable_when_already_registered() {
     let (state, _dns) = test_state();
-    insert_test_install(&state, "happy-einstein").await;
+    claim_name(&state, "happy-einstein").await;
+
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/v1/names/happy-einstein/available")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&body_string(resp.into_body()).await).unwrap();
+    assert_eq!(json["available"], false);
+}
+
+#[tokio::test]
+async fn name_unavailable_when_reserved_but_unconfirmed() {
+    // A reservation that hasn't been confirmed still reads as taken — availability
+    // and reserve must agree at every instant (no smarter-than-sweep reads).
+    let (state, _dns) = test_state();
+    state
+        .names()
+        .reserve(
+            "happy-einstein",
+            &Uuid::new_v4().to_string(),
+            "test",
+            Utc::now(),
+            Utc::now() + chrono::Duration::minutes(5),
+        )
+        .await
+        .unwrap();
 
     let app = test_app(state);
     let req = Request::builder()
@@ -667,7 +721,7 @@ async fn register_returns_400_for_failing_pow_proof() {
 #[tokio::test]
 async fn register_returns_409_when_name_is_taken() {
     let (state, _dns) = test_state();
-    insert_test_install(&state, "happy-einstein").await;
+    claim_name(&state, "happy-einstein").await;
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
@@ -687,6 +741,46 @@ async fn register_returns_409_when_name_is_taken() {
 }
 
 #[tokio::test]
+async fn register_releases_reservation_when_provision_fails() {
+    // Reserve succeeds, then the regional install insert fails: the two-database
+    // saga must release the reservation so the name is free to retry. This is the
+    // load-bearing compensation property.
+    let dns = Arc::new(MockDnsProvider::new());
+    let installs = Arc::new(MockInstallRepository::failing_insert());
+    let names = Arc::new(MockNameRepository::new());
+    let challenges = Arc::new(MockChallengeRepository::new());
+    let tunnel_registry = Arc::new(TunnelRegistry::new());
+    let state = AppState::new(
+        test_config(),
+        dummy_pools(),
+        installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
+        challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
+        dns as Arc<dyn DnsProvider>,
+        tunnel_registry,
+    );
+
+    let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
+    let (_, pub_key_b64) = test_pub_key();
+    let body = register_body("happy-einstein", &pub_key_b64, &challenge.id, 0);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = test_app(state.clone()).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    // The reservation must have been released — the name is available again.
+    assert!(
+        !state.names().is_taken("happy-einstein").await.unwrap(),
+        "a failed provision must release the name reservation"
+    );
+}
+
+#[tokio::test]
 async fn register_returns_400_when_challenge_already_consumed() {
     let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
@@ -699,14 +793,13 @@ async fn register_returns_400_when_challenge_already_consumed() {
         .unwrap();
 
     let body = register_body("test-name", &pub_key_b64, &challenge.id, 0);
-    let app = test_app(state);
     let req = Request::builder()
         .method("POST")
         .uri("/v1/register")
         .header("Content-Type", "application/json")
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let resp = test_app(state.clone()).oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let json: serde_json::Value =
         serde_json::from_str(&body_string(resp.into_body()).await).unwrap();
@@ -715,6 +808,12 @@ async fn register_returns_400_when_challenge_already_consumed() {
             .as_str()
             .unwrap()
             .contains("already been used")
+    );
+
+    // The reservation taken before the challenge burn must be released back.
+    assert!(
+        !state.names().is_taken("test-name").await.unwrap(),
+        "a burned-challenge failure must release the name reservation"
     );
 }
 

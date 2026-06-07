@@ -10,7 +10,33 @@
 /// ```
 ///
 /// In CI a `PostgreSQL` service container is started automatically.
+///
+/// Runs the **regional** migration set (`./migrations`).
 pub async fn test_pool() -> sqlx::PgPool {
+    let pool = fresh_database().await;
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("apply regional migrations");
+    pool
+}
+
+/// Like [`test_pool`] but for the **global naming authority** — runs the
+/// `./migrations-global` set (the `names` table). Both pools share the same test
+/// server (`BRIDGE_TEST_DATABASE_URL`); each gets its own freshly-created
+/// database, so a single Postgres instance backs the two-database saga tests.
+pub async fn test_pool_global() -> sqlx::PgPool {
+    let pool = fresh_database().await;
+    sqlx::migrate!("./migrations-global")
+        .run(&pool)
+        .await
+        .expect("apply global migrations");
+    pool
+}
+
+/// Create a fresh, empty per-test database on the test server and return a pool
+/// connected to it (no migrations applied — the caller chooses the set).
+async fn fresh_database() -> sqlx::PgPool {
     let base_url = std::env::var("BRIDGE_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432".to_string());
     // We append `/<db>` below, so the override must be a bare server URL with no
@@ -44,12 +70,7 @@ pub async fn test_pool() -> sqlx::PgPool {
         .expect("CREATE DATABASE");
     drop(maintenance_pool);
 
-    let pool = sqlx::PgPool::connect(&format!("{base_url}/{db_name}"))
+    sqlx::PgPool::connect(&format!("{base_url}/{db_name}"))
         .await
-        .expect("connect to test database");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("apply migrations");
-    pool
+        .expect("connect to test database")
 }

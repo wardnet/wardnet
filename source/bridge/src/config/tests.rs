@@ -4,6 +4,7 @@ fn test_config() -> Config {
     Config {
         listen_addr: "127.0.0.1:8080".to_string(),
         database_url: "postgres://ignored".to_string(),
+        global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "token".to_string(),
         cloudflare_zone_id: "zone-id".to_string(),
         region: "us".to_string(),
@@ -20,6 +21,7 @@ fn from_env_reads_required_and_optional_vars() {
     // Save current values so we can restore them after the test.
     let keys = [
         "DATABASE_URL",
+        "GLOBAL_DATABASE_URL",
         "CLOUDFLARE_API_TOKEN",
         "CLOUDFLARE_ZONE_ID",
         "REGION",
@@ -35,6 +37,10 @@ fn from_env_reads_required_and_optional_vars() {
     // SAFETY: single-threaded test binary; no concurrent env access.
     unsafe {
         std::env::set_var("DATABASE_URL", "postgres://test:test@localhost/db");
+        std::env::set_var(
+            "GLOBAL_DATABASE_URL",
+            "postgres://test:test@localhost/global",
+        );
         std::env::set_var("CLOUDFLARE_API_TOKEN", "cf-token");
         std::env::set_var("CLOUDFLARE_ZONE_ID", "cf-zone");
         std::env::set_var("REGION", "us");
@@ -49,6 +55,10 @@ fn from_env_reads_required_and_optional_vars() {
     let cfg = Config::from_env().expect("from_env should succeed with all required vars set");
 
     assert_eq!(cfg.region, "us");
+    assert_eq!(
+        cfg.global_database_url,
+        "postgres://test:test@localhost/global"
+    );
     assert_eq!(cfg.bridge_hostname, "bridge.us.wardnet.network");
     assert_eq!(cfg.listen_addr, "127.0.0.1:8080"); // default
     assert_eq!(cfg.sni_listen_addr, "0.0.0.0:443"); // default

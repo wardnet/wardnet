@@ -9,6 +9,7 @@ pub mod replay_cache;
 pub mod repository;
 pub mod sni;
 pub mod state;
+pub mod sweep;
 pub mod tunnel;
 
 #[cfg(test)]

@@ -185,6 +185,7 @@ fn make_test_config(caddy_addr: &str) -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_string(),
         database_url: "postgres://ignored".to_string(),
+        global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "test-token".to_string(),
         cloudflare_zone_id: "test-zone".to_string(),
         region: "test".to_string(),

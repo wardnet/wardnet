@@ -6,9 +6,10 @@ use wardnet_bridge::{
     cloudflare::CloudflareDnsProvider,
     config::Config,
     db,
-    repository::{PgChallengeRepository, PgInstallRepository},
+    repository::{PgChallengeRepository, PgInstallRepository, PgNameRepository},
     sni,
     state::AppState,
+    sweep,
     tunnel::TunnelRegistry,
 };
 
@@ -32,8 +33,10 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let pools = db::init(&config.database_url).await?;
+    let global_pools = db::init_global(&config.global_database_url).await?;
 
     let installs = Arc::new(PgInstallRepository::new_pools(pools.clone()));
+    let names = Arc::new(PgNameRepository::new_pools(global_pools));
     let challenges = Arc::new(PgChallengeRepository::new_pools(pools.clone()));
     let dns = Arc::new(CloudflareDnsProvider::new(
         &config.cloudflare_api_token,
@@ -41,10 +44,19 @@ async fn main() -> anyhow::Result<()> {
     )?);
     let tunnel_registry = Arc::new(TunnelRegistry::new());
 
+    // Reap abandoned name reservations (and their regional install orphans) for
+    // this region; the saga spans the global and regional databases.
+    tokio::spawn(sweep::run(
+        Arc::clone(&names) as Arc<dyn wardnet_bridge::repository::NameRepository>,
+        Arc::clone(&installs) as Arc<dyn wardnet_bridge::repository::InstallRepository>,
+        config.region.clone(),
+    ));
+
     let state = AppState::new(
         config.clone(),
         pools,
         installs,
+        names,
         challenges,
         dns,
         Arc::clone(&tunnel_registry),

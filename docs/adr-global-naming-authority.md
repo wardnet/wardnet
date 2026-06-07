@@ -62,12 +62,16 @@ lock: there is no DNS existence-read and no separate lock service.
   1. **Reserve** — `INSERT INTO names (slug, status, region, expires_at) VALUES
      ($1, 'reserved', $2, now() + ttl)`. Success = the name is ours; a unique
      violation = taken. Atomic, by the constraint.
-  2. **Provision** — create the regional install row and the Cloudflare A
-     record `<vanity>.my.wardnet.services` → the regional bridge IP.
+  2. **Provision** — create the regional install row. The bridge creates **no**
+     DNS record here: it is pure SNI passthrough, the wildcard
+     `*.my.wardnet.services` → regional bridge IP is provisioned by infra, and
+     the per-user cert is daemon-issued (`<vanity>` resolves via the wildcard,
+     not a per-name record).
   3. **Confirm** — `UPDATE names SET status = 'active', expires_at = NULL`.
-  - On any failure after reserve, **release** the row (`DELETE`). A scheduled
-    sweep reaps expired `reserved` rows so a crashed registration never leaks a
-    name.
+  - On any failure after reserve, **release**: `DELETE` the global `names` row
+    **and** the regional install row (the saga spans both databases). A
+    region-scoped scheduled sweep reaps expired `reserved` rows and their
+    install orphans so a crashed registration never leaks a name.
 - **DNS (Cloudflare) stays purely the resolution layer** (owned name → regional
   bridge IP). Registry and resolution remain separate, consistent with the
   "serving ≠ control plane" stance of the companion ADR.

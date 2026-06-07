@@ -127,6 +127,11 @@ pub trait InstallRepository: Send + Sync {
     /// Delete an installation record.
     async fn delete(&self, id: &str) -> anyhow::Result<()>;
 
+    /// Delete multiple installation records by ID in a single statement.
+    /// Used by the reservation sweep to clean regional install orphans in one
+    /// round-trip rather than one query per swept reservation.
+    async fn delete_many(&self, ids: &[String]) -> anyhow::Result<()>;
+
     /// Count how many registrations have been attempted from `remote_ip` since `since`.
     async fn count_registrations_from_ip(
         &self,
@@ -250,6 +255,17 @@ impl InstallRepository for PgInstallRepository {
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM installs WHERE id = $1")
             .bind(id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_many(&self, ids: &[String]) -> anyhow::Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM installs WHERE id = ANY($1)")
+            .bind(ids)
             .execute(&self.pools.write)
             .await?;
         Ok(())
