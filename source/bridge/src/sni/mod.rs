@@ -6,6 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tracing::Instrument as _;
 
+use crate::api::validation::is_valid_name;
 use crate::config::Config;
 use crate::tunnel::registry::{ForwardRequest, ForwardResult, TunnelRegistry};
 
@@ -21,7 +22,9 @@ const PEEK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Accepts TLS connections and routes them based on the SNI hostname without
 /// terminating TLS:
 /// - `bridge_hostname` → forwarded to Caddy at `caddy_addr` (HTTP API).
-/// - `{name}.{subdomain_parent}` → forwarded to the registered Pi tunnel.
+/// - `*.{subdomain_parent}` → routed by the rightmost label before the suffix
+///   (the vanity name) to the registered Pi tunnel, so both the vanity apex and
+///   per-service subdomains land on the same tunnel.
 /// - Anything else → connection dropped.
 ///
 /// # Errors
@@ -106,17 +109,28 @@ async fn route(
     Ok(())
 }
 
-/// Extract the install slug from an SNI hostname.
+/// Extract the vanity name (tunnel routing key) from an SNI hostname.
 ///
-/// `"happy-einstein.my.wardnet.services"` with suffix `".my.wardnet.services"`
-/// returns `Some("happy-einstein")`. Returns `None` when the hostname does not
-/// end with the suffix or the prefix contains a dot (multi-level).
+/// The vanity is the **rightmost label before the suffix**, so both the apex
+/// vanity host and any per-service subdomain route to the same Pi tunnel:
+/// - `"alice.my.wardnet.services"` with suffix `".my.wardnet.services"` →
+///   `Some("alice")`
+/// - `"jellyfin.alice.my.wardnet.services"` → `Some("alice")`
+///
+/// Returns `None` when the hostname does not end with the suffix (only the
+/// `.wardnet.services` subdomain space is tenant-routed), or when the extracted
+/// vanity is not a name registration could ever have produced — empty (bare
+/// suffix or a malformed `foo..suffix`), too long, reserved, or containing
+/// invalid characters.
 fn extract_install_name<'a>(hostname: &'a str, subdomain_dot_suffix: &str) -> Option<&'a str> {
-    let name = hostname.strip_suffix(subdomain_dot_suffix)?;
-    if name.contains('.') {
-        return None;
-    }
-    Some(name)
+    let prefix = hostname.strip_suffix(subdomain_dot_suffix)?;
+    // The vanity is the last label of the prefix; `rsplit` always yields at
+    // least one element, but it may be empty for a malformed prefix.
+    let vanity = prefix.rsplit('.').next()?;
+    // Hold the routing key to the same rules registration enforces (the single
+    // source of truth in `api/validation`): an empty/reserved/over-long/illegal
+    // label could never name a real tunnel, so treat it as unroutable.
+    is_valid_name(vanity).then_some(vanity)
 }
 
 /// Parse the SNI hostname from the first bytes of a TLS `ClientHello`.

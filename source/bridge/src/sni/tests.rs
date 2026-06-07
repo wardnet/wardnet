@@ -103,8 +103,36 @@ fn extract_install_name_simple() {
 }
 
 #[test]
-fn extract_install_name_rejects_multi_label() {
-    assert!(extract_install_name("foo.bar.my.wardnet.services", ".my.wardnet.services").is_none());
+fn extract_install_name_routes_multi_label_to_rightmost_vanity() {
+    // A multi-label prefix (a per-service host) routes by the rightmost label
+    // before the suffix — the vanity name — not rejected.
+    assert_eq!(
+        extract_install_name("foo.bar.my.wardnet.services", ".my.wardnet.services"),
+        Some("bar")
+    );
+}
+
+#[test]
+fn extract_install_name_per_service_host() {
+    // `<service>.<vanity>.<suffix>` routes to the vanity's tunnel.
+    assert_eq!(
+        extract_install_name("jellyfin.alice.my.wardnet.services", ".my.wardnet.services"),
+        Some("alice")
+    );
+}
+
+#[test]
+fn extract_install_name_rejects_empty_label() {
+    // A malformed prefix with a trailing/double dot yields an empty rightmost
+    // label, which is not a routable vanity.
+    assert!(extract_install_name("foo..my.wardnet.services", ".my.wardnet.services").is_none());
+}
+
+#[test]
+fn extract_install_name_rejects_invalid_vanity() {
+    // The rightmost label is held to registration's rules: a too-short label
+    // (< 3 chars) could never name a real tunnel.
+    assert!(extract_install_name("ab.my.wardnet.services", ".my.wardnet.services").is_none());
 }
 
 #[test]
