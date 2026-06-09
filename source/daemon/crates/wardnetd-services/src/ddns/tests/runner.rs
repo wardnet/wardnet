@@ -48,7 +48,7 @@ impl DdnsService for CountingDdns {
     ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
         unreachable!("not called by the runner")
     }
-    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
         unreachable!("not called by the runner")
     }
     async fn clear_acme_challenge(&self) -> Result<(), AppError> {

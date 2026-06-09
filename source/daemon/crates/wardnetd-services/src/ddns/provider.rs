@@ -30,12 +30,16 @@ pub trait DnsProvider: Send + Sync {
     /// `ip`. Idempotent: calling it with an unchanged IP is a no-op upsert.
     async fn upsert_a(&self, ip: Ipv4Addr) -> anyhow::Result<()>;
 
-    /// Create or update the `_acme-challenge` **TXT** record for the
-    /// installation with `value` (a raw DNS-01 key authorization digest).
-    async fn set_txt(&self, value: &str) -> anyhow::Result<()>;
+    /// Publish the `_acme-challenge` **TXT** record(s) for the installation —
+    /// one per value in `values` (each a raw DNS-01 key authorization digest),
+    /// all at the same challenge name. A **per-user wildcard certificate**
+    /// authorizes its apex and wildcard SANs through that one name, so both
+    /// values must be live *simultaneously*; this call publishes them as one
+    /// set, replacing any records from a prior challenge.
+    async fn set_txt(&self, values: &[String]) -> anyhow::Result<()>;
 
-    /// Remove the `_acme-challenge` TXT record. Idempotent — succeeds even if
-    /// no record is currently set.
+    /// Remove every `_acme-challenge` TXT record. Idempotent — succeeds even if
+    /// none is currently set.
     async fn delete_txt(&self) -> anyhow::Result<()>;
 
     /// Remove this installation's published presence from the backend — the

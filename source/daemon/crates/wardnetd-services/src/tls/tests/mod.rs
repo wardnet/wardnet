@@ -157,7 +157,7 @@ impl DdnsService for MockDdns {
     ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
         unreachable!("not used in TLS tests")
     }
-    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
         unreachable!("no live issuance in TLS tests")
     }
     async fn clear_acme_challenge(&self) -> Result<(), AppError> {

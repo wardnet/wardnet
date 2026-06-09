@@ -29,8 +29,11 @@ pub struct Install {
     pub ip: Option<String>,
     /// Cloudflare DNS record ID for the A record; `None` until created.
     pub cf_a_record_id: Option<String>,
-    /// Cloudflare DNS record ID for the active ACME TXT record; `None` when no challenge is live.
-    pub cf_acme_record_id: Option<String>,
+    /// Cloudflare DNS record IDs for the active ACME TXT records — one per
+    /// challenge value. Empty when no challenge is live. A **per-user wildcard
+    /// certificate** (#540) publishes two values at the one `_acme-challenge`
+    /// name simultaneously, so this is a list, not a single id.
+    pub cf_acme_record_ids: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -44,7 +47,7 @@ struct InstallRow {
     token_hash: String,
     ip: Option<String>,
     cf_a_record_id: Option<String>,
-    cf_acme_record_id: Option<String>,
+    cf_acme_record_ids: Vec<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -71,20 +74,20 @@ impl InstallRow {
             token_hash: self.token_hash,
             ip: self.ip,
             cf_a_record_id: self.cf_a_record_id,
-            cf_acme_record_id: self.cf_acme_record_id,
+            cf_acme_record_ids: self.cf_acme_record_ids,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
     }
 }
 
-const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
      created_at, updated_at FROM installs WHERE id = $1";
 
-const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
      created_at, updated_at FROM installs WHERE name = $1";
 
-const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
+const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
      created_at, updated_at FROM installs WHERE token_hash = $1";
 
 /// Data access for the `installs` and `registration_log` tables.
@@ -114,13 +117,15 @@ pub trait InstallRepository: Send + Sync {
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
-    /// Update (or clear) the Cloudflare ACME TXT-record ID.
+    /// Replace the list of Cloudflare ACME TXT-record IDs.
     ///
-    /// Pass `None` to clear the field after the TXT record has been deleted.
-    async fn update_acme_record(
+    /// Pass an empty slice to clear the field after the TXT records have been
+    /// deleted. The list is replaced wholesale — a **per-user wildcard
+    /// certificate** publishes more than one TXT value at once.
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
@@ -200,7 +205,7 @@ impl InstallRepository for PgInstallRepository {
     async fn insert(&self, install: &Install) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO installs
-             (id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id,
+             (id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids,
               created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
@@ -210,7 +215,7 @@ impl InstallRepository for PgInstallRepository {
         .bind(&install.token_hash)
         .bind(&install.ip)
         .bind(&install.cf_a_record_id)
-        .bind(&install.cf_acme_record_id)
+        .bind(&install.cf_acme_record_ids)
         .bind(install.created_at)
         .bind(install.updated_at)
         .execute(&self.pools.write)
@@ -237,14 +242,14 @@ impl InstallRepository for PgInstallRepository {
         Ok(())
     }
 
-    async fn update_acme_record(
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE installs SET cf_acme_record_id = $1, updated_at = $2 WHERE id = $3")
-            .bind(cf_acme_record_id)
+        sqlx::query("UPDATE installs SET cf_acme_record_ids = $1, updated_at = $2 WHERE id = $3")
+            .bind(cf_acme_record_ids)
             .bind(updated_at)
             .bind(id)
             .execute(&self.pools.write)

@@ -174,8 +174,8 @@ impl DnsProvider for BridgeProvider {
             .await
     }
 
-    async fn set_txt(&self, value: &str) -> anyhow::Result<()> {
-        let body = serde_json::json!({ "value": value });
+    async fn set_txt(&self, values: &[String]) -> anyhow::Result<()> {
+        let body = serde_json::json!({ "values": values });
         self.send_signed(reqwest::Method::PUT, &self.acme_path(), Some(body))
             .await
     }

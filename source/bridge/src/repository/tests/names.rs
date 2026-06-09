@@ -194,7 +194,7 @@ fn sample_install(id: &str, name: &str) -> Install {
         token_hash: format!("hash_{id}"),
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     }

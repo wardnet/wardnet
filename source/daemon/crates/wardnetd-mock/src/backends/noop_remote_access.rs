@@ -231,7 +231,7 @@ impl DdnsService for MockDdnsService {
         })
     }
 
-    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
         Ok(())
     }
 

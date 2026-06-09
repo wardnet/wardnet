@@ -983,7 +983,7 @@ impl wardnetd_services::DdnsService for StubDdnsService {
     ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
         unimplemented!()
     }
-    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn clear_acme_challenge(&self) -> Result<(), AppError> {

@@ -89,15 +89,15 @@ impl InstallRepository for MockInstallRepository {
         Ok(())
     }
 
-    async fn update_acme_record(
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         let mut map = self.installs.lock().unwrap();
         if let Some(install) = map.get_mut(id) {
-            install.cf_acme_record_id = cf_acme_record_id.map(str::to_string);
+            install.cf_acme_record_ids = cf_acme_record_ids.to_vec();
             install.updated_at = updated_at;
         }
         Ok(())

@@ -99,6 +99,67 @@ async fn upsert_a_signs_request_verifiably() {
 }
 
 #[tokio::test]
+async fn set_txt_sends_values_array() {
+    let seed = [7u8; 32];
+    let verifying_key = SigningKey::from_bytes(&seed).verifying_key();
+
+    let server = MockServer::start().await;
+    let install_id = "install-88";
+    Mock::given(method("PUT"))
+        .and(path(format!("/v1/installs/{install_id}/acme-challenge")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let provider = BridgeProvider::new(
+        reqwest::Client::new(),
+        server.uri(),
+        install_id.to_owned(),
+        "tok".to_owned(),
+        seed,
+    );
+    provider
+        .set_txt(&["apex-token".to_string(), "wildcard-token".to_string()])
+        .await
+        .unwrap();
+
+    let requests = server.received_requests().await.unwrap();
+    let request = &requests[0];
+
+    // The wire body carries both challenge values as a `values` array.
+    let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+    assert_eq!(
+        body["values"],
+        serde_json::json!(["apex-token", "wildcard-token"])
+    );
+
+    // The same bytes are signed (canonical payload covers the body hash).
+    let timestamp = request
+        .headers
+        .get("x-wardnet-timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let signature_b64 = request
+        .headers
+        .get("x-wardnet-signature")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let body_hash = hex::encode(Sha256::digest(&request.body));
+    let payload =
+        format!("PUT\n/v1/installs/{install_id}/acme-challenge\n{timestamp}\n{body_hash}");
+    let signature_bytes: [u8; 64] = base64::engine::general_purpose::STANDARD
+        .decode(signature_b64)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    verifying_key
+        .verify(payload.as_bytes(), &Signature::from_bytes(&signature_bytes))
+        .expect("daemon signature must verify against its public key");
+}
+
+#[tokio::test]
 async fn delete_txt_signs_empty_body() {
     let seed = [9u8; 32];
     let verifying_key = SigningKey::from_bytes(&seed).verifying_key();

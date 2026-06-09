@@ -114,7 +114,7 @@ impl DdnsService for MockDdns {
             resolved_ips: vec!["9.9.9.9".to_owned()],
         })
     }
-    async fn set_acme_challenge(&self, _value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn clear_acme_challenge(&self) -> Result<(), AppError> {

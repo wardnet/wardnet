@@ -50,8 +50,10 @@ pub async fn deregister(
         })?;
     }
 
-    // Delete ACME TXT record if one is live.
-    if let Some(record_id) = &install.cf_acme_record_id {
+    // Delete every live ACME TXT record (a per-user wildcard cert publishes more
+    // than one). Idempotent on the provider side — already-absent records are
+    // skipped gracefully.
+    for record_id in &install.cf_acme_record_ids {
         state.dns().delete_record(record_id).await.map_err(|e| {
             tracing::error!(install_id = %id, error = %e, "Cloudflare ACME TXT delete failed on deregister");
             ApiError::Internal(e)

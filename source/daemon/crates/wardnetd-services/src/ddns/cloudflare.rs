@@ -81,6 +81,17 @@ impl CloudflareProvider {
         record_type: &str,
         name: &str,
     ) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .find_record_ids(record_type, name)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    /// Return **every** existing record id for `(name, record_type)`. A
+    /// `_acme-challenge` name can hold more than one TXT record (one per SAN of
+    /// a per-user wildcard cert), so deletes must sweep all of them.
+    async fn find_record_ids(&self, record_type: &str, name: &str) -> anyhow::Result<Vec<String>> {
         let response = self
             .http
             .get(self.records_url())
@@ -89,7 +100,50 @@ impl CloudflareProvider {
             .send()
             .await?;
         let parsed: CfResponse<Vec<DnsRecordResult>> = parse_json(response).await?;
-        Ok(parsed.result.into_iter().flatten().next().map(|r| r.id))
+        Ok(parsed.result.into_iter().flatten().map(|r| r.id).collect())
+    }
+
+    /// Create a new `(record_type, name)` record with `content`. Always POSTs
+    /// (never updates), so repeated calls with differing content produce
+    /// co-existing records — what a multi-value ACME challenge needs.
+    async fn create(
+        &self,
+        record_type: &str,
+        name: &str,
+        content: &str,
+        ttl: u32,
+    ) -> anyhow::Result<()> {
+        let body = DnsRecordBody {
+            r#type: record_type,
+            name,
+            content,
+            ttl,
+            proxied: false,
+        };
+        let response = self
+            .http
+            .post(self.records_url())
+            .bearer_auth(&self.api_token)
+            .json(&body)
+            .send()
+            .await?;
+        let _: CfResponse<DnsRecordResult> = parse_json(response).await?;
+        Ok(())
+    }
+
+    /// Delete **all** `(record_type, name)` records if present. Idempotent —
+    /// absence is success. Used to clear a multi-value ACME challenge.
+    async fn delete_all_by_name(&self, record_type: &str, name: &str) -> anyhow::Result<()> {
+        for id in self.find_record_ids(record_type, name).await? {
+            let response = self
+                .http
+                .delete(self.record_url(&id))
+                .bearer_auth(&self.api_token)
+                .send()
+                .await?;
+            let _: CfResponse<DnsRecordResult> = parse_json(response).await?;
+        }
+        Ok(())
     }
 
     /// Create or update `(name, record_type)` so its content is `content`.
@@ -223,22 +277,29 @@ impl DnsProvider for CloudflareProvider {
             .await
     }
 
-    async fn set_txt(&self, value: &str) -> anyhow::Result<()> {
-        self.upsert("TXT", &self.acme_name(), value, TXT_RECORD_TTL)
-            .await
+    async fn set_txt(&self, values: &[String]) -> anyhow::Result<()> {
+        // Replace semantics: clear any prior challenge records, then create one
+        // TXT per value so all SAN challenge values are live at once. (The daemon
+        // is stateless re: CF record ids for BYOD — it reconciles by name.)
+        let name = self.acme_name();
+        self.delete_all_by_name("TXT", &name).await?;
+        for value in values {
+            self.create("TXT", &name, value, TXT_RECORD_TTL).await?;
+        }
+        Ok(())
     }
 
     async fn delete_txt(&self) -> anyhow::Result<()> {
-        // ACME publishes a single `_acme-challenge` TXT, so deleting the one
-        // matching record is sufficient. Idempotent: absence is success.
-        self.delete_by_name("TXT", &self.acme_name()).await
+        // A wildcard challenge publishes more than one `_acme-challenge` TXT, so
+        // sweep them all. Idempotent: absence is success.
+        self.delete_all_by_name("TXT", &self.acme_name()).await
     }
 
     async fn teardown(&self) -> anyhow::Result<()> {
-        // Remove the published A record and any lingering ACME challenge so the
-        // user's zone is left clean. Both deletes are idempotent.
+        // Remove the published A record and any lingering ACME challenge records
+        // so the user's zone is left clean. All deletes are idempotent.
         self.delete_by_name("A", &self.record_name).await?;
-        self.delete_by_name("TXT", &self.acme_name()).await
+        self.delete_all_by_name("TXT", &self.acme_name()).await
     }
 }
 

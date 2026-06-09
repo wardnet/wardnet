@@ -86,9 +86,10 @@ async fn upsert_a_updates_when_present() {
 }
 
 #[tokio::test]
-async fn set_txt_creates_acme_record() {
+async fn set_txt_creates_one_record_per_value() {
     let server = MockServer::start().await;
     let acme = format!("_acme-challenge.{DOMAIN}");
+    // No prior records to clear.
     Mock::given(method("GET"))
         .and(path(format!("/zones/{ZONE}/dns_records")))
         .and(query_param("type", "TXT"))
@@ -98,28 +99,33 @@ async fn set_txt_creates_acme_record() {
         })))
         .mount(&server)
         .await;
+    // A wildcard challenge publishes two values → two creates at the same name.
     Mock::given(method("POST"))
         .and(path(format!("/zones/{ZONE}/dns_records")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "success": true, "errors": [], "result": {"id": "txt-1"}
         })))
+        .expect(2)
         .mount(&server)
         .await;
 
     provider(&server.uri())
-        .set_txt("challenge-value")
+        .set_txt(&["apex-value".to_string(), "wildcard-value".to_string()])
         .await
         .unwrap();
 
     let requests = server.received_requests().await.unwrap();
-    let post = requests
+    let contents: Vec<String> = requests
         .iter()
-        .find(|r| r.method.as_str() == "POST")
-        .expect("create POST sent");
-    let body: serde_json::Value = serde_json::from_slice(&post.body).unwrap();
-    assert_eq!(body["type"], "TXT");
-    assert_eq!(body["name"], acme);
-    assert_eq!(body["content"], "challenge-value");
+        .filter(|r| r.method.as_str() == "POST")
+        .map(|r| {
+            let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
+            assert_eq!(body["type"], "TXT");
+            assert_eq!(body["name"], acme);
+            body["content"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert_eq!(contents, vec!["apex-value", "wildcard-value"]);
 }
 
 #[tokio::test]

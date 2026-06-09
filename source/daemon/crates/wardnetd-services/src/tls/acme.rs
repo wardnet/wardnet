@@ -8,6 +8,20 @@
 //! [`DdnsService`](crate::ddns::DdnsService) and **always** cleared afterwards
 //! (success or failure), so a failed issuance can't strand an `_acme-challenge`
 //! record.
+//!
+//! ## Multi-SAN, multi-value challenge
+//!
+//! The cert is a **per-user wildcard certificate**: one cert with two SANs —
+//! the apex `<domain>` and the wildcard `*.<domain>`. Both authorize via DNS-01,
+//! and both challenge TXT records live at the *same* `_acme-challenge.<domain>`
+//! name with *different* values, so they must be published **simultaneously**.
+//!
+//! That forces a two-pass order dance: pass 1 collects every authorization's
+//! `dns_value` (an `AuthorizationHandle` borrows the order's authorization slice
+//! mutably, so only one can be held at a time — we can't ready them inline);
+//! pass 2 publishes *all* values in one [`DdnsService::set_acme_challenge`] call
+//! and only then marks each challenge ready. Readying a challenge before both
+//! values are live would let the CA validate against a half-published name.
 
 use chrono::{DateTime, Utc};
 use instant_acme::{
@@ -78,16 +92,49 @@ async fn load_or_create_account(
     Ok(account)
 }
 
-/// Drive a single ACME order to a finalized certificate chain.
+/// Drive a single ACME order for the apex + wildcard SANs to a finalized
+/// certificate chain. See the [module docs](self) for why the challenge dance is
+/// two-pass.
 async fn run_order(
     account: &Account,
     ddns: &dyn DdnsService,
     domain: &str,
 ) -> anyhow::Result<IssuedCert> {
-    let identifiers = [Identifier::Dns(domain.to_owned())];
+    let wildcard = format!("*.{domain}");
+    let identifiers = [
+        Identifier::Dns(domain.to_owned()),
+        Identifier::Dns(wildcard.clone()),
+    ];
     let mut order = account.new_order(&NewOrder::new(&identifiers)).await?;
 
-    // Publish a DNS-01 response for every authorization that isn't already valid.
+    // Pass 1: collect the DNS-01 value for every authorization that isn't
+    // already valid. We only gather here — readying a challenge now (before the
+    // other SAN's value is published at the same name) would let the CA validate
+    // a half-published challenge.
+    let mut values: Vec<String> = Vec::new();
+    {
+        let mut authorizations = order.authorizations();
+        while let Some(authz) = authorizations.next().await {
+            let mut authz = authz?;
+            if authz.status == AuthorizationStatus::Valid {
+                continue;
+            }
+            let challenge = authz.challenge(ChallengeType::Dns01).ok_or_else(|| {
+                anyhow::anyhow!("ACME server offered no DNS-01 challenge for {domain}")
+            })?;
+            values.push(challenge.key_authorization().dns_value());
+        }
+    }
+
+    // Publish all challenge values at once (both live at `_acme-challenge.<domain>`
+    // simultaneously). Skip when every authorization was already valid.
+    if !values.is_empty() {
+        ddns.set_acme_challenge(&values)
+            .await
+            .map_err(|e| anyhow::anyhow!("publish ACME challenge: {e}"))?;
+    }
+
+    // Pass 2: now that both values are live, mark each pending challenge ready.
     {
         let mut authorizations = order.authorizations();
         while let Some(authz) = authorizations.next().await {
@@ -98,19 +145,16 @@ async fn run_order(
             let mut challenge = authz.challenge(ChallengeType::Dns01).ok_or_else(|| {
                 anyhow::anyhow!("ACME server offered no DNS-01 challenge for {domain}")
             })?;
-            let value = challenge.key_authorization().dns_value();
-            ddns.set_acme_challenge(&value)
-                .await
-                .map_err(|e| anyhow::anyhow!("publish ACME challenge: {e}"))?;
             challenge.set_ready().await?;
         }
     }
 
     order.poll_ready(&RetryPolicy::default()).await?;
 
-    // CSR + leaf key generated on the Pi. The key PEM is what we serve.
+    // CSR + leaf key generated on the Pi. The CSR carries BOTH SANs so the issued
+    // cert covers the apex and every per-service host under the wildcard.
     let key_pair = rcgen::KeyPair::generate()?;
-    let mut params = rcgen::CertificateParams::new(vec![domain.to_owned()])?;
+    let mut params = rcgen::CertificateParams::new(vec![domain.to_owned(), wildcard])?;
     params.distinguished_name = rcgen::DistinguishedName::new();
     let csr = params.serialize_request(&key_pair)?;
     order.finalize_csr(csr.der().as_ref()).await?;

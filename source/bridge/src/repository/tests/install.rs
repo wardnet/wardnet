@@ -29,7 +29,7 @@ fn sample_install(id: &str, name: &str) -> Install {
         token_hash: format!("hash_{id}"),
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     }
@@ -107,25 +107,36 @@ async fn update_ip() {
     assert_eq!(found.cf_a_record_id.as_deref(), Some("cf-record-abc"));
 }
 
+/// Round-trip the `cf_acme_record_ids` `TEXT[]` list: a fresh install starts
+/// empty, takes a multi-value list (as a per-user wildcard challenge would), and
+/// clears back to empty. The runtime `TEXT[]` ↔ `Vec<String>` mapping is invisible
+/// to compilation, so this live-DB test is the real gate on the column change.
 #[tokio::test]
 #[ignore = "requires Postgres (docker compose up -d)"]
-async fn update_acme_record_set_and_clear() {
+async fn set_acme_records_round_trip() {
     let repo = repo().await;
     repo.insert(&sample_install("id-5", "fair-turing"))
         .await
         .unwrap();
 
-    repo.update_acme_record("id-5", Some("cf-txt-xyz"), Utc::now())
-        .await
-        .unwrap();
+    // Fresh install: empty list, not null.
     let found = repo.find_by_id("id-5").await.unwrap().unwrap();
-    assert_eq!(found.cf_acme_record_id.as_deref(), Some("cf-txt-xyz"));
+    assert!(found.cf_acme_record_ids.is_empty());
 
-    repo.update_acme_record("id-5", None, Utc::now())
+    // Set two records (apex + wildcard SAN).
+    let ids = vec!["cf-txt-apex".to_string(), "cf-txt-wildcard".to_string()];
+    repo.set_acme_records("id-5", &ids, Utc::now())
         .await
         .unwrap();
     let found = repo.find_by_id("id-5").await.unwrap().unwrap();
-    assert!(found.cf_acme_record_id.is_none());
+    assert_eq!(found.cf_acme_record_ids, ids);
+
+    // Clear back to empty.
+    repo.set_acme_records("id-5", &[], Utc::now())
+        .await
+        .unwrap();
+    let found = repo.find_by_id("id-5").await.unwrap().unwrap();
+    assert!(found.cf_acme_record_ids.is_empty());
 }
 
 #[tokio::test]

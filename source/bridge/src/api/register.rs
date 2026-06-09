@@ -153,7 +153,7 @@ pub async fn register_install(
         token_hash,
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     };

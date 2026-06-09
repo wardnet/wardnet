@@ -131,12 +131,14 @@ pub trait DdnsService: Send + Sync {
     /// provider is active.
     async fn resolution_check(&self) -> Result<DdnsResolutionCheckResponse, AppError>;
 
-    /// Publish the ACME DNS-01 `_acme-challenge` TXT record for the active
-    /// installation through the configured provider. Errors with
+    /// Publish the ACME DNS-01 `_acme-challenge` TXT record(s) for the active
+    /// installation through the configured provider — one per value, all at the
+    /// one challenge name and published together (a **per-user wildcard
+    /// certificate** authorizes two SANs through the same name). Errors with
     /// [`AppError::Conflict`] when DDNS is unconfigured — a challenge can't be
     /// published without a provider. Called by the TLS service during
     /// certificate issuance.
-    async fn set_acme_challenge(&self, value: &str) -> Result<(), AppError>;
+    async fn set_acme_challenge(&self, values: &[String]) -> Result<(), AppError>;
 
     /// Remove the `_acme-challenge` TXT record. Idempotent at the provider
     /// level (absence is success). Errors with [`AppError::Conflict`] when DDNS
@@ -669,13 +671,13 @@ impl DdnsService for DdnsServiceImpl {
         })
     }
 
-    async fn set_acme_challenge(&self, value: &str) -> Result<(), AppError> {
+    async fn set_acme_challenge(&self, values: &[String]) -> Result<(), AppError> {
         auth_context::require_admin()?;
         let provider = self.build_provider().await?.ok_or_else(|| {
             AppError::Conflict("DDNS is not configured — cannot publish ACME challenge".to_owned())
         })?;
         provider
-            .set_txt(value)
+            .set_txt(values)
             .await
             .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))
     }

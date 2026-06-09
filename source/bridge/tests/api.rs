@@ -220,7 +220,7 @@ async fn insert_test_install(state: &AppState, name: &str) -> (Install, String) 
         token_hash,
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     };
@@ -1197,18 +1197,28 @@ async fn set_acme_challenge_success() {
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    let body = br#"{"value":"my-acme-token"}"#;
+    // A per-user wildcard cert publishes two challenge values at once.
+    let body = br#"{"values":["apex-token","wildcard-token"]}"#;
     let path = format!("/v1/installs/{}/acme-challenge", install.id);
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
-    let app = test_app(state);
+    let app = test_app(state.clone());
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert_eq!(
         dns.call_count(),
-        1,
-        "one DNS upsert-TXT should have been made"
+        2,
+        "one DNS upsert-TXT per challenge value should have been made"
     );
+
+    // Both record IDs are persisted as the active list.
+    let updated = state
+        .installs()
+        .find_by_id(&install.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.cf_acme_record_ids.len(), 2);
 }
 
 #[tokio::test]
@@ -1218,7 +1228,7 @@ async fn set_acme_challenge_returns_403_on_id_mismatch() {
     let signing_key = test_signing_key();
 
     let other_id = Uuid::new_v4().to_string();
-    let body = br#"{"value":"my-acme-token"}"#;
+    let body = br#"{"values":["my-acme-token"]}"#;
     let path = format!("/v1/installs/{other_id}/acme-challenge");
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
@@ -1234,7 +1244,7 @@ async fn set_acme_challenge_returns_500_when_dns_fails() {
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    let body = br#"{"value":"my-acme-token"}"#;
+    let body = br#"{"values":["my-acme-token"]}"#;
     let path = format!("/v1/installs/{}/acme-challenge", install.id);
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
@@ -1244,14 +1254,57 @@ async fn set_acme_challenge_returns_500_when_dns_fails() {
 }
 
 #[tokio::test]
+async fn set_acme_challenge_rejects_oversized_value_list() {
+    // The cross-tenant DoS guard: an oversized list is rejected with 400 before
+    // any DNS write (the mock would otherwise record one call per value).
+    let (state, dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    let body = br#"{"values":["a","b","c","d","e"]}"#;
+    let path = format!("/v1/installs/{}/acme-challenge", install.id);
+    let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
+
+    let app = test_app(state);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        dns.call_count(),
+        0,
+        "no DNS calls when the list is rejected"
+    );
+}
+
+#[tokio::test]
+async fn set_acme_challenge_rejects_empty_value_list() {
+    let (state, dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    let body = br#"{"values":[]}"#;
+    let path = format!("/v1/installs/{}/acme-challenge", install.id);
+    let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
+
+    let app = test_app(state);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(dns.call_count(), 0, "empty list makes no DNS calls");
+}
+
+#[tokio::test]
 async fn delete_acme_challenge_deletes_dns_record_when_present() {
     let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
+    // Two live records (apex + wildcard SAN) → both must be deleted.
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-existing"), Utc::now())
+        .set_acme_records(
+            &install.id,
+            &["cf-txt-apex".to_string(), "cf-txt-wildcard".to_string()],
+            Utc::now(),
+        )
         .await
         .unwrap();
 
@@ -1262,7 +1315,7 @@ async fn delete_acme_challenge_deletes_dns_record_when_present() {
     let app = test_app(state);
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
-    assert_eq!(dns.call_count(), 1, "one DNS delete should have been made");
+    assert_eq!(dns.call_count(), 2, "one DNS delete per live record");
 }
 
 #[tokio::test]
@@ -1310,7 +1363,7 @@ async fn delete_acme_challenge_returns_500_when_dns_fails() {
 
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-exists"), Utc::now())
+        .set_acme_records(&install.id, &["cf-txt-exists".to_string()], Utc::now())
         .await
         .unwrap();
 
@@ -1354,7 +1407,7 @@ async fn deregister_success_deletes_both_dns_records() {
         .unwrap();
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-id"), Utc::now())
+        .set_acme_records(&install.id, &["cf-txt-id".to_string()], Utc::now())
         .await
         .unwrap();
 

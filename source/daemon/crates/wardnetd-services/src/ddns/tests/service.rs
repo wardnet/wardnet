@@ -494,7 +494,9 @@ async fn acme_challenge_requires_admin() {
         Arc::new(MockSecretStore::default()),
     );
     assert!(matches!(
-        svc.set_acme_challenge("token").await.unwrap_err(),
+        svc.set_acme_challenge(&["token".to_string()])
+            .await
+            .unwrap_err(),
         AppError::Forbidden(_)
     ));
     assert!(matches!(
@@ -511,7 +513,7 @@ async fn acme_challenge_errors_when_unconfigured() {
     );
     // Unconfigured DDNS → no provider → Conflict (can't publish a challenge).
     assert!(matches!(
-        auth_context::with_context(admin_ctx(), svc.set_acme_challenge("token"))
+        auth_context::with_context(admin_ctx(), svc.set_acme_challenge(&["token".to_string()]))
             .await
             .unwrap_err(),
         AppError::Conflict(_)
@@ -544,9 +546,12 @@ async fn set_acme_challenge_publishes_txt_via_bridge() {
         settings(Some(bridge.uri()), vec![]),
     );
 
-    auth_context::with_context(admin_ctx(), svc.set_acme_challenge("challenge-value"))
-        .await
-        .unwrap();
+    auth_context::with_context(
+        admin_ctx(),
+        svc.set_acme_challenge(&["apex-value".to_string(), "wildcard-value".to_string()]),
+    )
+    .await
+    .unwrap();
     // `.expect(1)` is verified when `bridge` drops here.
 }
 
