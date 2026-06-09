@@ -24,7 +24,9 @@ pub struct RegionEndpoint {
 /// The built-in catalog. Extend this to add regions.
 pub const REGION_CATALOG: &[RegionEndpoint] = &[RegionEndpoint {
     slug: "use1",
-    base_url: "https://bridge.prod.use1.wardnet.network",
+    // Must equal the bridge's own `INFORGE_DEPLOYMENT_FQDN` — the bridge issues its
+    // TLS cert for, and matches the terminate-SNI against, exactly this hostname.
+    base_url: "https://bridge.svc.prod.use1.wardnet.network",
 }];
 
 /// A region chosen by [`select_region`].

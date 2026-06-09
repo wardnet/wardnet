@@ -79,7 +79,7 @@ impl std::fmt::Debug for BridgeIdentity {
 /// fields. All trait calls sign with the install's Ed25519 key.
 pub struct BridgeProvider {
     client: reqwest::Client,
-    /// Bridge endpoint base URL, e.g. `https://bridge.prod.use1.wardnet.network`.
+    /// Bridge endpoint base URL, e.g. `https://bridge.svc.prod.use1.wardnet.network`.
     base_url: String,
     install_id: String,
     bearer_token: String,
