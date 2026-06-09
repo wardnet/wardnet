@@ -1,61 +1,102 @@
+//! SNI-demuxing TLS front.
+//!
+//! Behind the transparent L4 proxy the bridge owns two TLS listeners:
+//! - **`:8443` ([`Role::Https`])** — peeks the TLS `ClientHello` SNI; if it matches
+//!   the bridge's own [`fqdn`](crate::config::Config::fqdn) the connection is
+//!   **terminated locally** and served by the control-plane API, otherwise the
+//!   still-encrypted stream is **passed through** to the tenant's reverse tunnel.
+//! - **`:8853` ([`Role::Dot`])** — DNS-over-TLS; every connection is passed through
+//!   to the tenant tunnel (the bridge never terminates `DoT`).
+//!
+//! Every connection is fronted by a PROXY protocol v1 header (nginx) which is
+//! consumed first to recover the real client address. Because exactly the header
+//! line is consumed, the subsequent non-consuming [`TcpStream::peek`] still sees
+//! the `ClientHello`, and both `TlsAcceptor::accept` (terminate) and
+//! `copy_bidirectional` (passthrough) resume at it — so the Pi receives raw TLS
+//! with no PROXY header, as it expects.
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
+use tokio_rustls::TlsAcceptor;
 use tracing::Instrument as _;
 
 use crate::api::validation::is_valid_name;
-use crate::config::Config;
+use crate::proxy_protocol;
+use crate::serve;
+use crate::tls::CertResolver;
 use crate::tunnel::registry::{ForwardRequest, ForwardResult, TunnelRegistry};
 
 /// Maximum bytes to peek for SNI extraction.
 const PEEK_SIZE: usize = 1024;
 /// Maximum concurrent in-flight SNI routing tasks (accept-storm guard).
 const MAX_CONCURRENT_SNI: usize = 4096;
-/// Timeout for reading the TLS `ClientHello` from an accepted connection.
+/// Timeout for reading the PROXY header + TLS `ClientHello`.
 const PEEK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Run the SNI-routing TCP listener.
-///
-/// Accepts TLS connections and routes them based on the SNI hostname without
-/// terminating TLS:
-/// - `bridge_hostname` → forwarded to Caddy at `caddy_addr` (HTTP API).
-/// - `*.{subdomain_parent}` → routed by the rightmost label before the suffix
-///   (the vanity name) to the registered Pi tunnel, so both the vanity apex and
-///   per-service subdomains land on the same tunnel.
-/// - Anything else → connection dropped.
+/// What a listener does with a connection whose SNI matches the bridge's own FQDN.
+#[derive(Clone)]
+pub enum Role {
+    /// `:8443` — terminate the bridge FQDN locally and serve the API; passthrough
+    /// every other SNI to the tenant tunnel on port 443.
+    Https {
+        resolver: Arc<CertResolver>,
+        api_router: Router,
+    },
+    /// `:8853` — passthrough every SNI to the tenant tunnel on port 853.
+    Dot,
+}
+
+impl Role {
+    /// The tunnel destination port for passthrough traffic in this role.
+    fn passthrough_port(&self) -> u16 {
+        match self {
+            Role::Https { .. } => 443,
+            Role::Dot => 853,
+        }
+    }
+}
+
+/// Run an SNI-demuxing TLS listener.
 ///
 /// # Errors
 /// Returns an error if the listener cannot be bound.
 pub async fn run(
     addr: &str,
-    dest_port: u16,
-    config: Config,
+    fqdn: Arc<str>,
+    subdomain_parent: &str,
     registry: Arc<TunnelRegistry>,
+    role: Role,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(addr, dest_port, "SNI demuxer listening");
+    tracing::info!(
+        addr,
+        port = role.passthrough_port(),
+        "SNI demuxer listening"
+    );
 
-    // Pre-compute once so the accept loop avoids a heap allocation per connection.
-    let subdomain_dot_suffix = format!(".{}", config.subdomain_parent);
+    let subdomain_dot_suffix: Arc<str> = Arc::from(format!(".{subdomain_parent}"));
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SNI));
 
     loop {
         let (stream, peer) = listener.accept().await?;
-        let config = config.clone();
         let registry = Arc::clone(&registry);
-        let suffix = subdomain_dot_suffix.clone();
+        let fqdn = Arc::clone(&fqdn);
+        let suffix = Arc::clone(&subdomain_dot_suffix);
+        let role = role.clone();
         let permit = Arc::clone(&semaphore)
             .acquire_owned()
             .await
             .expect("semaphore closed");
-        let span = tracing::debug_span!("sni.route", %peer, dest_port);
+        let span = tracing::debug_span!("sni.route", %peer);
         tokio::spawn(
             async move {
                 let _permit = permit;
-                if let Err(e) = route(stream, peer, dest_port, config, registry, &suffix).await {
+                if let Err(e) = route(stream, peer, &fqdn, &suffix, &registry, &role).await {
                     tracing::debug!(error = %e, "SNI demux error");
                 }
             }
@@ -67,27 +108,46 @@ pub async fn run(
 async fn route(
     mut stream: TcpStream,
     peer: SocketAddr,
-    dest_port: u16,
-    config: Config,
-    registry: Arc<TunnelRegistry>,
+    fqdn: &str,
     subdomain_dot_suffix: &str,
+    registry: &Arc<TunnelRegistry>,
+    role: &Role,
 ) -> anyhow::Result<()> {
+    // 1. Consume the PROXY v1 header to recover the real client address.
+    let client_addr =
+        tokio::time::timeout(PEEK_TIMEOUT, proxy_protocol::read_required(&mut stream))
+            .await
+            .map_err(|_| anyhow::anyhow!("PROXY header read timeout"))??
+            .unwrap_or(peer);
+
+    // 2. Peek the ClientHello (non-consuming) for the SNI.
     let mut peek_buf = vec![0u8; PEEK_SIZE];
     let n = tokio::time::timeout(PEEK_TIMEOUT, stream.peek(&mut peek_buf))
         .await
         .map_err(|_| anyhow::anyhow!("peek timeout"))??;
-
     let sni = parse_sni(&peek_buf[..n]);
 
     match sni.as_deref() {
-        Some(hostname) if hostname == config.bridge_hostname => {
-            // Forward to Caddy — it owns the bridge's own TLS certificate.
-            let mut caddy = TcpStream::connect(&config.caddy_addr).await?;
-            tokio::io::copy_bidirectional(&mut stream, &mut caddy).await?;
+        // The bridge's own hostname → terminate TLS locally and serve the API.
+        Some(host) if host == fqdn => {
+            if let Role::Https {
+                resolver,
+                api_router,
+            } = role
+            {
+                terminate_and_serve(stream, resolver, api_router.clone(), client_addr).await?;
+            } else {
+                // A DoT connection for the bridge hostname is not something we serve.
+                tracing::debug!(sni = host, "bridge SNI on DoT listener, dropping");
+            }
         }
-        Some(hostname) => {
-            if let Some(name) = extract_install_name(hostname, subdomain_dot_suffix) {
-                let req = ForwardRequest { stream, dest_port };
+        // A tenant host → passthrough the encrypted stream to its reverse tunnel.
+        Some(host) => {
+            if let Some(name) = extract_install_name(host, subdomain_dot_suffix) {
+                let req = ForwardRequest {
+                    stream,
+                    dest_port: role.passthrough_port(),
+                };
                 match registry.forward(name, req) {
                     ForwardResult::Accepted => {}
                     ForwardResult::NotConnected => {
@@ -98,7 +158,7 @@ async fn route(
                     }
                 }
             } else {
-                tracing::debug!(peer = %peer, sni = hostname, "unroutable SNI, dropping");
+                tracing::debug!(peer = %peer, sni = host, "unroutable SNI, dropping");
             }
         }
         None => {
@@ -109,6 +169,22 @@ async fn route(
     Ok(())
 }
 
+/// Terminate TLS for the bridge's own FQDN with the live serving cert and hand the
+/// decrypted stream to the control-plane API, attributing it to `client_addr`.
+async fn terminate_and_serve(
+    stream: TcpStream,
+    resolver: &Arc<CertResolver>,
+    api_router: Router,
+    client_addr: SocketAddr,
+) -> anyhow::Result<()> {
+    let acceptor = TlsAcceptor::from(resolver.current());
+    let tls = acceptor
+        .accept(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("TLS handshake failed: {e}"))?;
+    serve::connection(tls, api_router, client_addr).await
+}
+
 /// Extract the vanity name (tunnel routing key) from an SNI hostname.
 ///
 /// The vanity is the **rightmost label before the suffix**, so both the apex
@@ -117,25 +193,17 @@ async fn route(
 ///   `Some("alice")`
 /// - `"jellyfin.alice.my.wardnet.services"` → `Some("alice")`
 ///
-/// Returns `None` when the hostname does not end with the suffix (only the
-/// `.wardnet.services` subdomain space is tenant-routed), or when the extracted
-/// vanity is not a name registration could ever have produced — empty (bare
-/// suffix or a malformed `foo..suffix`), too long, reserved, or containing
-/// invalid characters.
+/// Returns `None` when the hostname does not end with the suffix, or when the
+/// extracted vanity is not a name registration could ever have produced.
 fn extract_install_name<'a>(hostname: &'a str, subdomain_dot_suffix: &str) -> Option<&'a str> {
     let prefix = hostname.strip_suffix(subdomain_dot_suffix)?;
-    // The vanity is the last label of the prefix; `rsplit` always yields at
-    // least one element, but it may be empty for a malformed prefix.
     let vanity = prefix.rsplit('.').next()?;
-    // Hold the routing key to the same rules registration enforces (the single
-    // source of truth in `api/validation`): an empty/reserved/over-long/illegal
-    // label could never name a real tunnel, so treat it as unroutable.
     is_valid_name(vanity).then_some(vanity)
 }
 
 /// Parse the SNI hostname from the first bytes of a TLS `ClientHello`.
 ///
-/// Uses only the bytes already available via `TcpStream::peek`; returns `None`
+/// Uses only the bytes already available via [`TcpStream::peek`]; returns `None`
 /// if the buffer is too short, the record is not a `ClientHello`, or the SNI
 /// extension is absent.
 pub fn parse_sni(buf: &[u8]) -> Option<String> {

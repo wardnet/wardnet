@@ -1,4 +1,4 @@
-//! Reservation sweep — reaps abandoned name reservations.
+//! Background reaper for abandoned name reservations and expired ACME challenges.
 //!
 //! Registration is a two-database saga: the `names` row lives in the global
 //! naming authority, the install row in this bridge's regional DB. A crash
@@ -6,13 +6,17 @@
 //! regional install orphan). This sweep deletes expired `reserved` rows for
 //! **this region** and the matching regional install rows, so a crashed
 //! registration never permanently leaks a name.
+//!
+//! It also reaps expired `acme_http_challenge` tokens so a failed cert order
+//! cannot strand a token (mirroring the daemon's "always clear the challenge"
+//! discipline).
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 
-use crate::repository::{InstallRepository, NameRepository};
+use crate::repository::{InstallRepository, NameRepository, TlsRepository};
 
 /// How often the sweep runs.
 const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
@@ -59,10 +63,12 @@ pub async fn sweep_once(
 /// Each pass runs in its own task so a *panic* inside `sweep_once` is isolated
 /// (surfaced as a `JoinError`) and the loop keeps ticking — a background-task
 /// panic must not stop the sweep nor take down live tunnels. A returned error is
-/// logged and retried on the next tick.
+/// logged and retried on the next tick. After the reservation pass, expired ACME
+/// HTTP-01 challenge tokens are reaped (best-effort; logged on failure).
 pub async fn run(
     names: Arc<dyn NameRepository>,
     installs: Arc<dyn InstallRepository>,
+    tls: Arc<dyn TlsRepository>,
     region: String,
 ) {
     let mut interval = tokio::time::interval(SWEEP_INTERVAL);
@@ -90,6 +96,13 @@ pub async fn run(
                     "reservation sweep pass panicked — continuing"
                 );
             }
+        }
+
+        // Reap expired HTTP-01 challenge tokens so a failed order can't strand one.
+        match tls.delete_expired_challenges(Utc::now()).await {
+            Ok(n) if n > 0 => tracing::debug!(count = n, "reaped expired ACME challenge tokens"),
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, "failed to reap expired ACME challenges"),
         }
     }
 }

@@ -32,6 +32,16 @@ Conventions and invariants for agents working inside `source/bridge/`.
 
 12. **The tunnel registry is in-memory and per-node.** `[#444]` It is not persisted; after a node restart all Pis reconnect. The inter-node forward listener is **private-network-only and authenticated** (it bypasses SNI, so it must be). Treat `conn_id` as wrapping (`u32`).
 
+13. **Strip the PROXY v1 header first, consuming exactly the line.** Every public listener (`:8080`/`:8443`/`:8853`) is fronted by nginx with PROXY protocol v1. Read the header byte-by-byte up to its CRLF and **no further** (`proxy_protocol::read_required`/`read_optional`) — never a `BufReader`, which would swallow the `ClientHello` and break the SNI peek. The recovered client IP must be threaded into the API as `ConnectInfo` so the per-IP rate limiter and IP-bound PoW keep working; on `:8080` the header is *optional* (a direct health probe carries none).
+
+14. **The control-plane API is never served in plaintext.** It is served **only** over the TLS-terminated `:8443` path (SNI == the bridge FQDN). `:8080` serves only the HTTP-01 challenge responder and `/health`. Do not mount API routes on `:8080`.
+
+15. **Cert/account material is sealed; `ENCRYPTION_KEY` is shared per region.** Account credentials + chain + leaf key are AES-256-GCM-sealed (`crypto::seal`) under `ENCRYPTION_KEY` before they touch `bridge_tls`. All hosts in a region **must** share the same key or they can't decrypt each other's cert. Never log or persist the key or the unsealed material.
+
+16. **Coordinate issuance with the lease, reload by version.** Only the `bridge_tls_lease` winner runs ACME (a conditional `UPDATE`, never `pg_advisory_lock` — it would pin a Neon connection across the round-trip). Other hosts hot-swap when `bridge_tls.version` overtakes what they serve. The HTTP-01 token lives in the shared `acme_http_challenge` table (so any host answers LE) and is reaped on a TTL by the sweep.
+
+17. **Guard the public HTTP-01 token lookup.** `GET /.well-known/acme-challenge/{token}` is public, unauthenticated, and hits the DB — shape-guard the token (base64url, bounded length) **before** querying, keep it a single PK read, and 404 every other path. Do not let it become a DB-amplification probe.
+
 ## Test placement
 
 Tests **must not** be inline (`mod tests { ... }` inside the source file). They belong in:

@@ -2,37 +2,45 @@ use crate::config::Config;
 
 fn test_config() -> Config {
     Config {
-        listen_addr: "127.0.0.1:8080".to_string(),
+        http01_listen_addr: "127.0.0.1:8080".to_string(),
+        tls_listen_addr: "127.0.0.1:8443".to_string(),
+        dot_listen_addr: "127.0.0.1:8853".to_string(),
         database_url: "postgres://ignored".to_string(),
         global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "token".to_string(),
         cloudflare_zone_id: "zone-id".to_string(),
-        region: "us".to_string(),
+        region: "use1".to_string(),
         subdomain_parent: "my.wardnet.services".to_string(),
-        sni_listen_addr: "0.0.0.0:443".to_string(),
-        dot_listen_addr: "0.0.0.0:853".to_string(),
-        caddy_addr: "127.0.0.1:8443".to_string(),
-        bridge_hostname: "bridge.us.wardnet.network".to_string(),
+        fqdn: "bridge.svc.prod.use1.wardnet.network".to_string(),
+        acme_directory_url: "https://acme-staging-v02.api.letsencrypt.org/directory".to_string(),
+        encryption_key: [7u8; 32],
     }
 }
 
 #[test]
 fn from_env_reads_required_and_optional_vars() {
-    // Save current values so we can restore them after the test.
     let keys = [
         "DATABASE_URL",
         "GLOBAL_DATABASE_URL",
         "CLOUDFLARE_API_TOKEN",
         "CLOUDFLARE_ZONE_ID",
-        "REGION",
+        "INFORGE_DEPLOYMENT_REGION_SLUG",
+        "INFORGE_DEPLOYMENT_FQDN",
+        "INFORGE_DEPLOYMENT_ENVIRONMENT",
         "SUBDOMAIN_PARENT",
-        "BRIDGE_HOSTNAME",
-        "LISTEN_ADDR",
-        "SNI_LISTEN_ADDR",
+        "ENCRYPTION_KEY",
+        "HTTP01_LISTEN_ADDR",
+        "TLS_LISTEN_ADDR",
         "DOT_LISTEN_ADDR",
-        "CADDY_ADDR",
+        "ACME_DIRECTORY_URL",
     ];
     let originals: Vec<_> = keys.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+
+    // A 32-byte key, base64-encoded.
+    let key_b64 = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode([3u8; 32])
+    };
 
     // SAFETY: single-threaded test binary; no concurrent env access.
     unsafe {
@@ -43,27 +51,37 @@ fn from_env_reads_required_and_optional_vars() {
         );
         std::env::set_var("CLOUDFLARE_API_TOKEN", "cf-token");
         std::env::set_var("CLOUDFLARE_ZONE_ID", "cf-zone");
-        std::env::set_var("REGION", "us");
+        std::env::set_var("INFORGE_DEPLOYMENT_REGION_SLUG", "use1");
+        std::env::set_var(
+            "INFORGE_DEPLOYMENT_FQDN",
+            "bridge.svc.prod.use1.wardnet.network",
+        );
+        std::env::set_var("INFORGE_DEPLOYMENT_ENVIRONMENT", "prod");
         std::env::set_var("SUBDOMAIN_PARENT", "my.wardnet.services");
-        std::env::set_var("BRIDGE_HOSTNAME", "bridge.us.wardnet.network");
-        std::env::remove_var("LISTEN_ADDR");
-        std::env::remove_var("SNI_LISTEN_ADDR");
+        std::env::set_var("ENCRYPTION_KEY", &key_b64);
+        std::env::remove_var("HTTP01_LISTEN_ADDR");
+        std::env::remove_var("TLS_LISTEN_ADDR");
         std::env::remove_var("DOT_LISTEN_ADDR");
-        std::env::remove_var("CADDY_ADDR");
+        std::env::remove_var("ACME_DIRECTORY_URL");
     }
 
     let cfg = Config::from_env().expect("from_env should succeed with all required vars set");
 
-    assert_eq!(cfg.region, "us");
+    assert_eq!(cfg.region, "use1");
     assert_eq!(
         cfg.global_database_url,
         "postgres://test:test@localhost/global"
     );
-    assert_eq!(cfg.bridge_hostname, "bridge.us.wardnet.network");
-    assert_eq!(cfg.listen_addr, "127.0.0.1:8080"); // default
-    assert_eq!(cfg.sni_listen_addr, "0.0.0.0:443"); // default
-    assert_eq!(cfg.dot_listen_addr, "0.0.0.0:853"); // default
-    assert_eq!(cfg.caddy_addr, "127.0.0.1:8443"); // default
+    assert_eq!(cfg.fqdn, "bridge.svc.prod.use1.wardnet.network");
+    assert_eq!(cfg.http01_listen_addr, "127.0.0.1:8080"); // default
+    assert_eq!(cfg.tls_listen_addr, "127.0.0.1:8443"); // default
+    assert_eq!(cfg.dot_listen_addr, "127.0.0.1:8853"); // default
+    // `prod` environment ⇒ Let's Encrypt production directory.
+    assert_eq!(
+        cfg.acme_directory_url,
+        "https://acme-v02.api.letsencrypt.org/directory"
+    );
+    assert_eq!(cfg.encryption_key, [3u8; 32]);
 
     // SAFETY: restoring original values; same single-threaded context.
     unsafe {
@@ -96,11 +114,11 @@ fn acme_fqdn() {
 
 #[test]
 fn region_label_independent_of_user_fqdn() {
-    // The user-facing host is region-free: an EU bridge (`region = "eu"`) uses the
-    // same flat `my.wardnet.services` parent as US, so the generated FQDNs carry no
-    // region label. Region lives only in `region`/`bridge_hostname`, never the host.
+    // The user-facing host is region-free: an EU bridge uses the same flat
+    // `my.wardnet.services` parent as US, so generated tenant FQDNs carry no region
+    // label. Region lives only in `region`/`fqdn`, never the tenant host.
     let cfg = Config {
-        region: "eu".to_string(),
+        region: "euw1".to_string(),
         subdomain_parent: "my.wardnet.services".to_string(),
         ..test_config()
     };

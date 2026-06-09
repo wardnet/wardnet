@@ -116,17 +116,18 @@ impl DnsProvider for MockDnsProvider {
 
 fn test_config() -> Config {
     Config {
-        listen_addr: "127.0.0.1:0".to_string(),
+        http01_listen_addr: "127.0.0.1:0".to_string(),
+        tls_listen_addr: "127.0.0.1:0".to_string(),
+        dot_listen_addr: "127.0.0.1:0".to_string(),
         database_url: "postgres://ignored".to_string(),
         global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "test-cf-token".to_string(),
         cloudflare_zone_id: "test-cf-zone".to_string(),
         region: "test".to_string(),
         subdomain_parent: "test.wardnet.local".to_string(),
-        sni_listen_addr: "0.0.0.0:443".to_string(),
-        dot_listen_addr: "0.0.0.0:853".to_string(),
-        caddy_addr: "127.0.0.1:8443".to_string(),
-        bridge_hostname: "bridge.test.wardnet.network".to_string(),
+        fqdn: "bridge.test.wardnet.network".to_string(),
+        acme_directory_url: "https://acme-staging-v02.api.letsencrypt.org/directory".to_string(),
+        encryption_key: [0u8; 32],
     }
 }
 

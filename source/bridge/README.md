@@ -3,9 +3,9 @@
 Per-region service for wardnet installations. It has two planes:
 
 - **Control plane** — DDNS registration, IP updates, ACME DNS-01 credential proxying, and installation lifecycle. *(Live.)*
-- **Data plane** — an SNI / TLS-passthrough relay on `:443` (HTTPS) and `:853` (Android Private DNS / DoT) over a per-install **WebSocket reverse tunnel**, so a Pi behind CGNAT is reachable without inbound ports and its TLS private key never leaves the Pi. *([#444].)*
+- **Data plane** — an SNI demuxer that **terminates TLS for the bridge's own FQDN** (serving the control-plane API) and **passes through** every other SNI on `:443` (HTTPS) and `:853` (Android Private DNS / DoT) over a per-install **WebSocket reverse tunnel**, so a Pi behind CGNAT is reachable without inbound ports and its TLS private key never leaves the Pi. *([#444].)*
 
-It runs on a public VM in each region (Caddy fronts only the bridge's own API hostname; see Architecture).
+It runs on a public VM in each region behind a **transparent L4 proxy** (nginx + PROXY protocol v1) that maps the public privileged ports to the bridge's localhost ports. The bridge issues and renews its **own** certificate via ACME HTTP-01 — there is no Caddy (see [adr-bridge-self-terminated-tls.md](../../docs/adr-bridge-self-terminated-tls.md)).
 
 > ## Status
 > This document describes the **agreed target architecture**; delivery is staged, so items below are tagged with the issue that lands them:
@@ -23,7 +23,7 @@ Pi devices talk to the bridge to:
 2. **Update IP** — push their current public IPv4; the bridge upserts a Cloudflare A record for `<slug>.my.wardnet.services`.
 3. **Provision ACME** — store and delete the Cloudflare TXT record needed for DNS-01 Let's Encrypt certificate issuance.
 4. **Deregister** — delete the installation and its Cloudflare records.
-5. **Open a tunnel** `[#444]` — dial a persistent WebSocket (`GET /v1/installs/:id/tunnel`) that the bridge uses to relay inbound `:443`/`:853` streams down to the Pi. The bridge **never terminates TLS** — it peeks the SNI, routes, and splices the raw stream.
+5. **Open a tunnel** `[#444]` — dial a persistent WebSocket (`GET /v1/installs/:id/tunnel`) that the bridge uses to relay inbound `:443`/`:853` streams down to the Pi. For **tenant** traffic the bridge never terminates TLS — it peeks the SNI, routes, and splices the raw stream. It terminates TLS only for its **own** FQDN (the control-plane API).
 
 ## Security model
 
@@ -39,7 +39,7 @@ Pi devices talk to the bridge to:
 | **Path gate** | DB token lookup is only attempted for `/v1/installs/*` paths, blocking a DoS vector where an attacker forces DB queries on public endpoints. |
 | **Rate limiting** | 20 challenges / IP / hour; 3 registrations / IP / 24 h. |
 | **Reserved IP filter** | `PUT /v1/installs/:id/ip` rejects RFC 1918, loopback, link-local, and documentation-range addresses. |
-| **Trusted proxy** | `X-Forwarded-For` is only trusted when the TCP peer is a loopback address (i.e. running behind Caddy on the same host). |
+| **Trusted proxy** | The bridge runs behind a transparent L4 proxy (nginx + PROXY protocol v1); it consumes the PROXY header to recover the **real client IP** and threads it in as `ConnectInfo`, which the per-IP rate limit and IP-bound PoW key off. `X-Forwarded-For` is trusted only for loopback peers (dev/tests). |
 
 ## Architecture
 
@@ -47,27 +47,28 @@ Pi devices talk to the bridge to:
 flowchart TD
     client(["Client — TLS :443 / :853"])
     pi(["Pi · wardnetd"])
+    nginx(["nginx L4 proxy<br/>PROXY protocol v1"])
 
     subgraph data["Data plane [#444]"]
-        sni["SNI demuxer<br/>peek ClientHello — no TLS termination"]
+        sni["SNI demuxer<br/>peek ClientHello"]
+        tls["TLS terminate (own FQDN)<br/>rustls · ACME HTTP-01"]
         router["TunnelRouter<br/>Local / Cluster [#445]"]
         tunnel["WebSocket reverse tunnel<br/>CONNECT · DATA · CLOSE · PING"]
     end
 
     subgraph control["Control plane"]
-        caddy["Caddy — API cert"]
         auth["auth_layer<br/>body guard + Ed25519 + replay"]
         api["API routes · Axum"]
-        repos["InstallRepository<br/>ChallengeRepository"]
+        repos["InstallRepository<br/>ChallengeRepository · TlsRepository"]
         db[("PostgreSQL · Neon<br/>DbPools read + write [#444/#445]")]
         dns["DnsProvider · Cloudflare REST"]
     end
 
-    client --> sni
-    sni -->|bridge_hostname| caddy
-    sni -->|"*.my.&lt;region&gt;.*"| router
+    client --> nginx --> sni
+    sni -->|bridge FQDN| tls
+    sni -->|"*.my.wardnet.services"| router
     router --> tunnel --> pi
-    caddy -->|"XFF: real client IP"| auth
+    tls -->|"real client IP via PROXY v1"| auth
     auth --> api
     api --> repos --> db
     api --> dns
@@ -127,14 +128,16 @@ PostgreSQL — **managed Neon in production** `[#444/#445]`. `DbPools { read, wr
 
 Non-secret configuration is read from the environment at startup; **secrets are resolved via the `SecretsProvider`** (above), not the environment, in production.
 
+The deployment identity is injected by the inforge bootstrapper as `INFORGE_DEPLOYMENT_*` variables.
+
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `REGION` | ✓ | — | Short region label, e.g. `"us"` |
-| `SUBDOMAIN_PARENT` | ✓ | — | DNS parent (user host, region-free), e.g. `"my.wardnet.services"` |
-| `BRIDGE_HOSTNAME` `[#444]` | ✓ | — | The bridge's own API hostname, e.g. `bridge.use1.wardnet.network` |
-| `SNI_LISTEN_ADDR` / `DOT_LISTEN_ADDR` / `CADDY_ADDR` `[#444]` | — | `:443` / `:853` / `127.0.0.1:8443` | Demuxer + Caddy bind addresses |
-| `NODE_ADDR` `[#445]` | — | — | This node's private-network address for inter-node forwarding |
-| `LISTEN_ADDR` | — | `127.0.0.1:8080` | Control-plane API bind (loopback — behind Caddy) |
+| `INFORGE_DEPLOYMENT_FQDN` | ✓ | — | The bridge's **own** FQDN, e.g. `bridge.svc.prod.use1.wardnet.network`. TLS for this SNI is terminated locally; the cert is issued via ACME HTTP-01 |
+| `INFORGE_DEPLOYMENT_REGION_SLUG` | ✓ | — | Short region slug, e.g. `"use1"` (→ `region`) |
+| `INFORGE_DEPLOYMENT_ENVIRONMENT` | — | `staging` | `prod` ⇒ Let's Encrypt production directory; anything else ⇒ LE staging |
+| `SUBDOMAIN_PARENT` | ✓ | — | Tenant DNS parent (region-free), e.g. `"my.wardnet.services"` |
+| `ENCRYPTION_KEY` | ✓ | — | base64 of a 32-byte AES-256-GCM key for sealing cert/account material at rest; **identical across hosts in a region** |
+| `HTTP01_LISTEN_ADDR` / `TLS_LISTEN_ADDR` / `DOT_LISTEN_ADDR` | — | `127.0.0.1:8080` / `:8443` / `:8853` | Loopback binds; public `:80`/`:443`/`:853` reach them via the L4 proxy |
 | `DATABASE_URL`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | ✓ | — | Resolved via `SecretsProvider` in prod; env/`FileSecrets` in dev |
 | `GLOBAL_DATABASE_URL` | ✓ | — | DSN for the **global naming authority** (separate global Postgres holding the `names` table; shared fleet-wide, distinct from the regional `DATABASE_URL`) |
 

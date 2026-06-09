@@ -1,8 +1,13 @@
 # ADR: Bridge edge topology — Caddy-l4 on the front, bridge as passthrough tunnel router
 
-**Status**: Accepted
+**Status**: Superseded by [adr-bridge-self-terminated-tls.md](adr-bridge-self-terminated-tls.md) (2026-06-09)
 **Date**: 2026-06-07
 **Issue**: #541 (follow-up to the #521 HTTPS/DDNS + remote-access umbrella)
+
+> **Superseded.** The infrastructure decision was to drop Caddy entirely and front
+> the bridge with a transparent L4 proxy (nginx + PROXY protocol v1). The bridge now
+> terminates TLS for its own FQDN in-process via ACME HTTP-01 — the "reversal trigger"
+> recorded at the bottom of this ADR. See the superseding ADR for the current design.
 
 ---
 
