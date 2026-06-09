@@ -271,7 +271,7 @@ ring + aws-lc-rs are in the tree → rustls can't auto-pick).
 
 ## Bridge service (issue #435)
 
-Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).
+Rust / Axum / PostgreSQL microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind a transparent L4 proxy (nginx + PROXY protocol v1); the bridge **terminates TLS for its own FQDN itself** via ACME HTTP-01 and passes tenant traffic through to the home-Pi tunnels — no Caddy (see `docs/adr-bridge-self-terminated-tls.md`). Each bridge instance owns one region, keyed by its inforge region slug (e.g. `use1`).
 
 ### Security invariants
 
