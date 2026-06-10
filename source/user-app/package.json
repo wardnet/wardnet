@@ -13,7 +13,7 @@
     "@tanstack/react-query": "5.100.14",
     "@wardnet/js": "portal:../sdk/wardnet-js",
     "@wardnet/web": "portal:../web",
-    "react": "19.2.5",
+    "react": "19.2.7",
     "react-dom": "19.2.5",
     "sonner": "2.0.7",
     "zustand": "5.0.13"
@@ -21,7 +21,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.2.4",
     "@types/node": "25.8.0",
-    "@types/react": "19.2.14",
+    "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "tailwindcss": "4.3.0",
