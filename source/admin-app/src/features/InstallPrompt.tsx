@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ShieldIcon, DownloadIcon } from "lucide-react";
-import { useInstallPrompt } from "@wardnet/wardnet-web";
+import { useInstallPrompt } from "@wardnet/web";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 

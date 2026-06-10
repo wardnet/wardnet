@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useOnlineStatus } from "@wardnet/wardnet-web";
+import { useOnlineStatus } from "@wardnet/web";
 
 type OnlineStatus = ReturnType<typeof useOnlineStatus>;
 

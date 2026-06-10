@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import { Drawer, DrawerContent, DrawerTitle } from "@wardnet/forge-web/drawer";
-import { useUpdateDevice, countryFlag } from "@wardnet/wardnet-web";
+import { Drawer, DrawerContent, DrawerTitle } from "@wardnet/web";
+import { useUpdateDevice, countryFlag } from "@wardnet/web";
 import type { Device, Tunnel, RoutingTarget } from "@wardnet/js";
 import { CheckIcon } from "lucide-react";
 

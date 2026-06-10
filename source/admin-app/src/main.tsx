@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { registerSW } from "@wardnet/wardnet-web";
+import { registerSW } from "@wardnet/web";
 import App from "./App";
 import "./index.css";
 

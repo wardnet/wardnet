@@ -1,3 +1,4 @@
+import { brand } from "@wardnet/styles/tokens";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router";
 import { Logo } from "@/components/compound/Logo";
@@ -22,12 +23,12 @@ interface NavbarProps {
  * with the `side-ink` family for foreground.
  */
 export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
-  const brand = (
+  const logoContent = (
     <>
       {showBack && <ArrowLeft size={16} className="text-side-ink-2" />}
       <Logo size={28} />
       <span className="text-sm font-semibold text-side-ink-active">
-        Ward<span style={{ color: "var(--accent)" }}>net</span>
+        Ward<span style={{ color: brand.accent }}>net</span>
       </span>
     </>
   );
@@ -36,14 +37,14 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
     <nav className="bg-side sticky top-0 z-50 flex w-full items-center justify-between px-6 py-4">
       {onLogoClick ? (
         <button onClick={onLogoClick} className="flex items-center gap-2">
-          {brand}
+          {logoContent}
         </button>
       ) : (
         <Link
           to={backTo ?? (showBack ? "/?view=content" : "/")}
           className="flex items-center gap-2"
         >
-          {brand}
+          {logoContent}
         </Link>
       )}
       <div className="flex items-center gap-6">

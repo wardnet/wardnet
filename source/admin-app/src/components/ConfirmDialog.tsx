@@ -1,4 +1,4 @@
-import { Drawer, DrawerContent, DrawerClose } from "@wardnet/forge-web/drawer";
+import { Drawer, DrawerContent, DrawerClose } from "@wardnet/web";
 
 interface Props {
   open: boolean;

@@ -1,3 +1,4 @@
+import { brand } from "@wardnet/styles/tokens";
 import { Link } from "react-router";
 import { Logo } from "@/components/compound/Logo";
 
@@ -23,7 +24,7 @@ export function Footer() {
         <div className="flex items-center gap-2">
           <Logo size={32} />
           <span className="text-lg font-semibold text-ink">
-            Ward<span style={{ color: "var(--accent)" }}>net</span>
+            Ward<span style={{ color: brand.accent }}>net</span>
           </span>
         </div>
         <nav className="flex gap-6">

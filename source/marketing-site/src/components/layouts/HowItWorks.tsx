@@ -1,3 +1,4 @@
+import { brand } from "@wardnet/styles/tokens";
 import { StepCard } from "@/components/compound/StepCard";
 
 const STEPS = [
@@ -28,7 +29,7 @@ export function HowItWorks() {
       <div className="mx-auto max-w-6xl">
         <h2
           className="mb-12 text-center text-3xl font-bold tracking-tight"
-          style={{ color: "var(--accent)" }}
+          style={{ color: brand.accent }}
         >
           Up and running in minutes
         </h2>

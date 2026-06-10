@@ -18,7 +18,7 @@ outputs:
     description: "'true' when marketing-site code or the Makefile changed."
     value: ${{ steps.filter.outputs.site }}
   admin-web:
-    description: "'true' when wardnet-web or admin-site code changed."
+    description: "'true' when @wardnet/web or admin-site code changed."
     value: ${{ steps.filter.outputs.admin-web }}
   admin-app:
     description: "'true' when admin-app or its portal deps changed."
@@ -51,18 +51,16 @@ runs:
             - 'source/marketing-site/**'
             - 'Makefile'
           admin-web:
-            - 'source/wardnet-web/**'
+            - 'source/web/**'
             - 'source/admin-site/**'
             - 'source/sdk/wardnet-js/**'
           admin-app:
             - 'source/admin-app/**'
-            - 'source/wardnet-web/**'
-            - 'source/admin-site/forge-web/**'
+            - 'source/web/**'
             - 'source/sdk/wardnet-js/**'
           user-app:
             - 'source/user-app/**'
-            - 'source/wardnet-web/**'
-            - 'source/admin-site/forge-web/**'
+            - 'source/web/**'
             - 'source/sdk/wardnet-js/**'
           ci:
             - '.github/workflows/**'

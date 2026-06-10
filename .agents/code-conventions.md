@@ -21,7 +21,7 @@
 - Prettier for formatting (configured in `.prettierrc`).
 - ESLint with Prettier integration.
 - React Router 7 imports from `react-router` (not `react-router-dom`).
-- **All shared hooks live in `wardnet-web`** — do not put TanStack Query hooks that are used by more than one app surface in an app-local `hooks/` folder. Extract them to `source/wardnet-web/src/hooks/` and re-export from `source/wardnet-web/src/index.ts`.
+- **All shared hooks live in `@wardnet/web`** — do not put TanStack Query hooks that are used by more than one app surface in an app-local `hooks/` folder. Extract them to `source/web/src/hooks/` and re-export from `source/web/src/index.ts`.
 - **Mutation hoisting** — when a mutation (e.g. `useRebuildTunnel`) is called from multiple list-item cards on the same page, hoist the single `useMutation` result to the page component and pass `mutate` + `isPending`/`variables` down as props. This keeps the in-flight indicator accurate across the whole list without each card owning an independent mutation.
 - **Offline overlay pattern (admin-app)** — `OnlineStatusContext` exposes `showingLastKnownState: boolean`. Pages wrap their content in a `pointer-events-none opacity-40` div when this is true. The loading skeleton should be gated on **all** required queries being loaded (e.g. both `devicesLoading && policyLoading`), not just one, to avoid a premature flash.
 - **Component layers** (strict separation):

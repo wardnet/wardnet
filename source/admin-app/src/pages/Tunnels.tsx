@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { RotateCcwIcon } from "lucide-react";
-import { Card } from "@wardnet/forge-web/card";
-import { Pill } from "@wardnet/forge-web/pill";
-import { Sparkline } from "@wardnet/forge-web/sparkline";
+import { Card } from "@wardnet/web";
+import { Pill } from "@wardnet/web";
+import { Sparkline } from "@wardnet/web";
 import {
   useTunnels,
   useDevices,
@@ -13,7 +13,7 @@ import {
   countryFlag,
   formatBytes,
   timeAgo,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import type { Device, Tunnel, TunnelStatus } from "@wardnet/js";
 

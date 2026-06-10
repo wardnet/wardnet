@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { LoginForm, useAuthStore } from "@wardnet/wardnet-web";
+import { LoginForm, useAuthStore } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BiometricSetupPrompt } from "@/components/BiometricSetupPrompt";
 

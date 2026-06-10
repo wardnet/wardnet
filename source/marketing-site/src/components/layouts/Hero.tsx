@@ -1,3 +1,4 @@
+import { brand } from "@wardnet/styles/tokens";
 import { ChevronDown } from "lucide-react";
 import { LatestReleaseBadge } from "@/components/compound/LatestReleaseBadge";
 import { Logo } from "@/components/compound/Logo";
@@ -28,7 +29,7 @@ export function Hero({ onExplore }: HeroProps) {
           className="text-6xl font-semibold tracking-tight sm:text-7xl"
           style={{ color: "var(--side-ink-active)" }}
         >
-          Ward<span style={{ color: "var(--accent)" }}>net</span>
+          Ward<span style={{ color: brand.accent }}>net</span>
         </h1>
       </div>
       <p className="h-sub text-side-ink mb-2 text-xl sm:text-2xl">Your network. Your rules.</p>

@@ -1,5 +1,6 @@
+import { brand } from "@wardnet/styles/tokens";
 import { Outlet } from "react-router";
-import { Card } from "@wardnet/forge-web/card";
+import { Card } from "@wardnet/web";
 import logoSrc from "@/assets/logo.png";
 
 export function AuthLayout() {
@@ -9,7 +10,7 @@ export function AuthLayout() {
         <div className="flex items-center gap-3">
           <img src={logoSrc} alt="Wardnet" width={48} height={48} />
           <h1 className="text-2xl font-bold tracking-wider uppercase">
-            Ward<span style={{ color: "var(--accent)" }}>net</span>
+            Ward<span style={{ color: brand.accent }}>net</span>
           </h1>
         </div>
         <p className="text-sm text-ink-3">Sign in to manage your network</p>

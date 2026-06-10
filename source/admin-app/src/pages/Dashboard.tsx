@@ -5,7 +5,7 @@ import {
   useDefaultPolicy,
   useDaemonStatus,
   useDashboardDnsStats,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { StatusCard } from "@/features/dashboard/StatusCard";
 import { DevicesCard } from "@/features/dashboard/DevicesCard";

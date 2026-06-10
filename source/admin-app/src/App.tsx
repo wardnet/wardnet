@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
-import { useAuth, useSetupStatus } from "@wardnet/wardnet-web";
+import { useAuth, useSetupStatus } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 import { OnlineStatusProvider } from "@/context/OnlineStatusContext";
 import { BiometricGate } from "@/components/BiometricGate";
