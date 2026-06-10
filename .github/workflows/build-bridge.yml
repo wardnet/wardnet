@@ -61,7 +61,7 @@ jobs:
           cache-key: bridge
 
       - name: Install clippy SARIF tooling
-        uses: taiki-e/install-action@59012be0884e296ca2da49b530610e72c49039ad # v2
+        uses: taiki-e/install-action@56545b37b57562edd73171cb6c62cc509db4c34e # v2
         with:
           tool: clippy-sarif,sarif-fmt
 
