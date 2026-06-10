@@ -10,6 +10,8 @@ source/marketing-site/public/releases/
 # Copied from deploy/install.sh at build time by `yarn copy:install-script`.
 source/marketing-site/public/install.sh
 **/.yarn/install-state.gz
+**/.pnp.cjs
+**/.pnp.loader.mjs
 *.db
 *.db-shm
 *.db-wal
