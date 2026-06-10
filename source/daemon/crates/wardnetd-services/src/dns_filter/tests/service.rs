@@ -265,8 +265,13 @@ impl Harness {
         )
         .bind(id.to_string())
         .bind(format!(
-            "aa:bb:cc:dd:ee:{:02x}",
-            (id.as_u128() & 0xff) as u8
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            ((id.as_u128() >> 40) & 0xff) as u8,
+            ((id.as_u128() >> 32) & 0xff) as u8,
+            ((id.as_u128() >> 24) & 0xff) as u8,
+            ((id.as_u128() >> 16) & 0xff) as u8,
+            ((id.as_u128() >> 8) & 0xff) as u8,
+            (id.as_u128() & 0xff) as u8,
         ))
         .bind(last_ip)
         .bind("2026-05-06T00:00:00Z")
