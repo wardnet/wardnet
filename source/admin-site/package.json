@@ -15,7 +15,7 @@
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.2.7",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@tanstack/react-query": "5.100.14",
+    "@tanstack/react-query": "5.101.0",
     "@tanstack/react-table": "8.21.3",
     "@wardnet/js": "portal:../sdk/wardnet-js",
     "@wardnet/web": "portal:../web",
