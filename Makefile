@@ -11,10 +11,9 @@ DAEMON_DIR   := source/daemon
 BRIDGE_DIR   := source/bridge
 SDK_DIR      := source/sdk/wardnet-js
 ADMIN_DIR    := source/admin-site
-WEBUI_DIR    := source/admin-site/web
+WEBUI_DIR    := source/admin-site
 USER_APP_DIR := source/user-app
 ADMIN_APP_DIR := source/admin-app
-FORGE_DIR    := source/forge
 SITE_DIR     := source/marketing-site
 
 # Container runtime: prefer podman, fall back to docker.
@@ -152,7 +151,6 @@ init:
 	@command -v node >/dev/null || { echo "Error: node not found. Install Node.js 25+"; exit 1; }
 	@command -v yarn >/dev/null || { echo "Error: yarn not found. Run: corepack enable"; exit 1; }
 	cd $(SDK_DIR) && yarn install
-	cd $(FORGE_DIR) && yarn install
 	cd $(ADMIN_DIR) && yarn install
 	cd $(USER_APP_DIR) && yarn install
 	cd $(ADMIN_APP_DIR) && yarn install

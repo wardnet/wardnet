@@ -14,7 +14,34 @@ updates:
       default-days: 3
 
   - package-ecosystem: "npm"
-    directory: "/source/admin-site/web"
+    directory: "/source/admin-site"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "npm"
+    directory: "/source/admin-app"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "npm"
+    directory: "/source/user-app"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "npm"
+    directory: "/source/web"
     schedule:
       interval: "weekly"
     commit-message:
@@ -35,6 +62,15 @@ updates:
     directory: /source/sdk/wardnet-js
     schedule:
       interval: daily
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "npm"
+    directory: "/source/end2end-tests/daemon"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
     cooldown:
       default-days: 3
 

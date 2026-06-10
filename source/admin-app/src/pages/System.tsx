@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { RefreshCcwIcon, PowerIcon, LogOutIcon, MonitorIcon, ChevronRightIcon } from "lucide-react";
-import { Pill } from "@wardnet/forge-web/pill";
+import { Pill } from "@wardnet/web";
 import {
   useSystemStatus,
   useDaemonStatus,
@@ -11,7 +11,7 @@ import {
   useAuth,
   formatBytes,
   formatUptime,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BusyOverlay } from "@/components/BusyOverlay";

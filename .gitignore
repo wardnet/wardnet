@@ -1,8 +1,6 @@
 source/daemon/target/
 source/bridge/target/
 node_modules/
-source/admin-app/web/dist/
-!source/admin-app/web/dist/index.html
 source/marketing-site/dist/
 source/marketing-site/coverage/
 source/marketing-site/test-results/
@@ -12,6 +10,8 @@ source/marketing-site/public/releases/
 # Copied from deploy/install.sh at build time by `yarn copy:install-script`.
 source/marketing-site/public/install.sh
 **/.yarn/install-state.gz
+**/.pnp.cjs
+**/.pnp.loader.mjs
 *.db
 *.db-shm
 *.db-wal

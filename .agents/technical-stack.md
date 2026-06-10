@@ -20,17 +20,22 @@
 - Linked via Yarn `portal:` protocol from all app surfaces (`"@wardnet/js": "portal:../sdk/wardnet-js"`)
 - Yarn 4 with `nodeLinker: node-modules`
 
-## Shared React library (`@wardnet/wardnet-web`)
-- Lives at `source/wardnet-web/`; linked via `"@wardnet/wardnet-web": "portal:../wardnet-web"`
-- Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, and utility functions
-- All app surfaces (admin-site, user-app, admin-app) import hooks and utilities from here — **do not duplicate hook logic in app-local hook files**
+## Shared React library (`@wardnet/web`)
+- Lives at `source/web/`; linked via `"@wardnet/web": "portal:../web"`
+- Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, utility functions, and all UI primitives (Button, Card, Modal, Combobox, etc.)
+- All app surfaces (admin-site, user-app, admin-app) import hooks, utilities, and primitives from here — **do not duplicate hook or component logic in app-local files**
 
-## Admin site (`source/admin-site/web/` — `@wardnet/admin-site`)
+## Design tokens (`@wardnet/styles`)
+- Lives at `source/styles/`; linked via `"@wardnet/styles": "portal:../styles"`
+- CSS tokens + Tailwind base layer in `styles.css`; typed design token constants (brand, status, radius, density, font) in `src/tokens.ts`
+- Import CSS: `@import "@wardnet/styles"` (the `"."` export resolves to `styles.css`)
+- Import tokens: `import { brand, status } from "@wardnet/styles/tokens"`
+
+## Admin site (`source/admin-site/` — `@wardnet/admin-site`)
 - Full desktop admin UI; served at `/admin/`
 - React 19, TypeScript 5.9, Vite 7
 - Tailwind CSS 4 (CSS-first config: `@import "tailwindcss"` + `@tailwindcss/vite` plugin)
 - shadcn/ui (Radix UI primitives + Tailwind styling) — components in `src/components/core/ui/`
-- Forge design-system components from `@wardnet/forge-web` (`source/admin-site/forge-web/`)
 - TanStack Query 5, React Router 7, Zustand 5
 - ESLint 10 + Prettier
 - Yarn 4 with `nodeLinker: node-modules`
@@ -39,7 +44,7 @@
 ## Admin mobile PWA (`source/admin-app/` — `@wardnet/admin-app`)
 - Admin PWA for daily operational tasks; served at `/admin-app/`
 - React 19, TypeScript 5.9, Vite 7
-- Tailwind CSS 4; Forge design-system components from `@wardnet/forge-web`
+- Tailwind CSS 4
 - TanStack Query 5, React Router 7, Zustand 5, Sonner (toasts)
 - `OnlineStatusContext` — provides `showingLastKnownState: boolean` to all pages; pages wrap content in an offline overlay (pointer-events disabled + opacity dimmed) when true
 - Yarn 4 with `nodeLinker: node-modules`

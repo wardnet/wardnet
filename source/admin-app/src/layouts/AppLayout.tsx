@@ -1,5 +1,5 @@
 import { Outlet } from "react-router";
-import { useDaemonStatus } from "@wardnet/wardnet-web";
+import { useDaemonStatus } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { Header } from "@/components/Header";
 import { ConnectionBanner } from "@/components/ConnectionBanner";

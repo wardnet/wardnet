@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline } from "@wardnet/wardnet-web";
+import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { ChevronRightIcon } from "lucide-react";

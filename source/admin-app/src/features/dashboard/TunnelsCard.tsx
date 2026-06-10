@@ -1,7 +1,7 @@
 import { NetworkIcon } from "lucide-react";
 import { Link } from "react-router";
-import { Card } from "@wardnet/forge-web/card";
-import { formatBytes, countryFlag } from "@wardnet/wardnet-web";
+import { Card } from "@wardnet/web";
+import { formatBytes, countryFlag } from "@wardnet/web";
 import type { Tunnel } from "@wardnet/js";
 
 interface Props {

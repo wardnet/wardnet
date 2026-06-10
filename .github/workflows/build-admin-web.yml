@@ -1,12 +1,12 @@
 name: Build Admin Web
 
-# Reusable leaf for admin-site/web (and its shared dep wardnet-web) type-check
+# Reusable leaf for admin-site (and its shared dep @wardnet/web) type-check
 # and production build.
 #
 # Callers: ci.yml (push to main), pr.yml (PRs).
-# Triggered by changes to source/wardnet-web/**, source/admin-site/**, or
-# source/sdk/wardnet-js/** — wardnet-web is a portal dep of admin-site/web, so
-# the admin-site type-check and build implicitly validates wardnet-web too.
+# Triggered by changes to source/web/**, source/admin-site/**, or
+# source/sdk/wardnet-js/** — @wardnet/web is a portal dep of admin-site, so
+# the admin-site type-check and build implicitly validates @wardnet/web too.
 
 on:
   workflow_call:
@@ -35,10 +35,10 @@ jobs:
         run: cd source/admin-site && yarn install --immutable
 
       - name: Type check
-        run: cd source/admin-site/web && yarn type-check
+        run: cd source/admin-site && yarn type-check
 
       - name: Format check
-        run: cd source/admin-site/web && yarn format:check
+        run: cd source/admin-site && yarn format:check
 
   build:
     name: Build admin-web bundle
@@ -55,4 +55,4 @@ jobs:
       - uses: ./.github/actions/build-vite-app
         with:
           cache-dependency-path: source/admin-site/yarn.lock
-          build-command: cd source/admin-site && yarn install --immutable && cd web && yarn build
+          build-command: cd source/admin-site && yarn install --immutable && yarn build

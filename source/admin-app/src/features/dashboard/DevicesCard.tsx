@@ -1,7 +1,7 @@
 import { MonitorIcon } from "lucide-react";
 import { Link } from "react-router";
-import { Card } from "@wardnet/forge-web/card";
-import { isDeviceOnline } from "@wardnet/wardnet-web";
+import { Card } from "@wardnet/web";
+import { isDeviceOnline } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 interface Props {

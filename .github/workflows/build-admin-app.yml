@@ -3,9 +3,9 @@ name: Build Admin App
 # Reusable leaf for admin-app (admin PWA) type-check and production build.
 #
 # Callers: ci.yml (push to main), pr.yml (PRs).
-# Triggered by changes to source/admin-app/**, source/wardnet-web/**,
-# source/admin-site/forge-web/**, or source/sdk/wardnet-js/** — all are
-# portal dependencies that admin-app resolves at build time.
+# Triggered by changes to source/admin-app/**, source/web/**, or
+# source/sdk/wardnet-js/** — all are portal dependencies that admin-app
+# resolves at build time.
 #
 # Produces no artifact: the daemon compilation rebuilds all web apps via
 # `make build-web`, so there is no downstream consumer for a standalone

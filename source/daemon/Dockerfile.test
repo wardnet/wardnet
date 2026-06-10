@@ -32,7 +32,7 @@ RUN apt-get update \
 WORKDIR /build
 # Rust workspace lives at /build; rust-embed paths in wardnetd-api are
 # three ../ steps from /build/crates/wardnetd-api/, resolving at the
-# filesystem root — so asset trees land at /admin-site/web/dist,
+# filesystem root — so asset trees land at /admin-site/dist,
 # /user-app/dist, and /admin-app/dist. /deploy/keys/wardnet-release.pub is
 # baked into wardnetd-services via include_str! against a six-level
 # relative path that walks back to the repo root, so the deploy tree
@@ -49,15 +49,15 @@ COPY source/daemon/ /build/
 # context cache entirely. The e2e suite exercises API endpoints, not the web UI,
 # so placeholder dist content is sufficient for rust-embed compilation.
 RUN mkdir -p \
-        /admin-site/web/dist \
+        /admin-site/dist \
         /user-app/dist \
         /admin-app/dist \
-        /admin-site/web/src/assets && \
+        /admin-site/src/assets && \
     printf '<!doctype html><html><head></head><body></body></html>\n' \
-        | tee /admin-site/web/dist/index.html \
+        | tee /admin-site/dist/index.html \
               /user-app/dist/index.html \
               /admin-app/dist/index.html > /dev/null && \
-    printf 'placeholder\n' > /admin-site/web/src/assets/logo.png
+    printf 'placeholder\n' > /admin-site/src/assets/logo.png
 COPY deploy/ /deploy/
 # CALVER is read by the daemon build scripts (build-support/version.rs)
 # and resolved as `../../../../CALVER` from each crate's build.rs cwd

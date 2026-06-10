@@ -7,7 +7,7 @@ name: "Wardnet CodeQL config"
 #     - source/daemon/build-support/**
 #
 #   JavaScript / TypeScript (single `javascript-typescript` language):
-#     - source/admin-site/web/src/**            (React admin site)
+#     - source/admin-site/src/**               (React admin site)
 #     - source/user-app/src/**                 (React user PWA)
 #     - source/admin-app/src/**                (React admin PWA)
 #     - source/sdk/wardnet-js/src/**    (TypeScript SDK)
@@ -35,7 +35,7 @@ paths-ignore:
   - "source/daemon/crates/*/src/**/tests/**"
 
   # Web UI + marketing site Vitest suites.
-  - "source/admin-site/web/tests/**"
+  - "source/admin-site/tests/**"
   - "source/user-app/tests/**"
   - "source/admin-app/tests/**"
   - "source/marketing-site/tests/**"
@@ -45,13 +45,6 @@ paths-ignore:
   # deployment and exposes HTTP only on the test LAN.
   - "source/daemon/crates/wardnet-test-agent/**"
 
-  # Forge design-system docs / visual studio. `source/forge/docs/` is
-  # reference material only (see source/forge/docs/README.md): no app
-  # build pulls from it and no published artefact references it. The
-  # mocks intentionally stub out state setters and other handlers that
-  # would otherwise be wired up in the real app, which trips lint-style
-  # CodeQL queries like js/useless-assignment-to-local.
-  - "source/forge/docs/**"
 
 # Default query suite is appropriate for us. We don't need to override
 # `queries:` here; keep the tuning surface minimal.

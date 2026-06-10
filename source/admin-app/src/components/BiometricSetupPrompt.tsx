@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card } from "@wardnet/forge-web/card";
+import { Card } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 
 interface Props {

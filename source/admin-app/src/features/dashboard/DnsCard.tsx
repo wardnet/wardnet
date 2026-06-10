@@ -1,8 +1,8 @@
 import { GlobeIcon, ShieldOffIcon } from "lucide-react";
 import { Link } from "react-router";
-import { Card } from "@wardnet/forge-web/card";
-import { Sparkline } from "@wardnet/forge-web/sparkline";
-import type { DashboardDnsStats } from "@wardnet/wardnet-web";
+import { Card } from "@wardnet/web";
+import { Sparkline } from "@wardnet/web";
+import type { DashboardDnsStats } from "@wardnet/web";
 
 interface Props {
   data: DashboardDnsStats | undefined;

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { GlobeIcon, ShieldIcon, Trash2Icon, Loader2Icon } from "lucide-react";
-import { Pill } from "@wardnet/forge-web/pill";
-import { Sparkline } from "@wardnet/forge-web/sparkline";
-import { Toggle } from "@wardnet/forge-web/toggle";
+import { Pill } from "@wardnet/web";
+import { Sparkline } from "@wardnet/web";
+import { Toggle } from "@wardnet/web";
 import {
   useDnsStatus,
   useDnsConfig,
@@ -12,7 +12,7 @@ import {
   useDashboardDnsStats,
   useDnsTopBlockedDomains,
   parseLabels,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SectionLabel } from "@/components/SectionLabel";

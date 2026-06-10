@@ -1,5 +1,5 @@
 import { ActivityIcon } from "lucide-react";
-import { formatUptime } from "@wardnet/wardnet-web";
+import { formatUptime } from "@wardnet/web";
 
 interface Props {
   reachable: boolean;
