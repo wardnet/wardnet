@@ -235,11 +235,29 @@ jobs:
           echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
           echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
 
+      # Pre-install the Codecov CLI from PyPI and hand it to both upload
+      # steps via `binary:`. The default path (download from cli.codecov.io
+      # + PGP verification against keybase.io) currently hangs until the
+      # job timeout: Codecov migrated their keybase account, bricking the
+      # old one and breaking signature verification — codecov/codecov-action#1956.
+      # PyPI provides its own integrity, so this avoids the broken keybase
+      # path WITHOUT `skip_validation` (which would disable integrity
+      # checking outright). Revert to the action's own download once
+      # upstream ships the fix.
+      - name: Install Codecov CLI from PyPI
+        id: codecovcli
+        if: ${{ !cancelled() && (steps.files.outputs.lcov != '' || steps.files.outputs.junit != '') }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/codecov-cli-venv"
+          "$RUNNER_TEMP/codecov-cli-venv/bin/pip" install --quiet codecov-cli
+          echo "bin=$RUNNER_TEMP/codecov-cli-venv/bin/codecovcli" >> "$GITHUB_OUTPUT"
+
       - name: Upload coverage to Codecov
         if: steps.files.outputs.lcov != ''
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ${{ steps.files.outputs.lcov }}
+          binary: ${{ steps.codecovcli.outputs.bin }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -248,5 +266,6 @@ jobs:
         uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
         with:
           files: ${{ steps.files.outputs.junit }}
+          binary: ${{ steps.codecovcli.outputs.bin }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
