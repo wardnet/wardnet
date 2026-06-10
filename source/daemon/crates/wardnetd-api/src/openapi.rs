@@ -69,7 +69,7 @@ struct SecurityAddon;
 /// `logoUrl` config so the docs page shows the brand mark at the top of the
 /// sidebar. Shared with the web UI — `include_bytes!` pulls the single
 /// canonical copy so the daemon rebuilds whenever the asset changes.
-pub const LOGO_PNG: &[u8] = include_bytes!("../../../../admin-site/web/src/assets/logo.png");
+pub const LOGO_PNG: &[u8] = include_bytes!("../../../../admin-site/src/assets/logo.png");
 
 /// Vendored `@scalar/api-reference` standalone bundle, served from
 /// `/api/docs/scalar.js`. Embedding the bundle (instead of loading from a

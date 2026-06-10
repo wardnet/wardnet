@@ -15,7 +15,7 @@ struct AdminAppAssets;
 
 /// Desktop admin site — served at `/admin/`.
 #[derive(Embed)]
-#[folder = "../../../admin-site/web/dist"]
+#[folder = "../../../admin-site/dist"]
 struct AdminSiteAssets;
 
 /// Fallback handler that routes requests to one of the three embedded trees
