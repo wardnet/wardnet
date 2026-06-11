@@ -1,7 +1,6 @@
 import { memo } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Card } from "@wardnet/web";
-import { Pill } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import {
   useTunnels,
@@ -13,8 +12,7 @@ import {
   countryFlag,
   formatBytes,
   timeAgo,
-  tunnelStatusVariant,
-  tunnelStatusLabel,
+  TunnelStatusPill,
 } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import type { Device, Tunnel } from "@wardnet/js";
@@ -78,10 +76,7 @@ const TunnelCard = memo(function TunnelCard({
             <p className="truncate text-xs text-ink-3">{subtitle}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Pill variant={tunnelStatusVariant(tunnel.status)}>
-              <span className="mr-1" aria-hidden>●</span>
-              {tunnelStatusLabel(tunnel.status)}
-            </Pill>
+            <TunnelStatusPill status={tunnel.status} />
             <button
               onClick={() => onRebuild(tunnel.id)}
               disabled={isRebuilding}

@@ -8,11 +8,9 @@ import {
   CardHeader,
   CardTitle,
   DeviceIcon,
-  Pill,
   RoutingSelector,
+  TunnelStatusPill,
   countryFlag,
-  tunnelStatusLabel,
-  tunnelStatusVariant,
   useMyDevice,
   useSetMyRule,
 } from "@wardnet/web";
@@ -158,14 +156,12 @@ export default function Home() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Internet route</CardTitle>
-            {activeTunnel && (
-              <Pill variant={tunnelStatusVariant(activeTunnel.status)}>
-                {tunnelStatusLabel(activeTunnel.status)}
-              </Pill>
-            )}
-          </div>
+          <CardTitle>Internet route</CardTitle>
+          {activeTunnel && (
+            <span className="ml-auto">
+              <TunnelStatusPill status={activeTunnel.status} />
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           {adminLocked ? (
