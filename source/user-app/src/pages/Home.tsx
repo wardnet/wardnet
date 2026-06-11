@@ -14,6 +14,7 @@ import {
   useSetMyRule,
 } from "@wardnet/web";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
+import { useOnlineStatusContext } from "../context/OnlineStatusContext";
 
 /** Two routing targets are equivalent when they resolve to the same upstream:
  *  `default`/`direct` both mean "no VPN", and two tunnels match on id. Used to
@@ -47,6 +48,21 @@ function routingLabel(
     return "VPN";
   }
   return "Direct (no VPN)";
+}
+
+/** Label for the connection status card. Distinguishes null/default (follow
+ *  gateway policy) from direct (explicitly bypass VPN) — they're different
+ *  per the domain model even though both ultimately may route without a tunnel. */
+function routeLabel(
+  target: RoutingTarget | null,
+  tunnels: TunnelSummary[],
+): string {
+  if (!target || target.type === "default") return "Gateway default";
+  if (target.type === "direct") return "Direct (no VPN)";
+  const t = tunnels.find((tun) => tun.id === target.tunnel_id);
+  if (!t) return "Unknown tunnel";
+  const flag = t.country_code ? countryFlag(t.country_code) : "";
+  return `${flag} ${t.label}`.trim();
 }
 
 /** Editable routing control. `useSetMyRule` already raises the success/error
@@ -106,11 +122,13 @@ function RoutingForm({
  */
 export default function Home() {
   const { data, isLoading } = useMyDevice();
+  const { isDaemonReachable, isOnline } = useOnlineStatusContext();
 
   const device = data?.device;
   const currentRule = data?.current_rule ?? null;
   const adminLocked = data?.admin_locked ?? false;
   const tunnels = data?.available_tunnels ?? [];
+  const connected = isDaemonReachable && isOnline;
 
   // Remount the form when the saved rule changes so its local draft resets.
   const ruleKey =
@@ -148,6 +166,25 @@ export default function Home() {
           {device.name ?? device.hostname ?? device.mac}
         </h1>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Connection</CardTitle>
+            <span
+              className={`flex items-center gap-1.5 text-xs font-medium ${connected ? "text-accent" : "text-warn"}`}
+            >
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${connected ? "bg-accent" : "bg-warn"}`}
+              />
+              {connected ? "Connected" : "Reconnecting…"}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-ink">{routeLabel(currentRule, tunnels)}</p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
