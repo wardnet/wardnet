@@ -1,0 +1,217 @@
+name: Release Bridge
+
+# Tag-driven bridge release: build the aarch64 binary, package it with the
+# inforge `run` entrypoint into a signed tarball, publish a GitHub Release, then
+# hand off to deploy-bridge.yml (which dispatches the inforge raw-service deploy
+# on wardnet-infrastructure and blocks on it).
+#
+# The bridge releases INDEPENDENTLY of the daemon: its tag prefix is `bridge-v*`
+# and its version source of truth is source/bridge/Cargo.toml (pure SemVer), so
+# bridge releases never collide with the daemon's `v*.*.*` CalVer tags.
+#
+# `workflow_dispatch` is a dry run on any ref: it builds + signs but stops short
+# of publishing (release is gated on a `bridge-v*` tag) and never deploys.
+
+on:
+  push:
+    tags:
+      - "bridge-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  resolve:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version from ref and guard against Cargo.toml
+        id: version
+        run: |
+          set -euo pipefail
+
+          # The bridge's version source of truth is source/bridge/Cargo.toml.
+          # Pure SemVer (no CalVer date segments), so the tag compares directly
+          # against the package version — unlike the daemon, which compares the
+          # tag against ./CALVER because Cargo rejects CalVer's leading zeros.
+          CARGO_VERSION="$(grep -m1 '^version = ' source/bridge/Cargo.toml \
+            | sed -E 's/^version = "(.*)"/\1/')"
+
+          if [[ "${GITHUB_REF}" == refs/tags/bridge-v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#bridge-v}"
+
+            if [[ "${VERSION}" != "${CARGO_VERSION}" ]]; then
+              echo "::error::tag ${TAG} (version ${VERSION}) does not agree with source/bridge/Cargo.toml (${CARGO_VERSION}). Bump Cargo.toml and re-tag."
+              exit 1
+            fi
+          else
+            # workflow_dispatch dry run on a non-tag ref — use the Cargo version.
+            TAG=""
+            VERSION="${CARGO_VERSION}"
+          fi
+
+          if [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Bridge release version: ${VERSION} (tag=${TAG:-<dispatch>}, prerelease=${PRERELEASE})"
+
+  build:
+    name: Build Bridge
+    needs: resolve
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/build-bridge.yml
+    secrets: inherit
+
+  release:
+    name: Publish GitHub Release
+    needs: [resolve, build]
+    # Publish only on an actual bridge-v* tag. workflow_dispatch exercises the
+    # full build + sign path but stops before `gh release create`.
+    if: startsWith(github.ref, 'refs/tags/bridge-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      # OIDC + attestation upload for actions/attest-build-provenance.
+      id-token: write
+      attestations: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Download bridge aarch64
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wardnet-bridge-aarch64-unsigned
+          path: release-staging/
+
+      - name: Assemble run+binary tarball, sha256, sign, verify
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
+            echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required. See deploy/keys/README.md."
+            exit 1
+          fi
+
+          sudo apt-get update && sudo apt-get install -y minisign
+
+          # build-bridge.yml ships wardnet-bridge-aarch64.tar.gz containing just
+          # the binary. The inforge raw-service contract requires the deployed
+          # tarball's root to hold an executable `run` entrypoint plus the
+          # binary, so repack with source/bridge/deploy/run alongside it.
+          WORK="staged-aarch64"
+          mkdir -p "${WORK}"
+          tar -C "${WORK}" -xzf release-staging/wardnet-bridge-aarch64.tar.gz
+          install -m 0755 source/bridge/deploy/run "${WORK}/run"
+
+          cd release-staging
+
+          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
+          chmod 0600 minisign.key
+          trap 'shred -u minisign.key || true' EXIT
+
+          DST="wardnet-bridge-${VERSION}-aarch64.tar.gz"
+          tar -C "../${WORK}" -czf "${DST}" run wardnet-bridge
+          rm -rf "../${WORK}" wardnet-bridge-aarch64.tar.gz
+
+          sha256sum "${DST}" | awk '{print $1}' > "${DST}.sha256"
+
+          # Password via both stdin and env — tty-less runners need stdin on
+          # older minisign, MINISIGN_PASSWORD on newer.
+          printf '%s\n' "${MINISIGN_PASSWORD}" | \
+            MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${DST}" \
+              -s minisign.key \
+              -t "wardnet-bridge ${VERSION} (aarch64)" \
+              -c "Wardnet release signing key" \
+              -x "${DST}.minisig"
+
+          minisign -Vm "${DST}" \
+            -p "../deploy/keys/wardnet-release.pub" \
+            -x "${DST}.minisig"
+
+          ls -l
+
+      - name: Attest SLSA build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: release-staging/*.tar.gz
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          ARGS=(--verify-tag --title "Wardnet Bridge ${VERSION}")
+
+          NOTES_FILE="docs/releases/bridge-v${VERSION}.md"
+          if [[ -f "${NOTES_FILE}" ]]; then
+            echo "Using release notes from ${NOTES_FILE}"
+            ARGS+=(--notes-file "${NOTES_FILE}")
+          else
+            echo "No ${NOTES_FILE} found — falling back to auto-generated notes"
+            ARGS+=(--generate-notes)
+          fi
+
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "${TAG}" "${ARGS[@]}" \
+            release-staging/*.tar.gz \
+            release-staging/*.tar.gz.sha256 \
+            release-staging/*.tar.gz.minisig
+
+  deploy:
+    name: Deploy Bridge
+    needs: [resolve, release]
+    if: startsWith(github.ref, 'refs/tags/bridge-v')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-bridge.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+    secrets: inherit

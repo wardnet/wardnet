@@ -153,6 +153,44 @@ make build-bridge   # release binary
 
 Repository/integration tests run against a live Postgres started via `docker compose up -d` before running the tests. For a local smoke run, point `DATABASE_URL` at a local or Neon dev database and use `FileSecrets`/env for the Cloudflare values.
 
+## Releasing and deploying
+
+The bridge releases **independently of the daemon**. Its version source of truth
+is the `version` in [`Cargo.toml`](Cargo.toml) (pure SemVer), and its release tag
+prefix is **`bridge-v*`** — never the daemon's `v*.*.*` CalVer tags.
+
+To cut a release:
+
+```sh
+# 1. bump source/bridge/Cargo.toml `version` (e.g. 0.1.0 -> 0.1.1), commit
+# 2. tag and push — the tag MUST equal Cargo.toml's version, prefixed `bridge-v`
+git tag bridge-v0.1.1
+git push origin bridge-v0.1.1
+```
+
+Pushing the tag runs two workflows in sequence:
+
+1. **`.github/workflows/release-bridge.yml`** — builds the aarch64 binary,
+   repackages it with the inforge [`deploy/run`](deploy/run) entrypoint into
+   `wardnet-bridge-<version>-aarch64.tar.gz`, minisign-signs it (+ `.sha256`,
+   SLSA provenance), and publishes a GitHub Release on the `bridge-v*` tag.
+2. **`.github/workflows/deploy-bridge.yml`** — triggers the inforge
+   `deploy-raw-service` workflow on `wardnet-infrastructure` (passing the release
+   tarball URL + the build commit SHA) and **blocks until that deploy finishes**,
+   failing the release if it fails. The deploy SSH key lives only in the infra
+   repo; this side authenticates with a short-lived bot-app token.
+
+The deploy tarball's root holds `run` + `wardnet-bridge`; inforge runs `run` as
+the systemd unit's `ExecStart`. The bridge takes no arguments and reads all
+config from the environment (`Config::from_env`), so `run` just execs the binary.
+
+To **re-deploy** an already-published tag (e.g. after an infra-side fix), run the
+**Deploy Bridge** workflow manually from the Actions UI with the tag — it is
+`workflow_dispatch`-able and idempotent.
+
+`workflow_dispatch`-ing **Release Bridge** on a non-tag ref is a dry run: it
+builds and signs but neither publishes nor deploys.
+
 ## Crate layout
 
 ```
