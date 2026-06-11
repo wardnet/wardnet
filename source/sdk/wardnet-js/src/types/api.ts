@@ -1,4 +1,5 @@
 import type { Device, DeviceType, RoutingTarget } from "./device.js";
+import type { TunnelStatus } from "./tunnel.js";
 import type {
   CountryInfo,
   ProviderCredentials,
@@ -21,6 +22,8 @@ export interface TunnelSummary {
   id: string;
   label: string;
   country_code: string;
+  status: TunnelStatus;
+  last_handshake: string | null;
 }
 
 /** Response for GET /api/devices/me. */

@@ -25,7 +25,9 @@ use crate::tests::stubs::{
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
-use wardnetd_services::{AuthService, DeviceDiscoveryService, DeviceService, DhcpService};
+use wardnetd_services::{
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, TunnelService,
+};
 
 // ---------------------------------------------------------------------------
 // Mock services
@@ -119,6 +121,81 @@ impl MockDeviceService {
     fn with_current_rules(mut self, rules: std::collections::HashMap<Uuid, RoutingTarget>) -> Self {
         self.current_rules = rules;
         self
+    }
+}
+
+/// Mock `TunnelService` that returns a fixed list of tunnels for `list_tunnels`.
+struct MockTunnelService {
+    tunnels: Vec<wardnet_common::tunnel::Tunnel>,
+}
+
+#[async_trait]
+impl TunnelService for MockTunnelService {
+    async fn import_tunnel(
+        &self,
+        _r: wardnet_common::api::CreateTunnelRequest,
+    ) -> Result<wardnet_common::api::CreateTunnelResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_tunnels(&self) -> Result<wardnet_common::api::ListTunnelsResponse, AppError> {
+        Ok(wardnet_common::api::ListTunnelsResponse {
+            tunnels: self.tunnels.clone(),
+        })
+    }
+    async fn get_tunnel(&self, _id: Uuid) -> Result<wardnet_common::tunnel::Tunnel, AppError> {
+        unimplemented!()
+    }
+    async fn test_tunnel(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelTestResult, AppError> {
+        unimplemented!()
+    }
+    async fn list_tunnel_devices(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::TunnelDevicesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_dns_override(
+        &self,
+        _id: Uuid,
+        _value: bool,
+    ) -> Result<wardnet_common::tunnel::Tunnel, AppError> {
+        unimplemented!()
+    }
+    async fn rebuild(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn bring_up(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn tear_down(&self, _id: Uuid, _reason: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn delete_tunnel(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::api::DeleteTunnelResponse, AppError> {
+        unimplemented!()
+    }
+    async fn bring_up_internal(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn tear_down_internal(&self, _id: Uuid, _reason: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn restore_tunnels(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn collect_stats(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn run_health_check(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn probe_latencies(&self) -> Result<(), AppError> {
+        unimplemented!()
     }
 }
 
@@ -367,6 +444,33 @@ fn build_state_with_dhcp(
     )
 }
 
+fn build_state_with_tunnel_svc(
+    device_svc: impl DeviceService + 'static,
+    discovery_svc: impl DeviceDiscoveryService + 'static,
+    tunnel_svc: impl TunnelService + 'static,
+) -> AppState {
+    AppState::new(
+        Arc::new(MockAuthService),
+        Arc::new(crate::tests::stubs::StubBackupService),
+        Arc::new(device_svc),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
+        Arc::new(discovery_svc),
+        Arc::new(StubLogService) as Arc<dyn LogService>,
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(StubSystemService),
+        Arc::new(tunnel_svc),
+        Arc::new(crate::tests::stubs::StubUpdateService),
+        Arc::new(StubDhcpServer),
+        Arc::new(StubDnsServer),
+        Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
+        Arc::new(crate::tests::stubs::StubStatsService),
+    )
+}
+
 fn device_router(state: AppState) -> Router {
     Router::new()
         .route("/api/devices/me", get(crate::api::devices::get_me))
@@ -459,6 +563,42 @@ async fn get_me_returns_null_device_when_unknown_ip() {
 }
 
 // ---------------------------------------------------------------------------
+#[tokio::test]
+async fn get_me_includes_tunnel_status_and_last_handshake() {
+    let tunnel_id = Uuid::new_v4();
+    let tunnel = wardnet_common::tunnel::Tunnel {
+        id: tunnel_id,
+        label: "UK Server".to_owned(),
+        country_code: "GB".to_owned(),
+        provider: None,
+        interface_name: "wg0".to_owned(),
+        endpoint: "1.2.3.4:51820".to_owned(),
+        status: wardnet_common::tunnel::TunnelStatus::Up,
+        last_handshake: None,
+        bytes_tx: 0,
+        bytes_rx: 0,
+        created_at: chrono::Utc::now(),
+        override_default_dns: false,
+        server_selector: None,
+        resolved_server_name: None,
+        endpoint_resolved_at: None,
+    };
+    let state = build_state_with_tunnel_svc(
+        MockDeviceService::found(sample_device(), None),
+        MockDiscoveryService { devices: vec![] },
+        MockTunnelService {
+            tunnels: vec![tunnel],
+        },
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/me").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["available_tunnels"][0]["id"], tunnel_id.to_string());
+    assert_eq!(json["available_tunnels"][0]["status"], "up");
+    assert!(json["available_tunnels"][0]["last_handshake"].is_null());
+}
+
 // PUT /api/devices/me/rule
 // ---------------------------------------------------------------------------
 

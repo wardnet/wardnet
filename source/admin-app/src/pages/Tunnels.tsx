@@ -1,7 +1,6 @@
 import { memo } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Card } from "@wardnet/web";
-import { Pill } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import {
   useTunnels,
@@ -13,37 +12,12 @@ import {
   countryFlag,
   formatBytes,
   timeAgo,
+  TunnelStatusPill,
 } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
-import type { Device, Tunnel, TunnelStatus } from "@wardnet/js";
+import type { Device, Tunnel } from "@wardnet/js";
 
 const BUCKET_SECS = 60;
-
-function pillVariant(status: TunnelStatus) {
-  switch (status) {
-    case "up":
-      return "ok" as const;
-    case "connecting":
-      return "info" as const;
-    case "reconnecting":
-      return "warn" as const;
-    case "down":
-      return "down" as const;
-  }
-}
-
-function pillLabel(status: TunnelStatus) {
-  switch (status) {
-    case "up":
-      return "Active";
-    case "connecting":
-      return "Connecting";
-    case "reconnecting":
-      return "Reconnecting";
-    case "down":
-      return "Down";
-  }
-}
 
 function deviceCount(
   tunnelId: string,
@@ -102,10 +76,7 @@ const TunnelCard = memo(function TunnelCard({
             <p className="truncate text-xs text-ink-3">{subtitle}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Pill variant={pillVariant(tunnel.status)}>
-              <span className="mr-1" aria-hidden>●</span>
-              {pillLabel(tunnel.status)}
-            </Pill>
+            <TunnelStatusPill status={tunnel.status} />
             <button
               onClick={() => onRebuild(tunnel.id)}
               disabled={isRebuilding}

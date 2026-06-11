@@ -9,6 +9,7 @@ import {
   CardTitle,
   DeviceIcon,
   RoutingSelector,
+  TunnelStatusPill,
   countryFlag,
   useMyDevice,
   useSetMyRule,
@@ -111,6 +112,10 @@ export default function Home() {
   const currentRule = data?.current_rule ?? null;
   const adminLocked = data?.admin_locked ?? false;
   const tunnels = data?.available_tunnels ?? [];
+  const activeTunnel =
+    currentRule?.type === "tunnel"
+      ? (tunnels.find((t) => t.id === currentRule.tunnel_id) ?? null)
+      : null;
 
   // Remount the form when the saved rule changes so its local draft resets.
   const ruleKey =
@@ -152,6 +157,11 @@ export default function Home() {
       <Card>
         <CardHeader>
           <CardTitle>Internet route</CardTitle>
+          {activeTunnel && (
+            <span className="ml-auto">
+              <TunnelStatusPill status={activeTunnel.status} />
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           {adminLocked ? (

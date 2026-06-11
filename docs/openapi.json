@@ -16373,7 +16373,8 @@
         "required": [
           "id",
           "label",
-          "country_code"
+          "country_code",
+          "status"
         ],
         "properties": {
           "country_code": {
@@ -16384,6 +16385,16 @@
           },
           "label": {
             "type": "string"
+          },
+          "last_handshake": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TunnelStatus"
           }
         }
       },

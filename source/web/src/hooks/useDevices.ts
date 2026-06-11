@@ -24,6 +24,7 @@ export function useMyDevice() {
   return useQuery({
     queryKey: ["devices", "me"],
     queryFn: () => deviceService.getMe(),
+    refetchInterval: 10_000,
   });
 }
 

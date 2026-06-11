@@ -10,7 +10,7 @@ use crate::dns::{
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
-use crate::tunnel::{BestServerSelector, Tunnel};
+use crate::tunnel::{BestServerSelector, Tunnel, TunnelStatus};
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
@@ -62,6 +62,8 @@ pub struct TunnelSummary {
     pub id: String,
     pub label: String,
     pub country_code: String,
+    pub status: TunnelStatus,
+    pub last_handshake: Option<DateTime<Utc>>,
 }
 
 /// Response for GET /api/devices/me.

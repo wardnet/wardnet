@@ -10,10 +10,10 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@wardnet/js": "portal:../../sdk/wardnet-js"
+    "@wardnet/js": "portal:../../sdk/wardnet-js::locator=%40wardnet%2Fend2end-daemon%40workspace%3A."
   },
   "devDependencies": {
-    "@types/node": "25.9.2",
+    "@types/node": "25.9.3",
     "typescript": "6.0.3",
     "vitest": "4.1.8"
   },

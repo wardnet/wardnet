@@ -50,7 +50,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             Some("alice-laptop"),
             Some("Apple Inc."),
             "laptop",
-            "192.168.1.23",
+            "127.0.0.1",
             Duration::minutes(2),
         ),
         (
