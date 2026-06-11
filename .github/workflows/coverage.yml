@@ -87,14 +87,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        image: postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: root
+          POSTGRES_PASSWORD: postgres
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
@@ -127,7 +127,7 @@ jobs:
 
       - name: Generate bridge coverage + test results
         env:
-          BRIDGE_TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306
+          BRIDGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432
         run: |
           mkdir -p coverage
           make coverage-bridge-ci \

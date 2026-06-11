@@ -34,6 +34,13 @@ paths-ignore:
   - "source/daemon/crates/*/src/tests/**"
   - "source/daemon/crates/*/src/**/tests/**"
 
+  # Bridge (separate workspace) follows the same test-placement convention.
+  # Its fixtures carry dummy cert blobs / nonces that trip the hard-coded
+  # cryptographic-value query — test inputs, never production material.
+  - "source/bridge/src/tests/**"
+  - "source/bridge/src/**/tests/**"
+  - "source/bridge/tests/**"
+
   # Web UI + marketing site Vitest suites.
   - "source/admin-site/tests/**"
   - "source/user-app/tests/**"
