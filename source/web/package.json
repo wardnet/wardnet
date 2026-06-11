@@ -18,12 +18,12 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@wardnet/styles": "portal:../styles",
+    "@wardnet/styles": "portal:../styles::locator=%40wardnet%2Fweb%40workspace%3A.",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
     "cronstrue": "3.14.0",
-    "radix-ui": "1.4.3",
+    "radix-ui": "1.5.0",
     "tailwind-merge": "3.6.0"
   },
   "peerDependencies": {
@@ -35,7 +35,7 @@
     "zustand": ">=5.0.0"
   },
   "devDependencies": {
-    "prettier": "3.8.3",
+    "prettier": "3.8.4",
     "typescript": "6.0.3"
   },
   "packageManager": "yarn@4.13.0"
