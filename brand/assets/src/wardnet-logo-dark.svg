@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 484.56 92.08" width="484.56" height="92.08" role="img" aria-label="Wardnet logo">
+  <g transform="matrix(1, 0, 0, 1, -17.674242, -13.964001)">
+    <g transform="matrix(1, 0, 0, 1, 6.209732, 9.500001)">
+      <g fill="none" stroke="#12B981" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M50 8 L85 21 V50 C85 71 69 86 50 93 C31 86 15 71 15 50 V21 Z"/>
+        <path stroke-width="6" d="M29 37 L40.5 63 L50 46 L59.5 63 L71 37"/>
+      </g>
+      <g fill="#12B981">
+        <circle cx="28" cy="34" r="4.8"/>
+        <circle cx="40.5" cy="63" r="4.8"/>
+        <circle cx="50" cy="46" r="4.8"/>
+        <circle cx="59.5" cy="63" r="4.8"/>
+        <circle cx="71" cy="37" r="4.8"/>
+      </g>
+    </g>
+    <g>
+      <text font-family="Archivo, sans-serif" font-weight="800" font-size="75" letter-spacing="-2" style="white-space: pre; stroke-width: 1;" y="85.062" x="115"><tspan fill="#FFFFFF" style="font-size: 75px; word-spacing: 0px; letter-spacing: -2px; stroke-width: 1;">WARD</tspan><tspan fill="#12B981" style="font-size: 75px; word-spacing: 0px; letter-spacing: -2px; stroke-width: 1;">NET</tspan></text>
+    </g>
+  </g>
+</svg>
