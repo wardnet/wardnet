@@ -1,5 +1,5 @@
-<div align="center">
-<img src="artwork/logo-full.png" alt="Wardnet logo" />
+<div align="center" style="margin-bottom:25px">
+<img src="logo.png" alt="Wardnet logo" />
 </div>
 
 [![CI](https://github.com/wardnet/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci.yml)
