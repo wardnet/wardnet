@@ -32,8 +32,13 @@ on:
         type: string
         required: true
 
+# Serialize ALL bridge deploys from this repo (not per-tag): at most one bridge
+# `deploy-raw-service` dispatch is ever outstanding, which is what lets the
+# run-discovery below unambiguously attribute the newest matching infra run to
+# this job. cancel-in-progress: false so a queued deploy waits rather than
+# clobbering an in-flight one.
 concurrency:
-  group: deploy-bridge-${{ inputs.tag }}
+  group: deploy-bridge
   cancel-in-progress: false
 
 permissions:
@@ -68,6 +73,9 @@ jobs:
           TAG: ${{ inputs.tag }}
           SELF_TOKEN: ${{ github.token }}
           INFRA_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The repository_dispatch is attributed to the bot app's actor login,
+          # `<app-slug>[bot]`. Used to scope run-discovery to OUR dispatches.
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           INFRA_REPO: ${{ github.repository_owner }}/wardnet-infrastructure
         run: |
           set -euo pipefail
@@ -76,8 +84,15 @@ jobs:
           # Derive the inputs inforge needs, from our own repo:
           #   sha          — the service build commit the tag points at (keys the
           #                  artifact in R2 + the infra manifest).
-          #   artifact_url — the aarch64 release tarball asset on this tag.
+          #   artifact_url — the aarch64 release tarball asset on this tag. gh's
+          #                  asset `.url` is the browser download URL
+          #                  (releases/download/...), which is what the infra
+          #                  side curls; `.apiUrl` would be the api.github.com one.
           SHA="$(GH_TOKEN="${SELF_TOKEN}" gh api "repos/${SELF}/commits/${TAG}" --jq .sha)"
+          if [[ -z "${SHA}" ]]; then
+            echo "::error::could not resolve a commit SHA for tag ${TAG}"
+            exit 1
+          fi
           URL="$(GH_TOKEN="${SELF_TOKEN}" gh release view "${TAG}" -R "${SELF}" --json assets \
                   --jq '.assets[] | select(.name | endswith("-aarch64.tar.gz")) | .url')"
           if [[ -z "${URL}" ]]; then
@@ -88,9 +103,13 @@ jobs:
 
           export GH_TOKEN="${INFRA_TOKEN}"
 
-          # repository_dispatch returns no run id; record a timestamp so we can
-          # find the run it spawns. The infra side serializes bridge/prd via its
-          # own concurrency group, so the newest matching run is ours.
+          # repository_dispatch returns no run id, so correlate by polling. This
+          # job's global `deploy-bridge` concurrency guarantees no other bridge
+          # dispatch from this repo is outstanding, and the filters below scope
+          # to deploy-raw-service runs triggered by THIS bot after our POST — so
+          # the single newest match is ours. (A different service dispatched by
+          # the same bot within the poll window is the only residual ambiguity;
+          # exact correlation would need the infra workflow to echo a token.)
           SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh api -X POST "repos/${INFRA_REPO}/dispatches" \
             -f 'event_type=deploy-raw-service' \
@@ -102,7 +121,8 @@ jobs:
           RUN_ID=""
           for _ in $(seq 1 30); do
             RUN_ID="$(gh run list -R "${INFRA_REPO}" --workflow "${WF}" \
-              --event repository_dispatch --created ">=${SINCE}" \
+              --event repository_dispatch --user "${APP_SLUG}[bot]" \
+              --created ">=${SINCE}" \
               --json databaseId --jq '.[0].databaseId' || true)"
             [[ -n "${RUN_ID}" ]] && break
             sleep 10

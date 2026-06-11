@@ -53,8 +53,18 @@ jobs:
           # Pure SemVer (no CalVer date segments), so the tag compares directly
           # against the package version — unlike the daemon, which compares the
           # tag against ./CALVER because Cargo rejects CalVer's leading zeros.
-          CARGO_VERSION="$(grep -m1 '^version = ' source/bridge/Cargo.toml \
-            | sed -E 's/^version = "(.*)"/\1/')"
+          #
+          # Read `version` ONLY from within the [package] table, so a future
+          # [workspace.package] / dependency `version = ` line (or a reorder)
+          # can't make the guard compare against the wrong string.
+          CARGO_VERSION="$(awk -F' *= *' '
+            /^\[/        { in_pkg = ($0 == "[package]") }
+            in_pkg && $1 == "version" { gsub(/"/, "", $2); print $2; exit }
+          ' source/bridge/Cargo.toml)"
+          if [[ -z "${CARGO_VERSION}" ]]; then
+            echo "::error::could not read [package] version from source/bridge/Cargo.toml"
+            exit 1
+          fi
 
           if [[ "${GITHUB_REF}" == refs/tags/bridge-v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
@@ -94,9 +104,47 @@ jobs:
     uses: ./.github/workflows/build-bridge.yml
     secrets: inherit
 
+  # Fail BEFORE publishing if the deploy can't possibly succeed, to avoid a
+  # half-applied release (a published GitHub Release that was never deployed).
+  # Catches a missing/misscoped bot app AND the deploy-raw-service.yml workflow
+  # not yet existing on the infra repo's default branch (repository_dispatch
+  # only runs workflows from the default branch).
+  preflight-deploy:
+    name: Preflight deploy prerequisites
+    needs: resolve
+    if: startsWith(github.ref, 'refs/tags/bridge-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Mint infra deploy token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: wardnet-infrastructure
+
+      - name: Verify the bot app can reach the infra deploy workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INFRA_REPO: ${{ github.repository_owner }}/wardnet-infrastructure
+        run: |
+          set -euo pipefail
+          gh api "repos/${INFRA_REPO}" --jq .full_name
+          gh api "repos/${INFRA_REPO}/actions/workflows/deploy-raw-service.yml" --jq .path \
+            || { echo "::error::bot app cannot see deploy-raw-service.yml on ${INFRA_REPO} default branch (not merged yet, or app lacks actions:read)"; exit 1; }
+
   release:
     name: Publish GitHub Release
-    needs: [resolve, build]
+    needs: [resolve, build, preflight-deploy]
     # Publish only on an actual bridge-v* tag. workflow_dispatch exercises the
     # full build + sign path but stops before `gh release create`.
     if: startsWith(github.ref, 'refs/tags/bridge-v')
@@ -121,20 +169,11 @@ jobs:
           name: wardnet-bridge-aarch64-unsigned
           path: release-staging/
 
-      - name: Assemble run+binary tarball, sha256, sign, verify
+      - name: Assemble run+binary tarball
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
-          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
-          MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
         run: |
           set -euo pipefail
-
-          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
-            echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required. See deploy/keys/README.md."
-            exit 1
-          fi
-
-          sudo apt-get update && sudo apt-get install -y minisign
 
           # build-bridge.yml ships wardnet-bridge-aarch64.tar.gz containing just
           # the binary. The inforge raw-service contract requires the deployed
@@ -145,32 +184,28 @@ jobs:
           tar -C "${WORK}" -xzf release-staging/wardnet-bridge-aarch64.tar.gz
           install -m 0755 source/bridge/deploy/run "${WORK}/run"
 
-          cd release-staging
+          # Sanity-guard the built binary: it must be a valid aarch64 ELF (catches
+          # a wrong-target/corrupt build before it ships). Runtime health — that
+          # the process actually comes up — is verified host-side by inforge's
+          # deploy (unit restart) which deploy-bridge.yml blocks on.
+          DESC="$(file -b "${WORK}/wardnet-bridge")"
+          if ! printf '%s' "${DESC}" | grep -qiE 'ELF 64-bit.*(aarch64|ARM aarch64)'; then
+            echo "::error::built bridge binary is not an aarch64 ELF: ${DESC}"
+            exit 1
+          fi
 
-          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
-          chmod 0600 minisign.key
-          trap 'shred -u minisign.key || true' EXIT
+          DST="release-staging/wardnet-bridge-${VERSION}-aarch64.tar.gz"
+          tar -C "${WORK}" -czf "${DST}" run wardnet-bridge
+          rm -rf "${WORK}" release-staging/wardnet-bridge-aarch64.tar.gz
+          ls -l release-staging
 
-          DST="wardnet-bridge-${VERSION}-aarch64.tar.gz"
-          tar -C "../${WORK}" -czf "${DST}" run wardnet-bridge
-          rm -rf "../${WORK}" wardnet-bridge-aarch64.tar.gz
-
-          sha256sum "${DST}" | awk '{print $1}' > "${DST}.sha256"
-
-          # Password via both stdin and env — tty-less runners need stdin on
-          # older minisign, MINISIGN_PASSWORD on newer.
-          printf '%s\n' "${MINISIGN_PASSWORD}" | \
-            MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${DST}" \
-              -s minisign.key \
-              -t "wardnet-bridge ${VERSION} (aarch64)" \
-              -c "Wardnet release signing key" \
-              -x "${DST}.minisig"
-
-          minisign -Vm "${DST}" \
-            -p "../deploy/keys/wardnet-release.pub" \
-            -x "${DST}.minisig"
-
-          ls -l
+      - name: Sign release tarball
+        uses: ./.github/actions/sign-release-tarball
+        with:
+          tarball: release-staging/wardnet-bridge-${{ needs.resolve.outputs.version }}-aarch64.tar.gz
+          comment: wardnet-bridge ${{ needs.resolve.outputs.version }} (aarch64)
+          minisign-key-b64: ${{ secrets.WARDNET_MINISIGN_KEY }}
+          minisign-password: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
 
       - name: Attest SLSA build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0

@@ -1,0 +1,66 @@
+name: Sign release tarball
+description: >-
+  sha256 + minisign-sign a release tarball and verify the signature against the
+  committed Wardnet public key. Produces <tarball>.sha256 and <tarball>.minisig
+  beside the input. The encrypted private key is written to a temp file and
+  shredded on exit. Secrets are passed as inputs (composite actions cannot read
+  `secrets` directly) and are masked by the caller's `${{ secrets.* }}` expansion.
+
+inputs:
+  tarball:
+    description: Path to the .tar.gz to sign (workspace-relative).
+    required: true
+  comment:
+    description: minisign trusted comment (-t), e.g. "wardnet-bridge 0.1.0 (aarch64)".
+    required: true
+  pubkey:
+    description: Path to the minisign public key used to verify.
+    required: false
+    default: deploy/keys/wardnet-release.pub
+  minisign-key-b64:
+    description: Base64-encoded encrypted minisign private key (secrets.WARDNET_MINISIGN_KEY).
+    required: true
+  minisign-password:
+    description: Password for the minisign private key (secrets.WARDNET_MINISIGN_PASSWORD).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install minisign
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y minisign
+
+    - name: sha256 + sign + verify
+      shell: bash
+      env:
+        TARBALL: ${{ inputs.tarball }}
+        COMMENT: ${{ inputs.comment }}
+        PUBKEY: ${{ inputs.pubkey }}
+        MINISIGN_KEY_B64: ${{ inputs.minisign-key-b64 }}
+        MINISIGN_PASSWORD: ${{ inputs.minisign-password }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
+          echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD are required. See deploy/keys/README.md."
+          exit 1
+        fi
+
+        KEYFILE="$(mktemp)"
+        echo "${MINISIGN_KEY_B64}" | base64 -d > "${KEYFILE}"
+        chmod 0600 "${KEYFILE}"
+        trap 'shred -u "${KEYFILE}" || true' EXIT
+
+        sha256sum "${TARBALL}" | awk '{print $1}' > "${TARBALL}.sha256"
+
+        # Password via both stdin and env — tty-less runners need stdin on older
+        # minisign, MINISIGN_PASSWORD on newer.
+        printf '%s\n' "${MINISIGN_PASSWORD}" | \
+          MINISIGN_PASSWORD="${MINISIGN_PASSWORD}" minisign -Sm "${TARBALL}" \
+            -s "${KEYFILE}" \
+            -t "${COMMENT}" \
+            -c "Wardnet release signing key" \
+            -x "${TARBALL}.minisig"
+
+        minisign -Vm "${TARBALL}" -p "${PUBKEY}" -x "${TARBALL}.minisig"
