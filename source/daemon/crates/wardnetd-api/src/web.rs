@@ -32,6 +32,14 @@ pub async fn static_handler(uri: Uri, req_headers: HeaderMap) -> Response {
     let raw_path = uri.path().trim_start_matches('/');
     let etag = format!("\"{RELEASE_VERSION}\"");
 
+    // `.info` is the git-tracked sentinel that keeps each `dist/` directory
+    // present so this crate compiles before `make build-web` has produced real
+    // assets (see `source/*/dist/.info`). It is embedded but must never be
+    // served — fall through to a plain 404 for any request targeting it.
+    if raw_path == ".info" || raw_path.ends_with("/.info") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     // 304 shortcut: skip the body when the client already has this build.
     if req_headers
         .get(header::IF_NONE_MATCH)
