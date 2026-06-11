@@ -8,8 +8,11 @@ import {
   CardHeader,
   CardTitle,
   DeviceIcon,
+  Pill,
   RoutingSelector,
   countryFlag,
+  tunnelStatusLabel,
+  tunnelStatusVariant,
   useMyDevice,
   useSetMyRule,
 } from "@wardnet/web";
@@ -47,26 +50,6 @@ function routingLabel(
     return "VPN";
   }
   return "Direct (no VPN)";
-}
-
-const TUNNEL_STATUS_CONFIG: Record<
-  TunnelSummary["status"],
-  { label: string; color: string; dot: string }
-> = {
-  up: { label: "Active", color: "text-accent", dot: "bg-accent" },
-  connecting: { label: "Connecting…", color: "text-warn", dot: "bg-warn" },
-  reconnecting: { label: "Reconnecting…", color: "text-warn", dot: "bg-warn" },
-  down: { label: "Down", color: "text-danger", dot: "bg-danger" },
-};
-
-function TunnelStatusBadge({ status }: { status: TunnelSummary["status"] }) {
-  const { label, color, dot } = TUNNEL_STATUS_CONFIG[status];
-  return (
-    <span className={`flex items-center gap-1.5 text-xs font-medium ${color}`}>
-      <span className={`size-1.5 shrink-0 rounded-full ${dot}`} />
-      {label}
-    </span>
-  );
 }
 
 /** Editable routing control. `useSetMyRule` already raises the success/error
@@ -177,7 +160,11 @@ export default function Home() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Internet route</CardTitle>
-            {activeTunnel && <TunnelStatusBadge status={activeTunnel.status} />}
+            {activeTunnel && (
+              <Pill variant={tunnelStatusVariant(activeTunnel.status)}>
+                {tunnelStatusLabel(activeTunnel.status)}
+              </Pill>
+            )}
           </div>
         </CardHeader>
         <CardContent>

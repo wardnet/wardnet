@@ -163,6 +163,7 @@ export {
 
 // Country / device helpers
 export { countryFlag } from "./lib/country";
+export { tunnelStatusVariant, tunnelStatusLabel } from "./lib/tunnel";
 export {
   DEVICE_TYPE_OPTIONS,
   deviceTypeLabel,
