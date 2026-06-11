@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LockIcon, WifiOffIcon } from "lucide-react";
+import { LockIcon, ShieldCheckIcon, WifiOffIcon } from "lucide-react";
 import {
   ApiErrorAlert,
   Button,
@@ -151,7 +151,7 @@ export default function Home() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Internet access</CardTitle>
+          <CardTitle>Internet route</CardTitle>
         </CardHeader>
         <CardContent>
           {adminLocked ? (
@@ -174,6 +174,21 @@ export default function Home() {
               tunnels={tunnels}
             />
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Verify your route</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-3 text-ink-3">
+            <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
+            <p className="text-sm">
+              Confirm your VPN is working by checking the public IP and location
+              your device is using right now. Coming in a future update.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

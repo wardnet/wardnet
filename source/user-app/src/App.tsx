@@ -3,7 +3,6 @@ import { OnlineStatusProvider } from "@/context/OnlineStatusContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import Home from "@/pages/Home";
 import Stats from "@/pages/Stats";
-import Verify from "@/pages/Verify";
 import Settings from "@/pages/Settings";
 
 /**
@@ -22,7 +21,6 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Home />} />
           <Route path="stats" element={<Stats />} />
-          <Route path="verify" element={<Verify />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
