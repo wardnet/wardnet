@@ -10,7 +10,7 @@ import {
 } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import {
   useCreateReservation,

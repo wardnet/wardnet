@@ -18,9 +18,9 @@ import {
   SelectValue,
 } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
-import { RoutingSelector } from "@/components/compound/RoutingSelector";
+import { ApiErrorAlert } from "@wardnet/web";
+import { DeviceIcon } from "@wardnet/web";
+import { RoutingSelector } from "@wardnet/web";
 import { useUpdateDevice } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
 import { countryFlag } from "@wardnet/web";

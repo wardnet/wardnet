@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
-import { RoutingSelector } from "@/components/compound/RoutingSelector";
+import { RoutingSelector } from "@wardnet/web";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";

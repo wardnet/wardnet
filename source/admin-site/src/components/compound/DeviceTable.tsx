@@ -5,7 +5,7 @@ import {
   DataTable,
   type DataTableGroup,
 } from "@/components/core/ui/data-table";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { DeviceIcon } from "@wardnet/web";
 import { HostCell } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import {

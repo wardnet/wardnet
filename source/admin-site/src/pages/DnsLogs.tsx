@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { DeviceIcon } from "@wardnet/web";
 import { DeviceSelect } from "@/components/compound/DeviceSelect";
 import { useDevices } from "@wardnet/web";
 import { useDnsQueryLog } from "@wardnet/web";

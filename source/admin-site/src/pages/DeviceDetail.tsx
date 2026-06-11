@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { DeviceIcon } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";

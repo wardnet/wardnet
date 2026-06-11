@@ -10,7 +10,7 @@ import {
 } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
 import {
   useDeviceFilterSettings,

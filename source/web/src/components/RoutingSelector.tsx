@@ -4,10 +4,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wardnet/web";
+} from "../primitives/select";
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
-import { countryFlag } from "@wardnet/web";
+import { countryFlag } from "../lib/country";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
 
 const DIRECT_VALUE = "direct";

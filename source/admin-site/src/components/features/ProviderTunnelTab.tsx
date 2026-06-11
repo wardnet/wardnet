@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@wardnet/web";
 import { CountryCombobox } from "@/components/compound/CountryCombobox";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import {
   useProviders,
   useProviderCountries,
