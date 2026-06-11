@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@source "../../../wardnet-web/src/**/*.{ts,tsx}";
+@source "../../../web/src/**/*.{ts,tsx}";
 @import "@wardnet/styles";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";

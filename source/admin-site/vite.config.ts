@@ -23,7 +23,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Pre-bundle the CommonJS deps that the excluded workspace packages import
-    // (cronstrue via @wardnet/wardnet-web, consola via @wardnet/js): excluding a
+    // (cronstrue via @wardnet/web, consola via @wardnet/js): excluding a
     // linked package stops Vite bundling its deps, so its CJS deps must be
     // pre-bundled explicitly or their `default` export won't be interop'd.
     include: ["use-sync-external-store/shim", "cronstrue", "consola"],
@@ -33,6 +33,6 @@ export default defineConfig({
     // packages surface as stale "does not provide an export named X" errors until
     // the cache is force-cleared. Excluding them makes Vite read their source
     // directly every time (and keeps HMR working across the workspace).
-    exclude: ["@wardnet/wardnet-web", "@wardnet/js"],
+    exclude: ["@wardnet/web", "@wardnet/js"],
   },
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Button } from "@wardnet/forge-web/button";
-import { Field } from "@wardnet/forge-web/field";
-import { Input } from "@wardnet/forge-web/input";
+import { Button } from "@wardnet/web";
+import { Field } from "@wardnet/web";
+import { Input } from "@wardnet/web";
 import { WardnetApiError } from "@wardnet/js";
 import {
   useAdvanceWizard,
@@ -9,12 +9,18 @@ import {
   useConfigureCloudflare,
   useRegisterDdns,
   useTlsStatus,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
 import { isReservedName, isValidName, suggestName } from "@/lib/suggestName";
 
 type Provider = "bridge" | "cloudflare";
-type Availability = "unknown" | "checking" | "available" | "taken" | "invalid" | "error";
+type Availability =
+  | "unknown"
+  | "checking"
+  | "available"
+  | "taken"
+  | "invalid"
+  | "error";
 
 /**
  * Step 7 — enable remote access (HTTPS).
@@ -54,7 +60,9 @@ export default function Step7RemoteAccess() {
   // Client-side validity is derived during render (no effect/setState), so the
   // "invalid" hint and the disabled button update instantly as the user types.
   const clientValid = provider !== "bridge" || isValidName(name);
-  const availability: Availability = !clientValid ? "invalid" : serverAvailability;
+  const availability: Availability = !clientValid
+    ? "invalid"
+    : serverAvailability;
 
   // Debounced live availability check for the bridge name. All state writes are
   // async (inside the timer / promise), never synchronous in the effect body.
@@ -65,7 +73,8 @@ export default function Step7RemoteAccess() {
       setServerAvailability("checking");
       checkNameAsync(name)
         .then((res) => {
-          if (!cancelled) setServerAvailability(res.available ? "available" : "taken");
+          if (!cancelled)
+            setServerAvailability(res.available ? "available" : "taken");
         })
         .catch(() => {
           // The daemon couldn't reach a bridge (offline / bridge down). Surface
@@ -88,7 +97,10 @@ export default function Step7RemoteAccess() {
   // Cloudflare) was unavailable — an outage, not a user mistake. Bad input
   // (e.g. a rejected token) comes back as a 4xx and stays on the form to fix.
   function isUpstreamDown(err: unknown): boolean {
-    return err instanceof WardnetApiError && (err.status === 502 || err.status === 503);
+    return (
+      err instanceof WardnetApiError &&
+      (err.status === 502 || err.status === 503)
+    );
   }
 
   function handleEnableError(err: unknown) {
@@ -137,8 +149,8 @@ export default function Step7RemoteAccess() {
         <div className="flex flex-col gap-1">
           <h2 className="h-title">Remote access</h2>
           <p className="h-sub">
-            Your hostname is registered. The certificate is being issued in the background — you can
-            wait here or finish setup; it'll keep going.
+            Your hostname is registered. The certificate is being issued in the
+            background — you can wait here or finish setup; it'll keep going.
           </p>
         </div>
 
@@ -152,7 +164,11 @@ export default function Step7RemoteAccess() {
 
         {formError && <p className="text-sm text-danger">{formError}</p>}
 
-        <Button onClick={finish} disabled={advance.isPending} className="w-full">
+        <Button
+          onClick={finish}
+          disabled={advance.isPending}
+          className="w-full"
+        >
           {advance.isPending
             ? "Finishing…"
             : phase === "issued"
@@ -165,22 +181,32 @@ export default function Step7RemoteAccess() {
 
   // ── Upstream unavailable: the service is down, not the operator's input ───
   if (upstreamDown) {
-    const serviceName = provider === "bridge" ? "hostname service" : "Cloudflare";
+    const serviceName =
+      provider === "bridge" ? "hostname service" : "Cloudflare";
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <h2 className="h-title">Remote access (HTTPS)</h2>
-          <p className="h-sub">Wardnet couldn't reach the {serviceName} right now.</p>
+          <p className="h-sub">
+            Wardnet couldn't reach the {serviceName} right now.
+          </p>
         </div>
 
         <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
-          This is usually temporary. You can finish setup now and enable remote access later from
-          Settings — the rest of your configuration is unaffected.
+          This is usually temporary. You can finish setup now and enable remote
+          access later from Settings — the rest of your configuration is
+          unaffected.
         </div>
 
         <div className="flex flex-col gap-2">
-          <Button onClick={finish} disabled={advance.isPending} className="w-full">
-            {advance.isPending ? "Continuing…" : "Continue without remote access"}
+          <Button
+            onClick={finish}
+            disabled={advance.isPending}
+            className="w-full"
+          >
+            {advance.isPending
+              ? "Continuing…"
+              : "Continue without remote access"}
           </Button>
           <Button
             variant="outline"
@@ -197,15 +223,17 @@ export default function Step7RemoteAccess() {
 
   // ── Pre-registration: provider picker + form ─────────────────────────────
   const busy = register.isPending || configureCf.isPending;
-  const bridgeDisabled = busy || availability === "checking" || availability === "invalid";
+  const bridgeDisabled =
+    busy || availability === "checking" || availability === "invalid";
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="h-title">Remote access (HTTPS)</h2>
         <p className="h-sub">
-          Give Wardnet a public hostname and a valid certificate so you can reach it securely from
-          anywhere. This step is optional, you can skip and set this up later from Settings.
+          Give Wardnet a public hostname and a valid certificate so you can
+          reach it securely from anywhere. This step is optional, you can skip
+          and set this up later from Settings.
         </p>
       </div>
 
@@ -257,7 +285,11 @@ export default function Step7RemoteAccess() {
               autoComplete="off"
             />
           </Field>
-          <Field label="Cloudflare API token" htmlFor="cf-token" name="cf-token">
+          <Field
+            label="Cloudflare API token"
+            htmlFor="cf-token"
+            name="cf-token"
+          >
             <Input
               id="cf-token"
               type="password"
@@ -274,7 +306,11 @@ export default function Step7RemoteAccess() {
 
       <div className="flex flex-col gap-2">
         {provider === "bridge" ? (
-          <Button onClick={handleEnableBridge} disabled={bridgeDisabled} className="w-full">
+          <Button
+            onClick={handleEnableBridge}
+            disabled={bridgeDisabled}
+            className="w-full"
+          >
             {register.isPending ? "Registering…" : "Enable remote access"}
           </Button>
         ) : (
@@ -286,7 +322,12 @@ export default function Step7RemoteAccess() {
             {configureCf.isPending ? "Configuring…" : "Enable remote access"}
           </Button>
         )}
-        <Button variant="outline" onClick={finish} disabled={advance.isPending} className="w-full">
+        <Button
+          variant="outline"
+          onClick={finish}
+          disabled={advance.isPending}
+          className="w-full"
+        >
           {advance.isPending ? "Skipping…" : "Skip for now"}
         </Button>
       </div>
@@ -322,7 +363,13 @@ function ProviderOption({
   );
 }
 
-function AvailabilityHint({ availability, name }: { availability: Availability; name: string }) {
+function AvailabilityHint({
+  availability,
+  name,
+}: {
+  availability: Availability;
+  name: string;
+}) {
   switch (availability) {
     case "invalid":
       return (

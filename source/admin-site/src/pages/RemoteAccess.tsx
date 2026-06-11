@@ -6,10 +6,10 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@wardnet/forge-web/card";
-import { Button } from "@wardnet/forge-web/button";
-import { Field } from "@wardnet/forge-web/field";
-import { Input } from "@wardnet/forge-web/input";
+} from "@wardnet/web";
+import { Button } from "@wardnet/web";
+import { Field } from "@wardnet/web";
+import { Input } from "@wardnet/web";
 import {
   AlertModal,
   AlertModalAction,
@@ -19,7 +19,7 @@ import {
   AlertModalFooter,
   AlertModalHeader,
   AlertModalTitle,
-} from "@wardnet/forge-web/alert-modal";
+} from "@wardnet/web";
 import { toast } from "sonner";
 import { WardnetApiError } from "@wardnet/js";
 import {
@@ -30,13 +30,19 @@ import {
   useRegisterDdns,
   useResolutionCheck,
   useTlsStatus,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
 import { isReservedName, isValidName, suggestName } from "@/lib/suggestName";
 
 type Provider = "bridge" | "cloudflare";
-type Availability = "unknown" | "checking" | "available" | "taken" | "invalid" | "error";
+type Availability =
+  | "unknown"
+  | "checking"
+  | "available"
+  | "taken"
+  | "invalid"
+  | "error";
 
 /**
  * Remote access settings (admin only) — configure, switch, and monitor the
@@ -73,7 +79,9 @@ export default function RemoteAccess() {
   const [removeOpen, setRemoveOpen] = useState(false);
 
   const clientValid = provider !== "bridge" || isValidName(name);
-  const availability: Availability = !clientValid ? "invalid" : serverAvailability;
+  const availability: Availability = !clientValid
+    ? "invalid"
+    : serverAvailability;
 
   // Debounced live availability check for the bridge name (mirrors the wizard).
   useEffect(() => {
@@ -83,7 +91,8 @@ export default function RemoteAccess() {
       setServerAvailability("checking");
       checkNameAsync(name)
         .then((res) => {
-          if (!cancelled) setServerAvailability(res.available ? "available" : "taken");
+          if (!cancelled)
+            setServerAvailability(res.available ? "available" : "taken");
         })
         .catch(() => {
           if (!cancelled) setServerAvailability("error");
@@ -164,11 +173,14 @@ export default function RemoteAccess() {
     if (provider !== ddns?.provider) {
       return `Switch to ${provider === "bridge" ? "Wardnet bridge" : "Cloudflare"}`;
     }
-    return provider === "bridge" ? "Register a new hostname" : "Update Cloudflare settings";
+    return provider === "bridge"
+      ? "Register a new hostname"
+      : "Update Cloudflare settings";
   }
 
   const busy = register.isPending || configureCf.isPending;
-  const bridgeDisabled = busy || availability === "checking" || availability === "invalid";
+  const bridgeDisabled =
+    busy || availability === "checking" || availability === "invalid";
 
   // Provider picker + inputs (no buttons — actions live in the card footer).
   const formFields = (
@@ -221,7 +233,11 @@ export default function RemoteAccess() {
               autoComplete="off"
             />
           </Field>
-          <Field label="Cloudflare API token" htmlFor="cf-token" name="cf-token">
+          <Field
+            label="Cloudflare API token"
+            htmlFor="cf-token"
+            name="cf-token"
+          >
             <Input
               id="cf-token"
               type="password"
@@ -242,7 +258,11 @@ export default function RemoteAccess() {
   const formActions = (
     <>
       {changing && (
-        <Button variant="ghost" onClick={() => setChanging(false)} disabled={busy}>
+        <Button
+          variant="ghost"
+          onClick={() => setChanging(false)}
+          disabled={busy}
+        >
           Cancel
         </Button>
       )}
@@ -291,7 +311,9 @@ export default function RemoteAccess() {
           {changing ? (
             <>
               <CardContent>{formFields}</CardContent>
-              <CardFooter className="justify-end gap-2">{formActions}</CardFooter>
+              <CardFooter className="justify-end gap-2">
+                {formActions}
+              </CardFooter>
             </>
           ) : (
             <CardContent>
@@ -333,8 +355,8 @@ export default function RemoteAccess() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-danger-soft-ink">
-              Releases the public hostname, deletes the certificate, and reverts to plain HTTP. You
-              can set it up again at any time.
+              Releases the public hostname, deletes the certificate, and reverts
+              to plain HTTP. You can set it up again at any time.
             </p>
           </CardContent>
         </Card>
@@ -345,8 +367,9 @@ export default function RemoteAccess() {
           <AlertModalHeader>
             <AlertModalTitle>Remove remote access?</AlertModalTitle>
             <AlertModalDescription>
-              The public hostname will be released and the certificate deleted; Wardnet reverts to
-              plain HTTP. You can set it up again at any time.
+              The public hostname will be released and the certificate deleted;
+              Wardnet reverts to plain HTTP. You can set it up again at any
+              time.
             </AlertModalDescription>
           </AlertModalHeader>
           <AlertModalFooter>
@@ -356,7 +379,11 @@ export default function RemoteAccess() {
               </Button>
             </AlertModalCancel>
             <AlertModalAction asChild>
-              <Button variant="destructive" onClick={handleRemove} disabled={teardown.isPending}>
+              <Button
+                variant="destructive"
+                onClick={handleRemove}
+                disabled={teardown.isPending}
+              >
                 {teardown.isPending ? "Removing…" : "Remove"}
               </Button>
             </AlertModalAction>
@@ -395,7 +422,13 @@ function ProviderOption({
   );
 }
 
-function AvailabilityHint({ availability, name }: { availability: Availability; name: string }) {
+function AvailabilityHint({
+  availability,
+  name,
+}: {
+  availability: Availability;
+  name: string;
+}) {
   switch (availability) {
     case "invalid":
       return (
@@ -415,7 +448,9 @@ function AvailabilityHint({ availability, name }: { availability: Availability; 
       return <span className="text-danger">{name} is taken — try another</span>;
     case "error":
       return (
-        <span className="text-ink-3">Couldn't check availability — you can still continue.</span>
+        <span className="text-ink-3">
+          Couldn't check availability — you can still continue.
+        </span>
       );
     default:
       return <span className="text-ink-3">&nbsp;</span>;

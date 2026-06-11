@@ -1,4 +1,4 @@
-import { useTlsStatus } from "@wardnet/wardnet-web";
+import { useTlsStatus } from "@wardnet/web";
 import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
 
 /**
@@ -17,7 +17,8 @@ import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
 export function DashboardRemoteAccessBanner() {
   const { data: status } = useTlsStatus();
 
-  if (!status || status.phase === "idle" || status.phase === "issued") return null;
+  if (!status || status.phase === "idle" || status.phase === "issued")
+    return null;
 
   return <RemoteAccessStatus tls={status} variant="banner" />;
 }

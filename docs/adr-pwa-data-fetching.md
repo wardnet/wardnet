@@ -36,7 +36,7 @@ backend-for-frontend (BFF): mobile-shaped aggregation endpoints (e.g.
 **The PWAs compose existing resource endpoints client-side. We do not
 introduce a BFF or per-screen aggregation endpoints.** Cross-cutting fetch
 concerns (parallelism, dedupe, caching, refetch-on-focus) are handled by
-react-query in the shared `wardnet-web` layer.
+react-query in the shared `web` layer.
 
 When a screen genuinely needs data the daemon doesn't expose, the default is
 to **enrich the shared domain resource** — which benefits every surface —

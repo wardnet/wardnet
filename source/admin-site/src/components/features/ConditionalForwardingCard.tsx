@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
+import { Button } from "@wardnet/web";
 import {
   Card,
   CardContent,
@@ -9,11 +9,11 @@ import {
   CardHeader,
   CardSubtitle,
   CardTitle,
-} from "@wardnet/forge-web/card";
-import { Field } from "@wardnet/forge-web/field";
-import { Form, Validator } from "@wardnet/forge-web/form";
-import { Input } from "@wardnet/forge-web/input";
-import { Toggle } from "@wardnet/forge-web/toggle";
+} from "@wardnet/web";
+import { Field } from "@wardnet/web";
+import { Form, Validator } from "@wardnet/web";
+import { Input } from "@wardnet/web";
+import { Toggle } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import {
@@ -21,7 +21,7 @@ import {
   useCreateForwardingRule,
   useUpdateForwardingRule,
   useDeleteForwardingRule,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import type { ConditionalForwardingRule } from "@wardnet/js";
 
 /** Conditional forwarding — send a specific domain to a chosen upstream
@@ -34,7 +34,9 @@ export function ConditionalForwardingCard() {
   const deleteRule = useDeleteForwardingRule();
 
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<ConditionalForwardingRule | null>(null);
+  const [editing, setEditing] = useState<ConditionalForwardingRule | null>(
+    null,
+  );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const rules = useMemo(() => data?.rules ?? [], [data]);
@@ -59,12 +61,16 @@ export function ConditionalForwardingCard() {
       {
         id: "domain",
         header: "Domain",
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.domain}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.domain}</span>
+        ),
       },
       {
         id: "upstream",
         header: "Upstream",
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.upstream}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.upstream}</span>
+        ),
       },
       {
         id: "enabled",
@@ -90,8 +96,8 @@ export function ConditionalForwardingCard() {
       <CardHeader>
         <CardTitle>Conditional forwarding</CardTitle>
         <CardSubtitle>
-          Send queries for a specific domain to a chosen DNS server, instead of the default
-          resolver.
+          Send queries for a specific domain to a chosen DNS server, instead of
+          the default resolver.
         </CardSubtitle>
       </CardHeader>
 
@@ -102,8 +108,12 @@ export function ConditionalForwardingCard() {
             rule={editing}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) => createRule.mutate(body, { onSuccess: closeForm })}
-            onUpdate={(id, body) => updateRule.mutate({ id, body }, { onSuccess: closeForm })}
+            onCreate={(body) =>
+              createRule.mutate(body, { onSuccess: closeForm })
+            }
+            onUpdate={(id, body) =>
+              updateRule.mutate({ id, body }, { onSuccess: closeForm })
+            }
           />
         )}
 
@@ -115,7 +125,10 @@ export function ConditionalForwardingCard() {
           onAdd={openCreate}
           rowActions={(row) => (
             <>
-              <RowAction onSelect={() => openEdit(row)} icon={<Pencil aria-hidden />}>
+              <RowAction
+                onSelect={() => openEdit(row)}
+                icon={<Pencil aria-hidden />}
+              >
                 Edit
               </RowAction>
               <RowAction
@@ -151,16 +164,29 @@ interface RuleFormProps {
   rule: ConditionalForwardingRule | null;
   isSaving: boolean;
   onCancel: () => void;
-  onCreate: (body: { domain: string; upstream: string; enabled: boolean }) => void;
+  onCreate: (body: {
+    domain: string;
+    upstream: string;
+    enabled: boolean;
+  }) => void;
   onUpdate: (id: string, body: { domain: string; upstream: string }) => void;
 }
 
-function RuleForm({ rule, isSaving, onCancel, onCreate, onUpdate }: RuleFormProps) {
+function RuleForm({
+  rule,
+  isSaving,
+  onCancel,
+  onCreate,
+  onUpdate,
+}: RuleFormProps) {
   const [domain, setDomain] = useState(rule?.domain ?? "");
   const [upstream, setUpstream] = useState(rule?.upstream ?? "");
 
   function handleSave(values: { domain: string; upstream: string }) {
-    const shared = { domain: values.domain.trim(), upstream: values.upstream.trim() };
+    const shared = {
+      domain: values.domain.trim(),
+      upstream: values.upstream.trim(),
+    };
     if (rule) {
       onUpdate(rule.id, shared);
     } else {
@@ -176,7 +202,12 @@ function RuleForm({ rule, isSaving, onCancel, onCreate, onUpdate }: RuleFormProp
       <Form values={{ domain, upstream }} onSubmit={handleSave}>
         <CardContent className="flex flex-col gap-5">
           <div className="flex gap-3">
-            <Field label="Domain" htmlFor="fwd-domain" name="domain" className="flex-1">
+            <Field
+              label="Domain"
+              htmlFor="fwd-domain"
+              name="domain"
+              className="flex-1"
+            >
               <Input
                 id="fwd-domain"
                 value={domain}
@@ -184,9 +215,18 @@ function RuleForm({ rule, isSaving, onCancel, onCreate, onUpdate }: RuleFormProp
                 placeholder="corp.internal"
               />
             </Field>
-            <Validator name="domain" rule="required" message="Domain is required." />
+            <Validator
+              name="domain"
+              rule="required"
+              message="Domain is required."
+            />
 
-            <Field label="Upstream" htmlFor="fwd-upstream" name="upstream" className="flex-1">
+            <Field
+              label="Upstream"
+              htmlFor="fwd-upstream"
+              name="upstream"
+              className="flex-1"
+            >
               <Input
                 id="fwd-upstream"
                 value={upstream}
@@ -194,11 +234,20 @@ function RuleForm({ rule, isSaving, onCancel, onCreate, onUpdate }: RuleFormProp
                 placeholder="10.0.0.1"
               />
             </Field>
-            <Validator name="upstream" rule="required" message="Upstream is required." />
+            <Validator
+              name="upstream"
+              rule="required"
+              message="Upstream is required."
+            />
           </div>
         </CardContent>
         <CardFooter className="justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={onCancel} disabled={isSaving}>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
             Cancel
           </Button>
           <Button type="submit" disabled={isSaving}>

@@ -4,7 +4,7 @@ import type {
   DdnsStatusResponse,
   TlsStatusResponse,
 } from "@wardnet/js";
-import { formatDate, timeAgo } from "@wardnet/wardnet-web";
+import { formatDate, timeAgo } from "@wardnet/web";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
 
 /**
@@ -33,7 +33,10 @@ export interface RemoteAccessStatusProps {
 }
 
 /** Human label + tone for each resolution verdict. */
-function verdictView(verdict: DdnsResolutionVerdict): { label: string; tone: string } {
+function verdictView(verdict: DdnsResolutionVerdict): {
+  label: string;
+  tone: string;
+} {
   switch (verdict) {
     case "match":
       return { label: "Resolves correctly", tone: "text-accent-soft-ink" };
@@ -81,7 +84,9 @@ export function RemoteAccessStatus({
         <div>
           <dt className="text-ink-3">Certificate</dt>
           <dd className="font-medium">
-            {tls.not_after ? `Valid until ${formatDate(tls.not_after)}` : "Not issued yet"}
+            {tls.not_after
+              ? `Valid until ${formatDate(tls.not_after)}`
+              : "Not issued yet"}
           </dd>
         </div>
         <div>

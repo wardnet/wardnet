@@ -1,5 +1,5 @@
 import type { TlsStatusResponse } from "@wardnet/js";
-import { formatDate } from "@wardnet/wardnet-web";
+import { formatDate } from "@wardnet/web";
 
 /**
  * Presentational view of the daemon's coarse TLS provisioning phase. Shared by
@@ -7,7 +7,11 @@ import { formatDate } from "@wardnet/wardnet-web";
  * indicator so both render progress identically. Renders nothing for the
  * `idle` phase.
  */
-export function RemoteAccessProgress({ status }: { status: TlsStatusResponse }) {
+export function RemoteAccessProgress({
+  status,
+}: {
+  status: TlsStatusResponse;
+}) {
   const { phase, domain, not_after, error } = status;
 
   if (phase === "issuing") {
@@ -17,8 +21,9 @@ export function RemoteAccessProgress({ status }: { status: TlsStatusResponse }) 
         <p className="mt-1 text-ink-3">
           {domain ? (
             <>
-              Provisioning HTTPS for <span className="font-mono">{domain}</span>. This can take a
-              minute — publishing the DNS challenge and waiting for Let's Encrypt.
+              Provisioning HTTPS for <span className="font-mono">{domain}</span>
+              . This can take a minute — publishing the DNS challenge and
+              waiting for Let's Encrypt.
             </>
           ) : (
             "Provisioning HTTPS. This can take a minute."
@@ -31,11 +36,14 @@ export function RemoteAccessProgress({ status }: { status: TlsStatusResponse }) 
   if (phase === "issued") {
     return (
       <div className="rounded-md border border-line bg-accent-soft p-4 text-sm">
-        <p className="font-medium text-accent-soft-ink">Remote access is live</p>
+        <p className="font-medium text-accent-soft-ink">
+          Remote access is live
+        </p>
         <p className="mt-1 text-ink-2">
           {domain && (
             <>
-              <span className="font-mono">{domain}</span> has a valid certificate
+              <span className="font-mono">{domain}</span> has a valid
+              certificate
               {not_after && <> until {formatDate(not_after)}</>}.
             </>
           )}
@@ -47,10 +55,12 @@ export function RemoteAccessProgress({ status }: { status: TlsStatusResponse }) 
   if (phase === "failed") {
     return (
       <div className="rounded-md border border-line bg-danger-soft p-4 text-sm">
-        <p className="font-medium text-danger-soft-ink">Certificate issuance failed</p>
+        <p className="font-medium text-danger-soft-ink">
+          Certificate issuance failed
+        </p>
         <p className="mt-1 text-ink-2">
-          {error ?? "The daemon could not issue a certificate."} You can retry later from Settings —
-          the daemon also retries automatically.
+          {error ?? "The daemon could not issue a certificate."} You can retry
+          later from Settings — the daemon also retries automatically.
         </p>
       </div>
     );

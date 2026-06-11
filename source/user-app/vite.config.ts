@@ -41,6 +41,6 @@ export default defineConfig({
     include: ["cronstrue", "consola"],
     // See admin-site/web/vite.config.ts: don't pre-bundle our own source
     // workspace packages, so source edits aren't masked by a stale .vite cache.
-    exclude: ["@wardnet/wardnet-web", "@wardnet/js"],
+    exclude: ["@wardnet/web", "@wardnet/js"],
   },
 });

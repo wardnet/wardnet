@@ -1,20 +1,26 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Field } from "@wardnet/forge-web/field";
-import { Form, Validator } from "@wardnet/forge-web/form";
-import { Input } from "@wardnet/forge-web/input";
-import { Pill } from "@wardnet/forge-web/pill";
-import { Toggle } from "@wardnet/forge-web/toggle";
+import { Button } from "@wardnet/web";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@wardnet/web";
+import { Field } from "@wardnet/web";
+import { Form, Validator } from "@wardnet/web";
+import { Input } from "@wardnet/web";
+import { Pill } from "@wardnet/web";
+import { Toggle } from "@wardnet/web";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wardnet/forge-web/select";
+} from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import {
@@ -23,10 +29,17 @@ import {
   useCreateDnsRecord,
   useUpdateDnsRecord,
   useDeleteDnsRecord,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import type { CustomDnsRecord, DnsRecordType } from "@wardnet/js";
 
-const RECORD_TYPES: DnsRecordType[] = ["A", "AAAA", "CNAME", "TXT", "MX", "SRV"];
+const RECORD_TYPES: DnsRecordType[] = [
+  "A",
+  "AAAA",
+  "CNAME",
+  "TXT",
+  "MX",
+  "SRV",
+];
 /** Sentinel for the "no zone" Select option — Radix Select can't hold an
  *  empty string value, so we map this to `zone_id: null` on submit. */
 const NO_ZONE = "__none__";
@@ -77,18 +90,24 @@ export function LocalRecordsCard() {
       {
         id: "domain",
         header: "Domain",
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.domain}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.domain}</span>
+        ),
       },
       {
         id: "type",
         header: "Type",
         meta: { className: "w-20" },
-        cell: ({ row }) => <Pill variant="ghost">{row.original.record_type}</Pill>,
+        cell: ({ row }) => (
+          <Pill variant="ghost">{row.original.record_type}</Pill>
+        ),
       },
       {
         id: "value",
         header: "Value",
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.value}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.value}</span>
+        ),
       },
       {
         id: "ttl",
@@ -100,7 +119,9 @@ export function LocalRecordsCard() {
         id: "zone",
         header: "Zone",
         meta: { className: "hidden sm:table-cell" },
-        cell: ({ row }) => <span className="text-sm">{zoneName(row.original.zone_id)}</span>,
+        cell: ({ row }) => (
+          <span className="text-sm">{zoneName(row.original.zone_id)}</span>
+        ),
       },
       {
         id: "enabled",
@@ -136,8 +157,12 @@ export function LocalRecordsCard() {
             zones={zones}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) => createRecord.mutate(body, { onSuccess: closeForm })}
-            onUpdate={(id, body) => updateRecord.mutate({ id, body }, { onSuccess: closeForm })}
+            onCreate={(body) =>
+              createRecord.mutate(body, { onSuccess: closeForm })
+            }
+            onUpdate={(id, body) =>
+              updateRecord.mutate({ id, body }, { onSuccess: closeForm })
+            }
           />
         )}
 
@@ -149,7 +174,10 @@ export function LocalRecordsCard() {
           onAdd={openCreate}
           rowActions={(row) => (
             <>
-              <RowAction onSelect={() => openEdit(row)} icon={<Pencil aria-hidden />}>
+              <RowAction
+                onSelect={() => openEdit(row)}
+                icon={<Pencil aria-hidden />}
+              >
                 Edit
               </RowAction>
               <RowAction
@@ -206,9 +234,18 @@ interface RecordFormProps {
   ) => void;
 }
 
-function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: RecordFormProps) {
+function RecordForm({
+  record,
+  zones,
+  isSaving,
+  onCancel,
+  onCreate,
+  onUpdate,
+}: RecordFormProps) {
   const [domain, setDomain] = useState(record?.domain ?? "");
-  const [recordType, setRecordType] = useState<DnsRecordType>(record?.record_type ?? "A");
+  const [recordType, setRecordType] = useState<DnsRecordType>(
+    record?.record_type ?? "A",
+  );
   const [value, setValue] = useState(record?.value ?? "");
   const [ttl, setTtl] = useState(String(record?.ttl ?? 300));
   const [zoneId, setZoneId] = useState(record?.zone_id ?? NO_ZONE);
@@ -238,7 +275,12 @@ function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: R
       <Form values={{ domain, value, ttl }} onSubmit={handleSave}>
         <CardContent className="flex flex-col gap-5">
           <div className="flex gap-3">
-            <Field label="Domain" htmlFor="rec-domain" name="domain" className="flex-1">
+            <Field
+              label="Domain"
+              htmlFor="rec-domain"
+              name="domain"
+              className="flex-1"
+            >
               <Input
                 id="rec-domain"
                 value={domain}
@@ -246,10 +288,17 @@ function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: R
                 placeholder="printer.lan"
               />
             </Field>
-            <Validator name="domain" rule="required" message="Domain is required." />
+            <Validator
+              name="domain"
+              rule="required"
+              message="Domain is required."
+            />
 
             <Field label="Type" htmlFor="rec-type" className="w-28">
-              <Select value={recordType} onValueChange={(v) => setRecordType(v as DnsRecordType)}>
+              <Select
+                value={recordType}
+                onValueChange={(v) => setRecordType(v as DnsRecordType)}
+              >
                 <SelectTrigger id="rec-type">
                   <SelectValue />
                 </SelectTrigger>
@@ -265,7 +314,12 @@ function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: R
           </div>
 
           <div className="flex gap-3">
-            <Field label="Value" htmlFor="rec-value" name="value" className="flex-1">
+            <Field
+              label="Value"
+              htmlFor="rec-value"
+              name="value"
+              className="flex-1"
+            >
               <Input
                 id="rec-value"
                 value={value}
@@ -273,9 +327,18 @@ function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: R
                 placeholder="192.168.1.50"
               />
             </Field>
-            <Validator name="value" rule="required" message="Value is required." />
+            <Validator
+              name="value"
+              rule="required"
+              message="Value is required."
+            />
 
-            <Field label="TTL (s)" htmlFor="rec-ttl" name="ttl" className="w-28">
+            <Field
+              label="TTL (s)"
+              htmlFor="rec-ttl"
+              name="ttl"
+              className="w-28"
+            >
               <Input
                 id="rec-ttl"
                 type="number"
@@ -308,7 +371,12 @@ function RecordForm({ record, zones, isSaving, onCancel, onCreate, onUpdate }: R
           </Field>
         </CardContent>
         <CardFooter className="justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={onCancel} disabled={isSaving}>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
             Cancel
           </Button>
           <Button type="submit" disabled={isSaving}>

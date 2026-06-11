@@ -28,7 +28,7 @@ export {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
+  CardSubtitle,
   CardAction,
   CardContent,
   CardFooter,

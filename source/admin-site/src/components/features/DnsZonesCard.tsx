@@ -1,12 +1,18 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/forge-web/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@wardnet/forge-web/card";
-import { Field } from "@wardnet/forge-web/field";
-import { Form, Validator } from "@wardnet/forge-web/form";
-import { Input } from "@wardnet/forge-web/input";
-import { Toggle } from "@wardnet/forge-web/toggle";
+import { Button } from "@wardnet/web";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@wardnet/web";
+import { Field } from "@wardnet/web";
+import { Form, Validator } from "@wardnet/web";
+import { Input } from "@wardnet/web";
+import { Toggle } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import {
@@ -15,7 +21,7 @@ import {
   useCreateDnsZone,
   useUpdateDnsZone,
   useDeleteDnsZone,
-} from "@wardnet/wardnet-web";
+} from "@wardnet/web";
 import type { DnsZone } from "@wardnet/js";
 
 /** Public-suffix-looking single label or known TLD — making the gateway
@@ -50,7 +56,9 @@ export function DnsZonesCard() {
 
   const isSaving = createZone.isPending || updateZone.isPending;
   const zoneToDelete = zones.find((z) => z.id === deleteId);
-  const deleteCount = zoneToDelete ? (recordCount.get(zoneToDelete.id) ?? 0) : 0;
+  const deleteCount = zoneToDelete
+    ? (recordCount.get(zoneToDelete.id) ?? 0)
+    : 0;
 
   function openCreate() {
     setEditing(null);
@@ -70,13 +78,19 @@ export function DnsZonesCard() {
       {
         id: "name",
         header: "Name",
-        cell: ({ row }) => <span className="font-mono text-sm">{row.original.name}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{row.original.name}</span>
+        ),
       },
       {
         id: "records",
         header: "Records",
         meta: { className: "hidden sm:table-cell w-24" },
-        cell: ({ row }) => <span className="text-sm">{recordCount.get(row.original.id) ?? 0}</span>,
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {recordCount.get(row.original.id) ?? 0}
+          </span>
+        ),
       },
       {
         id: "enabled",
@@ -110,8 +124,12 @@ export function DnsZonesCard() {
             zone={editing}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) => createZone.mutate(body, { onSuccess: closeForm })}
-            onUpdate={(id, body) => updateZone.mutate({ id, body }, { onSuccess: closeForm })}
+            onCreate={(body) =>
+              createZone.mutate(body, { onSuccess: closeForm })
+            }
+            onUpdate={(id, body) =>
+              updateZone.mutate({ id, body }, { onSuccess: closeForm })
+            }
           />
         )}
 
@@ -123,7 +141,10 @@ export function DnsZonesCard() {
           onAdd={openCreate}
           rowActions={(row) => (
             <>
-              <RowAction onSelect={() => openEdit(row)} icon={<Pencil aria-hidden />}>
+              <RowAction
+                onSelect={() => openEdit(row)}
+                icon={<Pencil aria-hidden />}
+              >
                 Edit
               </RowAction>
               {/* System zones (the daemon-seeded `.lan` zone) can't be deleted —
@@ -167,7 +188,13 @@ interface ZoneFormProps {
   onUpdate: (id: string, body: { name: string }) => void;
 }
 
-function ZoneForm({ zone, isSaving, onCancel, onCreate, onUpdate }: ZoneFormProps) {
+function ZoneForm({
+  zone,
+  isSaving,
+  onCancel,
+  onCreate,
+  onUpdate,
+}: ZoneFormProps) {
   const [name, setName] = useState(zone?.name ?? "");
   const looksPublic = PUBLIC_TLD.test(name.trim());
 
@@ -201,16 +228,26 @@ function ZoneForm({ zone, isSaving, onCancel, onCreate, onUpdate }: ZoneFormProp
               className="w-full sm:w-64"
             />
           </Field>
-          <Validator name="name" rule="required" message="Zone name is required." />
+          <Validator
+            name="name"
+            rule="required"
+            message="Zone name is required."
+          />
           {looksPublic && (
             <p className="text-xs text-warn">
-              “{name.trim()}” looks like a public domain. An enabled zone makes the gateway
-              authoritative for the whole namespace, which would blackhole the real domain.
+              “{name.trim()}” looks like a public domain. An enabled zone makes
+              the gateway authoritative for the whole namespace, which would
+              blackhole the real domain.
             </p>
           )}
         </CardContent>
         <CardFooter className="justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={onCancel} disabled={isSaving}>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
             Cancel
           </Button>
           <Button type="submit" disabled={isSaving}>
