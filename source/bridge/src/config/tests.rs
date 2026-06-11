@@ -131,3 +131,54 @@ fn region_label_independent_of_user_fqdn() {
         "_acme-challenge.bold-newton.my.wardnet.services"
     );
 }
+
+#[test]
+fn debug_redacts_secrets() {
+    // The custom Debug must hide secret-bearing fields but keep the safe ones.
+    let dump = format!("{:?}", test_config());
+    assert!(dump.contains("<redacted>"));
+    assert!(dump.contains("use1")); // region kept
+    assert!(dump.contains("zone-id")); // cloudflare_zone_id is not secret
+    // Secret values must not leak (field *names* may still appear).
+    assert!(!dump.contains("postgres://ignored")); // database_url redacted
+    assert!(!dump.contains("postgres://ignored-global")); // global_database_url redacted
+}
+
+#[test]
+fn required_errors_when_absent() {
+    // A uniquely-named, guaranteed-unset variable avoids racing other tests.
+    let err = super::required("WARDNET_TEST_DEFINITELY_UNSET_VAR").unwrap_err();
+    assert!(err.to_string().contains("is not set"));
+}
+
+#[test]
+fn encryption_key_accepts_valid_base64_32() {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD.encode([9u8; 32]);
+    // SAFETY: uniquely-named var, single-threaded test binary.
+    unsafe { std::env::set_var("WARDNET_TEST_ENC_OK", &b64) };
+    let got = super::encryption_key("WARDNET_TEST_ENC_OK").unwrap();
+    unsafe { std::env::remove_var("WARDNET_TEST_ENC_OK") };
+    assert_eq!(got, [9u8; 32]);
+}
+
+#[test]
+fn encryption_key_rejects_bad_base64() {
+    // SAFETY: uniquely-named var, single-threaded test binary.
+    unsafe { std::env::set_var("WARDNET_TEST_ENC_BAD", "!!! not base64 !!!") };
+    let err = super::encryption_key("WARDNET_TEST_ENC_BAD").unwrap_err();
+    unsafe { std::env::remove_var("WARDNET_TEST_ENC_BAD") };
+    assert!(err.to_string().contains("not valid base64"));
+}
+
+#[test]
+fn encryption_key_rejects_wrong_length() {
+    use base64::Engine as _;
+    // 16 bytes, not 32.
+    let b64 = base64::engine::general_purpose::STANDARD.encode([1u8; 16]);
+    // SAFETY: uniquely-named var, single-threaded test binary.
+    unsafe { std::env::set_var("WARDNET_TEST_ENC_SHORT", &b64) };
+    let err = super::encryption_key("WARDNET_TEST_ENC_SHORT").unwrap_err();
+    unsafe { std::env::remove_var("WARDNET_TEST_ENC_SHORT") };
+    assert!(err.to_string().contains("exactly 32 bytes"));
+}
