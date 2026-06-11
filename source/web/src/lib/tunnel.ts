@@ -11,6 +11,10 @@ export function tunnelStatusVariant(status: TunnelStatus): PillProps["variant"] 
       return "warn";
     case "down":
       return "down";
+    default: {
+      const unhandled: never = status;
+      throw new Error(`Unhandled TunnelStatus: ${String(unhandled)}`);
+    }
   }
 }
 
@@ -24,6 +28,10 @@ export function tunnelStatusLabel(status: TunnelStatus): string {
       return "Reconnecting";
     case "down":
       return "Down";
+    default: {
+      const unhandled: never = status;
+      throw new Error(`Unhandled TunnelStatus: ${String(unhandled)}`);
+    }
   }
 }
 

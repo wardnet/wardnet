@@ -81,6 +81,7 @@ struct MockDeviceService {
     set_rule_error: Option<String>,
     /// Batched routing rules returned by `current_rules` (used by the list path).
     current_rules: std::collections::HashMap<Uuid, RoutingTarget>,
+    tunnels: Vec<wardnet_common::api::TunnelSummary>,
 }
 
 impl MockDeviceService {
@@ -92,6 +93,7 @@ impl MockDeviceService {
             admin_locked,
             set_rule_error: None,
             current_rules: std::collections::HashMap::new(),
+            tunnels: vec![],
         }
     }
 
@@ -102,6 +104,7 @@ impl MockDeviceService {
             admin_locked: false,
             set_rule_error: Some("not_found".to_owned()),
             current_rules: std::collections::HashMap::new(),
+            tunnels: vec![],
         }
     }
 
@@ -112,12 +115,18 @@ impl MockDeviceService {
             admin_locked: true,
             set_rule_error: Some("forbidden".to_owned()),
             current_rules: std::collections::HashMap::new(),
+            tunnels: vec![],
         }
     }
 
     /// Seed the batched `current_rules` map returned to the list handler.
     fn with_current_rules(mut self, rules: std::collections::HashMap<Uuid, RoutingTarget>) -> Self {
         self.current_rules = rules;
+        self
+    }
+
+    fn with_tunnels(mut self, tunnels: Vec<wardnet_common::api::TunnelSummary>) -> Self {
+        self.tunnels = tunnels;
         self
     }
 }
@@ -129,7 +138,7 @@ impl DeviceService for MockDeviceService {
             device: self.device.clone(),
             current_rule: self.rule.clone(),
             admin_locked: self.admin_locked,
-            available_tunnels: vec![],
+            available_tunnels: self.tunnels.clone(),
         })
     }
 
@@ -459,6 +468,29 @@ async fn get_me_returns_null_device_when_unknown_ip() {
 }
 
 // ---------------------------------------------------------------------------
+#[tokio::test]
+async fn get_me_includes_tunnel_status_and_last_handshake() {
+    let tunnel = wardnet_common::api::TunnelSummary {
+        id: "tunnel-1".to_owned(),
+        label: "UK Server".to_owned(),
+        country_code: "GB".to_owned(),
+        status: wardnet_common::tunnel::TunnelStatus::Up,
+        last_handshake: None,
+    };
+    let state = build_state(
+        MockDeviceService::found(sample_device(), Some(RoutingTarget::Tunnel { tunnel_id: uuid::Uuid::nil() }))
+            .with_tunnels(vec![tunnel]),
+        MockDiscoveryService { devices: vec![] },
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/me").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["available_tunnels"][0]["id"], "tunnel-1");
+    assert_eq!(json["available_tunnels"][0]["status"], "up");
+    assert!(json["available_tunnels"][0]["last_handshake"].is_null());
+}
+
 // PUT /api/devices/me/rule
 // ---------------------------------------------------------------------------
 
