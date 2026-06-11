@@ -1,4 +1,4 @@
-<div align="center">
+<div align="center" style="margin-bottom:25px">
 <img src="logo.png" alt="Wardnet logo" />
 </div>
 
