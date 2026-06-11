@@ -2,6 +2,7 @@
 @import "@wardnet/styles";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";
+@import "leaflet/dist/leaflet.css";
 
 @source "../../web/src/**/*.{ts,tsx}";
 
