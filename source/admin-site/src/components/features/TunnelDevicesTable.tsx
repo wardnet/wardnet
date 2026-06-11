@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { DataTable } from "@/components/core/ui/data-table";
-import { DeviceIcon } from "@/components/compound/DeviceIcon";
+import { DeviceIcon } from "@wardnet/web";
 import { HostCell } from "@/components/compound/HostCell";
 import { useTunnelDevices } from "@wardnet/web";
 import type { Device } from "@wardnet/js";

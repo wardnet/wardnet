@@ -11,7 +11,7 @@ import {
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { useUpdateDhcpConfig } from "@wardnet/web";
 import { useDnsConfig } from "@wardnet/web";
 import type { DhcpConfig } from "@wardnet/js";

@@ -20,7 +20,6 @@ import DnsLogs from "@/pages/DnsLogs";
 import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
 import DnsFilterProfileNew from "@/pages/DnsFilterProfileNew";
-import MyDevice from "@/pages/MyDevice";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
 import NotFound from "@/pages/NotFound";
@@ -67,12 +66,17 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Renders admin dashboard or self-service page based on auth state. */
+/**
+ * Admin-site index. The admin site is an admin-only surface — non-admins are
+ * served by the User PWA at the origin root (`/`), not here — so anyone without
+ * an admin session is sent to login.
+ */
 function Home() {
   const { isAdmin, isChecking } = useAuth();
 
   if (isChecking) return null;
-  return isAdmin ? <Dashboard /> : <MyDevice />;
+  if (!isAdmin) return <Navigate to="/login" replace />;
+  return <Dashboard />;
 }
 
 export default function App() {

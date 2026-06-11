@@ -13,7 +13,7 @@ import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CronSchedulePicker } from "@/components/compound/CronSchedulePicker";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";

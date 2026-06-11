@@ -11,7 +11,7 @@ import {
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { useCreateDnsFilterProfile } from "@wardnet/web";
 
 /** Routed create flow for a new DNS filter profile (admin only). */

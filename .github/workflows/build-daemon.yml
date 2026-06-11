@@ -131,7 +131,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: web-ui-dist
-          path: source/admin-site/dist/
+          # The daemon embeds all three web trees (user-app, admin-app,
+          # admin-site) via rust-embed; carry every dist/ to the build job, not
+          # just admin-site, or the user PWA (/) and admin mobile PWA
+          # (/admin-app/) ship empty. The common ancestor is source/, so archive
+          # entries are admin-{site,app}/dist/… and user-app/dist/….
+          path: |
+            source/admin-site/dist/
+            source/user-app/dist/
+            source/admin-app/dist/
           retention-days: 1
 
   build:
@@ -160,14 +168,16 @@ jobs:
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      # rust-embed picks the web UI up from this directory at daemon
+      # rust-embed picks the web UI up from these directories at daemon
       # compile time. Downloading the shared artifact avoids re-running
-      # `yarn build` per matrix entry.
+      # `yarn build` per matrix entry. The artifact stores paths relative to
+      # source/ (the common ancestor of the three dist trees), so extract it
+      # there to restore source/{admin-site,user-app,admin-app}/dist/.
       - name: Download web-ui dist
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: web-ui-dist
-          path: source/admin-site/dist/
+          path: source/
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -178,9 +188,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
 
       - name: Pin WARDNET_VERSION for tagged release builds
-        # `build-web` (run upstream) overwrites the tracked
-        # source/admin-site/dist/index.html placeholder with Vite's hashed
-        # output. That dirties the worktree, so the `wardnetd-services`
+        # The downloaded web-ui-dist artifact lands real Vite output on top of
+        # the tracked `.info` sentinels in each source/*/dist. That dirties the
+        # worktree, so the `wardnetd-services`
         # / `wardnetd` build scripts' `git describe --tags --dirty` ends
         # up emitting `<calver>-dirty` for an otherwise-clean tag commit
         # — which is what users see as "Current version" in the Updates

@@ -4,7 +4,7 @@ import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Textarea } from "@wardnet/web";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { useCreateTunnel } from "@wardnet/web";
 
 interface ManualTunnelTabProps {

@@ -174,6 +174,12 @@ build-web: check-sdk
 	cd $(USER_APP_DIR) && yarn build
 	cd $(ADMIN_APP_DIR) && yarn install --immutable
 	cd $(ADMIN_APP_DIR) && yarn build
+	# Vite empties each dist/ on build, deleting the tracked .info sentinel that
+	# keeps the directory present for rust-embed. Restore it so the working tree
+	# stays clean. (.info is embedded but never served — static_handler in web.rs
+	# returns 404 for it.) The leading '-' keeps non-git builds (e.g. source
+	# tarballs without .git) from failing here after the assets are already built.
+	-git checkout -- $(WEBUI_DIR)/dist/.info $(USER_APP_DIR)/dist/.info $(ADMIN_APP_DIR)/dist/.info
 
 check-web: check-sdk
 	cd $(ADMIN_DIR) && yarn install --immutable

@@ -11,7 +11,7 @@ import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { MacInput } from "@/components/core/ui/mac-input";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { useCreateReservation } from "@wardnet/web";
 
 /** Optional pre-filled values for the reservation form. */

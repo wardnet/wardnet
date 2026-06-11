@@ -18,7 +18,7 @@ import {
   Loader2,
   UploadIcon,
 } from "lucide-react";
-import { ApiErrorAlert } from "@/components/compound/ApiErrorAlert";
+import { ApiErrorAlert } from "@wardnet/web";
 import { formatDateTime } from "@wardnet/web";
 
 /** Server-enforced minimum, mirrors `wardnet_common::backup::MIN_PASSPHRASE_LEN`. */

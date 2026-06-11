@@ -11,7 +11,6 @@ import {
   Router,
   Settings as SettingsIcon,
   ShieldCheck,
-  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@wardnet/web";
 import { useDaemonStatus } from "@wardnet/web";
@@ -38,10 +37,6 @@ interface NavSection {
   heading?: string;
   items: NavItem[];
 }
-
-const selfServiceSections: NavSection[] = [
-  { items: [{ to: "/", label: "My device", icon: Smartphone, end: true }] },
-];
 
 const adminSections: NavSection[] = [
   { items: [{ to: "/", label: "Dashboard", icon: LayoutGrid, end: true }] },
@@ -91,7 +86,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const { data: updateStatus } = useUpdateStatus();
   const { data: daemonStatus } = useDaemonStatus();
 
-  const sections = isAdmin ? adminSections : selfServiceSections;
+  const sections = isAdmin ? adminSections : [];
 
   function handleLogout() {
     logout();

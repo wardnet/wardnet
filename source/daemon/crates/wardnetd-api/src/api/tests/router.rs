@@ -179,3 +179,28 @@ async fn unknown_path_hits_fallback() {
     // OPTIONS with CORS permissive returns 200 regardless, which is fine.
     assert_eq!(status, StatusCode::OK);
 }
+
+/// The `.info` sentinel embedded in each web tree (it keeps the `dist/`
+/// directory tracked for rust-embed; see `source/*/dist/.info`) must never be
+/// served. A GET to it returns 404, not the SPA shell. We use GET because the
+/// CORS layer would short-circuit OPTIONS before the static handler runs.
+#[tokio::test]
+async fn info_sentinel_is_not_served() {
+    for path in ["/.info", "/admin/.info", "/admin-app/.info"] {
+        let req = Request::builder()
+            .method("GET")
+            .uri(path)
+            .body(Body::empty())
+            .expect("valid request");
+        let status = full_router()
+            .oneshot(req)
+            .await
+            .expect("router should respond")
+            .status();
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "GET {path} should be 404 but returned {status}"
+        );
+    }
+}

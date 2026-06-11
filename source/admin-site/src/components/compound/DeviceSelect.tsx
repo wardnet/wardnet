@@ -5,7 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
-import { DeviceIcon } from "./DeviceIcon";
+import { DeviceIcon } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 interface DeviceSelectProps {

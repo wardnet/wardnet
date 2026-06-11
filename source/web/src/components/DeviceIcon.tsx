@@ -11,7 +11,7 @@ import {
   Server,
 } from "lucide-react";
 import type { DeviceType } from "@wardnet/js";
-import { cn } from "@wardnet/web";
+import { cn } from "../lib/utils";
 
 function SetTopBox({
   size = 24,
