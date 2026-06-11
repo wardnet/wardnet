@@ -72,6 +72,8 @@ pub async fn get_me(
                 id: t.id.to_string(),
                 label: t.label,
                 country_code: t.country_code,
+                status: t.status,
+                last_handshake: t.last_handshake,
             })
             .collect()
     })
