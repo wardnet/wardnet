@@ -1,5 +1,16 @@
 # Bridge traffic forwarding — implementation plan
 
+> **Historical — partially superseded.** This is the original pre-implementation
+> plan. The data plane (Postgres migration, active/active topology, SNI demuxer,
+> reverse-tunnel layer, DoT passthrough) shipped, but the **edge topology
+> described below is obsolete: there is no Caddy.** The bridge terminates its own
+> TLS (ACME **HTTP-01**) behind a transparent nginx **L4 + PROXY protocol v1**
+> proxy. For the shipped design see [`README.md`](README.md),
+> [`adr-bridge-self-terminated-tls.md`](../../docs/adr-bridge-self-terminated-tls.md),
+> and the **Bridge self-terminated TLS** / **transparent L4 proxy** entries in
+> [`CONTEXT.md`](../../CONTEXT.md). Kept only for historical rationale; treat any
+> `Caddy` / `CADDY_ADDR` reference here as describing the abandoned design.
+
 Covers everything discussed: MySQL migration, active/active topology, SNI demuxer,
 reverse-tunnel layer, and Android Private DNS (DoT) passthrough. Wardnetd daemon
 changes (tunnel client, ACME ownership, DoT server) are explicitly out of scope
