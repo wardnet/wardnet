@@ -1,0 +1,10 @@
+This directory is intentionally kept in git via this .info file.
+
+The daemon embeds this folder at compile time with rust-embed
+(source/daemon/crates/wardnetd-api/src/web.rs: #[folder = "../../../admin-app/dist"]),
+so the directory must exist for the daemon crate to compile — even before
+`make build-web` has produced the real Vite output. Git cannot track an empty
+directory, so this file holds the place.
+
+Everything else here is build output and is gitignored. Run `make build-web` to
+regenerate it; never commit the generated files.
