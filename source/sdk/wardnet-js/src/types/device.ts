@@ -27,6 +27,9 @@ export interface Device {
   last_seen: string;
   last_ip: string;
   admin_locked: boolean;
+  dns_capture_enabled: boolean;
+  dns_capture_cap_count: number;
+  dns_capture_cap_days: number;
   dhcp_status: DhcpStatus;
   /**
    * The device's current routing target. `null` when the device has no rule of

@@ -44,4 +44,7 @@ pub struct Device {
     pub last_seen: DateTime<Utc>,
     pub last_ip: String,
     pub admin_locked: bool,
+    pub dns_capture_enabled: bool,
+    pub dns_capture_cap_count: i64,
+    pub dns_capture_cap_days: i64,
 }

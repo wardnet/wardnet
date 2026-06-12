@@ -6,7 +6,7 @@ import {
   ShieldXIcon,
   WifiOffIcon,
 } from "lucide-react";
-import { MapContainer, Marker, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ApiErrorAlert,
@@ -104,13 +104,11 @@ function RoutingForm({
   );
 }
 
-function GeoDataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2 py-1.5 text-sm">
-      <span className="text-ink-3">{label}</span>
-      <span className="text-right font-medium text-ink">{value}</span>
-    </div>
-  );
+function KeepCentered({ center }: { center: [number, number] }) {
+  const map = useMapEvents({
+    zoomend: () => map.setView(center, map.getZoom(), { animate: false }),
+  });
+  return null;
 }
 
 function VerifyCard({
@@ -132,9 +130,9 @@ function VerifyCard({
     <Card>
       <CardHeader>
         <CardTitle>Verify your route</CardTitle>
-        {activeTunnel && matchState !== "neutral" && (
-          <span className="ml-auto">
-            {matchState === "match" ? (
+        <div className="ml-auto flex items-center gap-2">
+          {activeTunnel && matchState !== "neutral" && (
+            matchState === "match" ? (
               <Pill variant="ok" className="flex items-center gap-1">
                 <ShieldCheckIcon className="size-3" />
                 Match
@@ -144,9 +142,20 @@ function VerifyCard({
                 <ShieldXIcon className="size-3" />
                 Mismatch
               </Pill>
-            )}
-          </span>
-        )}
+            )
+          )}
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-sunken text-ink-3 transition-colors duration-snap active:bg-line disabled:opacity-40"
+            aria-label="Refresh route check"
+          >
+            <RefreshCwIcon
+              size={14}
+              className={isFetching ? "animate-spin" : undefined}
+            />
+          </button>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
@@ -169,9 +178,7 @@ function VerifyCard({
             <MapContainer
               center={[geo.latitude, geo.longitude]}
               zoom={8}
-              zoomControl={false}
               dragging={false}
-              scrollWheelZoom={false}
               style={{ height: "180px", width: "100%" }}
             >
               <TileLayer
@@ -179,29 +186,37 @@ function VerifyCard({
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               />
               <Marker position={[geo.latitude, geo.longitude]} />
+              <KeepCentered center={[geo.latitude, geo.longitude]} />
             </MapContainer>
-            <div className="divide-y divide-white/[0.06] px-5">
-              <GeoDataRow label="IP" value={geo.ip} />
-              <GeoDataRow
-                label="Country"
-                value={`${geo.country_code ? countryFlag(geo.country_code) : ""} ${geo.country_name}`.trim()}
-              />
-              <GeoDataRow label="City" value={geo.city} />
-              <GeoDataRow label="ISP" value={geo.org} />
-            </div>
-            <div className="flex justify-end px-5 pb-4 pt-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refetch()}
-                disabled={isFetching}
-                className="flex items-center gap-1.5 text-xs text-ink-3"
-              >
-                <RefreshCwIcon
-                  className={`size-3 ${isFetching ? "animate-spin" : ""}`}
-                />
-                Refresh
-              </Button>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line p-4 pt-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  IP
+                </p>
+                <p className="mt-0.5 break-all font-mono text-[13px] text-ink">
+                  {geo.ip}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  Country
+                </p>
+                <p className="mt-0.5 text-[13px] text-ink">
+                  {`${geo.country_code ? countryFlag(geo.country_code) : ""} ${geo.country_name}`.trim()}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  City
+                </p>
+                <p className="mt-0.5 text-[13px] text-ink">{geo.city}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  ISP
+                </p>
+                <p className="mt-0.5 text-[13px] text-ink">{geo.org}</p>
+              </div>
             </div>
           </>
         ) : null}

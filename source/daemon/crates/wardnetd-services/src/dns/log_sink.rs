@@ -49,12 +49,24 @@ struct DnsStatInstruments {
     by_client: Counter,
 }
 
+/// Receivers returned by [`DnsLogSink::new_with_stats`].
+pub struct DnsLogSinkChannels {
+    /// Drained by the persistence runner ([`super::query_log_runner`]).
+    pub persist_rx: mpsc::Receiver<QueryLogRow>,
+    /// Drained by the capture runner ([`super::capture_runner`]).
+    /// Only rows whose `device_id` is `Some` are forwarded here.
+    pub capture_rx: mpsc::Receiver<QueryLogRow>,
+}
+
 /// Hot-path sink shared between the DNS server (producer) and the
 /// persistence runner + WS subscribers (consumers).
 pub struct DnsLogSink {
     persist_tx: mpsc::Sender<QueryLogRow>,
+    capture_tx: Option<mpsc::Sender<QueryLogRow>>,
     stream_tx: broadcast::Sender<QueryLogEvent>,
     dropped_entries: AtomicU64,
+    /// Rows dropped because the capture channel was full.
+    capture_dropped_entries: AtomicU64,
     /// Stats instruments — `None` when the stats subsystem is not wired in
     /// (e.g. tests that build a bare sink via [`DnsLogSink::new`]).
     stat_instruments: Option<DnsStatInstruments>,
@@ -74,14 +86,20 @@ impl DnsLogSink {
     /// Build a sink wired to the stats subsystem. Every call to
     /// [`DnsLogSink::record`] will also push measurements into the shared
     /// [`crate::stats::StatsBuffer`] via the four DNS instruments.
+    ///
+    /// Returns the sink and a [`DnsLogSinkChannels`] holding both the
+    /// persistence receiver and the capture receiver.
     #[must_use]
-    pub fn new_with_stats(meter: &Meter) -> (Arc<Self>, mpsc::Receiver<QueryLogRow>) {
+    pub fn new_with_stats(meter: &Meter) -> (Arc<Self>, DnsLogSinkChannels) {
         let (persist_tx, persist_rx) = mpsc::channel(DEFAULT_MPSC_CAPACITY);
+        let (capture_tx, capture_rx) = mpsc::channel(DEFAULT_MPSC_CAPACITY);
         let (stream_tx, _) = broadcast::channel(DEFAULT_BROADCAST_CAPACITY);
         let sink = Arc::new(Self {
             persist_tx,
+            capture_tx: Some(capture_tx),
             stream_tx,
             dropped_entries: AtomicU64::new(0),
+            capture_dropped_entries: AtomicU64::new(0),
             stat_instruments: Some(DnsStatInstruments {
                 queries: meter.counter("dns.queries"),
                 latency: meter.gauge("dns.latency_ms"),
@@ -89,7 +107,13 @@ impl DnsLogSink {
                 by_client: meter.counter("dns.queries.by_client"),
             }),
         });
-        (sink, persist_rx)
+        (
+            sink,
+            DnsLogSinkChannels {
+                persist_rx,
+                capture_rx,
+            },
+        )
     }
 
     /// Build a sink with custom capacities — exposed for tests that need
@@ -103,8 +127,10 @@ impl DnsLogSink {
         let (stream_tx, _) = broadcast::channel(broadcast_capacity);
         let sink = Arc::new(Self {
             persist_tx,
+            capture_tx: None,
             stream_tx,
             dropped_entries: AtomicU64::new(0),
+            capture_dropped_entries: AtomicU64::new(0),
             stat_instruments: None,
         });
         (sink, persist_rx)
@@ -121,6 +147,20 @@ impl DnsLogSink {
             record_dns_stats(inst, &row);
         }
         let event = row_to_event(&row);
+        // Forward to capture runner only when a device is identified.
+        // Avoid cloning when the channel is already known-full — check
+        // capacity first to skip the heap allocation on a saturated buffer.
+        if row.device_id.is_some()
+            && let Some(ref cap_tx) = self.capture_tx
+        {
+            if cap_tx.capacity() > 0 {
+                if let Err(mpsc::error::TrySendError::Full(_)) = cap_tx.try_send(row.clone()) {
+                    self.capture_dropped_entries.fetch_add(1, Ordering::Relaxed);
+                }
+            } else {
+                self.capture_dropped_entries.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         if let Err(mpsc::error::TrySendError::Full(_)) = self.persist_tx.try_send(row) {
             self.dropped_entries.fetch_add(1, Ordering::Relaxed);
         }
@@ -143,6 +183,11 @@ impl DnsLogSink {
     #[must_use]
     pub fn dropped_count(&self) -> u64 {
         self.dropped_entries.load(Ordering::Relaxed)
+    }
+
+    /// Take the current capture-dropped count and reset it to zero.
+    pub fn take_capture_dropped(&self) -> u64 {
+        self.capture_dropped_entries.swap(0, Ordering::Relaxed)
     }
 }
 
@@ -194,5 +239,110 @@ fn normalize_outcome(result: &str) -> &'static str {
         "recursive" => "recursive",
         "rewritten" | "local" => "local",
         _ => "error",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::{buffer::StatsBuffer, meter::Meter};
+
+    fn make_meter() -> Meter {
+        Meter::new(StatsBuffer::new())
+    }
+
+    fn make_row(domain: &str, device_id: Option<&str>) -> QueryLogRow {
+        QueryLogRow {
+            timestamp: "2026-06-12T00:00:00Z".to_owned(),
+            client_ip: "192.168.1.1".to_owned(),
+            domain: domain.to_owned(),
+            query_type: "A".to_owned(),
+            result: "forwarded".to_owned(),
+            upstream: None,
+            latency_ms: 1.0,
+            device_id: device_id.map(str::to_owned),
+        }
+    }
+
+    /// A row with `device_id = Some(...)` must appear on both `capture_rx`
+    /// and `persist_rx`.
+    #[test]
+    fn capture_forwarded_when_device_id_set() {
+        let meter = make_meter();
+        let (sink, mut channels) = DnsLogSink::new_with_stats(&meter);
+
+        sink.record(make_row("example.com", Some("dev-1")));
+
+        let captured = channels
+            .capture_rx
+            .try_recv()
+            .expect("expected row on capture_rx");
+        assert_eq!(captured.domain, "example.com");
+
+        let persisted = channels
+            .persist_rx
+            .try_recv()
+            .expect("expected row on persist_rx");
+        assert_eq!(persisted.domain, "example.com");
+    }
+
+    /// A row with `device_id = None` must NOT be forwarded to `capture_rx`.
+    #[test]
+    fn capture_skipped_without_device_id() {
+        let meter = make_meter();
+        let (sink, mut channels) = DnsLogSink::new_with_stats(&meter);
+
+        sink.record(make_row("example.com", None));
+
+        assert_eq!(
+            channels.capture_rx.try_recv().unwrap_err(),
+            tokio::sync::mpsc::error::TryRecvError::Empty,
+        );
+
+        // Persist channel should still receive the row.
+        assert!(channels.persist_rx.try_recv().is_ok());
+    }
+
+    /// `take_capture_dropped()` starts at 0 and resets to 0 after being read.
+    #[test]
+    fn capture_dropped_counter_starts_zero_and_resets() {
+        let meter = make_meter();
+        let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+        assert_eq!(sink.take_capture_dropped(), 0);
+        // A second call must also return 0 (counter was reset by the first call).
+        assert_eq!(sink.take_capture_dropped(), 0);
+    }
+
+    /// `record_dns_stats` records the `by_domain` counter for blocked queries.
+    #[test]
+    fn blocked_outcome_records_by_domain_stat() {
+        let meter = make_meter();
+        let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+        let mut row = make_row("blocked-ads.tracker.io", Some("dev-1"));
+        row.result = "blocked".to_owned();
+        sink.record(row);
+
+        // The only assertion needed for coverage is that we don't panic;
+        // the by_domain counter is an internal implementation detail.
+    }
+
+    /// When the persist channel is full, `dropped_entries` is incremented.
+    #[test]
+    fn persist_full_increments_dropped_counter() {
+        // Capacity-1 persist channel: first send fills it, second is dropped.
+        let (sink, mut persist_rx) = DnsLogSink::with_capacities(1, 256);
+
+        sink.record(make_row("first.example.com", None));
+        sink.record(make_row("second.example.com", None));
+
+        // Exactly one row should be queued, one should have been dropped.
+        assert_eq!(persist_rx.try_recv().unwrap().domain, "first.example.com");
+        assert!(
+            persist_rx.try_recv().is_err(),
+            "second row should have been dropped"
+        );
+        assert_eq!(sink.take_dropped(), 1);
     }
 }

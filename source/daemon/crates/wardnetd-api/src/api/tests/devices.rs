@@ -240,6 +240,21 @@ impl DeviceService for MockDeviceService {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         Ok(())
     }
+    async fn get_dns_capture_settings(
+        &self,
+        _id: &str,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock `DhcpService` that returns configurable leases and reservations.
@@ -400,6 +415,9 @@ fn sample_device() -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
+        dns_capture_enabled: false,
+        dns_capture_cap_count: 1000,
+        dns_capture_cap_days: 7,
     }
 }
 

@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { RoutingTarget, UpdateDeviceRequest } from "@wardnet/js";
+import type { RoutingTarget, UpdateDeviceRequest, DnsCaptureSettingsRequest } from "@wardnet/js";
 import { deviceService } from "../lib/sdk";
 
 export function useDevices() {
@@ -56,5 +56,25 @@ export function useUpdateDevice(options?: { successMessage?: string }) {
       });
     },
     onError: () => toast.error("Failed to update device"),
+  });
+}
+
+export function useDnsCaptureSettings(id: string) {
+  return useQuery({
+    queryKey: ["devices", id, "dns-capture"],
+    queryFn: () => deviceService.getDnsCaptureSettings(id),
+  });
+}
+
+export function useUpdateDnsCaptureSettings(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: DnsCaptureSettingsRequest) =>
+      deviceService.updateDnsCaptureSettings(id, body),
+    onSuccess: () => {
+      toast.success("DNS capture settings saved");
+      qc.invalidateQueries({ queryKey: ["devices", id, "dns-capture"] });
+    },
+    onError: () => toast.error("Failed to save DNS capture settings"),
   });
 }

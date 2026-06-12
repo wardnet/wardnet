@@ -1515,6 +1515,158 @@
         ]
       }
     },
+    "/api/devices/{id}/dns-capture": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Return current DNS capture settings and storage stats for a device.",
+        "operationId": "get_dns_capture_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current capture settings and stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsCaptureSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Update DNS capture settings for a device. Omitted fields are left unchanged.",
+        "operationId": "update_dns_capture_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DnsCaptureSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated capture settings and stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsCaptureSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin_auth": []
+          }
+        ]
+      }
+    },
     "/api/dhcp/config": {
       "get": {
         "tags": [
@@ -13969,7 +14121,10 @@
           "first_seen",
           "last_seen",
           "last_ip",
-          "admin_locked"
+          "admin_locked",
+          "dns_capture_enabled",
+          "dns_capture_cap_count",
+          "dns_capture_cap_days"
         ],
         "properties": {
           "admin_locked": {
@@ -13977,6 +14132,17 @@
           },
           "device_type": {
             "$ref": "#/components/schemas/DeviceType"
+          },
+          "dns_capture_cap_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dns_capture_cap_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dns_capture_enabled": {
+            "type": "boolean"
           },
           "first_seen": {
             "type": "string",
@@ -14447,6 +14613,62 @@
           },
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "DnsCaptureSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "cap_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cap_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "DnsCaptureSettingsResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "cap_count",
+          "cap_days",
+          "row_count",
+          "size_bytes"
+        ],
+        "properties": {
+          "cap_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cap_days": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "row_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

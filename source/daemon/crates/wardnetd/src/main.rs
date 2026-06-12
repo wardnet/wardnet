@@ -42,6 +42,7 @@ use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
+use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
@@ -501,6 +502,20 @@ async fn run(
         &root_span,
     );
 
+    let dns_capture_rx = services
+        .dns_capture_rx
+        .lock()
+        .expect("dns capture rx lock poisoned")
+        .take()
+        .expect("dns capture rx taken twice");
+    let dns_capture_runner = DnsCaptureRunner::start(
+        dns_capture_rx,
+        services.device_repo.clone(),
+        services.dns_events_repo.clone(),
+        services.event_publisher.clone(),
+        &root_span,
+    );
+
     // Return freed SQLite pages to the filesystem once per day — fires
     // regardless of any per-feature flag so it covers all tables.
     let db_maintenance_runner =
@@ -620,6 +635,7 @@ async fn run(
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
+    dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;

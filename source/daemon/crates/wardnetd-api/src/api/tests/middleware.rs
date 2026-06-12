@@ -398,6 +398,21 @@ impl DeviceService for MockDeviceService {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn get_dns_capture_settings(
+        &self,
+        _id: &str,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 fn make_state_with_device(
@@ -529,6 +544,9 @@ async fn resolve_auth_context_known_device_ip() {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.42".to_owned(),
         admin_locked: false,
+        dns_capture_enabled: false,
+        dns_capture_cap_count: 1000,
+        dns_capture_cap_days: 7,
     };
     let state = make_state_with_device(
         MockAuthService {

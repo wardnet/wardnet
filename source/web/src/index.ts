@@ -194,6 +194,8 @@ export {
   useMyDevice,
   useSetMyRule,
   useUpdateDevice,
+  useDnsCaptureSettings,
+  useUpdateDnsCaptureSettings,
 } from "./hooks/useDevices";
 
 // Hooks — tunnels

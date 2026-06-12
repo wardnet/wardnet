@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use uuid::Uuid;
-use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
+use wardnet_common::api::{DeviceMeResponse, DnsCaptureSettingsResponse, SetMyRuleResponse};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
@@ -11,7 +12,7 @@ use wardnet_common::routing::{RoutingTarget, RuleCreator};
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::DeviceRepository;
+use wardnetd_data::repository::{DeviceRepository, DnsEventsRepository};
 
 /// Device lookup and self-service routing management.
 ///
@@ -55,18 +56,48 @@ pub trait DeviceService: Send + Sync {
     ///
     /// Requires admin privileges via the [`AuthContext`].
     async fn update_admin_locked(&self, device_id: &str, locked: bool) -> Result<(), AppError>;
+
+    /// Return current DNS capture settings and storage stats for a device.
+    ///
+    /// Requires admin privileges via the [`AuthContext`].
+    async fn get_dns_capture_settings(
+        &self,
+        device_id: &str,
+    ) -> Result<DnsCaptureSettingsResponse, AppError>;
+
+    /// Update DNS capture settings for a device.
+    ///
+    /// Only `Some` fields are written; `None` leaves the existing value
+    /// unchanged. Returns `AppError::NotFound` when the device does not exist.
+    /// Requires admin privileges via the [`AuthContext`].
+    async fn update_dns_capture_settings(
+        &self,
+        device_id: &str,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
+    ) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
 pub struct DeviceServiceImpl {
     devices: Arc<dyn DeviceRepository>,
+    dns_events: Arc<dyn DnsEventsRepository>,
     events: Arc<dyn EventPublisher>,
 }
 
 impl DeviceServiceImpl {
-    /// Create a new service backed by the given device repository and event publisher.
-    pub fn new(devices: Arc<dyn DeviceRepository>, events: Arc<dyn EventPublisher>) -> Self {
-        Self { devices, events }
+    /// Create a new service backed by the given repositories and event publisher.
+    pub fn new(
+        devices: Arc<dyn DeviceRepository>,
+        dns_events: Arc<dyn DnsEventsRepository>,
+        events: Arc<dyn EventPublisher>,
+    ) -> Self {
+        Self {
+            devices,
+            dns_events,
+            events,
+        }
     }
 
     /// Check whether the current auth context authorises a mutation on the
@@ -234,5 +265,84 @@ impl DeviceService for DeviceServiceImpl {
             .update_admin_locked(device_id, locked)
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn get_dns_capture_settings(
+        &self,
+        device_id: &str,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        if !ctx.is_admin() {
+            return Err(AppError::Forbidden("admin privileges required".to_owned()));
+        }
+
+        let device = self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("device not found".to_owned()))?;
+
+        let stats = self
+            .dns_events
+            .stats_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(DnsCaptureSettingsResponse {
+            enabled: device.dns_capture_enabled,
+            cap_count: device.dns_capture_cap_count,
+            cap_days: device.dns_capture_cap_days,
+            row_count: stats.row_count,
+            size_bytes: stats.size_bytes,
+        })
+    }
+
+    async fn update_dns_capture_settings(
+        &self,
+        device_id: &str,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        if !ctx.is_admin() {
+            return Err(AppError::Forbidden("admin privileges required".to_owned()));
+        }
+
+        let found = self
+            .devices
+            .update_dns_capture_settings(device_id, enabled, cap_count, cap_days)
+            .await
+            .map_err(AppError::Internal)?;
+
+        if !found {
+            return Err(AppError::NotFound("device not found".to_owned()));
+        }
+
+        let device_uuid: Uuid = device_id
+            .parse()
+            .map_err(|_| AppError::NotFound("device not found".to_owned()))?;
+
+        // Resolve actual enabled state to publish the correct event value.
+        let now_enabled = if let Some(e) = enabled {
+            e
+        } else {
+            self.devices
+                .find_by_id(device_id)
+                .await
+                .map_err(AppError::Internal)?
+                .is_some_and(|d| d.dns_capture_enabled)
+        };
+
+        let () = self
+            .events
+            .publish(WardnetEvent::DeviceCaptureSettingsChanged {
+                device_id: device_uuid,
+                enabled: now_enabled,
+                timestamp: Utc::now(),
+            });
+
+        Ok(())
     }
 }

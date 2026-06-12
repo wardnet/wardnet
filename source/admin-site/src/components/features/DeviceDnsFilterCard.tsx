@@ -167,11 +167,15 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
         <CardContent>
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-ink-3">Status</dt>
+              <dt className="text-xs uppercase tracking-wide text-ink-3">
+                Status
+              </dt>
               <dd>{settings.enabled ? "Filtering on" : "Filtering off"}</dd>
             </div>
             <div>
-              <dt className="text-ink-3">Profiles</dt>
+              <dt className="text-xs uppercase tracking-wide text-ink-3">
+                Profiles
+              </dt>
               <dd>
                 {!settings.enabled
                   ? "—"

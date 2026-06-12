@@ -125,6 +125,9 @@ impl DeviceRepository for MockDeviceRepo {
             last_seen: device.last_seen.parse().unwrap(),
             last_ip: device.last_ip.clone(),
             admin_locked: false,
+            dns_capture_enabled: false,
+            dns_capture_cap_count: 1000,
+            dns_capture_cap_days: 7,
         });
         Ok(())
     }
@@ -224,6 +227,18 @@ impl DeviceRepository for MockDeviceRepo {
 
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(i64::try_from(self.devices.lock().unwrap().len()).unwrap_or(0))
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
     }
 }
 
@@ -393,6 +408,9 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: ip.to_owned(),
         admin_locked: false,
+        dns_capture_enabled: false,
+        dns_capture_cap_count: 1000,
+        dns_capture_cap_days: 7,
     }
 }
 

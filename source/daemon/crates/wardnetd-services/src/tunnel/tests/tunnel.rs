@@ -602,6 +602,18 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
 }
 
 #[async_trait]
@@ -668,6 +680,18 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
     }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
     }
 }
 

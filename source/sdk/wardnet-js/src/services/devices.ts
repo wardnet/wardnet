@@ -3,6 +3,8 @@ import type { RoutingTarget } from "../types/device.js";
 import type {
   DeviceDetailResponse,
   DeviceMeResponse,
+  DnsCaptureSettingsRequest,
+  DnsCaptureSettingsResponse,
   ListDevicesResponse,
   SetMyRuleResponse,
   UpdateDeviceRequest,
@@ -39,6 +41,22 @@ export class DeviceService {
   async update(id: string, body: UpdateDeviceRequest): Promise<DeviceDetailResponse> {
     return this.client.request<DeviceDetailResponse>(`/devices/${id}`, {
       method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Get DNS capture settings and storage stats for a device (admin only). */
+  async getDnsCaptureSettings(id: string): Promise<DnsCaptureSettingsResponse> {
+    return this.client.request<DnsCaptureSettingsResponse>(`/devices/${id}/dns-capture`);
+  }
+
+  /** Update DNS capture settings for a device (admin only). */
+  async updateDnsCaptureSettings(
+    id: string,
+    body: DnsCaptureSettingsRequest,
+  ): Promise<DnsCaptureSettingsResponse> {
+    return this.client.request<DnsCaptureSettingsResponse>(`/devices/${id}/dns-capture`, {
+      method: "PATCH",
       body: JSON.stringify(body),
     });
   }

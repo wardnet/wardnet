@@ -39,6 +39,9 @@ struct DeviceRow {
     last_seen: String,
     last_ip: String,
     admin_locked: i32,
+    dns_capture_enabled: i32,
+    dns_capture_cap_count: i64,
+    dns_capture_cap_days: i64,
 }
 
 impl DeviceRow {
@@ -56,6 +59,9 @@ impl DeviceRow {
             last_seen: self.last_seen.parse()?,
             last_ip: self.last_ip,
             admin_locked: self.admin_locked != 0,
+            dns_capture_enabled: self.dns_capture_enabled != 0,
+            dns_capture_cap_count: self.dns_capture_cap_count,
+            dns_capture_cap_days: self.dns_capture_cap_days,
         })
     }
 }
@@ -68,7 +74,7 @@ struct RuleRow {
     created_by: String,
 }
 
-const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked";
+const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days";
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
@@ -265,7 +271,8 @@ impl DeviceRepository for SqliteDeviceRepository {
         // which would otherwise raise SQLite's ambiguous-column error.
         let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
         let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, d.device_type, \
-             d.first_seen, d.last_seen, d.last_ip, d.admin_locked \
+             d.first_seen, d.last_seen, d.last_ip, d.admin_locked, \
+             d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days \
              FROM devices d \
              JOIN routing_rules r ON r.device_id = d.id \
              WHERE r.target_json LIKE ? \
@@ -321,5 +328,36 @@ impl DeviceRepository for SqliteDeviceRepository {
             .fetch_one(&self.pools.read)
             .await?;
         Ok(count)
+    }
+
+    async fn update_dns_capture_settings(
+        &self,
+        id: &str,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE devices \
+             SET dns_capture_enabled   = COALESCE(?, dns_capture_enabled), \
+                 dns_capture_cap_count = COALESCE(?, dns_capture_cap_count), \
+                 dns_capture_cap_days  = COALESCE(?, dns_capture_cap_days) \
+             WHERE id = ?",
+        )
+        .bind(enabled)
+        .bind(cap_count)
+        .bind(cap_days)
+        .bind(id)
+        .execute(&self.pools.write)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        let ids =
+            sqlx::query_scalar::<_, String>("SELECT id FROM devices WHERE dns_capture_enabled = 1")
+                .fetch_all(&self.pools.read)
+                .await?;
+        Ok(ids)
     }
 }

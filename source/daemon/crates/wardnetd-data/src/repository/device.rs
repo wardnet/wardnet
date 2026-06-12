@@ -98,4 +98,20 @@ pub trait DeviceRepository: Send + Sync {
 
     /// Return the total number of devices.
     async fn count(&self) -> anyhow::Result<i64>;
+
+    /// Update DNS capture settings for a device.
+    ///
+    /// Only the `Some` fields are written; `None` leaves the existing value
+    /// in place via SQL `COALESCE`. Returns `true` if a row was updated,
+    /// `false` if the device was not found.
+    async fn update_dns_capture_settings(
+        &self,
+        id: &str,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
+    ) -> anyhow::Result<bool>;
+
+    /// Return IDs of all devices that have DNS capture enabled.
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>>;
 }

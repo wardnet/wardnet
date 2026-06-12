@@ -14,13 +14,13 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 
 use crate::db::DbPools;
 use repository::{
-    AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsFilterRepository,
-    DnsRepository, MaintenanceRepository, SessionRepository, SqliteAdminRepository,
-    SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsFilterRepository, SqliteDnsRepository, SqliteMaintenanceRepository,
-    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository, SystemConfigRepository,
-    TunnelRepository, UpdateRepository,
+    AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
+    DnsFilterRepository, DnsRepository, MaintenanceRepository, SessionRepository,
+    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
+    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsRepository,
+    SqliteMaintenanceRepository, SqliteSessionRepository, SqliteStatsRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository,
+    SystemConfigRepository, TunnelRepository, UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -35,6 +35,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn system_config(&self) -> Arc<dyn SystemConfigRepository>;
     fn dhcp(&self) -> Arc<dyn DhcpRepository>;
     fn dns(&self) -> Arc<dyn DnsRepository>;
+    fn dns_events(&self) -> Arc<dyn DnsEventsRepository>;
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
     fn stats(&self) -> Arc<dyn StatsRepository>;
@@ -148,6 +149,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn dns(&self) -> Arc<dyn DnsRepository> {
         Arc::new(SqliteDnsRepository::new_pools(self.pools.clone()))
+    }
+
+    fn dns_events(&self) -> Arc<dyn DnsEventsRepository> {
+        Arc::new(SqliteDnsEventsRepository::new_pools(self.pools.clone()))
     }
 
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository> {

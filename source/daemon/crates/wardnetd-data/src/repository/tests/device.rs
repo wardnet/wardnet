@@ -430,3 +430,81 @@ async fn count_devices() {
 
     assert_eq!(repo.count().await.unwrap(), 3);
 }
+
+#[tokio::test]
+async fn update_dns_capture_settings_found() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let updated = repo
+        .update_dns_capture_settings(DEV1, Some(true), Some(500), Some(14))
+        .await
+        .unwrap();
+    assert!(updated, "should return true when the device exists");
+
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(device.dns_capture_enabled);
+    assert_eq!(device.dns_capture_cap_count, 500);
+    assert_eq!(device.dns_capture_cap_days, 14);
+}
+
+#[tokio::test]
+async fn update_dns_capture_settings_not_found() {
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let nonexistent = "00000000-0000-0000-0000-000000000099";
+    let updated = repo
+        .update_dns_capture_settings(nonexistent, Some(true), Some(500), Some(14))
+        .await
+        .unwrap();
+    assert!(
+        !updated,
+        "should return false when the device does not exist"
+    );
+}
+
+#[tokio::test]
+async fn update_dns_capture_settings_partial() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let updated = repo
+        .update_dns_capture_settings(DEV1, Some(true), None, None)
+        .await
+        .unwrap();
+    assert!(updated);
+
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(device.dns_capture_enabled);
+    // cap_count and cap_days must retain the migration defaults (1000 and 7).
+    assert_eq!(device.dns_capture_cap_count, 1000);
+    assert_eq!(device.dns_capture_cap_days, 7);
+}
+
+#[tokio::test]
+async fn find_all_capture_enabled_ids_returns_enabled_only() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    insert_device(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11").await;
+    insert_device(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.12").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    // Enable capture on DEV1 and DEV3; leave DEV2 disabled.
+    repo.update_dns_capture_settings(DEV1, Some(true), None, None)
+        .await
+        .unwrap();
+    repo.update_dns_capture_settings(DEV3, Some(true), None, None)
+        .await
+        .unwrap();
+
+    let mut ids = repo.find_all_capture_enabled_ids().await.unwrap();
+    ids.sort();
+
+    let mut expected = vec![DEV1.to_owned(), DEV3.to_owned()];
+    expected.sort();
+
+    assert_eq!(ids, expected);
+}

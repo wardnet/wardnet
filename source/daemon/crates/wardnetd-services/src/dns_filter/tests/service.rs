@@ -98,6 +98,9 @@ impl MemoryDeviceRepository {
                 last_seen: now,
                 last_ip: last_ip.to_owned(),
                 admin_locked: false,
+                dns_capture_enabled: false,
+                dns_capture_cap_count: 1000,
+                dns_capture_cap_days: 7,
             },
         );
     }
@@ -178,6 +181,18 @@ impl DeviceRepository for MemoryDeviceRepository {
         unimplemented!()
     }
     async fn count(&self) -> anyhow::Result<i64> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        unimplemented!()
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
         unimplemented!()
     }
 }
