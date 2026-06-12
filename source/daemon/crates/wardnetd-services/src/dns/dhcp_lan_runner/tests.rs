@@ -220,3 +220,53 @@ async fn register_lease_skips_when_lan_zone_missing() {
     register_lease(&svc, &dhcp, &admin(), "ghost", "10.0.0.9").await;
     assert!(lan_records(&svc).await.is_empty());
 }
+
+// ── Runner lifecycle (start → event → shutdown) ───────────────────────────
+
+#[tokio::test]
+async fn runner_registers_lease_from_dhcp_event() {
+    use std::time::Duration;
+
+    use wardnet_common::event::WardnetEvent;
+
+    use crate::event::{BroadcastEventBus, EventPublisher};
+
+    let (svc_impl, _pool) = build_service().await;
+    let svc: Arc<dyn DnsLocalService> = Arc::new(svc_impl);
+    let dhcp: Arc<dyn DhcpService> = Arc::new(MockDhcp {
+        lease_secs: Some(600),
+    });
+    let events = BroadcastEventBus::new(16);
+    let span = tracing::Span::none();
+
+    let runner = super::DhcpLanRunner::start(svc.clone(), dhcp, &events, &span);
+
+    // The runner subscribed before spawning, so this is buffered and delivered.
+    events.publish(WardnetEvent::DhcpLeaseAssigned {
+        lease_id: Uuid::nil(),
+        mac: "aa:bb:cc:dd:ee:ff".to_owned(),
+        ip: "10.0.0.50".to_owned(),
+        hostname: Some("Laptop".to_owned()),
+        timestamp: chrono::Utc::now(),
+    });
+
+    // Poll until the runner has processed the event (or time out).
+    let mut found = false;
+    for _ in 0..100 {
+        let recs = auth_context::with_context(admin(), svc.list_records())
+            .await
+            .unwrap()
+            .records;
+        if recs.iter().any(|r| r.domain == "laptop.lan") {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    runner.shutdown().await;
+    assert!(
+        found,
+        "runner should register laptop.lan from the lease event"
+    );
+}
