@@ -38,7 +38,7 @@ use tokio::sync::mpsc;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    DnsEventsRepository, DnsFilterRepository, DnsLocalRepository, DnsRepository, QueryLogRow,
+    DnsEventsRepository, DnsFilterRepository, DnsRepository, QueryLogRow,
 };
 
 use crate::dns::log_sink::{DnsLogSink, DnsLogSinkChannels};
