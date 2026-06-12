@@ -18,10 +18,10 @@ use repository::{
     DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository,
     SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
     SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
-    SqliteDnsLocalRepository, SqliteDnsRepository,
-    SqliteMaintenanceRepository, SqliteSessionRepository, SqliteStatsRepository,
-    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository,
-    SystemConfigRepository, TunnelRepository, UpdateRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteMaintenanceRepository,
+    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
+    SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository, SystemConfigRepository,
+    TunnelRepository, UpdateRepository,
 };
 use sqlx::SqlitePool;
 
