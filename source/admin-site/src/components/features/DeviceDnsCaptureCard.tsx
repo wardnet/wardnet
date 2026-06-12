@@ -109,7 +109,6 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
                 min={1}
                 value={capCount}
                 onChange={(e) => setCapCount(Number(e.target.value))}
-                disabled={!enabled}
                 className="mt-2"
               />
             </div>
@@ -125,24 +124,23 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
                 min={1}
                 value={capDays}
                 onChange={(e) => setCapDays(Number(e.target.value))}
-                disabled={!enabled}
                 className="mt-2"
               />
             </div>
           </div>
           {update.isError && <ApiErrorAlert error={update.error} />}
         </CardContent>
-        <CardFooter className="flex gap-2">
+        <CardFooter className="gap-2">
           <Button
-            variant="default"
-            size="sm"
-            onClick={handleSave}
+            variant="ghost"
+            onClick={cancelEdit}
             disabled={update.isPending}
+            className="ml-auto"
           >
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={cancelEdit}>
             Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={update.isPending}>
+            {update.isPending ? "Saving…" : "Save"}
           </Button>
         </CardFooter>
       </Card>
