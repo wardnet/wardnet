@@ -174,3 +174,6 @@ async fn runner_loop(
         tracing::error!(error = %e, "failed to stop DNS server during shutdown");
     }
 }
+
+#[cfg(test)]
+mod tests;

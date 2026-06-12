@@ -88,7 +88,9 @@ struct MockDnsLocal;
 #[async_trait]
 impl DnsLocalService for MockDnsLocal {
     async fn list_zones(&self) -> Result<ListZonesResponse, AppError> {
-        Ok(ListZonesResponse { zones: vec![zone()] })
+        Ok(ListZonesResponse {
+            zones: vec![zone()],
+        })
     }
     async fn get_zone(&self, _id: Uuid) -> Result<GetZoneResponse, AppError> {
         Ok(GetZoneResponse { zone: zone() })
@@ -165,10 +167,7 @@ impl DnsLocalService for MockDnsLocal {
             rules: vec![rule()],
         })
     }
-    async fn get_forwarding_rule(
-        &self,
-        _id: Uuid,
-    ) -> Result<GetForwardingRuleResponse, AppError> {
+    async fn get_forwarding_rule(&self, _id: Uuid) -> Result<GetForwardingRuleResponse, AppError> {
         Ok(GetForwardingRuleResponse { rule: rule() })
     }
     async fn create_forwarding_rule(
@@ -348,7 +347,12 @@ async fn get_update_delete_zone() {
     );
     let upd = serde_json::json!({ "enabled": false });
     assert_eq!(
-        send(admin("PUT", &format!("/api/dns/local/zones/{id}"), Some(upd))).await,
+        send(admin(
+            "PUT",
+            &format!("/api/dns/local/zones/{id}"),
+            Some(upd)
+        ))
+        .await,
         StatusCode::OK
     );
     assert_eq!(
@@ -401,11 +405,21 @@ async fn get_update_delete_record() {
     );
     let upd = serde_json::json!({ "value": "10.0.0.9" });
     assert_eq!(
-        send(admin("PUT", &format!("/api/dns/local/records/{id}"), Some(upd))).await,
+        send(admin(
+            "PUT",
+            &format!("/api/dns/local/records/{id}"),
+            Some(upd)
+        ))
+        .await,
         StatusCode::OK
     );
     assert_eq!(
-        send(admin("DELETE", &format!("/api/dns/local/records/{id}"), None)).await,
+        send(admin(
+            "DELETE",
+            &format!("/api/dns/local/records/{id}"),
+            None
+        ))
+        .await,
         StatusCode::OK
     );
 }
@@ -433,7 +447,12 @@ async fn list_and_create_forwarding_rules() {
 async fn get_update_delete_forwarding_rule() {
     let id = Uuid::nil();
     assert_eq!(
-        send(admin("GET", &format!("/api/dns/local/forwarding/{id}"), None)).await,
+        send(admin(
+            "GET",
+            &format!("/api/dns/local/forwarding/{id}"),
+            None
+        ))
+        .await,
         StatusCode::OK
     );
     let upd = serde_json::json!({ "enabled": false });
