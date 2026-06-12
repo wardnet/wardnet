@@ -5,6 +5,7 @@ import type {
   DeviceMeResponse,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
+  DnsEventsAckRequest,
   ListDevicesResponse,
   SetMyRuleResponse,
   UpdateDeviceRequest,
@@ -58,6 +59,14 @@ export class DeviceService {
     return this.client.request<DnsCaptureSettingsResponse>(`/devices/${id}/dns-capture`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    });
+  }
+
+  /** Acknowledge receipt of DNS events up to and including `upToId`. */
+  async ackDnsEvents(upToId: number): Promise<void> {
+    return this.client.request<void>("/devices/me/dns-events/ack", {
+      method: "POST",
+      body: JSON.stringify({ up_to_id: upToId } satisfies DnsEventsAckRequest),
     });
   }
 }

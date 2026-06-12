@@ -13,7 +13,7 @@ use crate::event::EventPublisher;
 use crate::{DeviceService, DeviceServiceImpl};
 use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::device::DeviceRow;
-use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventsRepository};
+use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
 
 // -- Mock repository ------------------------------------------------------
 
@@ -118,8 +118,8 @@ impl DnsEventsRepository for MockDnsEventsRepo {
         _domain: &str,
         _status: &str,
         _captured_at: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
+    ) -> anyhow::Result<i64> {
+        Ok(1)
     }
     async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
         Ok(DnsCaptureStats {
@@ -140,6 +140,20 @@ impl DnsEventsRepository for MockDnsEventsRepo {
     }
     async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
         Ok(vec![])
+    }
+    async fn fetch_pending(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
+        Ok(vec![])
+    }
+    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
     }
 }
 
@@ -785,4 +799,132 @@ async fn update_dns_capture_settings_with_enabled_none_reads_db_value() {
         }
         other => panic!("unexpected event: {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// fetch_pending_dns_events / ack_dns_events
+// ---------------------------------------------------------------------------
+
+/// Mock DNS events repo that returns a fixed list of rows from `fetch_pending`.
+struct RowsDnsEventsRepo {
+    rows: Vec<DnsEventRow>,
+}
+
+#[async_trait]
+impl DnsEventsRepository for RowsDnsEventsRepo {
+    async fn insert(
+        &self,
+        _device_id: &str,
+        _domain: &str,
+        _status: &str,
+        _captured_at: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(1)
+    }
+    async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
+        Ok(DnsCaptureStats {
+            row_count: 0,
+            size_bytes: 0,
+        })
+    }
+    async fn prune_for_device(
+        &self,
+        _device_id: &str,
+        _cap_count: i64,
+        _cap_days: i64,
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_all_for_device(&self, _device_id: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn fetch_pending(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> anyhow::Result<Vec<DnsEventRow>> {
+        Ok(self.rows.clone())
+    }
+    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(1)
+    }
+}
+
+#[tokio::test]
+async fn fetch_pending_maps_rows_to_items() {
+    let rows = vec![
+        DnsEventRow {
+            id: 1,
+            domain: "ads.tracker.io".to_owned(),
+            status: "blocked".to_owned(),
+            captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        },
+        DnsEventRow {
+            id: 2,
+            domain: "example.com".to_owned(),
+            status: "allowed".to_owned(),
+            captured_at: "2026-06-12T00:01:00Z".to_owned(),
+        },
+    ];
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(RowsDnsEventsRepo { rows }),
+        Arc::new(MockEventPublisher),
+    );
+
+    wardnetd_services::auth_context::with_context(
+        wardnet_common::auth::AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async {
+            let items = svc
+                .fetch_pending_dns_events("00000000-0000-0000-0000-000000000001", 0, 100)
+                .await
+                .unwrap();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].id, 1);
+            assert_eq!(items[0].domain, "ads.tracker.io");
+            assert_eq!(items[1].id, 2);
+            assert_eq!(items[1].status, "allowed");
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn ack_dns_events_delegates_to_repo() {
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(RowsDnsEventsRepo { rows: vec![] }),
+        Arc::new(MockEventPublisher),
+    );
+
+    wardnetd_services::auth_context::with_context(
+        wardnet_common::auth::AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async {
+            // If the repo call succeeds (returns Ok(1)), the service should
+            // propagate success rather than erroring.
+            svc.ack_dns_events("00000000-0000-0000-0000-000000000001", 42)
+                .await
+                .expect("ack should succeed when repo succeeds");
+        },
+    )
+    .await;
 }

@@ -4,7 +4,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
-use wardnet_common::api::{DeviceMeResponse, DnsCaptureSettingsResponse, SetMyRuleResponse};
+use wardnet_common::api::{
+    DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
+};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
@@ -77,6 +79,23 @@ pub trait DeviceService: Send + Sync {
         cap_count: Option<i64>,
         cap_days: Option<i64>,
     ) -> Result<(), AppError>;
+
+    /// Return pending (unsynced) DNS events for the device with `id > after_id`,
+    /// oldest first, up to `limit` rows. No auth check — caller resolves device
+    /// by IP.
+    async fn fetch_pending_dns_events(
+        &self,
+        device_id: &str,
+        after_id: i64,
+        limit: i64,
+    ) -> Result<Vec<DnsEventItem>, AppError>;
+
+    /// Mark all DNS events with `id <= up_to_id` as synced for the device.
+    async fn mark_dns_events_synced(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError>;
+
+    /// Delete all DNS events with `id <= up_to_id` for the device (called on
+    /// client ack).
+    async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
@@ -343,6 +362,44 @@ impl DeviceService for DeviceServiceImpl {
                 timestamp: Utc::now(),
             });
 
+        Ok(())
+    }
+
+    async fn fetch_pending_dns_events(
+        &self,
+        device_id: &str,
+        after_id: i64,
+        limit: i64,
+    ) -> Result<Vec<DnsEventItem>, AppError> {
+        let rows = self
+            .dns_events
+            .fetch_pending(device_id, after_id, limit)
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| DnsEventItem {
+                id: r.id,
+                domain: r.domain,
+                status: r.status,
+                captured_at: r.captured_at,
+            })
+            .collect())
+    }
+
+    async fn mark_dns_events_synced(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError> {
+        self.dns_events
+            .mark_synced_up_to(device_id, up_to_id)
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(())
+    }
+
+    async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError> {
+        self.dns_events
+            .delete_up_to(device_id, up_to_id)
+            .await
+            .map_err(AppError::Internal)?;
         Ok(())
     }
 }

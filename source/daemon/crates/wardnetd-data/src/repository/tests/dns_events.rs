@@ -1,5 +1,5 @@
 use super::test_pool;
-use crate::repository::{DnsEventsRepository, SqliteDnsEventsRepository};
+use crate::repository::{DnsEventRow, DnsEventsRepository, SqliteDnsEventsRepository};
 
 const DEV1: &str = "00000000-0000-0000-0000-000000000001";
 const DEV2: &str = "00000000-0000-0000-0000-000000000002";
@@ -149,4 +149,142 @@ async fn find_device_ids_with_data_returns_devices_with_events() {
 
     let ids_after = repo.find_device_ids_with_data().await.unwrap();
     assert_eq!(ids_after, vec![DEV2]);
+}
+
+#[tokio::test]
+async fn insert_returns_autoincrement_id() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    let id1 = repo
+        .insert(DEV1, "first.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    let id2 = repo
+        .insert(
+            DEV1,
+            "second.example.com",
+            "blocked",
+            "2026-06-12T00:01:00Z",
+        )
+        .await
+        .unwrap();
+
+    assert!(id1 > 0, "first inserted ID should be positive");
+    assert!(id2 > id1, "IDs must be strictly increasing");
+}
+
+#[tokio::test]
+async fn fetch_pending_returns_rows_oldest_first() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    repo.insert(DEV1, "a.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    repo.insert(DEV1, "b.example.com", "blocked", "2026-06-12T00:01:00Z")
+        .await
+        .unwrap();
+    repo.insert(DEV1, "c.example.com", "allowed", "2026-06-12T00:02:00Z")
+        .await
+        .unwrap();
+
+    let rows: Vec<DnsEventRow> = repo.fetch_pending(DEV1, 0, 100).await.unwrap();
+    assert_eq!(rows.len(), 3);
+    assert!(
+        rows[0].id < rows[1].id && rows[1].id < rows[2].id,
+        "rows must be ordered oldest-first"
+    );
+    assert_eq!(rows[0].domain, "a.example.com");
+    assert_eq!(rows[2].domain, "c.example.com");
+}
+
+#[tokio::test]
+async fn fetch_pending_respects_after_id_cursor() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    let id1 = repo
+        .insert(DEV1, "a.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    repo.insert(DEV1, "b.example.com", "allowed", "2026-06-12T00:01:00Z")
+        .await
+        .unwrap();
+
+    // Only rows AFTER id1 should be returned.
+    let rows = repo.fetch_pending(DEV1, id1, 100).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].domain, "b.example.com");
+}
+
+#[tokio::test]
+async fn fetch_pending_empty_after_mark_synced() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    repo.insert(DEV1, "a.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    let id = repo
+        .insert(DEV1, "b.example.com", "blocked", "2026-06-12T00:01:00Z")
+        .await
+        .unwrap();
+
+    let affected = repo.mark_synced_up_to(DEV1, id).await.unwrap();
+    assert_eq!(affected, 2, "both rows should be marked synced");
+
+    let rows = repo.fetch_pending(DEV1, 0, 100).await.unwrap();
+    assert!(rows.is_empty(), "no pending rows after mark_synced_up_to");
+}
+
+#[tokio::test]
+async fn delete_up_to_scoped_to_device() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    insert_device(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    let id1 = repo
+        .insert(DEV1, "dev1.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    repo.insert(DEV2, "dev2.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+
+    let deleted = repo.delete_up_to(DEV1, id1).await.unwrap();
+    assert_eq!(deleted, 1, "only DEV1's row should be deleted");
+
+    let stats_dev2 = repo.stats_for_device(DEV2).await.unwrap();
+    assert_eq!(stats_dev2.row_count, 1, "DEV2 row must be unaffected");
+}
+
+#[tokio::test]
+async fn mark_synced_up_to_returns_affected_count() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDnsEventsRepository::new(pool);
+
+    repo.insert(DEV1, "a.example.com", "allowed", "2026-06-12T00:00:00Z")
+        .await
+        .unwrap();
+    repo.insert(DEV1, "b.example.com", "allowed", "2026-06-12T00:01:00Z")
+        .await
+        .unwrap();
+    let id3 = repo
+        .insert(DEV1, "c.example.com", "allowed", "2026-06-12T00:02:00Z")
+        .await
+        .unwrap();
+
+    let affected = repo.mark_synced_up_to(DEV1, id3).await.unwrap();
+    assert_eq!(affected, 3, "all 3 rows should be marked synced");
+
+    // Calling again is idempotent — no rows remain with sync_state='pending'.
+    let affected2 = repo.mark_synced_up_to(DEV1, id3).await.unwrap();
+    assert_eq!(affected2, 0, "second call should affect 0 rows");
 }

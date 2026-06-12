@@ -130,12 +130,12 @@ impl DnsEventsRepository for RecordingDnsEventsRepo {
         domain: &str,
         _status: &str,
         _captured_at: &str,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<i64> {
         self.inserts
             .lock()
             .await
             .push((device_id.to_owned(), domain.to_owned()));
-        Ok(())
+        Ok(1)
     }
     async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
         Ok(DnsCaptureStats {
@@ -156,6 +156,20 @@ impl DnsEventsRepository for RecordingDnsEventsRepo {
     }
     async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
         Ok(vec![])
+    }
+    async fn fetch_pending(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
+        Ok(vec![])
+    }
+    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
     }
 }
 
@@ -184,8 +198,8 @@ impl DnsEventsRepository for PruningDnsEventsRepo {
         _domain: &str,
         _status: &str,
         _captured_at: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
+    ) -> anyhow::Result<i64> {
+        Ok(1)
     }
     async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
         Ok(DnsCaptureStats {
@@ -208,6 +222,20 @@ impl DnsEventsRepository for PruningDnsEventsRepo {
     }
     async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
         Ok(self.device_ids.clone())
+    }
+    async fn fetch_pending(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
+        Ok(vec![])
+    }
+    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
+        Ok(0)
     }
 }
 

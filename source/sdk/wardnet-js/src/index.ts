@@ -130,6 +130,8 @@ export type {
   TunnelSummary,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
+  DnsEventItem,
+  DnsEventsAckRequest,
 } from "./types/api.js";
 
 // Services — DNS

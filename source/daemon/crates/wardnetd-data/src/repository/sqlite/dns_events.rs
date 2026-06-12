@@ -2,7 +2,15 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use crate::db::DbPools;
-use crate::repository::dns_events::{DnsCaptureStats, DnsEventsRepository};
+use crate::repository::dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
+
+#[derive(sqlx::FromRow)]
+struct DbDnsEventRow {
+    id: i64,
+    domain: String,
+    status: String,
+    captured_at: String,
+}
 
 pub struct SqliteDnsEventsRepository {
     pools: DbPools,
@@ -28,8 +36,8 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
         domain: &str,
         status: &str,
         captured_at: &str,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
+    ) -> anyhow::Result<i64> {
+        let result = sqlx::query(
             "INSERT INTO dns_events (device_id, domain, status, captured_at) VALUES (?, ?, ?, ?)",
         )
         .bind(device_id)
@@ -38,7 +46,7 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
         .bind(captured_at)
         .execute(&self.pools.write)
         .await?;
-        Ok(())
+        Ok(result.last_insert_rowid())
     }
 
     async fn stats_for_device(&self, device_id: &str) -> anyhow::Result<DnsCaptureStats> {
@@ -110,5 +118,54 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
             .fetch_all(&self.pools.read)
             .await?;
         Ok(ids)
+    }
+
+    async fn fetch_pending(
+        &self,
+        device_id: &str,
+        after_id: i64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<DnsEventRow>> {
+        let rows = sqlx::query_as::<_, DbDnsEventRow>(
+            "SELECT id, domain, status, captured_at \
+             FROM dns_events \
+             WHERE device_id = ? AND sync_state = 'pending' AND id > ? \
+             ORDER BY id ASC LIMIT ?",
+        )
+        .bind(device_id)
+        .bind(after_id)
+        .bind(limit)
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| DnsEventRow {
+                id: r.id,
+                domain: r.domain,
+                status: r.status,
+                captured_at: r.captured_at,
+            })
+            .collect())
+    }
+
+    async fn mark_synced_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64> {
+        let result = sqlx::query(
+            "UPDATE dns_events SET sync_state = 'synced' \
+             WHERE device_id = ? AND id <= ?",
+        )
+        .bind(device_id)
+        .bind(up_to_id)
+        .execute(&self.pools.write)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn delete_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM dns_events WHERE device_id = ? AND id <= ?")
+            .bind(device_id)
+            .bind(up_to_id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(result.rows_affected())
     }
 }

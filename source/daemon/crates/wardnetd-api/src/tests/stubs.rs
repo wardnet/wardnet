@@ -112,6 +112,24 @@ impl DeviceService for StubDeviceService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn fetch_pending_dns_events(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
+        Ok(vec![])
+    }
+    async fn mark_dns_events_synced(
+        &self,
+        _device_id: &str,
+        _up_to_id: i64,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 pub struct StubDhcpService;

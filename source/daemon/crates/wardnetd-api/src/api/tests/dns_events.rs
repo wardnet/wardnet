@@ -1,0 +1,385 @@
+//! Tests for the DNS events SSE + ack API endpoints.
+//! GET  /api/devices/me/dns-events/stream
+//! POST /api/devices/me/dns-events/ack
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use axum::Router;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use axum::routing::{get, post};
+use tower::ServiceExt;
+use uuid::Uuid;
+use wardnet_common::api::{
+    DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
+};
+use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::routing::RoutingTarget;
+
+use crate::state::AppState;
+use crate::tests::stubs::{
+    StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsServer, StubDnsService,
+    StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
+    StubTunnelService,
+};
+use wardnetd_services::DeviceService;
+use wardnetd_services::LogService;
+use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::error::AppError;
+
+// ---------------------------------------------------------------------------
+// MockAuthService — always validates sessions as admin
+// ---------------------------------------------------------------------------
+
+struct MockAuthService;
+
+#[async_trait]
+impl wardnetd_services::AuthService for MockAuthService {
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+        Ok(LoginResult {
+            token: "t".to_owned(),
+            max_age_seconds: 3600,
+        })
+    }
+    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(Some(
+            Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
+        ))
+    }
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(None)
+    }
+    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MockDnsEventsDeviceService
+// ---------------------------------------------------------------------------
+
+fn sample_device() -> Device {
+    Device {
+        id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
+        mac: "AA:BB:CC:DD:EE:01".to_owned(),
+        name: None,
+        hostname: Some("device-1".to_owned()),
+        manufacturer: None,
+        device_type: DeviceType::Unknown,
+        first_seen: chrono::Utc::now(),
+        last_seen: chrono::Utc::now(),
+        last_ip: "192.168.1.100".to_owned(),
+        admin_locked: false,
+        dns_capture_enabled: true,
+        dns_capture_cap_count: 500,
+        dns_capture_cap_days: 14,
+    }
+}
+
+struct MockDnsEventsDeviceService {
+    /// Device to return from `get_device_for_ip`. `None` → 404.
+    device: Option<Device>,
+    /// Rows returned by `fetch_pending_dns_events`.
+    pending: Vec<DnsEventItem>,
+    /// When `true`, `ack_dns_events` returns 404.
+    ack_not_found: bool,
+}
+
+impl MockDnsEventsDeviceService {
+    fn with_device(pending: Vec<DnsEventItem>) -> Self {
+        Self {
+            device: Some(sample_device()),
+            pending,
+            ack_not_found: false,
+        }
+    }
+
+    fn not_found() -> Self {
+        Self {
+            device: None,
+            pending: vec![],
+            ack_not_found: false,
+        }
+    }
+
+    fn ack_not_found() -> Self {
+        Self {
+            device: Some(sample_device()),
+            pending: vec![],
+            ack_not_found: true,
+        }
+    }
+}
+
+#[async_trait]
+impl DeviceService for MockDnsEventsDeviceService {
+    async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
+        match &self.device {
+            Some(d) => Ok(DeviceMeResponse {
+                device: Some(d.clone()),
+                current_rule: None,
+                admin_locked: false,
+                available_tunnels: vec![],
+            }),
+            None => Err(AppError::NotFound("device not found".to_owned())),
+        }
+    }
+    async fn set_rule_for_ip(
+        &self,
+        _ip: &str,
+        _target: RoutingTarget,
+    ) -> Result<SetMyRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_rule(&self, _id: &str, _t: RoutingTarget) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn current_rules(
+        &self,
+    ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
+        unimplemented!()
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn get_dns_capture_settings(
+        &self,
+        _id: &str,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn fetch_pending_dns_events(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> Result<Vec<DnsEventItem>, AppError> {
+        Ok(self.pending.clone())
+    }
+    async fn mark_dns_events_synced(
+        &self,
+        _device_id: &str,
+        _up_to_id: i64,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
+        if self.ack_not_found {
+            return Err(AppError::NotFound("device not found".to_owned()));
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn build_state(device_svc: impl DeviceService + 'static) -> AppState {
+    AppState::new(
+        Arc::new(MockAuthService),
+        Arc::new(crate::tests::stubs::StubBackupService),
+        Arc::new(device_svc),
+        Arc::new(StubDhcpService),
+        Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
+        Arc::new(crate::tests::stubs::StubDiscoveryService),
+        Arc::new(StubLogService) as Arc<dyn LogService>,
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(StubSystemService),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::tests::stubs::StubUpdateService),
+        Arc::new(StubDhcpServer),
+        Arc::new(StubDnsServer),
+        Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
+        Arc::new(crate::tests::stubs::StubStatsService),
+    )
+}
+
+fn dns_events_router(state: AppState) -> Router {
+    Router::new()
+        .route(
+            "/api/devices/me/dns-events/stream",
+            get(crate::api::dns_events::stream_dns_events),
+        )
+        .route(
+            "/api/devices/me/dns-events/ack",
+            post(crate::api::dns_events::ack_dns_events),
+        )
+        .with_state(state)
+}
+
+/// Send a GET and return the status + first 4 KB of body.
+async fn get_raw(app: Router, uri: &str) -> (StatusCode, String) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header("X-Real-IP", "192.168.1.100")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .unwrap_or_default();
+    let body = String::from_utf8_lossy(&body_bytes).to_string();
+    (status, body)
+}
+
+/// Send a POST with JSON body and return status + response body.
+async fn post_json(app: Router, uri: &str, json_body: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Content-Type", "application/json")
+                .header("X-Real-IP", "192.168.1.100")
+                .body(Body::from(json_body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn stream_returns_sse_content_type() {
+    let state = build_state(MockDnsEventsDeviceService::with_device(vec![]));
+    let app = dns_events_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/devices/me/dns-events/stream")
+                .header("X-Real-IP", "192.168.1.100")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.contains("text/event-stream"),
+        "expected text/event-stream, got: {ct}"
+    );
+}
+
+#[tokio::test]
+async fn stream_emits_flush_event_from_mock() {
+    let pending = vec![DnsEventItem {
+        id: 7,
+        domain: "ads.tracker.io".to_owned(),
+        status: "blocked".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+    }];
+    let state = build_state(MockDnsEventsDeviceService::with_device(pending));
+    let app = dns_events_router(state);
+
+    let (status, body) = get_raw(app, "/api/devices/me/dns-events/stream").await;
+
+    assert_eq!(status, StatusCode::OK);
+    // The flush phase emits SSE data lines; at least one should contain our domain.
+    assert!(
+        body.contains("ads.tracker.io"),
+        "expected flushed event in SSE body, got: {body}"
+    );
+    assert!(
+        body.contains("id:7"),
+        "expected SSE event id=7, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn stream_returns_404_for_unknown_ip() {
+    let state = build_state(MockDnsEventsDeviceService::not_found());
+    let app = dns_events_router(state);
+
+    let (status, _) = get_raw(app, "/api/devices/me/dns-events/stream").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn ack_returns_204() {
+    let state = build_state(MockDnsEventsDeviceService::with_device(vec![]));
+    let app = dns_events_router(state);
+
+    let (status, _) = post_json(app, "/api/devices/me/dns-events/ack", r#"{"up_to_id":5}"#).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn ack_returns_404_for_unknown_ip() {
+    let state = build_state(MockDnsEventsDeviceService::not_found());
+    let app = dns_events_router(state);
+
+    let (status, json) =
+        post_json(app, "/api/devices/me/dns-events/ack", r#"{"up_to_id":5}"#).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"], "not found");
+}
+
+#[tokio::test]
+async fn ack_returns_422_for_malformed_body() {
+    let state = build_state(MockDnsEventsDeviceService::with_device(vec![]));
+    let app = dns_events_router(state);
+
+    let (status, _) = post_json(
+        app,
+        "/api/devices/me/dns-events/ack",
+        r#"{"not_a_field":"oops"}"#,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}

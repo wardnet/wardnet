@@ -14,9 +14,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use uuid::Uuid;
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::{DnsEventsRepository, QueryLogRow};
 
@@ -124,15 +126,30 @@ async fn runner_loop(
                 };
                 if let Some(ref device_id) = row.device_id
                     && enabled.contains(device_id.as_str())
-                    && let Err(e) = dns_events_repo
+                {
+                    match dns_events_repo
                         .insert(device_id, &row.domain, &row.result, &row.timestamp)
                         .await
-                {
-                    tracing::warn!(
-                        error = %e,
-                        device_id = %device_id,
-                        "failed to insert DNS capture event: {e}"
-                    );
+                    {
+                        Ok(row_id) => {
+                            let uuid = Uuid::parse_str(device_id).unwrap_or(Uuid::nil());
+                            events.publish(WardnetEvent::DnsEventInserted {
+                                device_id: uuid,
+                                row_id,
+                                domain: row.domain.clone(),
+                                status: row.result.clone(),
+                                captured_at: row.timestamp.clone(),
+                                timestamp: Utc::now(),
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                device_id = %device_id,
+                                "failed to insert DNS capture event: {e}"
+                            );
+                        }
+                    }
                 }
             }
             event = event_rx.recv() => {

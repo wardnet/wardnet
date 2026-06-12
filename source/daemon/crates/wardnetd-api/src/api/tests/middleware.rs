@@ -416,6 +416,24 @@ impl DeviceService for MockDeviceService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn fetch_pending_dns_events(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
+        unimplemented!()
+    }
+    async fn mark_dns_events_synced(
+        &self,
+        _device_id: &str,
+        _up_to_id: i64,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 fn make_state_with_device(
