@@ -218,6 +218,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::UpdateProgress { .. }
         | WardnetEvent::UpdateCompleted { .. }
         | WardnetEvent::UpdateFailed { .. }
-        | WardnetEvent::DeviceCaptureSettingsChanged { .. } => {}
+        | WardnetEvent::DeviceCaptureSettingsChanged { .. }
+        | WardnetEvent::DnsEventInserted { .. } => {}
     }
 }

@@ -100,8 +100,6 @@ struct MockDnsEventsDeviceService {
     device: Option<Device>,
     /// Rows returned by `fetch_pending_dns_events`.
     pending: Vec<DnsEventItem>,
-    /// When `true`, `ack_dns_events` returns 404.
-    ack_not_found: bool,
 }
 
 impl MockDnsEventsDeviceService {
@@ -109,7 +107,6 @@ impl MockDnsEventsDeviceService {
         Self {
             device: Some(sample_device()),
             pending,
-            ack_not_found: false,
         }
     }
 
@@ -117,15 +114,6 @@ impl MockDnsEventsDeviceService {
         Self {
             device: None,
             pending: vec![],
-            ack_not_found: false,
-        }
-    }
-
-    fn ack_not_found() -> Self {
-        Self {
-            device: Some(sample_device()),
-            pending: vec![],
-            ack_not_found: true,
         }
     }
 }
@@ -192,9 +180,6 @@ impl DeviceService for MockDnsEventsDeviceService {
         Ok(())
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
-        if self.ack_not_found {
-            return Err(AppError::NotFound("device not found".to_owned()));
-        }
         Ok(())
     }
     async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
