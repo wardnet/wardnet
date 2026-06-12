@@ -133,10 +133,8 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Extract pebble WFE CA cert
-        run: |
-          CONTAINER=$(docker ps -q --filter name=pebble)
-          docker exec "$CONTAINER" cat /test/certs/pebble.minica.pem > /tmp/pebble-wfe-ca.pem
+      - name: Fetch pebble WFE CA cert
+        run: curl -sk https://localhost:15000/roots/0 > /tmp/pebble-wfe-ca.pem
 
       - name: Generate bridge coverage + test results
         env:
