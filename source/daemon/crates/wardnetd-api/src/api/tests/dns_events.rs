@@ -529,7 +529,8 @@ async fn stream_closes_on_bus_lag() {
         tx: Arc::clone(&tx),
         subscribed: Arc::clone(&subscribed),
     };
-    let state = build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
     let app = dns_events_router(state);
 
     let resp = app
@@ -571,5 +572,8 @@ async fn stream_closes_on_fetch_error() {
     // Handler returns 200 + SSE headers; the spawned task closes the channel
     // immediately on fetch error so the body is empty.
     assert_eq!(status, StatusCode::OK);
-    assert!(body.is_empty() || !body.contains("data:"), "body should have no SSE data on error");
+    assert!(
+        body.is_empty() || !body.contains("data:"),
+        "body should have no SSE data on error"
+    );
 }
