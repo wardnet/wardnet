@@ -241,3 +241,76 @@ fn normalize_outcome(result: &str) -> &'static str {
         _ => "error",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::{buffer::StatsBuffer, meter::Meter};
+
+    fn make_meter() -> Meter {
+        Meter::new(StatsBuffer::new())
+    }
+
+    fn make_row(domain: &str, device_id: Option<&str>) -> QueryLogRow {
+        QueryLogRow {
+            timestamp: "2026-06-12T00:00:00Z".to_owned(),
+            client_ip: "192.168.1.1".to_owned(),
+            domain: domain.to_owned(),
+            query_type: "A".to_owned(),
+            result: "forwarded".to_owned(),
+            upstream: None,
+            latency_ms: 1.0,
+            device_id: device_id.map(str::to_owned),
+        }
+    }
+
+    /// A row with `device_id = Some(...)` must appear on both `capture_rx`
+    /// and `persist_rx`.
+    #[test]
+    fn capture_forwarded_when_device_id_set() {
+        let meter = make_meter();
+        let (sink, mut channels) = DnsLogSink::new_with_stats(&meter);
+
+        sink.record(make_row("example.com", Some("dev-1")));
+
+        let captured = channels
+            .capture_rx
+            .try_recv()
+            .expect("expected row on capture_rx");
+        assert_eq!(captured.domain, "example.com");
+
+        let persisted = channels
+            .persist_rx
+            .try_recv()
+            .expect("expected row on persist_rx");
+        assert_eq!(persisted.domain, "example.com");
+    }
+
+    /// A row with `device_id = None` must NOT be forwarded to `capture_rx`.
+    #[test]
+    fn capture_skipped_without_device_id() {
+        let meter = make_meter();
+        let (sink, mut channels) = DnsLogSink::new_with_stats(&meter);
+
+        sink.record(make_row("example.com", None));
+
+        assert_eq!(
+            channels.capture_rx.try_recv().unwrap_err(),
+            tokio::sync::mpsc::error::TryRecvError::Empty,
+        );
+
+        // Persist channel should still receive the row.
+        assert!(channels.persist_rx.try_recv().is_ok());
+    }
+
+    /// `take_capture_dropped()` starts at 0 and resets to 0 after being read.
+    #[test]
+    fn capture_dropped_counter_starts_zero_and_resets() {
+        let meter = make_meter();
+        let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+        assert_eq!(sink.take_capture_dropped(), 0);
+        // A second call must also return 0 (counter was reset by the first call).
+        assert_eq!(sink.take_capture_dropped(), 0);
+    }
+}

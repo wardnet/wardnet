@@ -3,6 +3,7 @@ mod api_key;
 mod device;
 mod dhcp;
 mod dns;
+mod dns_events;
 mod dns_filter;
 mod session;
 mod stats;

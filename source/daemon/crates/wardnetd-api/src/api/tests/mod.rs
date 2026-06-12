@@ -2,6 +2,7 @@ mod auth;
 mod backup;
 mod devices;
 mod dhcp;
+mod dns_capture;
 mod dns_filter;
 mod info;
 mod jobs;

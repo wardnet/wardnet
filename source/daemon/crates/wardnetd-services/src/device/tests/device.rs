@@ -485,6 +485,36 @@ async fn update_admin_locked_anonymous_forbidden() {
     assert!(result.is_err());
 }
 
+// -- Capturing event publisher --------------------------------------------
+
+/// Event publisher that records every published event for later inspection.
+struct CapturingEventPublisher {
+    events: std::sync::Mutex<Vec<WardnetEvent>>,
+}
+
+impl CapturingEventPublisher {
+    fn new() -> Self {
+        Self {
+            events: std::sync::Mutex::new(vec![]),
+        }
+    }
+
+    fn take_events(&self) -> Vec<WardnetEvent> {
+        self.events.lock().unwrap().drain(..).collect()
+    }
+}
+
+impl EventPublisher for CapturingEventPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        let (tx, rx) = broadcast::channel(1);
+        drop(tx);
+        rx
+    }
+}
+
 // -- Tests: current_rules ------------------------------------------------
 
 #[tokio::test]
@@ -540,4 +570,183 @@ async fn current_rules_anonymous_forbidden() {
     let result = auth_context::with_context(AuthContext::Anonymous, svc.current_rules()).await;
 
     assert!(result.is_err());
+}
+
+// -- Tests: get_dns_capture_settings -------------------------------------
+
+#[tokio::test]
+async fn get_dns_capture_settings_returns_404_for_unknown() {
+    let svc = make_svc_no_device();
+    let unknown_id = "00000000-0000-0000-0000-000000000099";
+
+    let result = auth_context::with_context(admin_ctx(), async {
+        svc.get_dns_capture_settings(unknown_id).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn get_dns_capture_settings_returns_defaults() {
+    let svc = make_svc(false, None);
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    let resp = auth_context::with_context(admin_ctx(), async {
+        svc.get_dns_capture_settings(device_id).await
+    })
+    .await
+    .unwrap();
+
+    assert!(!resp.enabled);
+    assert_eq!(resp.cap_count, 1000);
+    assert_eq!(resp.cap_days, 7);
+    assert_eq!(resp.row_count, 0);
+    assert_eq!(resp.size_bytes, 0);
+}
+
+// -- Tests: update_dns_capture_settings ----------------------------------
+
+#[tokio::test]
+async fn update_dns_capture_settings_publishes_event() {
+    let publisher = Arc::new(CapturingEventPublisher::new());
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::clone(&publisher) as Arc<dyn crate::event::EventPublisher>,
+    );
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    auth_context::with_context(admin_ctx(), async {
+        svc.update_dns_capture_settings(device_id, Some(true), None, None)
+            .await
+    })
+    .await
+    .unwrap();
+
+    let events = publisher.take_events();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        WardnetEvent::DeviceCaptureSettingsChanged {
+            device_id: id,
+            enabled,
+            ..
+        } => {
+            assert_eq!(
+                *id,
+                Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap()
+            );
+            assert!(*enabled);
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn update_dns_capture_settings_returns_404_for_unknown() {
+    // Repo returns false from update_dns_capture_settings when the row is not found.
+    struct NotFoundDeviceRepo;
+
+    #[async_trait]
+    impl DeviceRepository for NotFoundDeviceRepo {
+        async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
+            Ok(None)
+        }
+        async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+            Ok(None)
+        }
+        async fn find_by_mac(&self, _mac: &str) -> anyhow::Result<Option<Device>> {
+            Ok(None)
+        }
+        async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+            Ok(vec![])
+        }
+        async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_last_seen_and_ip(
+            &self,
+            _id: &str,
+            _ip: &str,
+            _last_seen: &str,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_last_seen_batch(
+            &self,
+            _updates: &[(String, String)],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_hostname(&self, _id: &str, _hostname: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_name_and_type(
+            &self,
+            _id: &str,
+            _name: Option<&str>,
+            _device_type: &str,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+            Ok(vec![])
+        }
+        async fn find_rule_for_device(&self, _id: &str) -> anyhow::Result<Option<RoutingRule>> {
+            Ok(None)
+        }
+        async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+            Ok(vec![])
+        }
+        async fn upsert_user_rule(&self, _id: &str, _json: &str, _now: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
+            Ok(vec![])
+        }
+        async fn switch_tunnel_rules_to_direct(
+            &self,
+            _tid: &str,
+            _now: &str,
+        ) -> anyhow::Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn count(&self) -> anyhow::Result<i64> {
+            Ok(0)
+        }
+        async fn update_dns_capture_settings(
+            &self,
+            _id: &str,
+            _enabled: Option<bool>,
+            _cap_count: Option<i64>,
+            _cap_days: Option<i64>,
+        ) -> anyhow::Result<bool> {
+            Ok(false) // signals "not found"
+        }
+        async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+            Ok(vec![])
+        }
+    }
+
+    let svc = DeviceServiceImpl::new(
+        Arc::new(NotFoundDeviceRepo),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockEventPublisher),
+    );
+    let unknown_id = "00000000-0000-0000-0000-000000000099";
+
+    let result = auth_context::with_context(admin_ctx(), async {
+        svc.update_dns_capture_settings(unknown_id, Some(true), None, None)
+            .await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
 }
