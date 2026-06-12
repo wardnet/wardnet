@@ -133,8 +133,11 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Fetch pebble WFE CA cert
-        run: curl -sk https://localhost:15000/roots/0 > /tmp/pebble-wfe-ca.pem
+      - name: Extract pebble WFE CA cert
+        # The WFE's HTTPS listener cert is signed by the static minica CA
+        # baked into the image, NOT by the issuance root served at
+        # /roots/0. docker cp works on the scratch-based image (no shell).
+        run: docker cp ${{ job.services.pebble.id }}:/test/certs/pebble.minica.pem /tmp/pebble-wfe-ca.pem
 
       - name: Generate bridge coverage + test results
         env:
