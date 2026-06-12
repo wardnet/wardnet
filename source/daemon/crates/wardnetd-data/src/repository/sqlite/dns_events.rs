@@ -151,7 +151,7 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
     async fn mark_synced_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64> {
         let result = sqlx::query(
             "UPDATE dns_events SET sync_state = 'synced' \
-             WHERE device_id = ? AND id <= ?",
+             WHERE device_id = ? AND id <= ? AND sync_state = 'pending'",
         )
         .bind(device_id)
         .bind(up_to_id)

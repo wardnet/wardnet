@@ -28,9 +28,13 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-function writeEvent(db: IDBDatabase, item: DnsEventItem): void {
-  const tx = db.transaction(STORE_NAME, "readwrite");
-  tx.objectStore(STORE_NAME).put(item);
+function writeEvent(db: IDBDatabase, item: DnsEventItem): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function ackUpTo(upToId: number): Promise<void> {
@@ -102,16 +106,16 @@ export function useDnsEventsSync(): void {
         }
 
         if (db) {
-          writeEvent(db, item);
-        }
-
-        pendingAckId.current = item.id;
-        pendingCount.current += 1;
-
-        if (pendingCount.current >= ACK_BATCH_SIZE) {
-          flushAck();
-        } else {
-          scheduleAck();
+          writeEvent(db, item).then(() => {
+            pendingAckId.current = item.id;
+            pendingCount.current += 1;
+            if (pendingCount.current >= ACK_BATCH_SIZE) {
+              flushAck();
+            } else {
+              scheduleAck();
+            }
+          });
+          // On write failure, don't advance cursor — daemon re-delivers on reconnect.
         }
       };
 

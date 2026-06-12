@@ -197,6 +197,15 @@ impl DeviceService for MockDnsEventsDeviceService {
         }
         Ok(())
     }
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_device_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        Ok(None)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -239,13 +248,20 @@ fn dns_events_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+fn client_connect_info() -> axum::extract::ConnectInfo<std::net::SocketAddr> {
+    axum::extract::ConnectInfo(std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 100)),
+        12345,
+    ))
+}
+
 /// Send a GET and return the status + first 4 KB of body.
 async fn get_raw(app: Router, uri: &str) -> (StatusCode, String) {
     let resp = app
         .oneshot(
             Request::builder()
                 .uri(uri)
-                .header("X-Real-IP", "192.168.1.100")
+                .extension(client_connect_info())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -268,7 +284,7 @@ async fn post_json(app: Router, uri: &str, json_body: &str) -> (StatusCode, serd
                 .method("POST")
                 .uri(uri)
                 .header("Content-Type", "application/json")
-                .header("X-Real-IP", "192.168.1.100")
+                .extension(client_connect_info())
                 .body(Body::from(json_body.to_owned()))
                 .unwrap(),
         )
@@ -294,7 +310,7 @@ async fn stream_returns_sse_content_type() {
         .oneshot(
             Request::builder()
                 .uri("/api/devices/me/dns-events/stream")
-                .header("X-Real-IP", "192.168.1.100")
+                .extension(client_connect_info())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -333,8 +349,8 @@ async fn stream_emits_flush_event_from_mock() {
         "expected flushed event in SSE body, got: {body}"
     );
     assert!(
-        body.contains("id:7"),
-        "expected SSE event id=7, got: {body}"
+        body.contains("id: 7"),
+        "expected SSE event id: 7, got: {body}"
     );
 }
 

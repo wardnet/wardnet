@@ -96,6 +96,17 @@ pub trait DeviceService: Send + Sync {
     /// Delete all DNS events with `id <= up_to_id` for the device (called on
     /// client ack).
     async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError>;
+
+    /// Return all device IDs that currently have DNS capture enabled.
+    /// For internal use by background tasks — no auth check.
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError>;
+
+    /// Return the DNS capture settings for a device by ID, or `None` if the
+    /// device does not exist. For internal use by background tasks — no auth check.
+    async fn get_device_capture_settings(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
@@ -401,5 +412,31 @@ impl DeviceService for DeviceServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         Ok(())
+    }
+
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        self.devices
+            .find_all_capture_enabled_ids()
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn get_device_capture_settings(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        match self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+        {
+            None => Ok(None),
+            Some(d) => Ok(Some((
+                d.dns_capture_enabled,
+                d.dns_capture_cap_count,
+                d.dns_capture_cap_days,
+            ))),
+        }
     }
 }

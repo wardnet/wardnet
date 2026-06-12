@@ -130,6 +130,15 @@ impl DeviceService for StubDeviceService {
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         Ok(())
     }
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_device_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        Ok(None)
+    }
 }
 
 pub struct StubDhcpService;

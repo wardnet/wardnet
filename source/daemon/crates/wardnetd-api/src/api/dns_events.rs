@@ -111,14 +111,9 @@ pub async fn stream_dns_events(
                 }
             }
 
-            state_clone
-                .device_service()
-                .mark_dns_events_synced(&device_id, max_id)
-                .await
-                .ok();
             last_flushed_id = max_id;
 
-            if (batch.len() as i64) < 200 {
+            if batch.len() < 200 {
                 break; // Reached the end of pending rows.
             }
         }

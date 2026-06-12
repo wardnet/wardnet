@@ -883,7 +883,7 @@ async fn fetch_pending_maps_rows_to_items() {
         Arc::new(MockEventPublisher),
     );
 
-    wardnetd_services::auth_context::with_context(
+    crate::auth_context::with_context(
         wardnet_common::auth::AuthContext::Admin {
             admin_id: Uuid::nil(),
         },
@@ -914,7 +914,7 @@ async fn ack_dns_events_delegates_to_repo() {
         Arc::new(MockEventPublisher),
     );
 
-    wardnetd_services::auth_context::with_context(
+    crate::auth_context::with_context(
         wardnet_common::auth::AuthContext::Admin {
             admin_id: Uuid::nil(),
         },

@@ -22,8 +22,8 @@ use uuid::Uuid;
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::{DnsEventsRepository, QueryLogRow};
 
+use crate::device::DeviceService;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::DeviceRepository;
 
 /// Prune loop tick interval.
 pub const PRUNE_INTERVAL: Duration = Duration::from_hours(1);
@@ -37,14 +37,14 @@ pub struct DnsCaptureRunner {
 impl DnsCaptureRunner {
     pub fn start(
         capture_rx: mpsc::Receiver<QueryLogRow>,
-        device_repo: Arc<dyn DeviceRepository>,
+        device_service: Arc<dyn DeviceService>,
         dns_events_repo: Arc<dyn DnsEventsRepository>,
         events: Arc<dyn EventPublisher>,
         parent: &tracing::Span,
     ) -> Self {
         Self::start_with_prune_interval(
             capture_rx,
-            device_repo,
+            device_service,
             dns_events_repo,
             events,
             PRUNE_INTERVAL,
@@ -54,7 +54,7 @@ impl DnsCaptureRunner {
 
     pub fn start_with_prune_interval(
         capture_rx: mpsc::Receiver<QueryLogRow>,
-        device_repo: Arc<dyn DeviceRepository>,
+        device_service: Arc<dyn DeviceService>,
         dns_events_repo: Arc<dyn DnsEventsRepository>,
         events: Arc<dyn EventPublisher>,
         prune_interval: Duration,
@@ -66,7 +66,7 @@ impl DnsCaptureRunner {
         let handle = tokio::spawn(
             runner_loop(
                 capture_rx,
-                device_repo,
+                device_service,
                 dns_events_repo,
                 events,
                 prune_interval,
@@ -87,14 +87,15 @@ impl DnsCaptureRunner {
 
 async fn runner_loop(
     mut capture_rx: mpsc::Receiver<QueryLogRow>,
-    device_repo: Arc<dyn DeviceRepository>,
+    device_service: Arc<dyn DeviceService>,
     dns_events_repo: Arc<dyn DnsEventsRepository>,
     events: Arc<dyn EventPublisher>,
     prune_interval: Duration,
     cancel: CancellationToken,
 ) {
     // Populate the hot-path cache from DB on startup.
-    let mut enabled: HashSet<String> = match device_repo.find_all_capture_enabled_ids().await {
+    let mut enabled: HashSet<String> = match device_service.list_capture_enabled_device_ids().await
+    {
         Ok(ids) => ids.into_iter().collect(),
         Err(e) => {
             tracing::error!(error = %e, "failed to load capture-enabled device IDs: {e}");
@@ -136,9 +137,9 @@ async fn runner_loop(
                             events.publish(WardnetEvent::DnsEventInserted {
                                 device_id: uuid,
                                 row_id,
-                                domain: row.domain.clone(),
-                                status: row.result.clone(),
-                                captured_at: row.timestamp.clone(),
+                                domain: row.domain,
+                                status: row.result,
+                                captured_at: row.timestamp,
                                 timestamp: Utc::now(),
                             });
                         }
@@ -172,7 +173,7 @@ async fn runner_loop(
                         // Events in the skipped window may include
                         // DeviceCaptureSettingsChanged — reload from DB so the
                         // in-memory cache is not permanently stale.
-                        match device_repo.find_all_capture_enabled_ids().await {
+                        match device_service.list_capture_enabled_device_ids().await {
                             Ok(ids) => enabled = ids.into_iter().collect(),
                             Err(e) => tracing::error!(
                                 error = %e,
@@ -187,13 +188,13 @@ async fn runner_loop(
                 }
             }
             _ = prune_ticker.tick() => {
-                run_prune(device_repo.as_ref(), dns_events_repo.as_ref()).await;
+                run_prune(device_service.as_ref(), dns_events_repo.as_ref()).await;
             }
         }
     }
 }
 
-async fn run_prune(device_repo: &dyn DeviceRepository, dns_events_repo: &dyn DnsEventsRepository) {
+async fn run_prune(device_service: &dyn DeviceService, dns_events_repo: &dyn DnsEventsRepository) {
     // Fetch all devices that have stored events.
     let ids_with_data = match dns_events_repo.find_device_ids_with_data().await {
         Ok(ids) => ids,
@@ -204,14 +205,10 @@ async fn run_prune(device_repo: &dyn DeviceRepository, dns_events_repo: &dyn Dns
     };
 
     for device_id in &ids_with_data {
-        match device_repo.find_by_id(device_id).await {
-            Ok(Some(device)) if device.dns_capture_enabled => {
+        match device_service.get_device_capture_settings(device_id).await {
+            Ok(Some((true, cap_count, cap_days))) => {
                 if let Err(e) = dns_events_repo
-                    .prune_for_device(
-                        device_id,
-                        device.dns_capture_cap_count,
-                        device.dns_capture_cap_days,
-                    )
+                    .prune_for_device(device_id, cap_count, cap_days)
                     .await
                 {
                     tracing::warn!(
@@ -221,7 +218,7 @@ async fn run_prune(device_repo: &dyn DeviceRepository, dns_events_repo: &dyn Dns
                     );
                 }
             }
-            Ok(Some(_) | None) => {
+            Ok(_) => {
                 // Disabled or deleted device — purge all captured data.
                 if let Err(e) = dns_events_repo.delete_all_for_device(device_id).await {
                     tracing::warn!(
