@@ -99,7 +99,7 @@ jobs:
           --health-timeout=5s
           --health-retries=10
       pebble:
-        image: letsencrypt/pebble
+        image: ghcr.io/letsencrypt/pebble
         env:
           PEBBLE_VA_ALWAYS_VALID: "1"
           PEBBLE_VA_NOSLEEP: "1"
@@ -135,7 +135,7 @@ jobs:
 
       - name: Extract pebble WFE CA cert
         run: |
-          CONTAINER=$(docker ps -q --filter ancestor=letsencrypt/pebble)
+          CONTAINER=$(docker ps -q --filter ancestor=ghcr.io/letsencrypt/pebble)
           docker exec "$CONTAINER" cat /test/certs/pebble.minica.pem > /tmp/pebble-wfe-ca.pem
 
       - name: Generate bridge coverage + test results
