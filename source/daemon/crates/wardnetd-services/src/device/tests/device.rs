@@ -750,3 +750,39 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
 
     assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
 }
+
+#[tokio::test]
+async fn update_dns_capture_settings_with_enabled_none_reads_db_value() {
+    // When `enabled = None`, the service re-reads the device from DB to
+    // resolve the actual enabled state before publishing the event.
+    let publisher = Arc::new(CapturingEventPublisher::new());
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            // sample_device sets dns_capture_enabled = false
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::clone(&publisher) as Arc<dyn crate::event::EventPublisher>,
+    );
+    let device_id = "00000000-0000-0000-0000-000000000001";
+
+    auth_context::with_context(admin_ctx(), async {
+        svc.update_dns_capture_settings(device_id, None, Some(500), Some(3))
+            .await
+    })
+    .await
+    .unwrap();
+
+    let events = publisher.take_events();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        WardnetEvent::DeviceCaptureSettingsChanged { enabled, .. } => {
+            // The mock device has dns_capture_enabled = false, so the
+            // DB-resolved value should also be false.
+            assert!(!(*enabled), "expected enabled=false from DB read");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}

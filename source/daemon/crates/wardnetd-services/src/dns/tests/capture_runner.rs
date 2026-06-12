@@ -159,6 +159,58 @@ impl DnsEventsRepository for RecordingDnsEventsRepo {
     }
 }
 
+/// Tracks `prune_for_device` and `delete_all_for_device` calls for prune-loop tests.
+struct PruningDnsEventsRepo {
+    device_ids: Vec<String>,
+    prune_calls: Mutex<Vec<String>>,
+    delete_calls: Mutex<Vec<String>>,
+}
+
+impl PruningDnsEventsRepo {
+    fn new(device_ids: &[&str]) -> Arc<Self> {
+        Arc::new(Self {
+            device_ids: device_ids.iter().map(|s| (*s).to_string()).collect(),
+            prune_calls: Mutex::new(vec![]),
+            delete_calls: Mutex::new(vec![]),
+        })
+    }
+}
+
+#[async_trait]
+impl DnsEventsRepository for PruningDnsEventsRepo {
+    async fn insert(
+        &self,
+        _device_id: &str,
+        _domain: &str,
+        _status: &str,
+        _captured_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
+        Ok(DnsCaptureStats {
+            row_count: 0,
+            size_bytes: 0,
+        })
+    }
+    async fn prune_for_device(
+        &self,
+        device_id: &str,
+        _cap_count: i64,
+        _cap_days: i64,
+    ) -> anyhow::Result<u64> {
+        self.prune_calls.lock().await.push(device_id.to_owned());
+        Ok(1)
+    }
+    async fn delete_all_for_device(&self, device_id: &str) -> anyhow::Result<u64> {
+        self.delete_calls.lock().await.push(device_id.to_owned());
+        Ok(0)
+    }
+    async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
+        Ok(self.device_ids.clone())
+    }
+}
+
 /// A real broadcast-backed event publisher so tests can send events into the runner.
 struct TestEventBus {
     sender: broadcast::Sender<WardnetEvent>,
@@ -429,4 +481,118 @@ async fn shutdown_completes() {
 
     // Immediately shut down — should complete without panic
     runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn channel_closed_exits_runner() {
+    let (tx, rx) = mpsc::channel::<QueryLogRow>(16);
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo {
+        enabled_ids: vec![],
+        device: None,
+    });
+    let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner =
+        DnsCaptureRunner::start(rx, device_repo, dns_repo, events, &tracing::Span::current());
+
+    // Dropping the sender closes the channel; the runner should exit the receive loop.
+    drop(tx);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn prune_loop_calls_prune_for_enabled_device() {
+    let (_tx, rx) = mpsc::channel::<QueryLogRow>(16);
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo {
+        enabled_ids: vec![DEV1.to_owned()],
+        device: Some(sample_device(true)),
+    });
+    let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner = DnsCaptureRunner::start_with_prune_interval(
+        rx,
+        device_repo,
+        dns_repo_dyn,
+        Arc::clone(&events),
+        Duration::from_millis(50),
+        &tracing::Span::current(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    runner.shutdown().await;
+
+    let prune_calls = dns_repo.prune_calls.lock().await;
+    assert!(
+        !prune_calls.is_empty(),
+        "expected prune_for_device to be called at least once"
+    );
+    assert_eq!(prune_calls[0], DEV1);
+}
+
+#[tokio::test]
+async fn prune_loop_deletes_data_for_disabled_device() {
+    let (_tx, rx) = mpsc::channel::<QueryLogRow>(16);
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo {
+        enabled_ids: vec![],
+        device: Some(sample_device(false)),
+    });
+    let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner = DnsCaptureRunner::start_with_prune_interval(
+        rx,
+        device_repo,
+        dns_repo_dyn,
+        Arc::clone(&events),
+        Duration::from_millis(50),
+        &tracing::Span::current(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    runner.shutdown().await;
+
+    let delete_calls = dns_repo.delete_calls.lock().await;
+    assert!(
+        !delete_calls.is_empty(),
+        "expected delete_all_for_device to be called for disabled device"
+    );
+    assert_eq!(delete_calls[0], DEV1);
+}
+
+#[tokio::test]
+async fn prune_loop_deletes_data_for_unknown_device() {
+    let (_tx, rx) = mpsc::channel::<QueryLogRow>(16);
+    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo {
+        enabled_ids: vec![],
+        device: None, // device has been deleted from the DB
+    });
+    let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner = DnsCaptureRunner::start_with_prune_interval(
+        rx,
+        device_repo,
+        dns_repo_dyn,
+        Arc::clone(&events),
+        Duration::from_millis(50),
+        &tracing::Span::current(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    runner.shutdown().await;
+
+    let delete_calls = dns_repo.delete_calls.lock().await;
+    assert!(
+        !delete_calls.is_empty(),
+        "expected delete_all_for_device to be called for unknown/deleted device"
+    );
 }
