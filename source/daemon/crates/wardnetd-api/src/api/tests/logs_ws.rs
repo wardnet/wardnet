@@ -18,9 +18,9 @@ use wardnetd_services::error::AppError;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
-    StubDnsFilterService, StubDnsServer, StubDnsService, StubEventPublisher, StubJobService,
-    StubLogService, StubProviderService, StubRoutingService, StubStatsService, StubSystemService,
-    StubTunnelService, StubUpdateService,
+    StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
+    StubJobService, StubLogService, StubProviderService, StubRoutingService, StubStatsService,
+    StubSystemService, StubTunnelService, StubUpdateService,
 };
 
 // ---------------------------------------------------------------------------
@@ -81,6 +81,9 @@ fn make_state() -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

@@ -127,15 +127,17 @@ pub async fn get_challenge(
 
 /// Extract the real client IP from the request.
 ///
-/// The `X-Forwarded-For` header is only trusted when the TCP peer address is a
-/// loopback address (`127.x.x.x` or `::1`). In production the bridge always
-/// sits behind Caddy on the same host, so the peer is `127.0.0.1` and Caddy's
-/// `X-Forwarded-For` header carries the real client IP.
+/// In production the bridge sits behind a transparent L4 proxy (nginx + PROXY
+/// protocol v1); the listener consumes that header and injects the **real client
+/// address** as `ConnectInfo`, so `addr` here is already the true client and the
+/// `X-Forwarded-For` branch below is inert (the peer is never loopback). Threading
+/// the real IP this way is load-bearing: the registration rate limit and the
+/// IP-bound proof-of-work both depend on it.
 ///
-/// When the peer is not loopback (direct connection, development, tests), the
-/// TCP peer address is used as-is — trusting a client-supplied
-/// `X-Forwarded-For` would allow IP spoofing for the rate-limit and challenge
-/// binding checks.
+/// The `X-Forwarded-For` fallback is retained only for the loopback case (local
+/// development / tests). A client-supplied `X-Forwarded-For` is trusted **only**
+/// when the peer is loopback — trusting it otherwise would allow IP spoofing of
+/// the rate-limit and challenge-binding checks.
 #[must_use]
 pub fn client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
     if addr.ip().is_loopback()

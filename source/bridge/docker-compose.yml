@@ -1,12 +1,21 @@
 services:
-  mysql:
-    image: mysql:8.0
+  postgres:
+    image: postgres:16
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "3306:3306"
+      - "5432:5432"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot"]
+      test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 2s
       timeout: 5s
       retries: 30
+
+  pebble:
+    image: letsencrypt/pebble
+    environment:
+      PEBBLE_VA_ALWAYS_VALID: "1"
+      PEBBLE_VA_NOSLEEP: "1"
+    ports:
+      - "14000:14000"
+      - "15000:15000"

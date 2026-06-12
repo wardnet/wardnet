@@ -18,9 +18,9 @@ use wardnet_common::routing::RoutingTarget;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
-    StubTunnelService,
+    StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsLocalService, StubDnsServer,
+    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
+    StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -447,6 +447,9 @@ fn build_state_with_dhcp(
         Arc::new(dhcp_svc),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(discovery_svc),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
@@ -474,6 +477,9 @@ fn build_state_with_tunnel_svc(
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(discovery_svc),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

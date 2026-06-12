@@ -31,6 +31,13 @@ pub trait SystemConfigRepository: Send + Sync {
     /// Insert or update a config value.
     async fn set(&self, key: &str, value: &str) -> anyhow::Result<()>;
 
+    /// Remove a config value by key. No-op when the key is absent — mirrors
+    /// [`SecretStore::delete`](crate::secret_store::SecretStore::delete) so a
+    /// "teardown / forget" flow can truly clear a key (so [`Self::get`] returns
+    /// `None`) rather than blank it to an empty string a reader might
+    /// misinterpret as a configured-but-empty value.
+    async fn delete(&self, key: &str) -> anyhow::Result<()>;
+
     /// Return the total number of rows in the `devices` table.
     async fn device_count(&self) -> anyhow::Result<i64>;
 

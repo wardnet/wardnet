@@ -12,10 +12,12 @@ import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
 import Settings from "@/pages/Settings";
+import RemoteAccess from "@/pages/RemoteAccess";
 import Power from "@/pages/Power";
 import Backups from "@/pages/Backups";
 import Dhcp from "@/pages/Dhcp";
 import Dns from "@/pages/Dns";
+import DnsLocal from "@/pages/DnsLocal";
 import DnsLogs from "@/pages/DnsLogs";
 import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
@@ -160,6 +162,14 @@ export default function App() {
           }
         />
         <Route
+          path="dns/local"
+          element={
+            <AdminRoute>
+              <DnsLocal />
+            </AdminRoute>
+          }
+        />
+        <Route
           path="dns/logs"
           element={
             <AdminRoute>
@@ -196,6 +206,14 @@ export default function App() {
           element={
             <AdminRoute>
               <Settings />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="remote-access"
+          element={
+            <AdminRoute>
+              <RemoteAccess />
             </AdminRoute>
           }
         />

@@ -21,10 +21,8 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::event::{DnsFilterChange, WardnetEvent};
 
 use crate::auth_context;
-use crate::dns_filter::blocklist_downloader::{self, BlocklistFetcher};
 use crate::dns_filter::service::DnsFilterService;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::DnsFilterRepository;
 
 pub struct DnsFilterRunner {
     cancel: CancellationToken,
@@ -34,9 +32,7 @@ pub struct DnsFilterRunner {
 impl DnsFilterRunner {
     pub fn start(
         service: Arc<dyn DnsFilterService>,
-        repo: Arc<dyn DnsFilterRepository>,
-        fetcher: Arc<dyn BlocklistFetcher>,
-        events: Arc<dyn EventPublisher>,
+        events: &dyn EventPublisher,
         parent: &tracing::Span,
         cron_check_interval: Duration,
     ) -> Self {
@@ -45,16 +41,7 @@ impl DnsFilterRunner {
         let event_rx = events.subscribe();
 
         let handle = tokio::spawn(
-            runner_loop(
-                service,
-                repo,
-                fetcher,
-                events,
-                event_rx,
-                cancel.clone(),
-                cron_check_interval,
-            )
-            .instrument(span),
+            runner_loop(service, event_rx, cancel.clone(), cron_check_interval).instrument(span),
         );
 
         Self { cancel, handle }
@@ -69,9 +56,6 @@ impl DnsFilterRunner {
 
 async fn runner_loop(
     service: Arc<dyn DnsFilterService>,
-    repo: Arc<dyn DnsFilterRepository>,
-    fetcher: Arc<dyn BlocklistFetcher>,
-    events: Arc<dyn EventPublisher>,
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
     cron_check_interval: Duration,
@@ -94,7 +78,7 @@ async fn runner_loop(
                 break;
             }
             _ = cron_interval.tick() => {
-                check_blocklist_cron(repo.as_ref(), fetcher.as_ref(), events.as_ref()).await;
+                check_blocklist_cron(service.as_ref(), &admin_ctx).await;
             }
             result = event_rx.recv() => {
                 match result {
@@ -155,23 +139,25 @@ async fn handle_filter_change(
     }
 }
 
-async fn check_blocklist_cron(
-    repo: &dyn DnsFilterRepository,
-    fetcher: &dyn BlocklistFetcher,
-    events: &dyn EventPublisher,
-) {
-    let profiles = match repo.list_profiles().await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to list profiles for cron check");
-            return;
-        }
-    };
+async fn check_blocklist_cron(service: &dyn DnsFilterService, admin_ctx: &AuthContext) {
+    let profiles =
+        match auth_context::with_context(admin_ctx.clone(), service.list_profiles()).await {
+            Ok(resp) => resp.profiles,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to list profiles for cron check");
+                return;
+            }
+        };
 
     let now = Utc::now();
     for profile in profiles {
-        let blocklists = match repo.list_blocklists(profile.id).await {
-            Ok(b) => b,
+        let blocklists = match auth_context::with_context(
+            admin_ctx.clone(),
+            service.list_blocklists(profile.id),
+        )
+        .await
+        {
+            Ok(resp) => resp.blocklists,
             Err(e) => {
                 tracing::error!(profile_id = %profile.id, error = %e, "failed to list blocklists for cron check");
                 continue;
@@ -201,11 +187,16 @@ async fn check_blocklist_cron(
             if !is_due {
                 continue;
             }
-            tracing::info!(blocklist_id = %bl.id, name = %bl.name, "downloading blocklist");
-            if let Err(e) =
-                blocklist_downloader::refresh_blocklist(bl, repo, fetcher, events, None).await
+            tracing::info!(blocklist_id = %bl.id, name = %bl.name, "dispatching blocklist refresh");
+            // The service owns the download/persist/event flow; it dispatches a
+            // background job so the cron tick stays non-blocking.
+            if let Err(e) = auth_context::with_context(
+                admin_ctx.clone(),
+                service.refresh_blocklist(profile.id, bl.id),
+            )
+            .await
             {
-                tracing::error!(blocklist_id = %bl.id, error = %e, "failed to refresh blocklist");
+                tracing::error!(blocklist_id = %bl.id, error = %e, "failed to dispatch blocklist refresh");
             }
         }
     }

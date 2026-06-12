@@ -1,9 +1,11 @@
 mod auth;
 mod backup;
+mod ddns;
 mod devices;
 mod dhcp;
 mod dns_capture;
 mod dns_filter;
+mod dns_local;
 mod info;
 mod jobs;
 mod logs_ws;

@@ -110,7 +110,7 @@ impl Default for DnsConfig {
 }
 
 /// DNS record type for custom local records.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DnsRecordType {
     A,
@@ -119,6 +119,20 @@ pub enum DnsRecordType {
     Txt,
     Mx,
     Srv,
+}
+
+/// Provenance of a custom local DNS record.
+///
+/// `Manual` records are admin-created via the API. `Dhcp` records are
+/// auto-registered by [`crate::event::WardnetEvent::DhcpLeaseAssigned`] /
+/// `DhcpLeaseRenewed` (the `{hostname}.lan` integration). `System` is
+/// reserved for daemon-seeded records that must not be hand-edited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsRecordSource {
+    Manual,
+    Dhcp,
+    System,
 }
 
 /// A user-defined local DNS record.
@@ -131,8 +145,22 @@ pub struct CustomDnsRecord {
     pub value: String,
     pub ttl: u32,
     pub enabled: bool,
+    pub source: DnsRecordSource,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Provenance of an authoritative local DNS zone.
+///
+/// `Manual` zones are admin-created via the API and freely deletable. `System`
+/// zones are daemon-seeded (currently only the `.lan` zone) and **cannot be
+/// deleted** — `DnsLocalService::delete_zone` rejects them. Zones are never
+/// DHCP-sourced, so (unlike [`DnsRecordSource`]) there is no `Dhcp` variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsZoneSource {
+    Manual,
+    System,
 }
 
 /// An authoritative local DNS zone (e.g. "lab", "home", "local").
@@ -141,6 +169,7 @@ pub struct DnsZone {
     pub id: Uuid,
     pub name: String,
     pub enabled: bool,
+    pub source: DnsZoneSource,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -224,6 +253,8 @@ pub enum DnsQueryResult {
     Recursive,
     /// Upstream resolver returned an error — resolver string `"upstream_error"`.
     UpstreamError,
+    /// Answered directly from a local authoritative record — resolver string `"authoritative"`.
+    Authoritative,
     /// Resolution failed (parse fallback for unrecognised strings).
     Error,
 }
@@ -241,6 +272,7 @@ impl DnsQueryResult {
             Self::Rewritten => "rewritten",
             Self::Recursive => "recursive",
             Self::UpstreamError => "upstream_error",
+            Self::Authoritative => "authoritative",
             Self::Error => "error",
         }
     }
@@ -260,6 +292,7 @@ impl DnsQueryResult {
             "rewritten" => Self::Rewritten,
             "recursive" => Self::Recursive,
             "upstream_error" => Self::UpstreamError,
+            "authoritative" => Self::Authoritative,
             other => {
                 tracing::warn!(
                     result = other,
@@ -299,6 +332,10 @@ mod tests {
             DnsQueryResult::parse("upstream_error"),
             DnsQueryResult::UpstreamError
         );
+        assert_eq!(
+            DnsQueryResult::parse("authoritative"),
+            DnsQueryResult::Authoritative
+        );
     }
 
     #[test]
@@ -320,6 +357,7 @@ mod tests {
             DnsQueryResult::Rewritten,
             DnsQueryResult::Recursive,
             DnsQueryResult::UpstreamError,
+            DnsQueryResult::Authoritative,
             DnsQueryResult::Error,
         ];
         for v in variants {

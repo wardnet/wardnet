@@ -12,11 +12,13 @@ import {
   DhcpService,
   DnsService,
   DnsFilterService,
+  DnsLocalService,
   DnsLogStreamService,
   JobsService,
   LogService,
   StatsService,
   UpdateService,
+  RemoteAccessService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -33,6 +35,7 @@ export const infoService = new InfoService(client);
 export const dhcpService = new DhcpService(client);
 export const dnsService = new DnsService(client);
 export const dnsFilterService = new DnsFilterService(client);
+export const dnsLocalService = new DnsLocalService(client);
 export const dnsLogStreamService = new DnsLogStreamService(
   client,
   window.location.origin,
@@ -42,3 +45,4 @@ export const logService = new LogService(client, window.location.origin);
 export const statsService = new StatsService(client);
 export const updateService = new UpdateService(client);
 export const backupService = new BackupService(client);
+export const remoteAccessService = new RemoteAccessService(client);

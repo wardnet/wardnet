@@ -554,6 +554,15 @@ impl wardnetd_services::dns::DnsService for StubDnsService {
     async fn get_dns_config(&self) -> Result<wardnet_common::dns::DnsConfig, AppError> {
         unimplemented!()
     }
+    async fn insert_query_log_batch(
+        &self,
+        _entries: &[wardnetd_data::repository::QueryLogRow],
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_query_log(&self, _retention_days: u32) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn list_query_log(
         &self,
         _params: wardnet_common::api::ListQueryLogParams,
@@ -757,6 +766,114 @@ impl wardnetd_services::DnsFilterService for StubDnsFilterService {
 }
 
 // ---------------------------------------------------------------------------
+// StubDnsLocalService
+// ---------------------------------------------------------------------------
+
+pub struct StubDnsLocalService;
+
+#[async_trait]
+impl wardnetd_services::DnsLocalService for StubDnsLocalService {
+    async fn list_zones(&self) -> Result<wardnet_common::api::ListZonesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_zone(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_zone(
+        &self,
+        _r: wardnet_common::api::CreateZoneRequest,
+    ) -> Result<wardnet_common::api::CreateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_zone(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateZoneRequest,
+    ) -> Result<wardnet_common::api::UpdateZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_zone(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteZoneResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_zone_records(
+        &self,
+        _zone_id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_records(&self) -> Result<wardnet_common::api::ListRecordsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_record(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_record(
+        &self,
+        _r: wardnet_common::api::CreateRecordRequest,
+    ) -> Result<wardnet_common::api::CreateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_record(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateRecordRequest,
+    ) -> Result<wardnet_common::api::UpdateRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_record(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn upsert_record(
+        &self,
+        _r: wardnet_common::api::UpsertRecordRequest,
+    ) -> Result<wardnet_common::api::UpsertRecordResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_forwarding_rules(
+        &self,
+    ) -> Result<wardnet_common::api::ListForwardingRulesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn get_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::GetForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_forwarding_rule(
+        &self,
+        _r: wardnet_common::api::CreateForwardingRuleRequest,
+    ) -> Result<wardnet_common::api::CreateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+        _r: wardnet_common::api::UpdateForwardingRuleRequest,
+    ) -> Result<wardnet_common::api::UpdateForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_forwarding_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::api::DeleteForwardingRuleResponse, AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubLogService
 // ---------------------------------------------------------------------------
 
@@ -894,6 +1011,8 @@ impl wardnetd_services::dns::server::DnsServer for StubDnsServer {
         0.0
     }
     async fn update_config(&self, _config: wardnet_common::dns::DnsConfig) {}
+    async fn update_authoritative_view(&self, _view: wardnetd_services::dns::AuthoritativeView) {}
+    async fn invalidate_domain(&self, _domain: &str) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -927,6 +1046,79 @@ impl StatsService for StubStatsService {
     }
 }
 
+// ---------------------------------------------------------------------------
+// StubDdnsService
+// ---------------------------------------------------------------------------
+
+pub struct StubDdnsService;
+
+#[async_trait]
+impl wardnetd_services::DdnsService for StubDdnsService {
+    async fn register_with_bridge(
+        &self,
+        _name: String,
+    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
+        unimplemented!()
+    }
+    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn configure_cloudflare(
+        &self,
+        _token: String,
+        _domain: String,
+    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_public_ip(&self) -> Result<Option<std::net::Ipv4Addr>, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnetd_services::ddns::DdnsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn teardown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn resolution_check(
+        &self,
+    ) -> Result<wardnet_common::api::DdnsResolutionCheckResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_acme_challenge(&self, _values: &[String]) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn clear_acme_challenge(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubTlsService
+// ---------------------------------------------------------------------------
+
+pub struct StubTlsService;
+
+#[async_trait]
+impl wardnetd_services::TlsService for StubTlsService {
+    async fn ensure_certificate(&self) -> Result<wardnetd_services::TlsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<wardnetd_services::TlsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn mark_provisioning_started(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn provisioning_status(
+        &self,
+    ) -> Result<wardnet_common::api::TlsStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn teardown(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
 /// Create an [`AppState`] with all stub services and default configuration.
 ///
 /// Useful as a starting point for tests that only need one or two real
@@ -941,6 +1133,9 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(StubDdnsService),
+        Arc::new(StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService),
         Arc::new(StubProviderService),

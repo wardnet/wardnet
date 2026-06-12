@@ -8,8 +8,8 @@ use crate::api::{
 };
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
-    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordType, DnsResolutionMode,
-    DnsStats, DnsZone, FilterAction, UpstreamDns,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
+    DnsResolutionMode, DnsStats, DnsZone, DnsZoneSource, FilterAction, UpstreamDns,
 };
 use chrono::Utc;
 use std::net::{IpAddr, Ipv4Addr};
@@ -239,6 +239,7 @@ fn custom_dns_record_round_trip() {
         value: "192.168.1.50".to_owned(),
         ttl: 300,
         enabled: true,
+        source: DnsRecordSource::Manual,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -246,6 +247,7 @@ fn custom_dns_record_round_trip() {
     let back: CustomDnsRecord = serde_json::from_str(&json).unwrap();
     assert_eq!(record.domain, back.domain);
     assert_eq!(record.record_type, back.record_type);
+    assert_eq!(record.source, back.source);
 }
 
 #[test]
@@ -254,6 +256,7 @@ fn dns_zone_round_trip() {
         id: Uuid::new_v4(),
         name: "lab".to_owned(),
         enabled: true,
+        source: DnsZoneSource::System,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -261,6 +264,7 @@ fn dns_zone_round_trip() {
     let back: DnsZone = serde_json::from_str(&json).unwrap();
     assert_eq!(zone.name, back.name);
     assert_eq!(zone.enabled, back.enabled);
+    assert_eq!(zone.source, back.source);
 }
 
 #[test]

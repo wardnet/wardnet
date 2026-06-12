@@ -1,10 +1,12 @@
 pub mod auth;
 pub mod backup;
+pub mod ddns;
 pub mod devices;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_capture;
 pub mod dns_filter;
+pub mod dns_local;
 pub mod dns_log_ws;
 pub mod info;
 pub mod jobs;
@@ -16,6 +18,7 @@ pub mod responses;
 pub mod setup;
 pub mod stats;
 pub mod system;
+pub mod tls;
 pub mod tunnels;
 pub mod update;
 
@@ -56,6 +59,9 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = dhcp::register(r);
     r = dns::register(r);
     r = dns_filter::register(r);
+    r = dns_local::register(r);
+    r = ddns::register(r);
+    r = tls::register(r);
     r = system::register(r);
     r = network::register(r);
     r = jobs::register(r);

@@ -25,16 +25,11 @@ use wardnet_common::api::{
     UpdateDnsFilterConfigRequest, UpdateFilterRuleRequest, UpdateFilterRuleResponse,
     UpdateProfileRequest, UpdateProfileResponse,
 };
-use wardnet_common::dns::{AllowlistEntry, Blocklist, CustomFilterRule, FilterAction};
-use wardnet_common::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
+use wardnet_common::dns::{Blocklist, FilterAction};
+use wardnet_common::dns_filter::DnsFilterProfile;
 use wardnet_common::event::{DnsFilterChange, WardnetEvent};
 use wardnet_common::jobs::JobDispatchedResponse;
-use wardnetd_data::repository::{
-    AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
-    DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
-};
 
-use crate::dns_filter::blocklist_downloader::BlocklistFetcher;
 use crate::dns_filter::runner::DnsFilterRunner;
 use crate::dns_filter::service::{CheckOutcome, DnsFilterService};
 use crate::error::AppError;
@@ -52,11 +47,19 @@ struct Calls {
     rebuild_device: Vec<Uuid>,
     rebuild_default: u32,
     handle_ip_changed: Vec<(Uuid, String, String)>,
+    /// `(profile_id, blocklist_id)` pairs the cron path dispatched a
+    /// refresh for.
+    refresh_blocklist: Vec<(Uuid, Uuid)>,
 }
 
 #[derive(Default)]
 struct RecordingService {
     calls: StdMutex<Calls>,
+    /// Profiles returned by `list_profiles` — drives the cron path. Empty by
+    /// default so event-driven tests never trip the cron branch.
+    cron_profiles: Vec<DnsFilterProfile>,
+    /// Blocklists returned by `list_blocklists` for any profile.
+    cron_blocklists: Vec<Blocklist>,
 }
 
 impl RecordingService {
@@ -112,10 +115,13 @@ impl DnsFilterService for RecordingService {
         Ok(())
     }
 
-    // CRUD methods are not exercised by the runner; panic if reached so a
+    // `list_profiles` / `list_blocklists` / `refresh_blocklist` drive the cron
+    // path; the rest are not exercised by the runner and panic if reached so a
     // future change that starts using one shows up loudly.
     async fn list_profiles(&self) -> Result<ListProfilesResponse, AppError> {
-        unimplemented!()
+        Ok(ListProfilesResponse {
+            profiles: self.cron_profiles.clone(),
+        })
     }
     async fn get_profile(&self, _id: Uuid) -> Result<GetProfileResponse, AppError> {
         unimplemented!()
@@ -137,7 +143,9 @@ impl DnsFilterService for RecordingService {
         unimplemented!()
     }
     async fn list_blocklists(&self, _profile_id: Uuid) -> Result<ListBlocklistsResponse, AppError> {
-        unimplemented!()
+        Ok(ListBlocklistsResponse {
+            blocklists: self.cron_blocklists.clone(),
+        })
     }
     async fn create_blocklist(
         &self,
@@ -163,10 +171,17 @@ impl DnsFilterService for RecordingService {
     }
     async fn refresh_blocklist(
         &self,
-        _profile_id: Uuid,
-        _id: Uuid,
+        profile_id: Uuid,
+        id: Uuid,
     ) -> Result<JobDispatchedResponse, AppError> {
-        unimplemented!()
+        self.calls
+            .lock()
+            .unwrap()
+            .refresh_blocklist
+            .push((profile_id, id));
+        Ok(JobDispatchedResponse {
+            job_id: Uuid::new_v4(),
+        })
     }
     async fn list_allowlist(&self, _profile_id: Uuid) -> Result<ListAllowlistResponse, AppError> {
         unimplemented!()
@@ -244,140 +259,6 @@ impl DnsFilterService for RecordingService {
 }
 
 // ---------------------------------------------------------------------------
-// Empty repo + fetcher — the runner's bootstrap and cron-tick paths call
-// these but the tests don't assert on their content.
-// ---------------------------------------------------------------------------
-
-struct EmptyRepo;
-
-#[async_trait]
-impl DnsFilterRepository for EmptyRepo {
-    async fn list_profiles(&self) -> anyhow::Result<Vec<DnsFilterProfile>> {
-        Ok(vec![])
-    }
-    async fn get_profile(&self, _id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>> {
-        Ok(None)
-    }
-    async fn create_profile(
-        &self,
-        _id: Uuid,
-        _name: &str,
-        _description: Option<&str>,
-    ) -> anyhow::Result<DnsFilterProfile> {
-        unimplemented!()
-    }
-    async fn update_profile_fields(
-        &self,
-        _id: Uuid,
-        _name: Option<&str>,
-        _description: Option<Option<&str>>,
-    ) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn delete_profile(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn list_blocklists(&self, _profile_id: Uuid) -> anyhow::Result<Vec<Blocklist>> {
-        Ok(vec![])
-    }
-    async fn get_blocklist(&self, _id: Uuid) -> anyhow::Result<Option<Blocklist>> {
-        Ok(None)
-    }
-    async fn create_blocklist(&self, _row: &BlocklistRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn update_blocklist(&self, _id: Uuid, _row: &BlocklistUpdate) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_blocklist(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn replace_blocklist_domains(
-        &self,
-        _id: Uuid,
-        _domains: &[String],
-    ) -> anyhow::Result<u64> {
-        unimplemented!()
-    }
-    async fn set_blocklist_error(&self, _id: Uuid, _error: Option<&str>) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn list_allowlist(&self, _profile_id: Uuid) -> anyhow::Result<Vec<AllowlistEntry>> {
-        unimplemented!()
-    }
-    async fn create_allowlist_entry(&self, _row: &AllowlistRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_allowlist_entry(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn list_custom_rules(&self, _profile_id: Uuid) -> anyhow::Result<Vec<CustomFilterRule>> {
-        unimplemented!()
-    }
-    async fn get_custom_rule(&self, _id: Uuid) -> anyhow::Result<Option<CustomFilterRule>> {
-        unimplemented!()
-    }
-    async fn create_custom_rule(&self, _row: &CustomRuleRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn update_custom_rule(&self, _id: Uuid, _row: &CustomRuleUpdate) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_custom_rule(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn load_filter_inputs_for_profile(
-        &self,
-        _profile_id: Uuid,
-    ) -> anyhow::Result<ProfileFilterInputs> {
-        unimplemented!()
-    }
-    async fn load_blocklist_domains(&self, _blocklist_id: Uuid) -> anyhow::Result<Vec<String>> {
-        unimplemented!()
-    }
-    async fn find_device_settings(
-        &self,
-        _device_id: Uuid,
-    ) -> anyhow::Result<Option<DeviceDnsFilterSettings>> {
-        unimplemented!()
-    }
-    async fn upsert_device_settings(&self, _row: &DeviceSettingsRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn set_device_profiles(
-        &self,
-        _device_id: Uuid,
-        _profile_ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn list_device_settings_with_ips(
-        &self,
-        _only_filtering_active: bool,
-    ) -> anyhow::Result<Vec<DeviceSettingsWithIp>> {
-        Ok(vec![])
-    }
-    async fn get_dns_filter_config(&self) -> anyhow::Result<DnsFilterConfig> {
-        Ok(DnsFilterConfig::default())
-    }
-    async fn set_dns_filter_config(&self, _config: &DnsFilterConfig) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-}
-
-struct StubFetcher;
-#[async_trait]
-impl BlocklistFetcher for StubFetcher {
-    async fn fetch(&self, _url: &str) -> anyhow::Result<String> {
-        // Return one parsable domain — the downloader bails (returns Err)
-        // when `parse_blocklist_body` produces zero entries, which would
-        // suppress the replace_blocklist_domains write the cron test
-        // observes.
-        Ok("0.0.0.0 cron.test\n".to_owned())
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -402,16 +283,12 @@ fn build() -> (
 ) {
     let service = Arc::new(RecordingService::default());
     let svc_dyn: Arc<dyn DnsFilterService> = service.clone();
-    let repo: Arc<dyn DnsFilterRepository> = Arc::new(EmptyRepo);
-    let fetcher: Arc<dyn BlocklistFetcher> = Arc::new(StubFetcher);
     let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(64));
     // Cron interval long enough that no tick fires during the test —
     // we're only exercising the event-driven branches.
     let runner = DnsFilterRunner::start(
         svc_dyn,
-        repo,
-        fetcher,
-        events.clone(),
+        events.as_ref(),
         &tracing::Span::none(),
         Duration::from_hours(1),
     );
@@ -563,30 +440,25 @@ async fn device_ip_changed_propagates_to_service() {
 // Cron-tick coverage — exercises `check_blocklist_cron`.
 // ---------------------------------------------------------------------------
 
-/// Repo that exposes one due-for-refresh blocklist on the Ad Blocking
-/// profile and accepts the runner's `replace_blocklist_domains` /
-/// `set_blocklist_error` writes. Other methods unimplemented.
-#[derive(Default)]
-struct CronRepo {
-    refresh_calls: StdMutex<Vec<Uuid>>,
-}
-
-#[async_trait]
-impl DnsFilterRepository for CronRepo {
-    async fn list_profiles(&self) -> anyhow::Result<Vec<DnsFilterProfile>> {
-        Ok(vec![DnsFilterProfile {
-            id: Uuid::nil(),
+#[tokio::test]
+async fn cron_tick_refreshes_due_blocklists() {
+    // A profile with one due-for-refresh blocklist (cron `* * * * *`, never
+    // refreshed) — the cron path should dispatch a refresh for it via the
+    // service.
+    let profile_id = Uuid::nil();
+    let blocklist_id = Uuid::new_v4();
+    let service = Arc::new(RecordingService {
+        cron_profiles: vec![DnsFilterProfile {
+            id: profile_id,
             name: "Ad Blocking".into(),
             description: None,
             builtin: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-        }])
-    }
-    async fn list_blocklists(&self, _profile_id: Uuid) -> anyhow::Result<Vec<Blocklist>> {
-        Ok(vec![Blocklist {
-            id: Uuid::nil(),
-            profile_id: Uuid::nil(),
+        }],
+        cron_blocklists: vec![Blocklist {
+            id: blocklist_id,
+            profile_id,
             name: "cron-list".into(),
             url: "http://example.test/c.txt".into(),
             enabled: true,
@@ -597,144 +469,34 @@ impl DnsFilterRepository for CronRepo {
             last_error_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-        }])
-    }
-    async fn replace_blocklist_domains(
-        &self,
-        id: Uuid,
-        _domains: &[String],
-    ) -> anyhow::Result<u64> {
-        self.refresh_calls.lock().unwrap().push(id);
-        Ok(0)
-    }
-    async fn set_blocklist_error(&self, _id: Uuid, _error: Option<&str>) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn list_device_settings_with_ips(
-        &self,
-        _only_filtering_active: bool,
-    ) -> anyhow::Result<Vec<DeviceSettingsWithIp>> {
-        Ok(vec![])
-    }
-    async fn get_dns_filter_config(&self) -> anyhow::Result<DnsFilterConfig> {
-        Ok(DnsFilterConfig::default())
-    }
-
-    // Methods the runner doesn't touch on the cron path.
-    async fn get_profile(&self, _id: Uuid) -> anyhow::Result<Option<DnsFilterProfile>> {
-        unimplemented!()
-    }
-    async fn create_profile(
-        &self,
-        _id: Uuid,
-        _name: &str,
-        _description: Option<&str>,
-    ) -> anyhow::Result<DnsFilterProfile> {
-        unimplemented!()
-    }
-    async fn update_profile_fields(
-        &self,
-        _id: Uuid,
-        _name: Option<&str>,
-        _description: Option<Option<&str>>,
-    ) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn delete_profile(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn get_blocklist(&self, _id: Uuid) -> anyhow::Result<Option<Blocklist>> {
-        unimplemented!()
-    }
-    async fn create_blocklist(&self, _row: &BlocklistRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn update_blocklist(&self, _id: Uuid, _row: &BlocklistUpdate) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_blocklist(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn list_allowlist(&self, _profile_id: Uuid) -> anyhow::Result<Vec<AllowlistEntry>> {
-        unimplemented!()
-    }
-    async fn create_allowlist_entry(&self, _row: &AllowlistRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_allowlist_entry(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn list_custom_rules(&self, _profile_id: Uuid) -> anyhow::Result<Vec<CustomFilterRule>> {
-        unimplemented!()
-    }
-    async fn get_custom_rule(&self, _id: Uuid) -> anyhow::Result<Option<CustomFilterRule>> {
-        unimplemented!()
-    }
-    async fn create_custom_rule(&self, _row: &CustomRuleRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn update_custom_rule(&self, _id: Uuid, _row: &CustomRuleUpdate) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn delete_custom_rule(&self, _id: Uuid) -> anyhow::Result<bool> {
-        unimplemented!()
-    }
-    async fn load_filter_inputs_for_profile(
-        &self,
-        _profile_id: Uuid,
-    ) -> anyhow::Result<ProfileFilterInputs> {
-        unimplemented!()
-    }
-    async fn load_blocklist_domains(&self, _blocklist_id: Uuid) -> anyhow::Result<Vec<String>> {
-        unimplemented!()
-    }
-    async fn find_device_settings(
-        &self,
-        _device_id: Uuid,
-    ) -> anyhow::Result<Option<DeviceDnsFilterSettings>> {
-        unimplemented!()
-    }
-    async fn upsert_device_settings(&self, _row: &DeviceSettingsRow) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn set_device_profiles(
-        &self,
-        _device_id: Uuid,
-        _profile_ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    async fn set_dns_filter_config(&self, _config: &DnsFilterConfig) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-}
-
-#[tokio::test]
-async fn cron_tick_refreshes_due_blocklists() {
-    let cron_repo = Arc::new(CronRepo::default());
-    let repo: Arc<dyn DnsFilterRepository> = cron_repo.clone();
-    let service: Arc<dyn DnsFilterService> = Arc::new(RecordingService::default());
-    let fetcher: Arc<dyn BlocklistFetcher> = Arc::new(StubFetcher);
+        }],
+        ..RecordingService::default()
+    });
+    let svc_dyn: Arc<dyn DnsFilterService> = service.clone();
     let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(64));
 
     let runner = DnsFilterRunner::start(
-        service,
-        repo,
-        fetcher,
-        events,
+        svc_dyn,
+        events.as_ref(),
         &tracing::Span::none(),
         // Tight cron interval — first tick fires almost immediately
         // after the runner skips the initial tick.
         Duration::from_millis(50),
     );
 
-    // Wait for `check_blocklist_cron` to call replace_blocklist_domains
-    // for the only due-for-refresh blocklist the repo returns.
+    // Wait for `check_blocklist_cron` to dispatch a refresh for the only
+    // due-for-refresh blocklist the service returns.
     let hit = wait_until(2_000, || {
-        !cron_repo.refresh_calls.lock().unwrap().is_empty()
+        service
+            .snapshot()
+            .refresh_blocklist
+            .contains(&(profile_id, blocklist_id))
     })
     .await;
-    assert!(hit, "cron should have refreshed the due blocklist");
+    assert!(
+        hit,
+        "cron should have dispatched a refresh for the due blocklist"
+    );
     runner.shutdown().await;
 }
 

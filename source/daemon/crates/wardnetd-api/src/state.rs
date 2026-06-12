@@ -4,9 +4,9 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
-    AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsService, JobService, LogService, RoutingService, StatsService,
-    SystemService, TunnelService, UpdateService, VpnProviderService,
+    AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
+    DnsFilterService, DnsLocalService, DnsService, JobService, LogService, RoutingService,
+    StatsService, SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -25,6 +25,9 @@ struct Inner {
     dhcp_service: Arc<dyn DhcpService>,
     dns_service: Arc<dyn DnsService>,
     dns_filter_service: Arc<dyn DnsFilterService>,
+    dns_local_service: Arc<dyn DnsLocalService>,
+    ddns_service: Arc<dyn DdnsService>,
+    tls_service: Arc<dyn TlsService>,
     discovery_service: Arc<dyn DeviceDiscoveryService>,
     log_service: Arc<dyn LogService>,
     provider_service: Arc<dyn VpnProviderService>,
@@ -41,7 +44,10 @@ struct Inner {
 
 impl AppState {
     /// Create a new application state with the given services.
-    #[allow(clippy::too_many_arguments)]
+    // `ddns_service` vs `dns_service` trips the similar-names lint, but both are
+    // established domain terms (local DNS vs dynamic DNS) — renaming either to
+    // satisfy the lint would be less clear, not more.
+    #[allow(clippy::too_many_arguments, clippy::similar_names)]
     pub fn new(
         auth_service: Arc<dyn AuthService>,
         backup_service: Arc<dyn BackupService>,
@@ -49,6 +55,9 @@ impl AppState {
         dhcp_service: Arc<dyn DhcpService>,
         dns_service: Arc<dyn DnsService>,
         dns_filter_service: Arc<dyn DnsFilterService>,
+        dns_local_service: Arc<dyn DnsLocalService>,
+        ddns_service: Arc<dyn DdnsService>,
+        tls_service: Arc<dyn TlsService>,
         discovery_service: Arc<dyn DeviceDiscoveryService>,
         log_service: Arc<dyn LogService>,
         provider_service: Arc<dyn VpnProviderService>,
@@ -70,6 +79,9 @@ impl AppState {
                 dhcp_service,
                 dns_service,
                 dns_filter_service,
+                dns_local_service,
+                ddns_service,
+                tls_service,
                 discovery_service,
                 log_service,
                 provider_service,
@@ -119,6 +131,39 @@ impl AppState {
     #[must_use]
     pub fn dns_filter_service(&self) -> &dyn DnsFilterService {
         self.inner.dns_filter_service.as_ref()
+    }
+
+    /// Access the local-DNS service (authoritative zones, custom records,
+    /// forwarding rules — issue #217).
+    #[must_use]
+    pub fn dns_local_service(&self) -> &dyn DnsLocalService {
+        self.inner.dns_local_service.as_ref()
+    }
+
+    /// Access the dynamic-DNS service (bridge + BYOD-Cloudflare registration,
+    /// public-IP publishing — issues #527/#530).
+    #[must_use]
+    pub fn ddns_service(&self) -> &dyn DdnsService {
+        self.inner.ddns_service.as_ref()
+    }
+
+    /// Clone the `Arc` for the DDNS service, for moving into a background task.
+    #[must_use]
+    pub fn ddns_service_arc(&self) -> Arc<dyn DdnsService> {
+        self.inner.ddns_service.clone()
+    }
+
+    /// Access the daemon-owned TLS service (ACME issuance/renewal, provisioning
+    /// status — issues #528/#530).
+    #[must_use]
+    pub fn tls_service(&self) -> &dyn TlsService {
+        self.inner.tls_service.as_ref()
+    }
+
+    /// Clone the `Arc` for the TLS service, for moving into a background task.
+    #[must_use]
+    pub fn tls_service_arc(&self) -> Arc<dyn TlsService> {
+        self.inner.tls_service.clone()
     }
 
     #[must_use]

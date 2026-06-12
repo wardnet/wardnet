@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# inforge raw-service entrypoint.
+#
+# inforge extracts the release tarball into the service directory on the host
+# and runs this `run` executable as the systemd unit's ExecStart. The bridge
+# takes no arguments and reads ALL configuration from the environment
+# (Config::from_env): the INFORGE_DEPLOYMENT_* identity injected by the inforge
+# bootstrapper, the loopback listen addresses, and secrets resolved at runtime
+# via the Infisical-backed SecretsProvider. So this entrypoint only needs to
+# exec the binary that sits beside it in the tarball.
+set -euo pipefail
+cd "$(dirname "$0")"
+export RUST_LOG="${RUST_LOG:-info}"
+exec ./wardnet-bridge

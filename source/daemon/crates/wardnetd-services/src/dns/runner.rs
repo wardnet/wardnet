@@ -3,7 +3,8 @@
 //! After the Stage 7 split (issue #221), filter rebuilding lives in
 //! [`crate::dns_filter::DnsFilterRunner`]. This runner is responsible for
 //! starting/stopping the DNS server in response to
-//! [`WardnetEvent::DnsConfigChanged`] only.
+//! [`WardnetEvent::DnsConfigChanged`], and for rebuilding the
+//! [`AuthoritativeView`] on [`WardnetEvent::DnsLocalChanged`].
 
 use std::sync::Arc;
 
@@ -15,8 +16,10 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 
 use crate::auth_context;
+use crate::dns::authoritative::AuthoritativeView;
 use crate::dns::server::DnsServer;
 use crate::dns::service::DnsService;
+use crate::dns_local::DnsLocalService;
 use crate::event::EventPublisher;
 
 pub struct DnsRunner {
@@ -28,6 +31,7 @@ impl DnsRunner {
     pub fn start(
         service: Arc<dyn DnsService>,
         server: Arc<dyn DnsServer>,
+        dns_local: Arc<dyn DnsLocalService>,
         events: &dyn EventPublisher,
         parent: &tracing::Span,
     ) -> Self {
@@ -35,8 +39,9 @@ impl DnsRunner {
         let span = tracing::info_span!(parent: parent, "dns_runner");
         let event_rx = events.subscribe();
 
-        let handle =
-            tokio::spawn(runner_loop(service, server, event_rx, cancel.clone()).instrument(span));
+        let handle = tokio::spawn(
+            runner_loop(service, server, dns_local, event_rx, cancel.clone()).instrument(span),
+        );
 
         Self { cancel, handle }
     }
@@ -48,9 +53,41 @@ impl DnsRunner {
     }
 }
 
+/// Build an `AuthoritativeView` from the local-DNS service.
+///
+/// `DnsLocalService` is auth-gated, so each read runs under an admin
+/// [`auth_context`] just like the other background runners. Errors are logged
+/// and result in an empty view so the server can still start.
+async fn build_authoritative_view(
+    service: &Arc<dyn DnsLocalService>,
+    admin_ctx: &AuthContext,
+) -> AuthoritativeView {
+    let (zones, records, rules) = tokio::join!(
+        auth_context::with_context(admin_ctx.clone(), service.list_zones()),
+        auth_context::with_context(admin_ctx.clone(), service.list_records()),
+        auth_context::with_context(admin_ctx.clone(), service.list_forwarding_rules()),
+    );
+    match (zones, records, rules) {
+        (Ok(z), Ok(r), Ok(ru)) => AuthoritativeView::build(&z.zones, r.records, ru.rules),
+        (zones, records, rules) => {
+            if let Err(e) = &zones {
+                tracing::error!(error = %e, "failed to load DNS zones for authoritative view");
+            }
+            if let Err(e) = &records {
+                tracing::error!(error = %e, "failed to load DNS records for authoritative view");
+            }
+            if let Err(e) = &rules {
+                tracing::error!(error = %e, "failed to load DNS forwarding rules for authoritative view");
+            }
+            AuthoritativeView::empty()
+        }
+    }
+}
+
 async fn runner_loop(
     service: Arc<dyn DnsService>,
     server: Arc<dyn DnsServer>,
+    dns_local: Arc<dyn DnsLocalService>,
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
 ) {
@@ -73,6 +110,11 @@ async fn runner_loop(
             tracing::error!(error = %e, "failed to load DNS config on startup");
         }
     }
+
+    // Load the initial authoritative view so local records are served from the
+    // very first query — before any DnsLocalChanged event fires.
+    let initial_view = build_authoritative_view(&dns_local, &admin_ctx).await;
+    server.update_authoritative_view(initial_view).await;
 
     loop {
         tokio::select! {
@@ -102,6 +144,19 @@ async fn runner_loop(
                             }
                         }
                     }
+                    Ok(WardnetEvent::DnsLocalChanged { domain, .. }) => {
+                        let view = build_authoritative_view(&dns_local, &admin_ctx).await;
+                        server.update_authoritative_view(view).await;
+                        if let Some(ref d) = domain {
+                            server.invalidate_domain(d).await;
+                            tracing::debug!(
+                                domain = %d,
+                                "rebuilt authoritative view and evicted domain cache"
+                            );
+                        } else {
+                            tracing::debug!("rebuilt authoritative view (zone-level change)");
+                        }
+                    }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(skipped = n, "DNS runner lagged behind event bus");
@@ -119,3 +174,6 @@ async fn runner_loop(
         tracing::error!(error = %e, "failed to stop DNS server during shutdown");
     }
 }
+
+#[cfg(test)]
+mod tests;

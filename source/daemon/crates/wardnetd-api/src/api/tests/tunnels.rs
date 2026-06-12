@@ -20,8 +20,8 @@ use wardnet_common::tunnel::{Tunnel, TunnelStatus};
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
-    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubProviderService,
-    StubRoutingService, StubSystemService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubProviderService, StubRoutingService, StubSystemService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -261,6 +261,9 @@ fn build_state(tunnel_svc: impl TunnelService + 'static) -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

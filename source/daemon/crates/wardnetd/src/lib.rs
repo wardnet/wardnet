@@ -19,6 +19,10 @@ pub mod dns;
 // Host-power operations (systemctl reboot/poweroff).
 pub mod system;
 
+// Daemon-owned TLS termination: :443 RustlsConfig + hot cert reload, :80→:443
+// redirect, and the 503 "not provisioned" guard.
+pub mod tls_server;
+
 // Background tasks.
 pub mod device_detector;
 pub mod garp_learning;

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use sqlx::MySqlPool;
+use sqlx::PgPool;
 
 use crate::db::DbPools;
 
@@ -29,13 +29,16 @@ pub struct Install {
     pub ip: Option<String>,
     /// Cloudflare DNS record ID for the A record; `None` until created.
     pub cf_a_record_id: Option<String>,
-    /// Cloudflare DNS record ID for the active ACME TXT record; `None` when no challenge is live.
-    pub cf_acme_record_id: Option<String>,
+    /// Cloudflare DNS record IDs for the active ACME TXT records — one per
+    /// challenge value. Empty when no challenge is live. A **per-user wildcard
+    /// certificate** (#540) publishes two values at the one `_acme-challenge`
+    /// name simultaneously, so this is a list, not a single id.
+    pub cf_acme_record_ids: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-/// Raw `MySQL` row — used for `sqlx::query_as` mapping.
+/// Raw `PostgreSQL` row — used for `sqlx::query_as` mapping.
 #[derive(sqlx::FromRow)]
 struct InstallRow {
     id: String,
@@ -44,7 +47,7 @@ struct InstallRow {
     token_hash: String,
     ip: Option<String>,
     cf_a_record_id: Option<String>,
-    cf_acme_record_id: Option<String>,
+    cf_acme_record_ids: Vec<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -71,21 +74,21 @@ impl InstallRow {
             token_hash: self.token_hash,
             ip: self.ip,
             cf_a_record_id: self.cf_a_record_id,
-            cf_acme_record_id: self.cf_acme_record_id,
+            cf_acme_record_ids: self.cf_acme_record_ids,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
     }
 }
 
-const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE id = ?";
+const FIND_BY_ID: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
+     created_at, updated_at FROM installs WHERE id = $1";
 
-const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE name = ?";
+const FIND_BY_NAME: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
+     created_at, updated_at FROM installs WHERE name = $1";
 
-const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id, \
-     created_at, updated_at FROM installs WHERE token_hash = ?";
+const FIND_BY_TOKEN_HASH: &str = "SELECT id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids, \
+     created_at, updated_at FROM installs WHERE token_hash = $1";
 
 /// Data access for the `installs` and `registration_log` tables.
 ///
@@ -114,18 +117,25 @@ pub trait InstallRepository: Send + Sync {
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
-    /// Update (or clear) the Cloudflare ACME TXT-record ID.
+    /// Replace the list of Cloudflare ACME TXT-record IDs.
     ///
-    /// Pass `None` to clear the field after the TXT record has been deleted.
-    async fn update_acme_record(
+    /// Pass an empty slice to clear the field after the TXT records have been
+    /// deleted. The list is replaced wholesale — a **per-user wildcard
+    /// certificate** publishes more than one TXT value at once.
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
     /// Delete an installation record.
     async fn delete(&self, id: &str) -> anyhow::Result<()>;
+
+    /// Delete multiple installation records by ID in a single statement.
+    /// Used by the reservation sweep to clean regional install orphans in one
+    /// round-trip rather than one query per swept reservation.
+    async fn delete_many(&self, ids: &[String]) -> anyhow::Result<()>;
 
     /// Count how many registrations have been attempted from `remote_ip` since `since`.
     async fn count_registrations_from_ip(
@@ -142,15 +152,15 @@ pub trait InstallRepository: Send + Sync {
     ) -> anyhow::Result<()>;
 }
 
-/// MySQL-backed [`InstallRepository`].
-pub struct MySqlInstallRepository {
+/// PostgreSQL-backed [`InstallRepository`].
+pub struct PgInstallRepository {
     pools: DbPools,
 }
 
-impl MySqlInstallRepository {
+impl PgInstallRepository {
     /// Create a repository backed by a single pool (tests).
     #[must_use]
-    pub fn new(pool: MySqlPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self {
             pools: DbPools::single(pool),
         }
@@ -164,7 +174,7 @@ impl MySqlInstallRepository {
 }
 
 #[async_trait]
-impl InstallRepository for MySqlInstallRepository {
+impl InstallRepository for PgInstallRepository {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Install>> {
         sqlx::query_as::<_, InstallRow>(FIND_BY_ID)
             .bind(id)
@@ -195,9 +205,9 @@ impl InstallRepository for MySqlInstallRepository {
     async fn insert(&self, install: &Install) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO installs
-             (id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_id,
+             (id, name, public_key, token_hash, ip, cf_a_record_id, cf_acme_record_ids,
               created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(&install.id)
         .bind(&install.name)
@@ -205,7 +215,7 @@ impl InstallRepository for MySqlInstallRepository {
         .bind(&install.token_hash)
         .bind(&install.ip)
         .bind(&install.cf_a_record_id)
-        .bind(&install.cf_acme_record_id)
+        .bind(&install.cf_acme_record_ids)
         .bind(install.created_at)
         .bind(install.updated_at)
         .execute(&self.pools.write)
@@ -220,24 +230,26 @@ impl InstallRepository for MySqlInstallRepository {
         cf_a_record_id: &str,
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE installs SET ip = ?, cf_a_record_id = ?, updated_at = ? WHERE id = ?")
-            .bind(ip)
-            .bind(cf_a_record_id)
-            .bind(updated_at)
-            .bind(id)
-            .execute(&self.pools.write)
-            .await?;
+        sqlx::query(
+            "UPDATE installs SET ip = $1, cf_a_record_id = $2, updated_at = $3 WHERE id = $4",
+        )
+        .bind(ip)
+        .bind(cf_a_record_id)
+        .bind(updated_at)
+        .bind(id)
+        .execute(&self.pools.write)
+        .await?;
         Ok(())
     }
 
-    async fn update_acme_record(
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE installs SET cf_acme_record_id = ?, updated_at = ? WHERE id = ?")
-            .bind(cf_acme_record_id)
+        sqlx::query("UPDATE installs SET cf_acme_record_ids = $1, updated_at = $2 WHERE id = $3")
+            .bind(cf_acme_record_ids)
             .bind(updated_at)
             .bind(id)
             .execute(&self.pools.write)
@@ -246,8 +258,19 @@ impl InstallRepository for MySqlInstallRepository {
     }
 
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM installs WHERE id = ?")
+        sqlx::query("DELETE FROM installs WHERE id = $1")
             .bind(id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_many(&self, ids: &[String]) -> anyhow::Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM installs WHERE id = ANY($1)")
+            .bind(ids)
             .execute(&self.pools.write)
             .await?;
         Ok(())
@@ -259,7 +282,7 @@ impl InstallRepository for MySqlInstallRepository {
         since: DateTime<Utc>,
     ) -> anyhow::Result<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM registration_log WHERE remote_ip = ? AND created_at > ?",
+            "SELECT COUNT(*) FROM registration_log WHERE remote_ip = $1 AND created_at > $2",
         )
         .bind(remote_ip)
         .bind(since)
@@ -273,7 +296,7 @@ impl InstallRepository for MySqlInstallRepository {
         remote_ip: &str,
         created_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
-        sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES (?, ?)")
+        sqlx::query("INSERT INTO registration_log (remote_ip, created_at) VALUES ($1, $2)")
             .bind(remote_ip)
             .bind(created_at)
             .execute(&self.pools.write)

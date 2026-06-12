@@ -5,8 +5,10 @@ import {
   Archive,
   Cable,
   Globe,
+  GlobeLock,
   LayoutGrid,
   Monitor,
+  Network,
   Power,
   Router,
   Settings as SettingsIcon,
@@ -52,6 +54,7 @@ const adminSections: NavSection[] = [
     heading: "Resolver",
     items: [
       { to: "/dns", label: "DNS", icon: Globe, end: true },
+      { to: "/dns/local", label: "Local DNS", icon: Network },
       { to: "/dns/filter", label: "DNS Filtering", icon: ShieldCheck },
     ],
   },
@@ -59,6 +62,7 @@ const adminSections: NavSection[] = [
     heading: "System",
     items: [
       { to: "/settings", label: "Settings", icon: SettingsIcon },
+      { to: "/remote-access", label: "Remote access", icon: GlobeLock },
       { to: "/backups", label: "Backups", icon: Archive },
       { to: "/power", label: "Power", icon: Power },
     ],

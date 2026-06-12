@@ -114,6 +114,9 @@ impl SystemConfigRepository for MockSystemConfigRepo {
     async fn set(&self, _key: &str, _value: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn delete(&self, _key: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn device_count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }

@@ -5,8 +5,9 @@ use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
-    AllowlistEntry, Blocklist, CustomFilterRule, DnsConfig, DnsProtocol, DnsQueryLogEntry,
-    DnsQueryResult, UpstreamDns,
+    AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
+    DnsZone, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
@@ -309,10 +310,15 @@ pub struct UpdateDeviceRequest {
 /// Linear stage in the first-run setup wizard.
 ///
 /// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
-/// → Completed`. `setup_completed` (in [`SetupStatusResponse`] and the
-/// `SetupGuard` redirect logic) is derived from `wizard_step == Completed`,
-/// so existing installs that already finished setup are not re-routed
-/// through the new wizard after an upgrade.
+/// → RemoteAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]
+/// and the `SetupGuard` redirect logic) is derived from
+/// `wizard_step == Completed`, so existing installs that already finished
+/// setup are not re-routed through the new wizard after an upgrade.
+///
+/// Steps are persisted by their stable storage string (not their ordinal), so
+/// inserting [`Self::RemoteAccess`] ahead of [`Self::Completed`] needs no
+/// migration: finished installs (`"completed"`) and in-progress ones keep
+/// resolving to the same variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WizardStep {
@@ -328,7 +334,10 @@ pub enum WizardStep {
     Tunnel,
     /// Step 6 — pick the global default routing policy.
     Policy,
-    /// Step 7 — wizard finished; the dashboard takes over.
+    /// Step 7 — enable remote access (HTTPS): register a public hostname via
+    /// the bridge or BYOD-Cloudflare and issue a certificate. Skippable.
+    RemoteAccess,
+    /// Step 8 — wizard finished; the dashboard takes over.
     Completed,
 }
 
@@ -355,6 +364,7 @@ impl WizardStep {
             Self::RouterMac => "router_mac",
             Self::Tunnel => "tunnel",
             Self::Policy => "policy",
+            Self::RemoteAccess => "remote_access",
             Self::Completed => "completed",
         }
     }
@@ -372,6 +382,7 @@ impl WizardStep {
             "router_mac" => Self::RouterMac,
             "tunnel" => Self::Tunnel,
             "policy" => Self::Policy,
+            "remote_access" => Self::RemoteAccess,
             "completed" => Self::Completed,
             _ => Self::Admin,
         }
@@ -387,7 +398,8 @@ impl WizardStep {
             Self::RouterMac => 3,
             Self::Tunnel => 4,
             Self::Policy => 5,
-            Self::Completed => 6,
+            Self::RemoteAccess => 6,
+            Self::Completed => 7,
         }
     }
 }
@@ -456,6 +468,114 @@ pub struct SetupRequest {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetDefaultPolicyRequest {
     pub policy: String,
+}
+
+// ── Remote access: DDNS + TLS (issues #527–#530) ─────────────────────────────
+
+/// Response for `GET /api/ddns/check`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsCheckResponse {
+    /// `true` when the name is well-formed and unclaimed on the best bridge.
+    pub available: bool,
+}
+
+/// Request body for `POST /api/ddns/register` (bridge provider).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsRegisterRequest {
+    /// The short name to claim, e.g. `happy-einstein`. The bridge validates it
+    /// (3–32 chars, `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
+    pub name: String,
+}
+
+/// Request body for `POST /api/ddns/cloudflare` (BYOD provider).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ConfigureCloudflareRequest {
+    /// A Cloudflare API token scoped to DNS:Edit on the domain's zone.
+    pub token: String,
+    /// The fully-qualified domain the operator controls, e.g. `home.example.com`.
+    pub domain: String,
+}
+
+/// Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsRegisterResponse {
+    /// The public hostname now assigned to this installation.
+    pub fqdn: String,
+    /// The bridge region label (display only); `None` for BYOD-Cloudflare.
+    pub region: Option<String>,
+}
+
+/// Response for `GET /api/ddns/status`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsStatusResponse {
+    /// `None` when DDNS is not configured; otherwise `"bridge"` or `"cloudflare"`.
+    pub provider: Option<String>,
+    /// The active public hostname (bridge subdomain or BYOD domain), if any.
+    pub fqdn: Option<String>,
+    /// The IP last published by the daemon, if any.
+    pub last_public_ip: Option<String>,
+}
+
+/// Verdict of the external [resolution check](DdnsResolutionCheckResponse):
+/// whether the *public* internet resolves the canonical FQDN to the IP the
+/// daemon last published. Deliberately bypasses the local split-horizon override.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DdnsResolutionVerdict {
+    /// DDNS is not configured — there is nothing to resolve.
+    NotConfigured,
+    /// Public DNS resolves the FQDN to the published IP — propagation complete.
+    Match,
+    /// Public DNS resolves the FQDN, but to a different IP (stale record or a
+    /// recent WAN-IP change not yet propagated).
+    Mismatch,
+    /// No A record is visible publicly yet — the normal state during the
+    /// propagation window right after registration.
+    Pending,
+}
+
+/// Response for `GET /api/ddns/resolution-check`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsResolutionCheckResponse {
+    /// Overall verdict.
+    pub verdict: DdnsResolutionVerdict,
+    /// The canonical FQDN that was queried, if DDNS is configured.
+    pub fqdn: Option<String>,
+    /// The IP the daemon last published (the value public DNS is expected to
+    /// return), if any.
+    pub expected_ip: Option<String>,
+    /// The A records the external resolver actually returned for `fqdn`.
+    pub resolved_ips: Vec<String>,
+}
+
+/// Coarse stage of the daemon's TLS-certificate provisioning, surfaced so the
+/// setup wizard and dashboard can show live progress without instrumenting the
+/// ACME round-trip. Persisted in `system_config`, so it survives a restart.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsProvisioningPhase {
+    /// No issuance has been attempted (DDNS unconfigured or freshly installed).
+    Idle,
+    /// Issuance is in flight (publishing the ACME challenge / awaiting the CA).
+    Issuing,
+    /// A certificate is live for the active domain.
+    Issued,
+    /// The last issuance attempt failed; see [`TlsStatusResponse::error`].
+    Failed,
+}
+
+/// Response for `GET /api/tls/status`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TlsStatusResponse {
+    /// Current coarse provisioning phase.
+    pub phase: TlsProvisioningPhase,
+    /// The domain being (or already) provisioned, if any.
+    pub domain: Option<String>,
+    /// RFC 3339 expiry of the stored certificate, when one has been issued.
+    pub not_after: Option<String>,
+    /// Human-readable error from the last failed attempt, when `phase` is
+    /// [`TlsProvisioningPhase::Failed`].
+    pub error: Option<String>,
 }
 
 /// How the LAN interface acquired its current IP address.
@@ -1276,4 +1396,208 @@ pub struct DnsCaptureSettingsResponse {
     pub cap_days: i64,
     pub row_count: i64,
     pub size_bytes: i64,
+}
+
+// ===========================================================================
+// Local DNS — authoritative zones, custom records, forwarding rules (issue
+// #217). CRUD surface under /api/dns/local/..., parallel to /api/dns/filter.
+// Resolver lookup and upsert are deferred to later chunks; these are plain
+// CRUD DTOs over the C1 `DnsLocalRepository`.
+// ===========================================================================
+
+// --- Zones -----------------------------------------------------------------
+
+/// Response for GET /api/dns/local/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListZonesResponse {
+    pub zones: Vec<DnsZone>,
+}
+
+/// Response for GET /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetZoneResponse {
+    pub zone: DnsZone,
+}
+
+/// Request body for POST /api/dns/local/zones.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneRequest {
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/dns/local/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneResponse {
+    pub zone: DnsZone,
+    pub message: String,
+}
+
+/// Request body for PUT /api/dns/local/zones/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneResponse {
+    pub zone: DnsZone,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteZoneResponse {
+    pub message: String,
+}
+
+// --- Records ---------------------------------------------------------------
+
+/// Response for GET /api/dns/local/records and
+/// GET /api/dns/local/zones/{id}/records.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListRecordsResponse {
+    pub records: Vec<CustomDnsRecord>,
+}
+
+/// Response for GET /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetRecordResponse {
+    pub record: CustomDnsRecord,
+}
+
+/// Request body for POST /api/dns/local/records.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRecordRequest {
+    /// Optional owning zone. `null`/omitted creates an unzoned record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_id: Option<Uuid>,
+    pub domain: String,
+    pub record_type: DnsRecordType,
+    pub value: String,
+    pub ttl: u32,
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/dns/local/records/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRecordRequest {
+    /// Three-state: omitted = leave zone link unchanged, `null` = clear to
+    /// NULL (unzoned), value = reassign. See [`crate::serde_util::nullable_field`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_field"
+    )]
+    #[schema(value_type = Option<Uuid>)]
+    pub zone_id: Option<Option<Uuid>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_type: Option<DnsRecordType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for POST /api/dns/local/records.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRecordResponse {
+    pub record: CustomDnsRecord,
+    pub message: String,
+}
+
+/// Response for PUT /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRecordResponse {
+    pub record: CustomDnsRecord,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/records/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteRecordResponse {
+    pub message: String,
+}
+
+/// Insert-or-update request for a custom record keyed on
+/// `(domain, record_type)`. Used internally by the DHCP `.lan`
+/// auto-registration runner — not exposed as an HTTP endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpsertRecordRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_id: Option<Uuid>,
+    pub domain: String,
+    pub record_type: DnsRecordType,
+    pub value: String,
+    pub ttl: u32,
+    pub enabled: bool,
+    pub source: DnsRecordSource,
+}
+
+/// Response for an upsert of a custom record.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpsertRecordResponse {
+    pub record: CustomDnsRecord,
+    pub message: String,
+}
+
+// --- Forwarding rules ------------------------------------------------------
+
+/// Response for GET /api/dns/local/forwarding.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListForwardingRulesResponse {
+    pub rules: Vec<ConditionalForwardingRule>,
+}
+
+/// Response for GET /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+}
+
+/// Request body for POST /api/dns/local/forwarding.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateForwardingRuleRequest {
+    pub domain: String,
+    pub upstream: String,
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/dns/local/forwarding/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateForwardingRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for POST /api/dns/local/forwarding.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+    pub message: String,
+}
+
+/// Response for PUT /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateForwardingRuleResponse {
+    pub rule: ConditionalForwardingRule,
+    pub message: String,
+}
+
+/// Response for DELETE /api/dns/local/forwarding/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteForwardingRuleResponse {
+    pub message: String,
 }

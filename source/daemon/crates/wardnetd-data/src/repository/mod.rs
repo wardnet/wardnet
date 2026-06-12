@@ -5,6 +5,7 @@ pub mod dhcp;
 pub mod dns;
 pub mod dns_events;
 pub mod dns_filter;
+pub mod dns_local;
 pub mod maintenance;
 pub mod session;
 pub mod sqlite;
@@ -23,13 +24,18 @@ pub use dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,
 };
+pub use dns_local::{
+    DnsLocalRepository, RecordRow, RecordUpdate, RuleRow, RuleUpdate, UpsertRecordRow, ZoneRow,
+    ZoneUpdate,
+};
 pub use maintenance::MaintenanceRepository;
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsRepository,
-    SqliteMaintenanceRepository, SqliteSessionRepository, SqliteStatsRepository,
-    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteUpdateRepository,
+    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
+    SqliteDnsRepository, SqliteMaintenanceRepository, SqliteSessionRepository,
+    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteUpdateRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};

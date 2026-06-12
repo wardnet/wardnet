@@ -64,15 +64,15 @@ function parseDate(
   return d;
 }
 
-/** YYYY-MM-DD (local time). Used everywhere a date column needs to
- *  read identically across locales — single source of truth for the
- *  date half of the app's date/time format. */
+/** YYYY.MM.DD (local time). Used everywhere a date is shown so it reads
+ *  identically across locales — single source of truth for the date half of
+ *  the app's date/time format (matches the CalVer dotted style). */
 export function formatDate(
   value: Date | string | number | null | undefined,
 ): string {
   const d = parseDate(value);
   if (!d) return "—";
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
 }
 
 /** HH:MM:SS in 24-hour clock (local time). */
@@ -94,7 +94,7 @@ export function formatTimeShort(
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** YYYY-MM-DD HH:MM:SS (local time, 24-hour). The default for any
+/** YYYY.MM.DD HH:MM:SS (local time, 24-hour). The default for any
  *  "show me when this happened" cell — keeps every row the same
  *  width and avoids the AM/PM that broke the UpdateCard layout on
  *  iPhone widths. */

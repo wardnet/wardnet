@@ -5,6 +5,7 @@ mod dhcp;
 mod dns;
 mod dns_events;
 mod dns_filter;
+mod dns_local;
 mod session;
 mod stats;
 mod system_config;

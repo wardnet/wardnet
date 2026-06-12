@@ -87,3 +87,27 @@ fn no_xff_uses_peer_ip() {
     let ip = client_ip(&HeaderMap::new(), loopback_addr());
     assert_eq!(ip, "127.0.0.1");
 }
+
+/// Behind the L4 proxy the listener injects the PROXY-supplied client address as
+/// `ConnectInfo` (a non-loopback peer), so two distinct real clients key the
+/// per-IP rate limit independently and neither can spoof the other via a forged
+/// `X-Forwarded-For`. This is the property that keeps the registration limits
+/// per-client rather than collapsing to the proxy's single address.
+#[test]
+fn proxy_supplied_ips_are_independent_and_unspoofable() {
+    let client_a = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)), 51000);
+    let client_b = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)), 51000);
+
+    // Each real client keys on its own (proxy-supplied) address …
+    let key_a = client_ip(&HeaderMap::new(), client_a);
+    let key_b = client_ip(&HeaderMap::new(), client_b);
+    assert_eq!(key_a, "203.0.113.7");
+    assert_eq!(key_b, "198.51.100.9");
+    assert_ne!(
+        key_a, key_b,
+        "distinct clients must get distinct rate-limit keys"
+    );
+
+    // … and a forged X-Forwarded-For cannot collapse them onto one budget.
+    assert_eq!(client_ip(&xff("203.0.113.7"), client_b), "198.51.100.9");
+}

@@ -20,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_api::state::AppState;
 use wardnetd_data::create_repository_factory;
+use wardnetd_mock::backends::noop_cert_activator::NoopCertActivator;
 use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
@@ -29,6 +30,9 @@ use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
+use wardnetd_mock::backends::noop_remote_access::{
+    MockDdnsService, MockRemoteAccessState, MockTlsService,
+};
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
@@ -243,6 +247,7 @@ async fn run(
         }),
         network_probe: Arc::new(NoopNetworkProbe),
         garp_ops: Arc::new(NoopGarpOps),
+        cert_activator: Arc::new(NoopCertActivator),
     };
 
     let services = init_services_with_factory(
@@ -262,6 +267,18 @@ async fn run(
     let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> =
         Arc::new(NoopDnsServer::default());
 
+    // Remote access (DDNS + TLS): swap in the stateful in-memory mock so the UI's
+    // HTTPS/DDNS flow — registration, the issuing→issued progress, the resolution
+    // check, and teardown — works fully offline (no real bridge / Cloudflare /
+    // Let's Encrypt). The real services from `init_services_with_factory` would
+    // reach out to live upstreams; we discard them here. See
+    // `backends::noop_remote_access`.
+    let remote_access_state = MockRemoteAccessState::new();
+    let mock_ddns: Arc<dyn wardnetd_services::ddns::DdnsService> =
+        Arc::new(MockDdnsService::new(remote_access_state.clone()));
+    let mock_tls: Arc<dyn wardnetd_services::tls::TlsService> =
+        Arc::new(MockTlsService::new(remote_access_state.clone()));
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -269,6 +286,9 @@ async fn run(
         services.dhcp.clone(),
         services.dns.clone(),
         services.dns_filter.clone(),
+        services.dns_local.clone(),
+        mock_ddns,
+        mock_tls,
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),
@@ -293,13 +313,12 @@ async fn run(
         .expect("dns log persist rx taken twice");
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
-        services.dns_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &tracing::Span::current(),
     );
     let db_maintenance_runner =
-        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &tracing::Span::current());
+        DbMaintenanceRunner::start(services.maintenance.clone(), &tracing::Span::current());
 
     // Drain the in-memory stats buffer into stats_intraday so the fake DNS
     // queries emitted by FakeEventEmitter show up in the live stats charts.

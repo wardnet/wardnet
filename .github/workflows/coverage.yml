@@ -87,17 +87,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        image: postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: root
+          POSTGRES_PASSWORD: postgres
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
+      pebble:
+        image: ghcr.io/letsencrypt/pebble
+        env:
+          PEBBLE_VA_ALWAYS_VALID: "1"
+          PEBBLE_VA_NOSLEEP: "1"
+        ports:
+          - 14000:14000
+          - 15000:15000
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -125,9 +133,17 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Extract pebble WFE CA cert
+        # The WFE's HTTPS listener cert is signed by the static minica CA
+        # baked into the image, NOT by the issuance root served at
+        # /roots/0. docker cp works on the scratch-based image (no shell).
+        run: docker cp ${{ job.services.pebble.id }}:/test/certs/pebble.minica.pem /tmp/pebble-wfe-ca.pem
+
       - name: Generate bridge coverage + test results
         env:
-          BRIDGE_TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306
+          BRIDGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432
+          BRIDGE_TEST_PEBBLE_URL: https://localhost:14000/dir
+          BRIDGE_TEST_PEBBLE_CA: /tmp/pebble-wfe-ca.pem
         run: |
           mkdir -p coverage
           make coverage-bridge-ci \

@@ -42,7 +42,7 @@ export default function Step6Policy() {
 
   async function handleContinue() {
     await setDefault.mutateAsync(targetToPolicy(target));
-    await advance.mutateAsync({ to_step: "completed" });
+    await advance.mutateAsync({ to_step: "remote_access" });
   }
 
   return (

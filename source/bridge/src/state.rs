@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::db::DbPools;
 use crate::dns_provider::DnsProvider;
 use crate::replay_cache::ReplayCache;
-use crate::repository::{ChallengeRepository, InstallRepository};
+use crate::repository::{ChallengeRepository, InstallRepository, NameRepository};
 use crate::tunnel::TunnelRegistry;
 
 /// Shared application state injected into every Axum handler via
@@ -17,6 +17,8 @@ pub struct AppState(Arc<Inner>);
 struct Inner {
     config: Config,
     installs: Arc<dyn InstallRepository>,
+    /// Global naming authority — vanity-slug allocation across the fleet.
+    names: Arc<dyn NameRepository>,
     challenges: Arc<dyn ChallengeRepository>,
     dns: Arc<dyn DnsProvider>,
     /// In-memory replay-prevention cache.
@@ -34,6 +36,7 @@ impl AppState {
         config: Config,
         _db: DbPools,
         installs: Arc<dyn InstallRepository>,
+        names: Arc<dyn NameRepository>,
         challenges: Arc<dyn ChallengeRepository>,
         dns: Arc<dyn DnsProvider>,
         tunnel_registry: Arc<TunnelRegistry>,
@@ -41,6 +44,7 @@ impl AppState {
         Self(Arc::new(Inner {
             config,
             installs,
+            names,
             challenges,
             dns,
             replay_cache: Arc::new(ReplayCache::new()),
@@ -56,6 +60,11 @@ impl AppState {
     #[must_use]
     pub fn installs(&self) -> &dyn InstallRepository {
         &*self.0.installs
+    }
+
+    #[must_use]
+    pub fn names(&self) -> &dyn NameRepository {
+        &*self.0.names
     }
 
     #[must_use]

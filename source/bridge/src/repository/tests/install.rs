@@ -1,19 +1,20 @@
 use chrono::Utc;
 
 use crate::db::DbPools;
-use crate::repository::install::{Install, InstallRepository, MySqlInstallRepository};
+use crate::repository::install::{Install, InstallRepository, PgInstallRepository};
 use crate::test_helpers::test_pool;
 
-/// `new()` is a trivial one-liner; call it once without `MySQL` so it shows covered.
+/// `new()` is a trivial one-liner; call it once without `Postgres` so it shows covered.
 #[tokio::test]
 async fn new_from_lazy_pool() {
-    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy").unwrap();
-    let _ = MySqlInstallRepository::new(pool);
+    let pool =
+        sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/dummy").unwrap();
+    let _ = PgInstallRepository::new(pool);
 }
 
-async fn repo() -> MySqlInstallRepository {
+async fn repo() -> PgInstallRepository {
     let pool = test_pool().await;
-    MySqlInstallRepository::new_pools(DbPools::single(pool))
+    PgInstallRepository::new_pools(DbPools::single(pool))
 }
 
 const TEST_PUBLIC_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -28,14 +29,14 @@ fn sample_install(id: &str, name: &str) -> Install {
         token_hash: format!("hash_{id}"),
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     }
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn insert_and_find_by_id() {
     let repo = repo().await;
     let install = sample_install("id-1", "happy-einstein");
@@ -51,7 +52,7 @@ async fn insert_and_find_by_id() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_by_name() {
     let repo = repo().await;
     repo.insert(&sample_install("id-2", "brave-newton"))
@@ -67,7 +68,7 @@ async fn find_by_name() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_by_token_hash() {
     let repo = repo().await;
     repo.insert(&sample_install("id-3", "calm-darwin"))
@@ -83,14 +84,14 @@ async fn find_by_token_hash() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn find_missing_returns_none() {
     let repo = repo().await;
     assert!(repo.find_by_id("no-such-id").await.unwrap().is_none());
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn update_ip() {
     let repo = repo().await;
     repo.insert(&sample_install("id-4", "eager-curie"))
@@ -106,29 +107,40 @@ async fn update_ip() {
     assert_eq!(found.cf_a_record_id.as_deref(), Some("cf-record-abc"));
 }
 
+/// Round-trip the `cf_acme_record_ids` `TEXT[]` list: a fresh install starts
+/// empty, takes a multi-value list (as a per-user wildcard challenge would), and
+/// clears back to empty. The runtime `TEXT[]` ↔ `Vec<String>` mapping is invisible
+/// to compilation, so this live-DB test is the real gate on the column change.
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
-async fn update_acme_record_set_and_clear() {
+#[ignore = "requires Postgres (docker compose up -d)"]
+async fn set_acme_records_round_trip() {
     let repo = repo().await;
     repo.insert(&sample_install("id-5", "fair-turing"))
         .await
         .unwrap();
 
-    repo.update_acme_record("id-5", Some("cf-txt-xyz"), Utc::now())
-        .await
-        .unwrap();
+    // Fresh install: empty list, not null.
     let found = repo.find_by_id("id-5").await.unwrap().unwrap();
-    assert_eq!(found.cf_acme_record_id.as_deref(), Some("cf-txt-xyz"));
+    assert!(found.cf_acme_record_ids.is_empty());
 
-    repo.update_acme_record("id-5", None, Utc::now())
+    // Set two records (apex + wildcard SAN).
+    let ids = vec!["cf-txt-apex".to_string(), "cf-txt-wildcard".to_string()];
+    repo.set_acme_records("id-5", &ids, Utc::now())
         .await
         .unwrap();
     let found = repo.find_by_id("id-5").await.unwrap().unwrap();
-    assert!(found.cf_acme_record_id.is_none());
+    assert_eq!(found.cf_acme_record_ids, ids);
+
+    // Clear back to empty.
+    repo.set_acme_records("id-5", &[], Utc::now())
+        .await
+        .unwrap();
+    let found = repo.find_by_id("id-5").await.unwrap().unwrap();
+    assert!(found.cf_acme_record_ids.is_empty());
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn delete() {
     let repo = repo().await;
     repo.insert(&sample_install("id-6", "gentle-tesla"))
@@ -140,7 +152,7 @@ async fn delete() {
 }
 
 #[tokio::test]
-#[ignore = "requires MySQL (docker compose up -d)"]
+#[ignore = "requires Postgres (docker compose up -d)"]
 async fn registration_rate_limit_log() {
     let repo = repo().await;
 

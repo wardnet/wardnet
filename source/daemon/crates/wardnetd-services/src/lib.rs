@@ -12,14 +12,18 @@ pub mod version;
 
 pub mod auth;
 pub mod backup;
+pub mod ddns;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
+pub mod dns_local;
 pub mod garp;
 pub mod logging;
+pub mod maintenance;
 pub mod routing;
 pub mod system;
+pub mod tls;
 pub mod tunnel;
 pub mod update;
 pub mod vpn;
@@ -44,33 +48,41 @@ use crate::stats::service::StatsServiceImpl;
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
 use crate::backup::archiver::AgeArchiver;
+use crate::ddns::DdnsServiceImpl;
 use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
 use crate::dns::DnsServiceImpl;
 use crate::dns_filter::DnsFilterServiceImpl;
+use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::system::SystemServiceImpl;
+use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
+pub use crate::ddns::DdnsService;
 pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult};
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
 pub use crate::dns_filter::DnsFilterService;
+pub use crate::dns_local::DnsLocalService;
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
+pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::routing::RoutingService;
 pub use crate::stats::{
     DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
     StatsService,
 };
 pub use crate::system::SystemService;
+pub use crate::tls::runner::TlsRenewalRunner;
+pub use crate::tls::{CertActivator, TlsService, TlsStatus};
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
 pub use crate::vpn::VpnProviderService;
@@ -129,6 +141,12 @@ pub struct Backends {
     /// `pnet` to send the farewell/claim sequences; the mock is a
     /// logging no-op. See [`garp::GarpOps`] and issue #213.
     pub garp_ops: Arc<dyn garp::GarpOps>,
+    /// Hot-swaps the live `:443` certificate. Real impl in `wardnetd` wraps the
+    /// `axum-server` `RustlsConfig` + `provisioned` flag; the mock is a no-op.
+    /// Injected here (rather than constructed in `create_services`) so the
+    /// serving stack — and thus `axum-server` — stays out of this crate. See
+    /// [`tls::CertActivator`].
+    pub cert_activator: Arc<dyn tls::CertActivator>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,
@@ -148,6 +166,13 @@ pub struct Services {
     pub dhcp: Arc<dyn DhcpService>,
     pub dns: Arc<dyn DnsService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
+    pub dns_local: Arc<dyn DnsLocalService>,
+    /// Dynamic-DNS service: registers/keeps the public A record current via the
+    /// active provider (bridge or BYOD Cloudflare). Driven by `DdnsUpdateRunner`.
+    pub ddns: Arc<dyn DdnsService>,
+    /// Daemon-owned TLS: ACME issuance/renewal + live-cert hot-swap. Driven by
+    /// `TlsRenewalRunner`; also called by the wizard (C9) and Settings (C10).
+    pub tls: Arc<dyn TlsService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
@@ -160,10 +185,10 @@ pub struct Services {
     pub device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
-    /// Cross-cutting DB maintenance (incremental vacuum etc.). Exposed
-    /// here so the DNS query-log cleanup runner can release freed
-    /// pages back to the filesystem after retention deletes.
-    pub maintenance_repo: Arc<dyn wardnetd_data::repository::MaintenanceRepository>,
+    /// Cross-cutting DB maintenance (incremental vacuum etc.) as an
+    /// auth-gated service, so `DbMaintenanceRunner` calls it under an admin
+    /// context rather than holding the repository directly.
+    pub maintenance: Arc<dyn MaintenanceService>,
     /// Tunnel repository — exposed so the DNS server can resolve
     /// `UpstreamId::Tunnel(_)` entries from the routing snapshot into a
     /// concrete (interface name, DNS upstream) pair without going through
@@ -363,6 +388,7 @@ fn create_services(
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
     let dns_filter_repo = repo_factory.dns_filter();
+    let dns_local_repo = repo_factory.dns_local();
     let maintenance_repo = repo_factory.maintenance();
     let tunnel_repo = repo_factory.tunnel();
     let update_repo = repo_factory.update();
@@ -420,6 +446,35 @@ fn create_services(
         job_service.clone(),
         backends.blocklist_fetcher.clone(),
     ));
+
+    let dns_local_service: Arc<dyn DnsLocalService> = Arc::new(DnsLocalServiceImpl::new(
+        dns_local_repo.clone(),
+        event_publisher.clone(),
+    ));
+
+    // DDNS service — reads/writes provider config in `system_config` (fresh
+    // handle) and credentials in the shared secret store. Constructs the active
+    // provider internally from stored config; no extra `Backends` field needed.
+    let ddns: Arc<dyn DdnsService> = Arc::new(DdnsServiceImpl::new(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+    ));
+
+    // TLS service — ACME issuance/renewal. Publishes DNS-01 challenges through
+    // `ddns`, persists cert material in the shared secret store, and hot-swaps
+    // the live `:443` cert via the `wardnetd`-provided `CertActivator`. Idle
+    // until DDNS is configured (no active FQDN → issuance is inert).
+    let tls: Arc<dyn TlsService> = Arc::new(TlsServiceImpl::new(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+        ddns.clone(),
+        backends.cert_activator.clone(),
+        dns_local_service.clone(),
+        lan_ip,
+    ));
+
+    let maintenance_service: Arc<dyn MaintenanceService> =
+        Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
         system_config_repo,
@@ -494,6 +549,9 @@ fn create_services(
         dhcp: dhcp_service,
         dns: dns_service,
         dns_filter: dns_filter_service,
+        dns_local: dns_local_service,
+        ddns,
+        tls,
         log: log_service,
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,
@@ -506,7 +564,7 @@ fn create_services(
         device_repo,
         dns_repo,
         dns_filter_repo,
-        maintenance_repo,
+        maintenance: maintenance_service,
         tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),

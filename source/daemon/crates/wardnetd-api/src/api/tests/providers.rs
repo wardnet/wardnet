@@ -22,8 +22,8 @@ use wardnet_common::vpn_provider::{ProviderAuthMethod, ProviderInfo, ServerInfo}
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
-    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -188,6 +188,9 @@ fn build_state(provider_svc: impl VpnProviderService + 'static) -> AppState {
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(provider_svc),

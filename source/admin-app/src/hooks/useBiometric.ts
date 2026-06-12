@@ -8,7 +8,7 @@ const CREDENTIAL_KEY = "wardnet_biometric_credential_id";
  * Windows Hello); session validity is still guarded by the server-side cookie.
  *
  * `rpId` is `window.location.hostname` so it works for both `localhost` dev
- * and `<id>.wardnet.network` production.
+ * and `<vanity>.my.wardnet.services` production.
  *
  * All functions are defined at module level (not inside the hook) so they are
  * stable references and do not cause unnecessary re-renders in consumers.

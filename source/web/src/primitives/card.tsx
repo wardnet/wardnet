@@ -74,14 +74,14 @@ function CardTitle({ className, ...props }: React.ComponentProps<"h3">) {
   return <h3 data-slot="card-title" className={className} {...props} />;
 }
 
-function CardDescription({
+function CardSubtitle({
   className,
   ...props
-}: React.ComponentProps<"span">) {
+}: React.ComponentProps<"p">) {
   return (
-    <span
-      data-slot="card-description"
-      className={clsx("sub", className)}
+    <p
+      data-slot="card-subtitle"
+      className={clsx("card__subtitle", className)}
       {...props}
     />
   );
@@ -115,7 +115,7 @@ export {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
+  CardSubtitle,
   CardAction,
   CardContent,
   CardFooter,

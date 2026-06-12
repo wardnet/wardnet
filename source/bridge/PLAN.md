@@ -1,5 +1,16 @@
 # Bridge traffic forwarding — implementation plan
 
+> **Historical — partially superseded.** This is the original pre-implementation
+> plan. The data plane (Postgres migration, active/active topology, SNI demuxer,
+> reverse-tunnel layer, DoT passthrough) shipped, but the **edge topology
+> described below is obsolete: there is no Caddy.** The bridge terminates its own
+> TLS (ACME **HTTP-01**) behind a transparent nginx **L4 + PROXY protocol v1**
+> proxy. For the shipped design see [`README.md`](README.md),
+> [`adr-bridge-self-terminated-tls.md`](../../docs/adr-bridge-self-terminated-tls.md),
+> and the **Bridge self-terminated TLS** / **transparent L4 proxy** entries in
+> [`CONTEXT.md`](../../CONTEXT.md). Kept only for historical rationale; treat any
+> `Caddy` / `CADDY_ADDR` reference here as describing the abandoned design.
+
 Covers everything discussed: MySQL migration, active/active topology, SNI demuxer,
 reverse-tunnel layer, and Android Private DNS (DoT) passthrough. Wardnetd daemon
 changes (tunnel client, ACME ownership, DoT server) are explicitly out of scope
@@ -12,7 +23,7 @@ here and need their own issue.
 The merged bridge (`source/bridge/`) is a control-plane-only service: DDNS
 registration, IP updates, ACME TXT record management, and installation lifecycle.
 It has no traffic-forwarding capability. The Cloudflare A record for
-`<slug>.my.<region>.wardnet.network` points at the bridge VM/LBS, but arriving
+`<slug>.my.wardnet.services` points at the bridge VM/LBS, but arriving
 connections go nowhere — there is no path from the bridge to the Pi.
 
 Three work streams fix this:
@@ -191,8 +202,8 @@ target gains a Docker availability check.
 
 ### Problem
 
-`bridge.<REGION>.wardnet.network` (API), `*.my.<REGION>.wardnet.network` (Pi
-HTTPS), and `*.my.<REGION>.wardnet.network:853` (Pi DNS-over-TLS) all arrive at
+`bridge.<REGION>.wardnet.network` (API), `*.my.wardnet.services` (Pi
+HTTPS), and `*.my.wardnet.services:853` (Pi DNS-over-TLS) all arrive at
 the same bridge nodes. The OCI NLB in TCP mode is L4-only — it cannot route by
 SNI. Caddy terminates TLS for the bridge's own cert but cannot do TLS passthrough
 to the tunnel router in its standard configuration.
@@ -223,7 +234,7 @@ never used for DNS. Unknown SNI on port 853 is dropped immediately.
 ### Android Private DNS (DoT) user flow
 
 1. User opens Android Settings → Network → Private DNS → enter hostname.
-2. Hostname: `<slug>.my.<region>.wardnet.network`  (shown in the wardnet setup UI).
+2. Hostname: `<slug>.my.wardnet.services`  (shown in the wardnet setup UI).
 3. Android connects to port 853, presents the hostname in the TLS SNI.
 4. SNI demuxer routes to the Pi's wardnetd DNS-over-TLS server via the tunnel.
 5. wardnetd serves DNS responses with ad-blocking, custom rules, etc. applied.
@@ -242,7 +253,7 @@ access without a VPN; WireGuard gives full network access.
 | `BRIDGE_HOSTNAME` | ✓ | — | e.g. `bridge.use1.wardnet.network` |
 
 `SUBDOMAIN_PARENT` (existing) is used as the wildcard pattern for Pi traffic
-(`*.my.use1.wardnet.network`).
+(`*.my.wardnet.services`).
 
 `DOT_LISTEN_ADDR` can be set to empty string `""` to disable DoT passthrough if
 not yet needed.
@@ -474,12 +485,12 @@ These are **wardnetd** (Pi daemon) changes, not bridge changes:
 3. **DNS-over-TLS server in wardnetd** — wardnetd's existing DNS server gains a
    TLS listener on port 853. Wraps the same resolver and filter pipeline as the
    LAN DNS server. Uses the same cert managed under point 2 above. No new cert
-   infrastructure needed — `<slug>.my.<region>.wardnet.network` already covers
+   infrastructure needed — `<slug>.my.wardnet.services` already covers
    port 853 (certs are hostname-scoped, not port-scoped). Android Private DNS
    users enter this hostname in Settings → Network → Private DNS.
 
 4. **Android setup UX** — the wardnet setup wizard / admin UI surfaces the
-   Private DNS hostname (`<slug>.my.<region>.wardnet.network`) with a "Copy"
+   Private DNS hostname (`<slug>.my.wardnet.services`) with a "Copy"
    button and instructions for Android Settings → Network → Private DNS.
 
 ---

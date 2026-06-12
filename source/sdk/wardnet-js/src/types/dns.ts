@@ -87,6 +87,7 @@ export type DnsQueryResult =
   | "rewritten"
   | "recursive"
   | "upstream_error"
+  | "authoritative"
   | "error";
 
 /** A single entry in the persisted DNS query log. */

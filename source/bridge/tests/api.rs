@@ -32,10 +32,12 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use common::{MockChallengeRepository, MockInstallRepository};
+use common::{MockChallengeRepository, MockInstallRepository, MockNameRepository};
 use wardnet_bridge::config::Config;
 use wardnet_bridge::dns_provider::DnsProvider;
-use wardnet_bridge::repository::{Install, InstallRepository, RegistrationChallenge};
+use wardnet_bridge::repository::{
+    Install, InstallRepository, NameRepository, RegistrationChallenge,
+};
 use wardnet_bridge::state::AppState;
 use wardnet_bridge::tunnel::TunnelRegistry;
 
@@ -114,28 +116,32 @@ impl DnsProvider for MockDnsProvider {
 
 fn test_config() -> Config {
     Config {
-        listen_addr: "127.0.0.1:0".to_string(),
-        database_url: "mysql://ignored".to_string(),
+        http01_listen_addr: "127.0.0.1:0".to_string(),
+        tls_listen_addr: "127.0.0.1:0".to_string(),
+        dot_listen_addr: "127.0.0.1:0".to_string(),
+        database_url: "postgres://ignored".to_string(),
+        global_database_url: "postgres://ignored-global".to_string(),
         cloudflare_api_token: "test-cf-token".to_string(),
         cloudflare_zone_id: "test-cf-zone".to_string(),
         region: "test".to_string(),
         subdomain_parent: "test.wardnet.local".to_string(),
-        sni_listen_addr: "0.0.0.0:443".to_string(),
-        dot_listen_addr: "0.0.0.0:853".to_string(),
-        caddy_addr: "127.0.0.1:8443".to_string(),
-        bridge_hostname: "bridge.test.wardnet.network".to_string(),
+        fqdn: "bridge.test.wardnet.network".to_string(),
+        acme_directory_url: "https://acme-staging-v02.api.letsencrypt.org/directory".to_string(),
+        encryption_key: [0u8; 32],
     }
 }
 
 fn test_state() -> (AppState, Arc<MockDnsProvider>) {
     let dns = Arc::new(MockDnsProvider::new());
     let installs = Arc::new(MockInstallRepository::new());
+    let names = Arc::new(MockNameRepository::new());
     let challenges = Arc::new(MockChallengeRepository::new());
     let tunnel_registry = Arc::new(TunnelRegistry::new());
     let state = AppState::new(
         test_config(),
         dummy_pools(),
         installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
         challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
         Arc::clone(&dns) as Arc<dyn DnsProvider>,
         tunnel_registry,
@@ -145,12 +151,14 @@ fn test_state() -> (AppState, Arc<MockDnsProvider>) {
 
 fn test_state_with_error_dns(dns: Arc<MockDnsProvider>) -> AppState {
     let installs = Arc::new(MockInstallRepository::new());
+    let names = Arc::new(MockNameRepository::new());
     let challenges = Arc::new(MockChallengeRepository::new());
     let tunnel_registry = Arc::new(TunnelRegistry::new());
     AppState::new(
         test_config(),
         dummy_pools(),
         installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
         challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
         dns as Arc<dyn DnsProvider>,
         tunnel_registry,
@@ -174,8 +182,8 @@ fn dummy_pools() -> wardnet_bridge::db::DbPools {
     // SAFETY: The AppState stores DbPools but mock repos own their own state
     // and never touch the pool. We construct a pool that connects lazily so
     // it doesn't fail at construction time.
-    // Use sqlx's lazy connect: MySqlPool::connect_lazy returns immediately.
-    let pool = sqlx::MySqlPool::connect_lazy("mysql://root:root@127.0.0.1:3306/dummy")
+    // Use sqlx's lazy connect: PgPool::connect_lazy returns immediately.
+    let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/dummy")
         .expect("lazy connect should not fail at construction");
     wardnet_bridge::db::DbPools::single(pool)
 }
@@ -213,12 +221,31 @@ async fn insert_test_install(state: &AppState, name: &str) -> (Install, String) 
         token_hash,
         ip: None,
         cf_a_record_id: None,
-        cf_acme_record_id: None,
+        cf_acme_record_ids: Vec::new(),
         created_at: now,
         updated_at: now,
     };
     state.installs().insert(&install).await.unwrap();
     (install, raw_token)
+}
+
+/// Claim a name in the global naming authority (reserve + confirm), simulating
+/// a name already taken by a prior registration. Availability and registration
+/// both consult the names registry, not the installs table.
+async fn claim_name(state: &AppState, name: &str) {
+    let reserved = state
+        .names()
+        .reserve(
+            name,
+            &Uuid::new_v4().to_string(),
+            "test",
+            Utc::now(),
+            Utc::now() + chrono::Duration::minutes(5),
+        )
+        .await
+        .unwrap();
+    assert!(reserved, "name should have been free to claim");
+    state.names().confirm(name).await.unwrap();
 }
 
 /// Insert a challenge with `difficulty = 0` (any `proof` satisfies it).
@@ -367,7 +394,35 @@ async fn name_available_for_fresh_name() {
 #[tokio::test]
 async fn name_unavailable_when_already_registered() {
     let (state, _dns) = test_state();
-    insert_test_install(&state, "happy-einstein").await;
+    claim_name(&state, "happy-einstein").await;
+
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/v1/names/happy-einstein/available")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&body_string(resp.into_body()).await).unwrap();
+    assert_eq!(json["available"], false);
+}
+
+#[tokio::test]
+async fn name_unavailable_when_reserved_but_unconfirmed() {
+    // A reservation that hasn't been confirmed still reads as taken — availability
+    // and reserve must agree at every instant (no smarter-than-sweep reads).
+    let (state, _dns) = test_state();
+    state
+        .names()
+        .reserve(
+            "happy-einstein",
+            &Uuid::new_v4().to_string(),
+            "test",
+            Utc::now(),
+            Utc::now() + chrono::Duration::minutes(5),
+        )
+        .await
+        .unwrap();
 
     let app = test_app(state);
     let req = Request::builder()
@@ -667,7 +722,7 @@ async fn register_returns_400_for_failing_pow_proof() {
 #[tokio::test]
 async fn register_returns_409_when_name_is_taken() {
     let (state, _dns) = test_state();
-    insert_test_install(&state, "happy-einstein").await;
+    claim_name(&state, "happy-einstein").await;
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
     let (_, pub_key_b64) = test_pub_key();
 
@@ -687,6 +742,46 @@ async fn register_returns_409_when_name_is_taken() {
 }
 
 #[tokio::test]
+async fn register_releases_reservation_when_provision_fails() {
+    // Reserve succeeds, then the regional install insert fails: the two-database
+    // saga must release the reservation so the name is free to retry. This is the
+    // load-bearing compensation property.
+    let dns = Arc::new(MockDnsProvider::new());
+    let installs = Arc::new(MockInstallRepository::failing_insert());
+    let names = Arc::new(MockNameRepository::new());
+    let challenges = Arc::new(MockChallengeRepository::new());
+    let tunnel_registry = Arc::new(TunnelRegistry::new());
+    let state = AppState::new(
+        test_config(),
+        dummy_pools(),
+        installs as Arc<dyn InstallRepository>,
+        names as Arc<dyn NameRepository>,
+        challenges as Arc<dyn wardnet_bridge::repository::ChallengeRepository>,
+        dns as Arc<dyn DnsProvider>,
+        tunnel_registry,
+    );
+
+    let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
+    let (_, pub_key_b64) = test_pub_key();
+    let body = register_body("happy-einstein", &pub_key_b64, &challenge.id, 0);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = test_app(state.clone()).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    // The reservation must have been released — the name is available again.
+    assert!(
+        !state.names().is_taken("happy-einstein").await.unwrap(),
+        "a failed provision must release the name reservation"
+    );
+}
+
+#[tokio::test]
 async fn register_returns_400_when_challenge_already_consumed() {
     let (state, _dns) = test_state();
     let challenge = insert_easy_challenge(&state, "127.0.0.1").await;
@@ -699,14 +794,13 @@ async fn register_returns_400_when_challenge_already_consumed() {
         .unwrap();
 
     let body = register_body("test-name", &pub_key_b64, &challenge.id, 0);
-    let app = test_app(state);
     let req = Request::builder()
         .method("POST")
         .uri("/v1/register")
         .header("Content-Type", "application/json")
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let resp = test_app(state.clone()).oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let json: serde_json::Value =
         serde_json::from_str(&body_string(resp.into_body()).await).unwrap();
@@ -715,6 +809,12 @@ async fn register_returns_400_when_challenge_already_consumed() {
             .as_str()
             .unwrap()
             .contains("already been used")
+    );
+
+    // The reservation taken before the challenge burn must be released back.
+    assert!(
+        !state.names().is_taken("test-name").await.unwrap(),
+        "a burned-challenge failure must release the name reservation"
     );
 }
 
@@ -1098,18 +1198,28 @@ async fn set_acme_challenge_success() {
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    let body = br#"{"value":"my-acme-token"}"#;
+    // A per-user wildcard cert publishes two challenge values at once.
+    let body = br#"{"values":["apex-token","wildcard-token"]}"#;
     let path = format!("/v1/installs/{}/acme-challenge", install.id);
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
-    let app = test_app(state);
+    let app = test_app(state.clone());
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert_eq!(
         dns.call_count(),
-        1,
-        "one DNS upsert-TXT should have been made"
+        2,
+        "one DNS upsert-TXT per challenge value should have been made"
     );
+
+    // Both record IDs are persisted as the active list.
+    let updated = state
+        .installs()
+        .find_by_id(&install.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.cf_acme_record_ids.len(), 2);
 }
 
 #[tokio::test]
@@ -1119,7 +1229,7 @@ async fn set_acme_challenge_returns_403_on_id_mismatch() {
     let signing_key = test_signing_key();
 
     let other_id = Uuid::new_v4().to_string();
-    let body = br#"{"value":"my-acme-token"}"#;
+    let body = br#"{"values":["my-acme-token"]}"#;
     let path = format!("/v1/installs/{other_id}/acme-challenge");
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
@@ -1135,7 +1245,7 @@ async fn set_acme_challenge_returns_500_when_dns_fails() {
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
-    let body = br#"{"value":"my-acme-token"}"#;
+    let body = br#"{"values":["my-acme-token"]}"#;
     let path = format!("/v1/installs/{}/acme-challenge", install.id);
     let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
 
@@ -1145,14 +1255,57 @@ async fn set_acme_challenge_returns_500_when_dns_fails() {
 }
 
 #[tokio::test]
+async fn set_acme_challenge_rejects_oversized_value_list() {
+    // The cross-tenant DoS guard: an oversized list is rejected with 400 before
+    // any DNS write (the mock would otherwise record one call per value).
+    let (state, dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    let body = br#"{"values":["a","b","c","d","e"]}"#;
+    let path = format!("/v1/installs/{}/acme-challenge", install.id);
+    let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
+
+    let app = test_app(state);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        dns.call_count(),
+        0,
+        "no DNS calls when the list is rejected"
+    );
+}
+
+#[tokio::test]
+async fn set_acme_challenge_rejects_empty_value_list() {
+    let (state, dns) = test_state();
+    let (install, raw_token) = insert_test_install(&state, "test-node").await;
+    let signing_key = test_signing_key();
+
+    let body = br#"{"values":[]}"#;
+    let path = format!("/v1/installs/{}/acme-challenge", install.id);
+    let req = signed_request("PUT", &path, body, &raw_token, &signing_key);
+
+    let app = test_app(state);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(dns.call_count(), 0, "empty list makes no DNS calls");
+}
+
+#[tokio::test]
 async fn delete_acme_challenge_deletes_dns_record_when_present() {
     let (state, dns) = test_state();
     let (install, raw_token) = insert_test_install(&state, "test-node").await;
     let signing_key = test_signing_key();
 
+    // Two live records (apex + wildcard SAN) → both must be deleted.
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-existing"), Utc::now())
+        .set_acme_records(
+            &install.id,
+            &["cf-txt-apex".to_string(), "cf-txt-wildcard".to_string()],
+            Utc::now(),
+        )
         .await
         .unwrap();
 
@@ -1163,7 +1316,7 @@ async fn delete_acme_challenge_deletes_dns_record_when_present() {
     let app = test_app(state);
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
-    assert_eq!(dns.call_count(), 1, "one DNS delete should have been made");
+    assert_eq!(dns.call_count(), 2, "one DNS delete per live record");
 }
 
 #[tokio::test]
@@ -1211,7 +1364,7 @@ async fn delete_acme_challenge_returns_500_when_dns_fails() {
 
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-exists"), Utc::now())
+        .set_acme_records(&install.id, &["cf-txt-exists".to_string()], Utc::now())
         .await
         .unwrap();
 
@@ -1255,7 +1408,7 @@ async fn deregister_success_deletes_both_dns_records() {
         .unwrap();
     state
         .installs()
-        .update_acme_record(&install.id, Some("cf-txt-id"), Utc::now())
+        .set_acme_records(&install.id, &["cf-txt-id".to_string()], Utc::now())
         .await
         .unwrap();
 

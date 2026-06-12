@@ -47,6 +47,8 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "providers", description = "VPN provider integration"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),
         (name = "dns", description = "DNS resolver, ad-blocking, filters"),
+        (name = "ddns", description = "Dynamic DNS: bridge / BYOD-Cloudflare registration"),
+        (name = "tls", description = "Daemon-owned TLS certificate provisioning"),
         (name = "system", description = "Runtime status and logs"),
         (name = "jobs", description = "Background job status"),
         (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),

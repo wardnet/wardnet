@@ -3,7 +3,7 @@ use async_trait::async_trait;
 /// Abstraction over a DNS hosting provider.
 ///
 /// The bridge constructs fully-qualified domain names from its configuration
-/// (e.g. `happy-einstein.my.us.wardnet.network`) and passes them here.
+/// (e.g. `happy-einstein.my.wardnet.services`) and passes them here.
 /// Implementations are provider-specific (Cloudflare, Route 53, Hetzner DNS,
 /// …) and live under `src/cloudflare/`, `src/route53/`, etc.
 ///
@@ -23,7 +23,7 @@ use async_trait::async_trait;
 pub trait DnsProvider: Send + Sync {
     /// Create or update an A record.
     ///
-    /// - `fqdn` — fully-qualified DNS name, e.g. `"happy-einstein.my.us.wardnet.network"`.
+    /// - `fqdn` — fully-qualified DNS name, e.g. `"happy-einstein.my.wardnet.services"`.
     /// - `ip` — IPv4 address string, e.g. `"203.0.113.42"`.
     /// - `existing_record_id` — pass the previously-returned record ID to
     ///   update an existing record; pass `None` to create a new one.
@@ -41,7 +41,7 @@ pub trait DnsProvider: Send + Sync {
     /// Used for ACME DNS-01 challenge values.
     ///
     /// - `fqdn` — fully-qualified DNS name, e.g.
-    ///   `"_acme-challenge.happy-einstein.my.us.wardnet.network"`.
+    ///   `"_acme-challenge.happy-einstein.my.wardnet.services"`.
     /// - `content` — the raw TXT record value (no quoting needed; the
     ///   implementation adds any provider-required quoting).
     /// - `existing_record_id` — as in [`upsert_a_record`].

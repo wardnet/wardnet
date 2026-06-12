@@ -27,7 +27,9 @@ use crate::auth_context;
 use crate::dns::log_sink::DnsLogSink;
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::{DnsRepository, QueryLogFilter, SystemConfigRepository};
+use wardnetd_data::repository::{
+    DnsRepository, QueryLogFilter, QueryLogRow, SystemConfigRepository,
+};
 
 pub const QUERY_LOG_MAX_LIMIT: u32 = 500;
 pub const QUERY_LOG_DEFAULT_LIMIT: u32 = 50;
@@ -53,6 +55,15 @@ pub trait DnsService: Send + Sync {
 
     /// Internal: load the DNS server runtime config (called by the runner).
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError>;
+
+    /// Internal: persist a batch of query-log rows (called by the
+    /// `DnsQueryLogRunner` under an admin auth context).
+    async fn insert_query_log_batch(&self, entries: &[QueryLogRow]) -> Result<(), AppError>;
+
+    /// Internal: delete query-log rows older than `retention_days`, returning
+    /// the number of rows removed (called by the `DnsQueryLogRunner` under an
+    /// admin auth context).
+    async fn cleanup_query_log(&self, retention_days: u32) -> Result<u64, AppError>;
 }
 
 pub struct DnsServiceImpl {
@@ -300,6 +311,22 @@ impl DnsService for DnsServiceImpl {
 
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
         self.load_config().await
+    }
+
+    async fn insert_query_log_batch(&self, entries: &[QueryLogRow]) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.dns_repo
+            .insert_query_log_batch(entries)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn cleanup_query_log(&self, retention_days: u32) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+        self.dns_repo
+            .cleanup_query_log(retention_days)
+            .await
+            .map_err(AppError::Internal)
     }
 
     async fn list_query_log(

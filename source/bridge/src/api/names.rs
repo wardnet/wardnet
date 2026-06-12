@@ -49,12 +49,14 @@ pub async fn name_available(
         return Ok(Json(NameAvailabilityResponse { available: false }));
     }
 
+    // Read the global naming authority — availability is region-independent and
+    // authoritative (a reserved-but-unconfirmed name reads as taken until the
+    // sweep frees it, so this never disagrees with `reserve`).
     let taken = state
-        .installs()
-        .find_by_name(&name)
+        .names()
+        .is_taken(&name)
         .await
-        .map_err(ApiError::Internal)?
-        .is_some();
+        .map_err(ApiError::Internal)?;
 
     Ok(Json(NameAvailabilityResponse { available: !taken }))
 }

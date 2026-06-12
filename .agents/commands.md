@@ -68,9 +68,9 @@ All commands run from `source/admin-app/`. Uses **Yarn 4** (via Corepack).
 - **Build**: `yarn build`
 - **Type check**: `yarn type-check`
 
-### Shared React library (`wardnet-web`)
+### Shared React library (`web`)
 
-All commands run from `source/wardnet-web/`. Uses **Yarn 4** (via Corepack).
+All commands run from `source/web/`. Uses **Yarn 4** (via Corepack).
 
 - **Install**: `yarn install`
 - **Type check**: `yarn type-check`

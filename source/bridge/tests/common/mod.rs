@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -5,14 +7,41 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use wardnet_bridge::repository::{
-    ChallengeRepository, Install, InstallRepository, RegistrationChallenge,
+    ChallengeRepository, Install, InstallRepository, NameRepository, RegistrationChallenge,
 };
+
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
+/// Install the aws-lc-rs [`CryptoProvider`] as the process default (idempotent).
+///
+/// Must be called before any code that touches rustls TLS (instant-acme,
+/// axum-server, etc.).  The `install_default` error is suppressed because
+/// tests may run concurrently and multiple threads can race to install it.
+pub fn install_crypto_provider() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+}
+
+/// Return the pebble ACME directory URL.
+///
+/// Reads `BRIDGE_TEST_PEBBLE_URL` (default `https://localhost:14000/dir`).
+/// Tests using this must also be gated on
+/// `#[ignore = "requires Postgres + pebble (docker compose up -d)"]` and must
+/// set `BRIDGE_TEST_PEBBLE_CA` to the path of the pebble WFE CA PEM.
+pub fn pebble_directory_url() -> String {
+    std::env::var("BRIDGE_TEST_PEBBLE_URL")
+        .unwrap_or_else(|_| "https://localhost:14000/dir".to_owned())
+}
 
 // ── Mock install repository ──────────────────────────────────────────────────
 
 pub struct MockInstallRepository {
     installs: Mutex<HashMap<String, Install>>,
     log: Mutex<Vec<(String, DateTime<Utc>)>>,
+    /// When true, [`insert`](InstallRepository::insert) returns an error —
+    /// exercises the registration saga's provision-failure release path.
+    fail_insert: bool,
 }
 
 impl MockInstallRepository {
@@ -20,6 +49,15 @@ impl MockInstallRepository {
         Self {
             installs: Mutex::new(HashMap::new()),
             log: Mutex::new(Vec::new()),
+            fail_insert: false,
+        }
+    }
+
+    /// A repository whose `insert` always fails.
+    pub fn failing_insert() -> Self {
+        Self {
+            fail_insert: true,
+            ..Self::new()
         }
     }
 }
@@ -51,6 +89,9 @@ impl InstallRepository for MockInstallRepository {
     }
 
     async fn insert(&self, install: &Install) -> anyhow::Result<()> {
+        if self.fail_insert {
+            anyhow::bail!("simulated install insert failure");
+        }
         self.installs
             .lock()
             .unwrap()
@@ -74,15 +115,15 @@ impl InstallRepository for MockInstallRepository {
         Ok(())
     }
 
-    async fn update_acme_record(
+    async fn set_acme_records(
         &self,
         id: &str,
-        cf_acme_record_id: Option<&str>,
+        cf_acme_record_ids: &[String],
         updated_at: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         let mut map = self.installs.lock().unwrap();
         if let Some(install) = map.get_mut(id) {
-            install.cf_acme_record_id = cf_acme_record_id.map(str::to_string);
+            install.cf_acme_record_ids = cf_acme_record_ids.to_vec();
             install.updated_at = updated_at;
         }
         Ok(())
@@ -90,6 +131,14 @@ impl InstallRepository for MockInstallRepository {
 
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         self.installs.lock().unwrap().remove(id);
+        Ok(())
+    }
+
+    async fn delete_many(&self, ids: &[String]) -> anyhow::Result<()> {
+        let mut map = self.installs.lock().unwrap();
+        for id in ids {
+            map.remove(id);
+        }
         Ok(())
     }
 
@@ -116,6 +165,96 @@ impl InstallRepository for MockInstallRepository {
             .unwrap()
             .push((remote_ip.to_string(), created_at));
         Ok(())
+    }
+}
+
+// ── Mock name repository (global naming authority) ───────────────────────────
+
+/// In-memory row mirroring the global `names` table.
+#[derive(Clone)]
+struct NameRow {
+    install_id: String,
+    region: String,
+    status: String,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+pub struct MockNameRepository {
+    names: Mutex<HashMap<String, NameRow>>,
+}
+
+impl MockNameRepository {
+    pub fn new() -> Self {
+        Self {
+            names: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl NameRepository for MockNameRepository {
+    async fn reserve(
+        &self,
+        slug: &str,
+        install_id: &str,
+        region: &str,
+        _created_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<bool> {
+        let mut map = self.names.lock().unwrap();
+        if map.contains_key(slug) {
+            // The slug PRIMARY KEY is the lock: a present row means taken.
+            return Ok(false);
+        }
+        map.insert(
+            slug.to_string(),
+            NameRow {
+                install_id: install_id.to_string(),
+                region: region.to_string(),
+                status: "reserved".to_string(),
+                expires_at: Some(expires_at),
+            },
+        );
+        Ok(true)
+    }
+
+    async fn confirm(&self, slug: &str) -> anyhow::Result<()> {
+        let mut map = self.names.lock().unwrap();
+        if let Some(row) = map.get_mut(slug) {
+            row.status = "active".to_string();
+            row.expires_at = None;
+        }
+        Ok(())
+    }
+
+    async fn release(&self, slug: &str) -> anyhow::Result<bool> {
+        let mut map = self.names.lock().unwrap();
+        if map.get(slug).is_some_and(|r| r.status == "reserved") {
+            map.remove(slug);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    async fn is_taken(&self, slug: &str) -> anyhow::Result<bool> {
+        Ok(self.names.lock().unwrap().contains_key(slug))
+    }
+
+    async fn sweep_expired(&self, now: DateTime<Utc>, region: &str) -> anyhow::Result<Vec<String>> {
+        let mut map = self.names.lock().unwrap();
+        let expired: Vec<(String, String)> = map
+            .iter()
+            .filter(|(_, r)| {
+                r.status == "reserved"
+                    && r.region == region
+                    && r.expires_at.is_some_and(|e| e < now)
+            })
+            .map(|(slug, r)| (slug.clone(), r.install_id.clone()))
+            .collect();
+        for (slug, _) in &expired {
+            map.remove(slug);
+        }
+        Ok(expired.into_iter().map(|(_, id)| id).collect())
     }
 }
 

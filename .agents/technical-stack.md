@@ -11,6 +11,8 @@
 - sysinfo for host CPU/memory monitoring
 - rust-embed to serve web UI from the binary
 - async-trait for trait object interfaces
+- ed25519-dalek for Ed25519 key generation and request signing (DDNS bridge registration and signed IP-update calls)
+- wiremock (dev-only) — mock HTTP server used in DDNS provider integration tests (bridge + Cloudflare)
 - `wardnetd-mock` — local dev binary: full API with no-op network backends, on-disk or in-memory SQLite, real file-backed secret store under `/tmp/wardnet-mock/secrets`
 
 ## SDK (`@wardnet/js`)
@@ -58,6 +60,6 @@
 ## PWA initiative (issues #435–#441)
 
 - **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. Admin site and admin-app are both live; user-app is still planned (issue #438). See `CONTEXT.md` for the full glossary.
-- **Caddy** — reverse proxy bundled in the release tarball alongside `wardnetd`. Runs as a companion systemd service. Handles TLS termination on port 443 and forwards to the daemon on port 7411. The daemon manages the Caddyfile on startup. See issue #436.
+- **Daemon-owned TLS** — `wardnetd` terminates TLS itself on `:443` (no Caddy, diverging from issue #436): it issues/renews its certificate natively via ACME **DNS-01** (`instant-acme` + `rcgen` + `rustls`/`axum-server`), publishing `_acme-challenge` TXT through the **DnsProvider**. `:80` redirects to HTTPS. See `docs/adr-daemon-owned-tls.md`.
 - **DDNS + ACME bridge service** — wardnet-operated service assigning each install a subdomain (`<id>.wardnet.network`) and acting as ACME bridge for Let's Encrypt DNS-01 challenges. The cert private key is generated on the Pi and never leaves it. See issue #435.
 - **VAPID / Web Push** — daemon-side push notification support (VAPID key pair generated at setup, subscription records keyed to device MAC or admin session). See issue #440.

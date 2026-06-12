@@ -120,9 +120,158 @@ Both endpoints require admin auth. `StatsService` enforces this via `auth_contex
 
 `DnsRepository` previously exposed `query_stats`, `top_domains`, `top_clients`, and `series_buckets`. These on-the-fly aggregation methods were removed in PR 2. DNS stats are now served entirely through the generic `StatsService` + `/api/stats` / `/api/stats/top` endpoints using the four `dns.*` metrics recorded by `DnsLogSink`.
 
+## Local-DNS subsystem (issue #217)
+
+Zones, custom records, and conditional forwarding rules managed via the admin UI. Three storage layers in `wardnetd-data`: `DnsZone`, `CustomDnsRecord`, `ConditionalForwardingRule` tables, all CRUD'd through `DnsLocalRepository`. The service layer is `DnsLocalServiceImpl` in `wardnetd-services/dns_local/`.
+
+### AuthoritativeView — lock-free in-memory snapshot
+
+`AuthoritativeView` (`wardnetd-services/dns/authoritative.rs`) is an immutable snapshot of all **enabled** records and forwarding rules, built from the repository at startup and replaced atomically on every `WardnetEvent::DnsLocalChanged`. It is held behind an `Arc<ArcSwap<AuthoritativeView>>` in `UdpDnsServer` so each query reads a consistent snapshot lock-free, with no contention on the write path.
+
+Key design rule: records whose zone has `enabled = false` are excluded even if the record itself is enabled. Records with no zone are included when their own flag is set. Forwarding rules are sorted longest-domain-first so the first suffix match is always the most specific one.
+
+### Resolution pipeline (per-query order)
+
+| Step | What happens | Notes |
+|---|---|---|
+| **0 — upstream selection** | Client IP → `UpstreamId` from routing snapshot | Miss = `Default` (system-wide upstream) |
+| **0.5 — authoritative** | `AuthoritativeView::lookup` — answers directly, sets AA bit | Bypasses cache and filter entirely; returns `DnsQueryResult::Authoritative` |
+| **0.6 — conditional forwarding rule match** | `AuthoritativeView::match_forwarding_rule` — selects per-domain upstream | Captured before the cache check; forwarding fires at step 3 if filter passes |
+| **1 — cache** | Per-`UpstreamId` response cache | Tunnel and LAN devices have separate cache namespaces |
+| **2 — filter** | `DnsFilterService::check` — block / rewrite / pass | Applies even to conditionally-forwarded domains |
+| **3 — forward** | Conditional upstream (if matched at 0.6 and filter passed), otherwise default or tunnel upstream | `forward_via_conditional` binds an undeviced socket; `forward_via_tunnel` uses `SO_BINDTODEVICE` |
+
+Authoritative answers fully short-circuit the pipeline (no cache store, no filter). CNAME handling: for A/AAAA queries on a domain that has only a CNAME record in the view, the CNAME goes into the answer section and the target A/AAAA record (if also in the view) goes into the additional section.
+
+### Event-driven rebuild
+
+`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation:
+- Zone mutations set `domain: None` — triggers a full view rebuild, no per-domain eviction.
+- Record and forwarding-rule mutations set `domain: Some(domain)` — triggers a view rebuild **and** evicts that domain from the DNS response cache.
+
+`DnsRunner` handles `DnsLocalChanged` by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and, if `domain` is `Some`, `DnsServer::invalidate_domain`.
+
+### Background runners call auth-gated services, never repositories
+
+Background runners (`DnsRunner`, `DnsFilterRunner`, `DnsQueryLogRunner`,
+`DbMaintenanceRunner`, `DhcpLanRunner`) hold `Arc<dyn *Service>` trait
+objects, **not** repository handles. Each runs its service calls under an
+admin auth context:
+
+```rust
+let admin_ctx = AuthContext::Admin { admin_id: Uuid::nil() };
+auth_context::with_context(admin_ctx.clone(), service.some_method()).await
+```
+
+This keeps the service layer the single auth-and-events chokepoint:
+`DnsLocalService::upsert_record`, for example, owns `DnsLocalChanged`
+emission, so the DHCP `.lan` runner can never write a record without
+triggering the authoritative-view rebuild. The `Services` struct does **not**
+expose `dns_local_repo`; `DbMaintenanceRunner` takes a thin
+`MaintenanceService` rather than `MaintenanceRepository`. Reaching for a
+`Arc<dyn *Repository>` inside a runner is a layering violation.
+
+## DDNS subsystem (issue #527 / #521 umbrella)
+
+Keeps the Pi's public A record current and (in later commits) handles ACME DNS-01 TXT records. Lives entirely in `wardnetd-services/src/ddns/`.
+
+### Shape
+
+```
+DdnsUpdateRunner  ──(admin auth ctx)──▶  DdnsService  ──▶  DnsProvider
+ (5-min tick)                            (auth-gated)       (bridge | cloudflare)
+```
+
+`DdnsUpdateRunner` holds `Arc<dyn DdnsService>` and calls it under an admin auth context — it never touches repositories or providers directly. `DdnsService` is the auth-and-persistence chokepoint: every method opens with `auth_context::require_admin()`.
+
+### Provider abstraction (`provider.rs`)
+
+`DnsProvider` trait with three methods: `upsert_a(ip)`, `set_txt(name, value)`, `delete_txt(name)`. Two impls:
+
+| Impl | File | Auth |
+|---|---|---|
+| `BridgeProvider` | `bridge.rs` | Ed25519-signed requests (seed → `SigningKey`); bearer token in header; PoW-based registration via `register_install` |
+| `CloudflareProvider` | `cloudflare.rs` | Per-request Bearer token; list-then-create/update against CF v4 API |
+
+Providers are **rebuilt per call** from stored config + secrets (`build_provider()`). This is intentional: reads are cheap at the 5-minute cadence, and rebuilding means a provider switch takes effect without any cache-invalidation plumbing. All providers share one pooled `reqwest::Client`.
+
+### Storage split
+
+| Kind | Location | Keys |
+|---|---|---|
+| Non-secret config | `system_config` table | `ddns_provider`, `ddns_install_id`, `ddns_subdomain`, `ddns_region`, `ddns_bridge_base_url`, `ddns_last_public_ip`, `ddns_domain`, `ddns_cf_zone_id` |
+| Secrets | `SecretStore` | `ddns/bridge/signing_key` (32-byte Ed25519 seed), `ddns/bridge/bearer_token`, `ddns/cloudflare/api_token` |
+
+### Supporting modules
+
+| Module | Purpose |
+|---|---|
+| `region.rs` | Built-in region catalog (`REGION_CATALOG`); `select_best` probes all regions concurrently and picks lowest latency |
+| `public_ip.rs` | WAN public-IP discovery; rejects non-global IPv4 (RFC 1918, loopback, link-local); tries multiple echo endpoints in order |
+| `runner.rs` | `DdnsUpdateRunner` — idle-until-configured 5-min tick; follows the runner contract (accepts `&tracing::Span`, instruments spawn) |
+
+### Service methods
+
+| Method | Notes |
+|---|---|
+| `register_with_bridge(name)` | Probes regions, calls `register_install` (PoW), persists secrets first then config, returns `DdnsRegistration{subdomain, region}` |
+| `check_name_available(name)` | Probes best region, asks bridge; used by wizard |
+| `refresh_public_ip()` | Discovers WAN IP, short-circuits if unchanged, calls `provider.upsert_a(ip)` |
+| `status()` | Reads provider, FQDN, and last-published IP from config; returns `DdnsStatus` |
+
+## Daemon-owned TLS (issue #528 / #521 umbrella)
+
+`wardnetd` terminates TLS itself — no Caddy. ACME DNS-01 issuance reuses the
+DDNS providers (via `DdnsService::set_acme_challenge` / `clear_acme_challenge`)
+to publish `_acme-challenge` TXT records.
+
+### Shape
+
+```text
+TlsRenewalRunner ─(admin ctx)─▶ TlsService ─▶ acme (instant-acme) ─▶ DdnsService.set_acme_challenge
+ (12h tick)                     (auth-gated)  └▶ CertActivator.activate (hot-swap :443)
+```
+
+`TlsRenewalRunner` holds `Arc<dyn TlsService>` and calls it under an admin
+context — never an ACME client, provider, or repository directly (runner
+contract). `TlsService::ensure_certificate()` is one idempotent
+issue-if-missing-or-renew-if-<30d method; inert (`TlsStatus::NotConfigured`)
+when no FQDN is active, so the runner is idle until DDNS is configured. The
+wizard (C9) and Settings (C10) call the same method. Cert + key (and the ACME
+account credentials) are read/written **only** through the `SecretStore`
+abstraction — never direct filesystem access.
+
+### Always-bound `:443` / 503-until-provisioned serving
+
+The `:443` listener is **always bound**, seeded at boot from the stored real
+cert if present, else from a throwaway rcgen **placeholder** self-signed cert. A
+shared `provisioned: Arc<AtomicBool>` (default `false` for the placeholder) gates
+a **503 guard layer** on the `:443` app: every route returns
+`503 "TLS not provisioned"` until a real cert loads, so the admin API is never
+served under the untrusted placeholder. Pre-provisioning, the operator uses
+`:7411` plain HTTP (unguarded). `:80` 308-redirects to HTTPS. The listener is
+constant — no supervisor, no mid-run listener start.
+
+### `CertActivator` abstraction boundary
+
+The serving stack (`axum-server` + `RustlsConfig`) lives in `wardnetd`, not in
+`wardnetd-services`. The `CertActivator` trait (defined in `wardnetd-services`,
+implemented by `wardnetd::tls_server::CertActivatorImpl`) is the seam:
+`activate(chain, key)` calls `RustlsConfig::reload_from_pem` (lock-free in-memory
+swap) and flips the `provisioned` flag. It is injected via `Backends` so the
+TLS service can swap the live cert without the services crate depending on the
+serving stack. The aws-lc-rs crypto provider is installed once in `main` (both
+ring + aws-lc-rs are in the tree → rustls can't auto-pick).
+
+| Module (`wardnetd-services/src/tls/`) | Purpose |
+|---|---|
+| `mod.rs` | `TlsService` trait + impl, `CertActivator` trait, `TlsStatus`, `load_stored_cert` |
+| `acme.rs` | instant-acme DNS-01 orchestration; CSR/leaf key via rcgen; `parse_not_after` (x509-parser) |
+| `runner.rs` | `TlsRenewalRunner` — idle-until-configured 12h tick; follows the runner contract |
+
 ## Bridge service (issue #435)
 
-Rust / Axum / SQLite microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind Caddy on the bridge VM. Each bridge instance owns one region (e.g. `us`, `eu`).
+Rust / Axum / PostgreSQL microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind a transparent L4 proxy (nginx + PROXY protocol v1); the bridge **terminates TLS for its own FQDN itself** via ACME HTTP-01 and passes tenant traffic through to the home-Pi tunnels — no Caddy (see `docs/adr-bridge-self-terminated-tls.md`). Each bridge instance owns one region, keyed by its inforge region slug (e.g. `use1`).
 
 ### Security invariants
 

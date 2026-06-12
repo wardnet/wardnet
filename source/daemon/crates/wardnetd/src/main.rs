@@ -34,15 +34,19 @@ use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::system::{PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps};
+use wardnetd::tls_server;
 use wardnetd::tunnel_exit_probe::ReqwestTunnelExitProbe;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd_api::state::AppState;
+use wardnetd_services::TlsRenewalRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
+use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
+use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
@@ -151,6 +155,12 @@ async fn run(
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
+    // Install the aws-lc-rs crypto provider before anything builds a rustls
+    // `ServerConfig` (the `:443` listener does). Both ring and aws-lc-rs are in
+    // the tree, so rustls 0.23 can't auto-pick — without this it panics at the
+    // first handshake. Must run on every code path that reaches TLS setup.
+    tls_server::install_crypto_provider();
+
     // Detect wardnet's own LAN IP for DHCP gateway advertisement.
     //
     // After a cold boot, `network-online.target` is reached before the
@@ -238,6 +248,37 @@ async fn run(
         system_config_repo.clone(),
     ));
 
+    // Secret store is hoisted out of the `Backends` literal because the `:443`
+    // TLS config is seeded from the stored cert (read through the SecretStore
+    // abstraction) *before* services are wired — the `CertActivator` must exist
+    // by the time `init_services_with_factory` builds the TLS service.
+    let secret_store = build_secret_store(config.secret_store.as_ref());
+
+    // Build the `:443` serving identity: seed from the stored real cert + its
+    // recorded domain if one exists (provisioned), else from a placeholder
+    // self-signed cert (unprovisioned). A SecretStore/config error at boot is
+    // non-fatal — fall back to the placeholder so `:7411` and `:443` still come up.
+    let stored_cert = match wardnetd_services::tls::load_stored_cert(secret_store.as_ref()).await {
+        Ok(seed) => seed,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read stored TLS cert; starting with placeholder");
+            None
+        }
+    };
+    let stored_cert_domain =
+        match wardnetd_services::tls::load_stored_cert_domain(system_config_repo.as_ref()).await {
+            Ok(domain) => domain,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to read stored TLS cert domain");
+                None
+            }
+        };
+    let (rustls_config, serving_control) =
+        tls_server::build_serving_control(stored_cert, stored_cert_domain)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to build :443 TLS config: {e}"))?;
+    let cert_activator: Arc<dyn wardnetd_services::CertActivator> = serving_control.clone();
+
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
         tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
@@ -257,7 +298,7 @@ async fn run(
         firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
-        secret_store: build_secret_store(config.secret_store.as_ref()),
+        secret_store: secret_store.clone(),
         blocklist_fetcher: blocklist_fetcher.clone(),
         update: update_backends,
         config_path: config_path.clone(),
@@ -270,6 +311,7 @@ async fn run(
         )),
         network_probe: Arc::new(PnetNetworkProbe::new(config.network.lan_interface.clone())),
         garp_ops: garp_ops.clone(),
+        cert_activator: cert_activator.clone(),
     };
 
     // Wire services. Admin bootstrap already ran above; this helper
@@ -310,6 +352,43 @@ async fn run(
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
+    // can reach the Pi by a friendly name (and `http://wardnet` works via the
+    // search-domain hop + `:80` redirect). Cert-independent, so seeded at boot;
+    // idempotent (`source = system` upsert) and non-fatal.
+    {
+        use wardnet_common::api::UpsertRecordRequest;
+        use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
+        // The seeded `.lan` zone id (see `20260414000000_dns.sql`).
+        const LAN_ZONE_ID: uuid::Uuid = uuid::uuid!("00000000-0000-0000-0000-000000000010");
+        let req = UpsertRecordRequest {
+            zone_id: Some(LAN_ZONE_ID),
+            domain: "wardnet.lan".to_owned(),
+            record_type: DnsRecordType::A,
+            value: lan_ip.to_string(),
+            ttl: 300,
+            enabled: true,
+            source: DnsRecordSource::System,
+        };
+        match auth_context::with_context(
+            AuthContext::Admin {
+                admin_id: uuid::Uuid::nil(),
+            },
+            services.dns_local.upsert_record(req),
+        )
+        .await
+        {
+            Ok(_) => tracing::info!(
+                lan_ip = %lan_ip,
+                "seeded wardnet.lan -> {lan_ip} system record",
+                lan_ip = lan_ip,
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to seed wardnet.lan system record; continuing bootstrap");
+            }
+        }
+    }
 
     // Broadcast the GARP claim *before* any user-facing runner starts,
     // so managed clients see "dhcp_router_ip is at the Pi's MAC again"
@@ -472,16 +551,25 @@ async fn run(
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
+        services.dns_local.clone(),
         services.event_publisher.as_ref(),
         &root_span,
     );
     let dns_filter_runner = DnsFilterRunner::start(
         services.dns_filter.clone(),
-        services.dns_filter_repo.clone(),
-        blocklist_fetcher,
-        services.event_publisher.clone(),
+        services.event_publisher.as_ref(),
         &root_span,
         Duration::from_mins(1),
+    );
+
+    // Auto-register `{hostname}.lan` A records as DHCP leases are assigned
+    // or renewed. Goes through the auth-gated local-DNS service so the
+    // authoritative view rebuild (and cache eviction) fire automatically.
+    let dhcp_lan_runner = DhcpLanRunner::start(
+        services.dns_local.clone(),
+        services.dhcp.clone(),
+        services.event_publisher.as_ref(),
+        &root_span,
     );
 
     // Drain the DNS query log persistence channel into SQLite and trim the
@@ -496,7 +584,6 @@ async fn run(
         .expect("dns log persist rx taken twice");
     let dns_query_log_runner = DnsQueryLogRunner::start(
         services.dns.clone(),
-        services.dns_repo.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
         &root_span,
@@ -519,7 +606,7 @@ async fn run(
     // Return freed SQLite pages to the filesystem once per day — fires
     // regardless of any per-feature flag so it covers all tables.
     let db_maintenance_runner =
-        DbMaintenanceRunner::start(services.maintenance_repo.clone(), &root_span);
+        DbMaintenanceRunner::start(services.maintenance.clone(), &root_span);
 
     // Start the auto-update poller. An initial check runs immediately; then
     // every `check_interval_secs` with ±10% jitter.
@@ -545,6 +632,15 @@ async fn run(
         &root_span,
     );
 
+    // DDNS update runner — keeps the public A record current. Inert (no network
+    // calls) until a DDNS provider is configured by the setup wizard.
+    let ddns_update_runner = DdnsUpdateRunner::start(services.ddns.clone(), &root_span);
+
+    // TLS renewal runner — issues the cert once DDNS is configured and renews it
+    // before expiry, hot-swapping the live `:443` cert. Inert (no ACME calls)
+    // while there is no active FQDN.
+    let tls_renewal_runner = TlsRenewalRunner::start(services.tls.clone(), &root_span);
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -552,6 +648,9 @@ async fn run(
         services.dhcp.clone(),
         services.dns.clone(),
         services.dns_filter.clone(),
+        services.dns_local.clone(),
+        services.ddns.clone(),
+        services.tls.clone(),
         services.discovery.clone(),
         log_service.clone(),
         services.vpn_provider.clone(),
@@ -569,11 +668,19 @@ async fn run(
     let app = wardnetd_api::api::router(state);
 
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
+    let https_addr: SocketAddr =
+        format!("{}:{}", config.server.host, config.server.https_port).parse()?;
+    let redirect_addr: SocketAddr = format!(
+        "{}:{}",
+        config.server.host, config.server.http_redirect_port
+    )
+    .parse()?;
 
     println!(
-        "\n  Wardnet daemon v{}\n  Listening on http://{}\n  Database: {}\n",
+        "\n  Wardnet daemon v{}\n  Listening on http://{} (plain) and https://{} (TLS)\n  Database: {}\n",
         env!("WARDNET_VERSION"),
         addr,
+        https_addr,
         config.database.connection_string,
     );
 
@@ -599,6 +706,30 @@ async fn run(
 
     let listener = TcpListener::bind(addr).await?;
 
+    // Three listeners share `shutdown_token`:
+    //   - `:7411` plain HTTP — the pre-provisioning admin surface, never guarded.
+    //   - `:443` HTTPS — always bound (placeholder cert until issuance), with a
+    //     503 guard until TLS is provisioned. Spawned.
+    //   - `:80` — 308-redirects to HTTPS. Spawned.
+    // The `:443`/`:80` tasks drain on cancellation; we join them after the
+    // blocking `:7411` serve returns, before the teardown sequence.
+    let serving: Arc<dyn tls_server::ServingIdentity> = serving_control.clone();
+    let https_app = tls_server::guarded_https_app(app.clone(), serving.clone());
+    let https_handle = tls_server::spawn_https_listener(
+        https_addr,
+        https_app,
+        rustls_config,
+        &shutdown_token,
+        &root_span,
+    );
+    let http_redirect_handle = tls_server::spawn_http_redirect_listener(
+        redirect_addr,
+        config.server.https_port,
+        serving,
+        &shutdown_token,
+        &root_span,
+    );
+
     let api_span = tracing::info_span!(parent: &root_span, "api_server");
     axum::serve(
         listener,
@@ -608,6 +739,13 @@ async fn run(
     .into_future()
     .instrument(api_span)
     .await?;
+
+    // `:7411`'s graceful-shutdown future returns on SIGINT/SIGTERM *without*
+    // cancelling the token, so cancel it explicitly to drive the spawned `:443`
+    // and `:80` listeners (and any token-watching tasks) into shutdown, then
+    // wait for them to drain before tearing the rest down.
+    shutdown_token.cancel();
+    let _ = tokio::join!(https_handle, http_redirect_handle);
 
     tracing::info!("server stopped, broadcasting GARP farewell before tearing down");
     // Farewell goes out *before* anything else in the shutdown sequence
@@ -634,12 +772,15 @@ async fn run(
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
+    dhcp_lan_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
+    ddns_update_runner.shutdown().await;
+    tls_renewal_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {
         advertiser.shutdown().await;

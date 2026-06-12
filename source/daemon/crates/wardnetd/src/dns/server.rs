@@ -20,12 +20,15 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
-use wardnet_common::dns::{DnsConfig, DnsProtocol, FilterAction, UpstreamDns, UpstreamId};
+use wardnet_common::dns::{
+    DnsConfig, DnsProtocol, DnsRecordType, FilterAction, UpstreamDns, UpstreamId,
+};
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_services::DnsFilterService;
 use wardnetd_services::dns::DnsLogSink;
+use wardnetd_services::dns::authoritative::{AuthoritativeView, parse_conditional_upstream};
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::EventPublisher;
@@ -113,7 +116,22 @@ pub struct UdpDnsServer {
     /// rebuild events that fire while DNS is disabled don't leave stale
     /// entries when DNS is re-enabled. Cancelled in `Drop`.
     cache_invalidator_cancel: CancellationToken,
+    /// Lock-free snapshot of enabled local authoritative records and
+    /// conditional forwarding rules. Swapped atomically by `update_authoritative_view`
+    /// whenever `DnsLocalChanged` fires so each query reads a consistent
+    /// view without taking a lock.
+    authoritative_view: Arc<ArcSwap<AuthoritativeView>>,
+    /// Pool of pre-bound UDP sockets for conditional forwarding. Re-using sockets
+    /// avoids the per-query `bind` syscall. Each socket is `connect`-ed to the
+    /// target upstream just before use, which also restricts the kernel to
+    /// accepting responses only from that peer address (closing the off-path
+    /// spoofing window). The pool is capped at [`CONDITIONAL_SOCKET_POOL_SIZE`];
+    /// under-capacity sockets are created on demand.
+    conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 }
+
+/// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
+const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
 
 impl Drop for UdpDnsServer {
     fn drop(&mut self) {
@@ -198,6 +216,8 @@ impl UdpDnsServer {
             tunnel_repo,
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
             cache_invalidator_cancel,
+            authoritative_view: Arc::new(ArcSwap::from_pointee(AuthoritativeView::empty())),
+            conditional_socket_pool: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -252,6 +272,8 @@ impl DnsServer for UdpDnsServer {
         let routing_snapshot = Arc::clone(&self.routing_snapshot);
         let tunnel_repo = Arc::clone(&self.tunnel_repo);
         let tunnel_forwarders = Arc::clone(&self.tunnel_forwarders);
+        let authoritative_view = Arc::clone(&self.authoritative_view);
+        let conditional_socket_pool = Arc::clone(&self.conditional_socket_pool);
 
         let new_cancel = CancellationToken::new();
         let cancel = new_cancel.clone();
@@ -277,6 +299,8 @@ impl DnsServer for UdpDnsServer {
                 routing_snapshot,
                 tunnel_repo,
                 tunnel_forwarders,
+                authoritative_view,
+                conditional_socket_pool,
             )
             .await;
             running.store(false, Ordering::SeqCst);
@@ -327,6 +351,17 @@ impl DnsServer for UdpDnsServer {
     async fn update_config(&self, config: DnsConfig) {
         *self.config.write().await = config;
     }
+
+    async fn update_authoritative_view(&self, view: AuthoritativeView) {
+        self.authoritative_view.swap(Arc::new(view));
+    }
+
+    async fn invalidate_domain(&self, domain: &str) {
+        let removed = self.cache.write().await.invalidate_domain(domain);
+        if removed > 0 {
+            tracing::debug!(domain, removed, "evicted DNS cache entries for domain");
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -341,6 +376,8 @@ async fn server_loop(
     routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
     tunnel_repo: Arc<dyn TunnelRepository>,
     tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
+    authoritative_view: Arc<ArcSwap<AuthoritativeView>>,
+    conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) {
     let mut buf = vec![0u8; 4096];
 
@@ -369,6 +406,8 @@ async fn server_loop(
                         let routing_snapshot = Arc::clone(&routing_snapshot);
                         let tunnel_repo = Arc::clone(&tunnel_repo);
                         let tunnel_forwarders = Arc::clone(&tunnel_forwarders);
+                        let authoritative_view = Arc::clone(&authoritative_view);
+                        let conditional_socket_pool = Arc::clone(&conditional_socket_pool);
 
                         // Tracker.spawn keeps the Arc<DnsSocket> clone in
                         // this task observable to `stop()`, which awaits
@@ -386,6 +425,8 @@ async fn server_loop(
                                 &routing_snapshot,
                                 &tunnel_repo,
                                 &tunnel_forwarders,
+                                &authoritative_view,
+                                &conditional_socket_pool,
                             )
                             .await
                             {
@@ -416,7 +457,11 @@ async fn handle_query(
     routing_snapshot: &Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
     tunnel_repo: &Arc<dyn TunnelRepository>,
     tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
+    authoritative_view: &Arc<ArcSwap<AuthoritativeView>>,
+    conditional_socket_pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) -> anyhow::Result<()> {
+    use hickory_proto::rr::{Name, Record};
+
     let request = Message::from_bytes(packet)?;
     let id = request.metadata.id;
 
@@ -428,16 +473,174 @@ async fn handle_query(
     let rtype = question.query_type();
     let start = std::time::Instant::now();
 
-    // 0. Resolve upstream pool for this client. Lookup miss = `Default`,
-    //    so LAN devices and tunneled devices with override disabled both
-    //    fall through to the system-wide upstream — the issue #342 fix
-    //    only re-routes the device IPs the routing service has explicitly
-    //    paired with `Tunnel(_)`.
+    // 0. Resolve upstream pool for this client.
     let upstream_id = routing_snapshot
         .load()
         .get(&src.ip())
         .copied()
         .unwrap_or(UpstreamId::Default);
+
+    let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
+    let view = authoritative_view.load();
+
+    // 0.5. Authoritative answer — BEFORE cache, bypasses filter.
+    let is_any = rtype == hickory_proto::rr::RecordType::ANY;
+    let our_rtype = rtype_from_hickory(rtype);
+
+    let auth_lookup = if is_any {
+        view.lookup_all(&domain_lower)
+    } else if let Some(rt) = our_rtype {
+        view.lookup(&domain_lower, rt)
+    } else {
+        None
+    };
+
+    if let Some(auth_records) = auth_lookup {
+        let name = Name::from_str_relaxed(&domain)?;
+        let mut response = Message::response(id, OpCode::Query);
+        response.metadata.recursion_desired = true;
+        response.metadata.recursion_available = true;
+        response.metadata.authoritative = true;
+        response.add_queries(request.queries.clone());
+
+        if auth_records.is_empty() {
+            // Known domain, no records of this type → NOERROR with AA bit
+            // (NODATA). If the name falls inside an authoritative zone, attach
+            // that zone's pre-built synthetic SOA so the negative answer is
+            // cacheable (cloned, not rebuilt, on the per-query path).
+            if let Some(zone) = view.authoritative_zone(&domain_lower)
+                && let Some(soa) = &zone.soa
+            {
+                response.add_authority(soa.clone());
+            }
+        } else {
+            for rec in auth_records {
+                match make_rdata(rec.record_type, &rec.value, &name) {
+                    Ok(rdata) => {
+                        response.add_answer(Record::from_rdata(name.clone(), rec.ttl, rdata));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            domain = %domain_lower,
+                            record_type = ?rec.record_type,
+                            error = %e,
+                            "skipping malformed authoritative record"
+                        );
+                    }
+                }
+            }
+
+            // For A/AAAA queries on a domain with only a CNAME record,
+            // add the CNAME to the answer and the target A record (if
+            // present) to the additional section.
+            if matches!(our_rtype, Some(DnsRecordType::A | DnsRecordType::Aaaa))
+                && response.answers.is_empty()
+                && let Some(cname_rec) = view.lookup_cname(&domain_lower)
+            {
+                let target_domain = cname_rec.value.trim_end_matches('.').to_ascii_lowercase();
+                if let Ok(rdata) = make_rdata(DnsRecordType::Cname, &cname_rec.value, &name) {
+                    response.add_answer(Record::from_rdata(name.clone(), cname_rec.ttl, rdata));
+                }
+                // Add target A/AAAA to additional section if in view.
+                if let Some(target_rt) = our_rtype
+                    && let Some(target_records) = view.lookup(&target_domain, target_rt)
+                    && let Ok(target_name) = Name::from_str_relaxed(&cname_rec.value)
+                {
+                    for t_rec in target_records {
+                        if let Ok(rdata) = make_rdata(t_rec.record_type, &t_rec.value, &target_name)
+                        {
+                            response.add_additional(Record::from_rdata(
+                                target_name.clone(),
+                                t_rec.ttl,
+                                rdata,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        let bytes = response.to_bytes()?;
+        socket.send_to(&bytes, src).await?;
+        tracing::trace!(%domain, ?rtype, "authoritative answer");
+        record_query(
+            log_sink,
+            &domain,
+            rtype,
+            src,
+            "authoritative",
+            None,
+            start.elapsed(),
+        );
+        return Ok(());
+    }
+
+    // 0.6. Conditional forwarding check — applies to queries that fall
+    //      through the authoritative path (domain not in local view).
+    let conditional_upstream: Option<SocketAddr> =
+        view.match_forwarding_rule(&domain_lower).and_then(|r| {
+            parse_conditional_upstream(&r.upstream)
+                .map_err(|e| {
+                    tracing::warn!(
+                        upstream = %r.upstream,
+                        domain = %domain_lower,
+                        error = %e,
+                        "malformed conditional forwarding upstream — falling through to default"
+                    );
+                })
+                .ok()
+        });
+
+    // 0.7. Zone authority — if the name falls under an enabled authoritative
+    //      zone and no conditional-forwarding rule claimed it, the gateway owns
+    //      the namespace: answer authoritatively instead of leaking the query
+    //      upstream. Capture `name_exists` here too: a query type our enum
+    //      doesn't model (e.g. HTTPS/SVCB type 65, CAA) yields `auth_lookup =
+    //      None` even when the name has other records, so we must distinguish
+    //      a truly-absent name (NXDOMAIN) from an existing one with no record
+    //      of this type (NODATA). Returning NXDOMAIN for an existing name would
+    //      poison its negative cache via the SOA we attach. The zone apex
+    //      itself always "exists" (the zone is authoritative for it), so an
+    //      apex query with no record is NODATA, never NXDOMAIN. The pre-built
+    //      SOA is cloned out so it survives `drop(view)`.
+    let authoritative_negative: Option<(Option<Record>, bool)> = if conditional_upstream.is_none() {
+        view.authoritative_zone(&domain_lower).map(|z| {
+            let name_exists = view.lookup_all(&domain_lower).is_some() || domain_lower == z.name;
+            (z.soa.clone(), name_exists)
+        })
+    } else {
+        None
+    };
+
+    // Drop the ArcSwap guard before any await point.
+    drop(view);
+
+    if let Some((zone_soa, name_exists)) = authoritative_negative {
+        let mut response = Message::response(id, OpCode::Query);
+        response.metadata.recursion_desired = true;
+        response.metadata.recursion_available = true;
+        response.metadata.authoritative = true;
+        // NXDOMAIN is a name-level negative ("no such name"); only valid when
+        // the name is truly absent. If it exists for some other/unmodeled type
+        // this is NODATA (NoError with the SOA in the authority section).
+        if !name_exists {
+            response.metadata.response_code = ResponseCode::NXDomain;
+        }
+        response.add_queries(request.queries.clone());
+        if let Some(soa) = zone_soa {
+            response.add_authority(soa);
+        }
+        let bytes = response.to_bytes()?;
+        socket.send_to(&bytes, src).await?;
+        let result = if name_exists {
+            "authoritative_nodata"
+        } else {
+            "authoritative_nxdomain"
+        };
+        tracing::trace!(%domain, ?rtype, result, "authoritative negative answer: {result}");
+        record_query(log_sink, &domain, rtype, src, result, None, start.elapsed());
+        return Ok(());
+    }
 
     // 1. Cache, keyed by upstream so a tunneled device's answer doesn't
     //    bleed into a LAN device's lookup of the same domain (or vice
@@ -464,7 +667,6 @@ async fn handle_query(
     }
 
     // 2. Filter.
-    let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
     let outcome = dns_filter.check(&domain_lower, rtype, src.ip()).await;
 
     match outcome.action {
@@ -527,12 +729,52 @@ async fn handle_query(
         FilterAction::Pass => {}
     }
 
-    // 3. Forward to upstream — choice based on `upstream_id`.
+    // 3. Forward to upstream — conditional forwarding overrides upstream_id.
     let pass_result = if outcome.would_have_blocked {
         "blocked_skipped"
     } else {
         "forwarded"
     };
+
+    if let Some(cond_upstream) = conditional_upstream {
+        if let Err(e) = forward_via_conditional(
+            cond_upstream,
+            socket,
+            cache,
+            config,
+            log_sink,
+            packet,
+            &request,
+            id,
+            src,
+            &domain,
+            rtype,
+            start,
+            pass_result,
+            upstream_id,
+            conditional_socket_pool,
+        )
+        .await
+        {
+            tracing::warn!(
+                error = %e,
+                upstream = %cond_upstream,
+                %domain,
+                "conditional DNS forward failed; returning ServFail"
+            );
+            send_servfail(socket, src, id, &request).await?;
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                "upstream_error",
+                Some(cond_upstream.ip().to_string()),
+                start.elapsed(),
+            );
+        }
+        return Ok(());
+    }
 
     match upstream_id {
         UpstreamId::Default => {
@@ -721,14 +963,16 @@ async fn forward_via_tunnel(
     // syscall cost is negligible relative to the DNS round-trip.
     let bound = bind_socket_to_device(&forwarder.interface_name)?;
 
-    bound.send_to(packet, forwarder.upstream).await?;
+    // Connect so the kernel only delivers datagrams from `forwarder.upstream`,
+    // rejecting off-path spoofed responses at the socket layer.
+    bound.connect(forwarder.upstream).await?;
+    bound.send(packet).await?;
 
     let mut buf = vec![0u8; 4096];
-    let recv =
-        tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv_from(&mut buf)).await;
+    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
 
     let n = match recv {
-        Ok(Ok((n, _))) => n,
+        Ok(Ok(n)) => n,
         Ok(Err(e)) => {
             return Err(anyhow::anyhow!("tunnel upstream recv error: {e}"));
         }
@@ -955,6 +1199,215 @@ pub(crate) fn spawn_cache_invalidator(
             }
         }
     })
+}
+
+/// Map a hickory [`RecordType`] to our domain [`DnsRecordType`].
+/// Returns `None` for record types we don't have local records for
+/// (e.g. NS, SOA, PTR — these always fall through to upstream).
+fn rtype_from_hickory(rt: hickory_proto::rr::RecordType) -> Option<DnsRecordType> {
+    use hickory_proto::rr::RecordType as H;
+    match rt {
+        H::A => Some(DnsRecordType::A),
+        H::AAAA => Some(DnsRecordType::Aaaa),
+        H::CNAME => Some(DnsRecordType::Cname),
+        H::TXT => Some(DnsRecordType::Txt),
+        H::MX => Some(DnsRecordType::Mx),
+        H::SRV => Some(DnsRecordType::Srv),
+        _ => None,
+    }
+}
+
+/// Build hickory [`RData`] from a domain record type and raw value string.
+fn make_rdata(
+    rt: DnsRecordType,
+    value: &str,
+    _name: &hickory_proto::rr::Name,
+) -> anyhow::Result<hickory_proto::rr::RData> {
+    use hickory_proto::rr::{
+        RData,
+        rdata::{A, AAAA, CNAME, MX, SRV, TXT},
+    };
+
+    match rt {
+        DnsRecordType::A => {
+            let ip: std::net::Ipv4Addr = value
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid A record value {value:?}: {e}"))?;
+            Ok(RData::A(A(ip)))
+        }
+        DnsRecordType::Aaaa => {
+            let ip: std::net::Ipv6Addr = value
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid AAAA record value {value:?}: {e}"))?;
+            Ok(RData::AAAA(AAAA(ip)))
+        }
+        DnsRecordType::Cname => {
+            let target = hickory_proto::rr::Name::from_str_relaxed(value)
+                .map_err(|e| anyhow::anyhow!("invalid CNAME target {value:?}: {e}"))?;
+            Ok(RData::CNAME(CNAME(target)))
+        }
+        DnsRecordType::Txt => Ok(RData::TXT(TXT::new(vec![value.to_owned()]))),
+        DnsRecordType::Mx => {
+            // Format: "<priority> <exchange>" e.g. "10 mail.example.com"
+            let (prio_str, exchange_str) = value.split_once(' ').ok_or_else(|| {
+                anyhow::anyhow!("MX value must be '<priority> <exchange>', got {value:?}")
+            })?;
+            let preference: u16 = prio_str
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid MX priority {prio_str:?}: {e}"))?;
+            let exchange = hickory_proto::rr::Name::from_str_relaxed(exchange_str)
+                .map_err(|e| anyhow::anyhow!("invalid MX exchange {exchange_str:?}: {e}"))?;
+            Ok(RData::MX(MX::new(preference, exchange)))
+        }
+        DnsRecordType::Srv => {
+            // Format: "<priority> <weight> <port> <target>"
+            let parts: Vec<&str> = value.splitn(4, ' ').collect();
+            if parts.len() != 4 {
+                return Err(anyhow::anyhow!(
+                    "SRV value must be '<priority> <weight> <port> <target>', got {value:?}"
+                ));
+            }
+            let priority: u16 = parts[0]
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid SRV priority: {e}"))?;
+            let weight: u16 = parts[1]
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid SRV weight: {e}"))?;
+            let port: u16 = parts[2]
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid SRV port: {e}"))?;
+            let target = hickory_proto::rr::Name::from_str_relaxed(parts[3])
+                .map_err(|e| anyhow::anyhow!("invalid SRV target: {e}"))?;
+            Ok(RData::SRV(SRV::new(priority, weight, port, target)))
+        }
+    }
+}
+
+/// Forward a DNS query to a conditional upstream (no `SO_BINDTODEVICE`).
+///
+/// Borrows a socket from `pool` (or creates a new one if the pool is empty),
+/// `connect`s it to `upstream` (so the kernel only delivers responses from that
+/// peer), sends the query, then validates the response transaction ID and question
+/// before forwarding to the client. Without txid validation, a pooled socket that
+/// already has a late/duplicate response buffered from a previous query could
+/// deliver it to the wrong client.
+#[allow(clippy::too_many_arguments)]
+async fn forward_via_conditional(
+    upstream: SocketAddr,
+    socket: &Arc<dyn DnsSocket>,
+    cache: &Arc<RwLock<DnsCache>>,
+    config: &Arc<RwLock<DnsConfig>>,
+    log_sink: Option<&DnsLogSink>,
+    packet: &[u8],
+    request: &Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+    pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+) -> anyhow::Result<()> {
+    // Check out a socket from the pool, or create a new one.
+    let bound = {
+        let mut guard = pool.lock().await;
+        if let Some(s) = guard.pop() {
+            s
+        } else {
+            let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+            std_socket.set_nonblocking(true)?;
+            tokio::net::UdpSocket::from_std(std_socket)?
+        }
+    };
+
+    // connect() restricts the kernel to only accepting datagrams from `upstream`,
+    // eliminating off-path response spoofing at the OS layer.
+    bound.connect(upstream).await?;
+    bound.send(packet).await?;
+
+    let mut buf = vec![0u8; 4096];
+    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
+
+    let n = match recv {
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!("conditional upstream recv error: {e}"));
+        }
+        Err(_) => {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!("conditional upstream timeout"));
+        }
+    };
+    buf.truncate(n);
+
+    // Validate the response before forwarding: txid and question must match the
+    // outbound query. A pooled socket could in theory receive a late response to a
+    // prior query; txid validation ensures stale datagrams are never served or cached.
+    if let Ok(parsed) = Message::from_bytes(&buf) {
+        if parsed.metadata.id != id {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!(
+                "conditional upstream response txid mismatch (got {}, expected {id})",
+                parsed.metadata.id
+            ));
+        }
+        if parsed.queries.first().map(hickory_proto::op::Query::name)
+            != request.queries.first().map(hickory_proto::op::Query::name)
+        {
+            return_socket_to_pool(pool, bound).await;
+            return Err(anyhow::anyhow!(
+                "conditional upstream response question mismatch"
+            ));
+        }
+
+        socket.send_to(&buf, src).await?;
+        return_socket_to_pool(pool, bound).await;
+
+        let mut min_ttl = u32::MAX;
+        for record in &parsed.answers {
+            min_ttl = min_ttl.min(record.ttl);
+        }
+        if min_ttl < u32::MAX && min_ttl > 0 {
+            let cfg = config.read().await;
+            let mut cache_guard = cache.write().await;
+            cache_guard.insert(
+                upstream_id,
+                domain,
+                rtype,
+                parsed,
+                min_ttl,
+                cfg.cache_ttl_min_secs,
+                cfg.cache_ttl_max_secs,
+            );
+        }
+    } else {
+        // Parse failed — send raw bytes and don't cache.
+        socket.send_to(&buf, src).await?;
+        return_socket_to_pool(pool, bound).await;
+    }
+
+    let elapsed = start.elapsed();
+    tracing::trace!(%domain, ?rtype, ?elapsed, %upstream, "forwarded via conditional upstream");
+    record_query(
+        log_sink,
+        domain,
+        rtype,
+        src,
+        pass_result,
+        Some(upstream.ip().to_string()),
+        elapsed,
+    );
+    Ok(())
+}
+
+async fn return_socket_to_pool(pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>, socket: UdpSocket) {
+    let mut guard = pool.lock().await;
+    if guard.len() < CONDITIONAL_SOCKET_POOL_SIZE {
+        guard.push(socket);
+    }
+    // If the pool is at capacity, the socket is simply dropped (closed).
 }
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;

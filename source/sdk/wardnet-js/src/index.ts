@@ -135,6 +135,7 @@ export type {
 // Services — DNS
 export { DnsService } from "./services/dns.js";
 export { DnsFilterService } from "./services/dns-filter.js";
+export { DnsLocalService } from "./services/dns-local.js";
 export { DnsLogStreamService } from "./services/dnsLogStream.js";
 export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
@@ -146,6 +147,22 @@ export { UpdateService } from "./services/update.js";
 
 // Services — backup
 export { BackupService } from "./services/backup.js";
+
+// Services — remote access (DDNS + TLS)
+export { RemoteAccessService } from "./services/remote-access.js";
+
+// Types — remote access (DDNS + TLS)
+export type {
+  DdnsCheckResponse,
+  DdnsRegisterRequest,
+  ConfigureCloudflareRequest,
+  DdnsRegisterResponse,
+  DdnsStatusResponse,
+  DdnsResolutionVerdict,
+  DdnsResolutionCheckResponse,
+  TlsProvisioningPhase,
+  TlsStatusResponse,
+} from "./types/remote-access.js";
 
 // Types — backup
 export type {
@@ -249,3 +266,34 @@ export type {
   DnsFilterConfigResponse,
   UpdateDnsFilterConfigRequest,
 } from "./types/dns-filter.js";
+
+// Types — Local DNS (authoritative zones, custom records, forwarding rules)
+export type {
+  DnsRecordType,
+  DnsRecordSource,
+  DnsZoneSource,
+  DnsZone,
+  CustomDnsRecord,
+  ConditionalForwardingRule,
+  ListZonesResponse,
+  GetZoneResponse,
+  CreateZoneRequest,
+  CreateZoneResponse,
+  UpdateZoneRequest,
+  UpdateZoneResponse,
+  DeleteZoneResponse,
+  ListRecordsResponse,
+  GetRecordResponse,
+  CreateRecordRequest,
+  CreateRecordResponse,
+  UpdateRecordRequest,
+  UpdateRecordResponse,
+  DeleteRecordResponse,
+  ListForwardingRulesResponse,
+  GetForwardingRuleResponse,
+  CreateForwardingRuleRequest,
+  CreateForwardingRuleResponse,
+  UpdateForwardingRuleRequest,
+  UpdateForwardingRuleResponse,
+  DeleteForwardingRuleResponse,
+} from "./types/dns-local.js";

@@ -7,6 +7,22 @@
 
 use crate::error::ApiError;
 
+/// Maximum number of ACME challenge values a single set request may carry.
+///
+/// A **per-user wildcard certificate** authorizes exactly two SANs (the apex +
+/// the wildcard) through the one `_acme-challenge` name, so two values is the
+/// real shape; the small margin tolerates a future extra SAN without uncapping.
+/// The cap is the trust boundary: the daemon limits itself, but a malicious
+/// install calls the bridge directly, and each value fans out to a Cloudflare
+/// TXT create against the region's **shared** zone — an uncapped list is a
+/// cross-tenant `DoS` on that shared CF rate budget.
+const MAX_ACME_VALUES: usize = 4;
+
+/// Maximum length of a single ACME challenge value. A DNS-01 key authorization
+/// digest is 43 base64url chars; 255 is the DNS TXT single-string limit and a
+/// generous defence-in-depth bound on the request body.
+const MAX_ACME_VALUE_LEN: usize = 255;
+
 /// Subdomain names that may not be claimed by any installation.
 ///
 /// Includes DNS infrastructure names, well-known service labels, and region
@@ -82,6 +98,33 @@ pub(crate) fn validate_name(name: &str) -> Result<(), ApiError> {
     }
     if RESERVED_NAMES.contains(&name) {
         return Err(ApiError::BadRequest(format!("'{name}' is a reserved name")));
+    }
+    Ok(())
+}
+
+/// Validate the ACME challenge value list from `PUT /v1/installs/{id}/acme-challenge`.
+///
+/// Bounds an *authenticated* caller's request before any Cloudflare write: the
+/// list must be non-empty (an empty set via the *set* endpoint is meaningless —
+/// callers clear via `DELETE`) and no longer than [`MAX_ACME_VALUES`], and each
+/// value within [`MAX_ACME_VALUE_LEN`]. See [`MAX_ACME_VALUES`] for why the cap
+/// is a cross-tenant safety boundary, not just input hygiene.
+pub(crate) fn validate_acme_values(values: &[String]) -> Result<(), ApiError> {
+    if values.is_empty() {
+        return Err(ApiError::BadRequest(
+            "values must contain at least one challenge value (clear via DELETE)".to_string(),
+        ));
+    }
+    if values.len() > MAX_ACME_VALUES {
+        return Err(ApiError::BadRequest(format!(
+            "at most {MAX_ACME_VALUES} challenge values may be set at once"
+        )));
+    }
+    if let Some(v) = values.iter().find(|v| v.len() > MAX_ACME_VALUE_LEN) {
+        return Err(ApiError::BadRequest(format!(
+            "challenge value exceeds {MAX_ACME_VALUE_LEN} characters ({} given)",
+            v.len()
+        )));
     }
     Ok(())
 }

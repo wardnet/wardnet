@@ -28,7 +28,7 @@ export {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
+  CardSubtitle,
   CardAction,
   CardContent,
   CardFooter,
@@ -139,6 +139,7 @@ export {
   dhcpService,
   dnsService,
   dnsFilterService,
+  dnsLocalService,
   dnsLogStreamService,
   jobsService,
   logService,
@@ -276,6 +277,25 @@ export {
 } from "./hooks/useDns";
 
 export {
+  useDnsZones,
+  useDnsZone,
+  useDnsZoneRecords,
+  useCreateDnsZone,
+  useUpdateDnsZone,
+  useDeleteDnsZone,
+  useDnsRecords,
+  useDnsRecord,
+  useCreateDnsRecord,
+  useUpdateDnsRecord,
+  useDeleteDnsRecord,
+  useForwardingRules,
+  useForwardingRule,
+  useCreateForwardingRule,
+  useUpdateForwardingRule,
+  useDeleteForwardingRule,
+} from "./hooks/useDnsLocal";
+
+export {
   useDnsFilterProfiles,
   useDnsFilterProfile,
   useCreateDnsFilterProfile,
@@ -341,6 +361,17 @@ export {
 
 // Hooks — setup wizard
 export { useSetupStatus, useSetup, useAdvanceWizard } from "./hooks/useSetup";
+
+// Hooks — remote access (DDNS + TLS)
+export {
+  useCheckDdnsName,
+  useRegisterDdns,
+  useConfigureCloudflare,
+  useDdnsStatus,
+  useTlsStatus,
+  useResolutionCheck,
+  useDeleteDdns,
+} from "./hooks/useRemoteAccess";
 
 // PWA helpers
 export { registerSW } from "./lib/registerSW";

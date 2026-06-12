@@ -31,7 +31,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
 
 # https://crates.io/crates/sqlx
-sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "migrate"] }
 
 # https://crates.io/crates/serde
 serde = { version = "1.0", features = ["derive"] }
@@ -80,6 +80,26 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # https://crates.io/crates/utoipa-axum
 utoipa-axum = "0.2"
+
+# ── TLS termination + ACME (bridge-owned, replaces Caddy) ──────────────────────
+# https://crates.io/crates/instant-acme — async ACME (RFC 8555) client; bridge issues its own FQDN cert via HTTP-01
+instant-acme = "0.8.5"
+# https://crates.io/crates/rcgen — leaf keypair + CSR generation for the issued certificate
+rcgen = "0.14.8"
+# https://crates.io/crates/x509-parser — parse the leaf cert's not_after for renewal scheduling
+x509-parser = "0.18"
+# https://crates.io/crates/rustls — TLS server config for terminating the bridge's own SNI on :8443
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+# https://crates.io/crates/tokio-rustls — async TLS acceptor wrapping the peeked TcpStream
+tokio-rustls = "0.26"
+# https://crates.io/crates/rustls-pemfile — parse issued chain + leaf key PEM into rustls types
+rustls-pemfile = "2"
+# https://crates.io/crates/hyper — serve the axum Router over a single TLS-terminated connection
+hyper = { version = "1", features = ["http1", "http2", "server"] }
+# https://crates.io/crates/hyper-util — Tower/axum service adapter + TokioIo for hyper::server
+hyper-util = { version = "0.1", features = ["server", "tokio", "service"] }
+# https://crates.io/crates/aes-gcm — AES-256-GCM seal for cert/account material at rest in Postgres
+aes-gcm = "0.10"
 
 [dev-dependencies]
 # https://crates.io/crates/http-body-util

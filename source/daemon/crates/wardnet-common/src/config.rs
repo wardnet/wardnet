@@ -101,7 +101,15 @@ impl ApplicationConfiguration {
 #[serde(default)]
 pub struct ServerConfig {
     pub host: String,
+    /// Plain-HTTP port — the pre-provisioning fallback surface and the LAN admin
+    /// API before a real cert is loaded. Never guarded.
     pub port: u16,
+    /// HTTPS port the daemon terminates TLS on. Always bound (with a placeholder
+    /// self-signed cert until a real one is issued); requests are 503-guarded
+    /// until TLS is provisioned.
+    pub https_port: u16,
+    /// Plain-HTTP port that 308-redirects to HTTPS.
+    pub http_redirect_port: u16,
 }
 
 impl Default for ServerConfig {
@@ -109,6 +117,8 @@ impl Default for ServerConfig {
         Self {
             host: "0.0.0.0".to_owned(),
             port: 7411,
+            https_port: 443,
+            http_redirect_port: 80,
         }
     }
 }

@@ -1,4 +1,6 @@
-use super::{RESERVED_NAMES, is_valid_name, validate_name};
+use super::{
+    MAX_ACME_VALUE_LEN, RESERVED_NAMES, is_valid_name, validate_acme_values, validate_name,
+};
 
 // ── is_valid_name ─────────────────────────────────────────────────────────────
 
@@ -62,4 +64,31 @@ fn validate_name_reserved_errors() {
     assert!(validate_name("www").is_err());
     assert!(validate_name("admin").is_err());
     assert!(validate_name("us").is_err());
+}
+
+// ── validate_acme_values ──────────────────────────────────────────────────────
+
+#[test]
+fn validate_acme_values_accepts_one_or_two() {
+    assert!(validate_acme_values(&["apex".to_string()]).is_ok());
+    assert!(validate_acme_values(&["apex".to_string(), "wildcard".to_string()]).is_ok());
+}
+
+#[test]
+fn validate_acme_values_rejects_empty() {
+    // Empty via the set endpoint is meaningless — callers clear via DELETE.
+    assert!(validate_acme_values(&[]).is_err());
+}
+
+#[test]
+fn validate_acme_values_rejects_too_many() {
+    // The cross-tenant DoS guard: an oversized list is rejected before any CF write.
+    let many: Vec<String> = (0..5).map(|i| i.to_string()).collect();
+    assert!(validate_acme_values(&many).is_err());
+}
+
+#[test]
+fn validate_acme_values_rejects_overlong_value() {
+    let long = "a".repeat(MAX_ACME_VALUE_LEN + 1);
+    assert!(validate_acme_values(&[long]).is_err());
 }

@@ -32,8 +32,8 @@ use wardnetd_services::error::AppError;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
-    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubProviderService,
-    StubRoutingService, StubSystemService, StubTunnelService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::{AuthService, LogService};
 
@@ -236,6 +236,9 @@ fn make_state(auth: impl AuthService + 'static, backup: Arc<dyn BackupService>) 
         Arc::new(StubDhcpService),
         Arc::new(StubDnsService),
         Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
         Arc::new(StubDiscoveryService),
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),

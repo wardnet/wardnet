@@ -93,6 +93,12 @@ cron.workspace = true
 mdns-sd.workspace = true
 # https://crates.io/crates/surge-ping — async ICMP echo with SO_BINDTODEVICE for per-tunnel latency probe
 surge-ping.workspace = true
+# https://crates.io/crates/axum-server — TLS-terminating :443 listener with hot cert reload
+axum-server.workspace = true
+# https://crates.io/crates/rcgen — placeholder self-signed cert seeding the :443 RustlsConfig at boot
+rcgen.workspace = true
+# https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as process default
+rustls.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

@@ -30,7 +30,8 @@ use crate::DnsService;
 use crate::auth_context;
 use crate::db_busy::retry_on_busy;
 use crate::dns::log_sink::DnsLogSink;
-use wardnetd_data::repository::{DnsRepository, QueryLogRow};
+use crate::error::AppError;
+use wardnetd_data::repository::QueryLogRow;
 
 /// Maximum entries flushed in a single insert batch.
 pub const BATCH_MAX: usize = 256;
@@ -64,14 +65,12 @@ impl DnsQueryLogRunner {
     /// is kept around so the runner can drain its dropped-counter.
     pub fn start(
         service: Arc<dyn DnsService>,
-        dns_repo: Arc<dyn DnsRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         parent: &tracing::Span,
     ) -> Self {
         Self::start_with_intervals(
             service,
-            dns_repo,
             sink,
             rx,
             BATCH_INTERVAL,
@@ -85,7 +84,6 @@ impl DnsQueryLogRunner {
     /// intervals to exercise the loop without waiting.
     pub fn start_with_intervals(
         service: Arc<dyn DnsService>,
-        dns_repo: Arc<dyn DnsRepository>,
         sink: Arc<DnsLogSink>,
         rx: mpsc::Receiver<QueryLogRow>,
         batch_interval: Duration,
@@ -98,7 +96,6 @@ impl DnsQueryLogRunner {
         let handle = tokio::spawn(
             runner_loop(
                 service,
-                dns_repo,
                 sink,
                 rx,
                 batch_interval,
@@ -121,7 +118,6 @@ impl DnsQueryLogRunner {
 
 async fn runner_loop(
     service: Arc<dyn DnsService>,
-    dns_repo: Arc<dyn DnsRepository>,
     sink: Arc<DnsLogSink>,
     mut rx: mpsc::Receiver<QueryLogRow>,
     batch_interval: Duration,
@@ -157,12 +153,12 @@ async fn runner_loop(
                 };
                 buffer.push(row);
                 if buffer.len() >= BATCH_MAX {
-                    flush(&service, dns_repo.as_ref(), &admin_ctx, &mut buffer).await;
+                    flush(&service, &admin_ctx, &mut buffer).await;
                 }
             }
             _ = flush_ticker.tick() => {
                 if !buffer.is_empty() {
-                    flush(&service, dns_repo.as_ref(), &admin_ctx, &mut buffer).await;
+                    flush(&service, &admin_ctx, &mut buffer).await;
                 }
                 if last_dropped_report.elapsed() >= DROPPED_REPORT_INTERVAL {
                     let dropped = sink.take_dropped();
@@ -179,7 +175,7 @@ async fn runner_loop(
                 let today_now = today();
                 if today_now != last_cleanup_day {
                     last_cleanup_day = today_now;
-                    cleanup(&service, dns_repo.as_ref(), &admin_ctx).await;
+                    cleanup(&service, &admin_ctx).await;
                 }
             }
         }
@@ -187,13 +183,12 @@ async fn runner_loop(
 
     // Drain remaining entries on shutdown — best effort.
     if !buffer.is_empty() {
-        flush(&service, dns_repo.as_ref(), &admin_ctx, &mut buffer).await;
+        flush(&service, &admin_ctx, &mut buffer).await;
     }
 }
 
 pub(crate) async fn flush(
     service: &Arc<dyn DnsService>,
-    dns_repo: &dyn DnsRepository,
     admin_ctx: &AuthContext,
     buffer: &mut Vec<QueryLogRow>,
 ) {
@@ -230,14 +225,21 @@ pub(crate) async fn flush(
     // Retry on SQLITE_BUSY so a maintenance tick on another runner
     // doesn't cost us a whole batch. The buffer is preserved across
     // retries (the closure borrows it via `&*buffer`) and only cleared
-    // on the final outcome.
+    // on the final outcome. The insert goes through the auth-gated
+    // service under an admin context; we unwrap `AppError::Internal`
+    // back to the original `anyhow::Error` so `retry_on_busy` can still
+    // recognise a `SQLITE_BUSY` via the preserved `sqlx::Error`.
     let result = retry_on_busy(
         FLUSH_OPERATION,
         FLUSH_BUSY_RETRIES,
         FLUSH_BUSY_BACKOFF,
         || {
             let buf: &[QueryLogRow] = buffer;
-            dns_repo.insert_query_log_batch(buf)
+            async move {
+                auth_context::with_context(admin_ctx.clone(), service.insert_query_log_batch(buf))
+                    .await
+                    .map_err(app_err_to_anyhow)
+            }
         },
     )
     .await;
@@ -261,11 +263,17 @@ pub(crate) async fn flush(
     }
 }
 
-pub(crate) async fn cleanup(
-    service: &Arc<dyn DnsService>,
-    dns_repo: &dyn DnsRepository,
-    admin_ctx: &AuthContext,
-) {
+/// Unwrap `AppError::Internal` back to its source `anyhow::Error` so
+/// [`retry_on_busy`] can still downcast to the underlying `sqlx::Error`;
+/// other variants are wrapped verbatim (they are never busy errors).
+fn app_err_to_anyhow(err: AppError) -> anyhow::Error {
+    match err {
+        AppError::Internal(e) => e,
+        other => anyhow::Error::new(other),
+    }
+}
+
+pub(crate) async fn cleanup(service: &Arc<dyn DnsService>, admin_ctx: &AuthContext) {
     let cfg = match auth_context::with_context(admin_ctx.clone(), service.get_dns_config()).await {
         Ok(c) => c,
         Err(e) => {
@@ -280,7 +288,8 @@ pub(crate) async fn cleanup(
     }
 
     let retention = cfg.query_log_retention_days.max(1);
-    match dns_repo.cleanup_query_log(retention).await {
+    match auth_context::with_context(admin_ctx.clone(), service.cleanup_query_log(retention)).await
+    {
         Ok(deleted) => {
             tracing::info!(
                 deleted,

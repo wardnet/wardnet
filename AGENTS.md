@@ -36,6 +36,15 @@ you're about to make, rather than the whole set.
   `StatsService` with time-series and top-N queries; `/api/stats` and
   `/api/stats/top` endpoints. Also covers the DNS stats migration away from
   `DnsRepository`.
+- **[Local-DNS subsystem](.agents/architecture.md#local-dns-subsystem-issue-217)** —
+  `AuthoritativeView` (ArcSwap-backed, lock-free), resolution pipeline order
+  (authoritative → cache → filter → conditional/tunnel upstream),
+  event-driven rebuild on `DnsLocalChanged`, and why `DnsRunner` reads
+  `dns_local_repo` directly instead of going through `DnsLocalService`.
+- **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
+  `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
+  `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
+  tick), region catalog with concurrent latency probing, and WAN IP discovery.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
@@ -60,6 +69,7 @@ you're about to make, rather than the whole set.
 [`CONTEXT.md`](CONTEXT.md) is the canonical glossary for domain terms used
 across issues, design docs, and code comments. It covers the three app
 surfaces (admin site, user PWA, admin mobile PWA), identity model
-(device-keyed vs admin-session), infrastructure (DDNS service, Caddy,
-path-based routing), and planned features (route verification, VAPID push).
+(device-keyed vs admin-session), infrastructure (DDNS service, daemon-owned
+TLS termination, path-based routing), and planned features (route
+verification, VAPID push).
 Read it before working on any of the PWA initiative issues (#435–#441).
