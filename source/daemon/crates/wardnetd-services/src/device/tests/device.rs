@@ -919,12 +919,70 @@ async fn ack_dns_events_delegates_to_repo() {
             admin_id: Uuid::nil(),
         },
         async {
-            // If the repo call succeeds (returns Ok(1)), the service should
-            // propagate success rather than erroring.
             svc.ack_dns_events("00000000-0000-0000-0000-000000000001", 42)
                 .await
                 .expect("ack should succeed when repo succeeds");
         },
     )
     .await;
+}
+
+#[tokio::test]
+async fn list_capture_enabled_device_ids_delegates_to_repo() {
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockEventPublisher),
+    );
+    let ids = svc
+        .list_capture_enabled_device_ids()
+        .await
+        .expect("should succeed");
+    assert!(ids.is_empty()); // MockDeviceRepo returns empty list
+}
+
+#[tokio::test]
+async fn get_device_capture_settings_returns_settings_when_device_found() {
+    let mut device = sample_device(false);
+    device.dns_capture_enabled = true;
+    let (cap_count, cap_days) = (device.dns_capture_cap_count, device.dns_capture_cap_days);
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(device),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockEventPublisher),
+    );
+    let result = svc
+        .get_device_capture_settings("any-id")
+        .await
+        .expect("should succeed");
+    let (enabled, c, d) = result.expect("device should be found");
+    assert!(enabled);
+    assert_eq!(c, cap_count);
+    assert_eq!(d, cap_days);
+}
+
+#[tokio::test]
+async fn get_device_capture_settings_returns_none_for_unknown_device() {
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockEventPublisher),
+    );
+    let result = svc
+        .get_device_capture_settings("unknown-id")
+        .await
+        .expect("should succeed");
+    assert!(result.is_none());
 }

@@ -28,6 +28,8 @@ struct MockDeviceService {
     enabled_ids: Vec<String>,
     /// Optional single device for capture-settings lookups.
     device: Option<Device>,
+    /// When `true`, `get_device_capture_settings` returns an error.
+    error_on_settings: bool,
 }
 
 #[async_trait]
@@ -91,6 +93,9 @@ impl DeviceService for MockDeviceService {
         &self,
         _device_id: &str,
     ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        if self.error_on_settings {
+            return Err(AppError::Internal(anyhow::anyhow!("db error")));
+        }
         Ok(self.device.as_ref().map(|d| {
             (
                 d.dns_capture_enabled,
@@ -304,6 +309,7 @@ async fn rows_with_enabled_device_are_inserted() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
+        error_on_settings: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -337,6 +343,7 @@ async fn rows_without_device_id_are_skipped() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![DEV1.to_owned()],
         device: None,
+        error_on_settings: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -368,6 +375,7 @@ async fn rows_for_non_enabled_device_are_skipped() {
         // DEV1 is NOT in the enabled set
         enabled_ids: vec![],
         device: Some(sample_device(false)),
+        error_on_settings: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -400,6 +408,7 @@ async fn settings_changed_event_enables_device() {
         // Start with DEV1 disabled (not in enabled set)
         enabled_ids: vec![],
         device: None,
+        error_on_settings: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -448,6 +457,7 @@ async fn settings_changed_event_disables_device() {
         // Start with DEV1 enabled
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
+        error_on_settings: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -496,6 +506,7 @@ async fn shutdown_completes() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![],
         device: None,
+        error_on_settings: false,
     });
     let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
     let events: Arc<dyn EventPublisher> = TestEventBus::new();
@@ -518,6 +529,7 @@ async fn channel_closed_exits_runner() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![],
         device: None,
+        error_on_settings: false,
     });
     let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
     let events: Arc<dyn EventPublisher> = TestEventBus::new();
@@ -542,6 +554,7 @@ async fn prune_loop_calls_prune_for_enabled_device() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
+        error_on_settings: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -574,6 +587,7 @@ async fn prune_loop_deletes_data_for_disabled_device() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![],
         device: Some(sample_device(false)),
+        error_on_settings: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -606,6 +620,7 @@ async fn prune_loop_deletes_data_for_unknown_device() {
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![],
         device: None, // device has been deleted from the DB
+        error_on_settings: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -628,5 +643,45 @@ async fn prune_loop_deletes_data_for_unknown_device() {
     assert!(
         !delete_calls.is_empty(),
         "expected delete_all_for_device to be called for unknown/deleted device"
+    );
+}
+
+#[tokio::test]
+async fn prune_loop_warns_on_device_settings_error() {
+    // Verify that the Err arm in run_prune is exercised: when
+    // get_device_capture_settings returns Err, the runner logs a warning but
+    // does not call prune_for_device or delete_all_for_device.
+    let (_tx, rx) = mpsc::channel::<QueryLogRow>(16);
+    let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
+        enabled_ids: vec![],
+        device: None,
+        error_on_settings: true,
+    });
+    let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner = DnsCaptureRunner::start_with_prune_interval(
+        rx,
+        device_service,
+        dns_repo_dyn,
+        Arc::clone(&events),
+        Duration::from_millis(50),
+        &tracing::Span::current(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    runner.shutdown().await;
+
+    // Neither prune nor delete should have been called — the error path
+    // logs a warning and skips the device.
+    assert!(
+        dns_repo.prune_calls.lock().await.is_empty(),
+        "prune should not be called on device settings error"
+    );
+    assert!(
+        dns_repo.delete_calls.lock().await.is_empty(),
+        "delete should not be called on device settings error"
     );
 }

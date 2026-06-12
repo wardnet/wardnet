@@ -23,10 +23,13 @@ use crate::tests::stubs::{
     StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
     StubTunnelService,
 };
+use tokio::sync::broadcast;
+use wardnet_common::event::WardnetEvent;
 use wardnetd_services::DeviceService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
+use wardnetd_services::event::EventPublisher;
 
 // ---------------------------------------------------------------------------
 // MockAuthService — always validates sessions as admin
@@ -100,6 +103,8 @@ struct MockDnsEventsDeviceService {
     device: Option<Device>,
     /// Rows returned by `fetch_pending_dns_events`.
     pending: Vec<DnsEventItem>,
+    /// When `true`, `fetch_pending_dns_events` returns an error.
+    fetch_error: bool,
 }
 
 impl MockDnsEventsDeviceService {
@@ -107,6 +112,7 @@ impl MockDnsEventsDeviceService {
         Self {
             device: Some(sample_device()),
             pending,
+            fetch_error: false,
         }
     }
 
@@ -114,6 +120,15 @@ impl MockDnsEventsDeviceService {
         Self {
             device: None,
             pending: vec![],
+            fetch_error: false,
+        }
+    }
+
+    fn with_fetch_error() -> Self {
+        Self {
+            device: Some(sample_device()),
+            pending: vec![],
+            fetch_error: true,
         }
     }
 }
@@ -170,6 +185,9 @@ impl DeviceService for MockDnsEventsDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError> {
+        if self.fetch_error {
+            return Err(AppError::Internal(anyhow::anyhow!("db error")));
+        }
         Ok(self.pending.clone())
     }
     async fn mark_dns_events_synced(
@@ -194,10 +212,53 @@ impl DeviceService for MockDnsEventsDeviceService {
 }
 
 // ---------------------------------------------------------------------------
+// Live event publisher — wraps a real broadcast channel so tests can emit events
+// ---------------------------------------------------------------------------
+
+struct LiveEventPublisher {
+    tx: Arc<broadcast::Sender<WardnetEvent>>,
+    subscribed: Arc<tokio::sync::Notify>,
+}
+
+impl LiveEventPublisher {
+    fn new() -> (Self, Arc<broadcast::Sender<WardnetEvent>>) {
+        let (tx, _) = broadcast::channel(64);
+        let tx = Arc::new(tx);
+        let publisher = Self {
+            tx: Arc::clone(&tx),
+            subscribed: Arc::new(tokio::sync::Notify::new()),
+        };
+        (publisher, tx)
+    }
+
+    fn subscribed_notify(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.subscribed)
+    }
+}
+
+impl EventPublisher for LiveEventPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        let _ = self.tx.send(event);
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        self.subscribed.notify_one();
+        self.tx.subscribe()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 fn build_state(device_svc: impl DeviceService + 'static) -> AppState {
+    build_state_with_publisher(device_svc, StubEventPublisher)
+}
+
+fn build_state_with_publisher(
+    device_svc: impl DeviceService + 'static,
+    publisher: impl EventPublisher + 'static,
+) -> AppState {
     AppState::new(
         Arc::new(MockAuthService),
         Arc::new(crate::tests::stubs::StubBackupService),
@@ -214,7 +275,7 @@ fn build_state(device_svc: impl DeviceService + 'static) -> AppState {
         Arc::new(crate::tests::stubs::StubUpdateService),
         Arc::new(StubDhcpServer),
         Arc::new(StubDnsServer),
-        Arc::new(StubEventPublisher),
+        Arc::new(publisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
     )
@@ -383,4 +444,132 @@ async fn ack_returns_422_for_malformed_body() {
     .await;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn stream_delivers_live_event_from_bus() {
+    // Build a publisher that signals when the spawned task subscribes.
+    let (publisher, event_tx) = LiveEventPublisher::new();
+    let subscribed = publisher.subscribed_notify();
+    let device_uuid = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+    let app = dns_events_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/devices/me/dns-events/stream")
+                .extension(client_connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Wait until the spawned task has subscribed to the bus, then emit an
+    // event that matches this device so the live-phase arm is exercised.
+    subscribed.notified().await;
+    let _ = event_tx.send(WardnetEvent::DnsEventInserted {
+        device_id: device_uuid,
+        row_id: 42,
+        domain: "live.example.com".to_owned(),
+        status: "allowed".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        timestamp: chrono::Utc::now(),
+    });
+    // Also emit an event for a different device to exercise the Ok(_) arm.
+    let _ = event_tx.send(WardnetEvent::DnsEventInserted {
+        device_id: uuid::Uuid::nil(),
+        row_id: 43,
+        domain: "other.device.com".to_owned(),
+        status: "blocked".to_owned(),
+        captured_at: "2026-06-12T00:00:01Z".to_owned(),
+        timestamp: chrono::Utc::now(),
+    });
+    // Drop sender to close the bus so the live loop exits.
+    drop(event_tx);
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(
+        body.contains("live.example.com"),
+        "expected live event in SSE body, got: {body}"
+    );
+    assert!(
+        !body.contains("other.device.com"),
+        "event for another device must not appear in stream"
+    );
+}
+
+#[tokio::test]
+async fn stream_closes_on_bus_lag() {
+    // Use a channel with capacity 1 so we can force a lag condition by
+    // publishing 2 messages before the subscriber drains any.
+    let (tx, _rx) = broadcast::channel::<WardnetEvent>(1);
+    let tx = Arc::new(tx);
+    let subscribed = Arc::new(tokio::sync::Notify::new());
+
+    struct LagPublisher {
+        tx: Arc<broadcast::Sender<WardnetEvent>>,
+        subscribed: Arc<tokio::sync::Notify>,
+    }
+    impl EventPublisher for LagPublisher {
+        fn publish(&self, event: WardnetEvent) {
+            let _ = self.tx.send(event);
+        }
+        fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+            self.subscribed.notify_one();
+            self.tx.subscribe()
+        }
+    }
+
+    let publisher = LagPublisher {
+        tx: Arc::clone(&tx),
+        subscribed: Arc::clone(&subscribed),
+    };
+    let state = build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+    let app = dns_events_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/devices/me/dns-events/stream")
+                .extension(client_connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for subscription, then overflow the 1-slot buffer with 2 sends
+    // so the next recv returns Lagged.
+    subscribed.notified().await;
+    let fake_event = WardnetEvent::DnsEventInserted {
+        device_id: uuid::Uuid::nil(),
+        row_id: 1,
+        domain: "a.com".to_owned(),
+        status: "ok".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        timestamp: chrono::Utc::now(),
+    };
+    let _ = tx.send(fake_event.clone());
+    let _ = tx.send(fake_event);
+    drop(tx);
+
+    // The stream body should close (possibly empty) — the lag arm breaks the loop.
+    let _ = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+}
+
+#[tokio::test]
+async fn stream_closes_on_fetch_error() {
+    let state = build_state(MockDnsEventsDeviceService::with_fetch_error());
+    let app = dns_events_router(state);
+
+    let (status, body) = get_raw(app, "/api/devices/me/dns-events/stream").await;
+    // Handler returns 200 + SSE headers; the spawned task closes the channel
+    // immediately on fetch error so the body is empty.
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.is_empty() || !body.contains("data:"), "body should have no SSE data on error");
 }
