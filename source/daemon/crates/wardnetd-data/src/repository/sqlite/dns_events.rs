@@ -49,7 +49,9 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
                 .await?;
 
         let size_bytes = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(SUM(LENGTH(domain)), 0) FROM dns_events WHERE device_id = ?",
+            "SELECT COALESCE(SUM(\
+               LENGTH(domain) + LENGTH(status) + LENGTH(captured_at) + LENGTH(sync_state) + 50\
+             ), 0) FROM dns_events WHERE device_id = ?",
         )
         .bind(device_id)
         .fetch_one(&self.pools.read)

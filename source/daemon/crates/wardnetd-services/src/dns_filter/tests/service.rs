@@ -186,10 +186,10 @@ impl DeviceRepository for MemoryDeviceRepository {
     async fn update_dns_capture_settings(
         &self,
         _id: &str,
-        _enabled: bool,
-        _cap_count: i64,
-        _cap_days: i64,
-    ) -> anyhow::Result<()> {
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
         unimplemented!()
     }
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {

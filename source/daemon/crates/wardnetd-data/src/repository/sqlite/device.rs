@@ -333,12 +333,16 @@ impl DeviceRepository for SqliteDeviceRepository {
     async fn update_dns_capture_settings(
         &self,
         id: &str,
-        enabled: bool,
-        cap_count: i64,
-        cap_days: i64,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE devices SET dns_capture_enabled = ?, dns_capture_cap_count = ?, dns_capture_cap_days = ? WHERE id = ?",
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE devices \
+             SET dns_capture_enabled   = COALESCE(?, dns_capture_enabled), \
+                 dns_capture_cap_count = COALESCE(?, dns_capture_cap_count), \
+                 dns_capture_cap_days  = COALESCE(?, dns_capture_cap_days) \
+             WHERE id = ?",
         )
         .bind(enabled)
         .bind(cap_count)
@@ -346,7 +350,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(id)
         .execute(&self.pools.write)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {

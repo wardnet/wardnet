@@ -67,13 +67,15 @@ pub trait DeviceService: Send + Sync {
 
     /// Update DNS capture settings for a device.
     ///
+    /// Only `Some` fields are written; `None` leaves the existing value
+    /// unchanged. Returns `AppError::NotFound` when the device does not exist.
     /// Requires admin privileges via the [`AuthContext`].
     async fn update_dns_capture_settings(
         &self,
         device_id: &str,
-        enabled: bool,
-        cap_count: i64,
-        cap_days: i64,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
     ) -> Result<(), AppError>;
 }
 
@@ -299,29 +301,45 @@ impl DeviceService for DeviceServiceImpl {
     async fn update_dns_capture_settings(
         &self,
         device_id: &str,
-        enabled: bool,
-        cap_count: i64,
-        cap_days: i64,
+        enabled: Option<bool>,
+        cap_count: Option<i64>,
+        cap_days: Option<i64>,
     ) -> Result<(), AppError> {
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         if !ctx.is_admin() {
             return Err(AppError::Forbidden("admin privileges required".to_owned()));
         }
 
-        self.devices
+        let found = self
+            .devices
             .update_dns_capture_settings(device_id, enabled, cap_count, cap_days)
             .await
             .map_err(AppError::Internal)?;
+
+        if !found {
+            return Err(AppError::NotFound("device not found".to_owned()));
+        }
 
         let device_uuid: Uuid = device_id
             .parse()
             .map_err(|_| AppError::NotFound("device not found".to_owned()))?;
 
+        // Resolve actual enabled state to publish the correct event value.
+        let now_enabled = if let Some(e) = enabled {
+            e
+        } else {
+            self.devices
+                .find_by_id(device_id)
+                .await
+                .map_err(AppError::Internal)?
+                .is_some_and(|d| d.dns_capture_enabled)
+        };
+
         let () = self
             .events
             .publish(WardnetEvent::DeviceCaptureSettingsChanged {
                 device_id: device_uuid,
-                enabled,
+                enabled: now_enabled,
                 timestamp: Utc::now(),
             });
 

@@ -139,11 +139,11 @@ impl DeviceRepository for MockDeviceRepo {
     async fn update_dns_capture_settings(
         &self,
         _id: &str,
-        _enabled: bool,
-        _cap_count: i64,
-        _cap_days: i64,
-    ) -> anyhow::Result<()> {
-        Ok(())
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
         Ok(vec![])

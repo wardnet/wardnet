@@ -68,16 +68,10 @@ pub async fn update_dns_capture_settings(
     Path(id): Path<String>,
     Json(body): Json<DnsCaptureSettingsRequest>,
 ) -> Result<Json<DnsCaptureSettingsResponse>, AppError> {
-    // Load current settings to merge with any omitted fields.
-    let current = state.device_service().get_dns_capture_settings(&id).await?;
-
-    let enabled = body.enabled.unwrap_or(current.enabled);
-    let cap_count = body.cap_count.unwrap_or(current.cap_count);
-    let cap_days = body.cap_days.unwrap_or(current.cap_days);
-
+    // Omitted fields are merged atomically in the SQL UPDATE (COALESCE).
     state
         .device_service()
-        .update_dns_capture_settings(&id, enabled, cap_count, cap_days)
+        .update_dns_capture_settings(&id, body.enabled, body.cap_count, body.cap_days)
         .await?;
 
     let response = state.device_service().get_dns_capture_settings(&id).await?;

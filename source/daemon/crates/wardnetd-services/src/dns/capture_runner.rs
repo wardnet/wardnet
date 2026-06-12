@@ -147,7 +147,21 @@ async fn runner_loop(
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(n, "DNS capture runner event bus lagged by {n} messages");
+                        tracing::warn!(
+                            n,
+                            "DNS capture runner event bus lagged by {n} messages; \
+                             re-syncing enabled-device cache from DB"
+                        );
+                        // Events in the skipped window may include
+                        // DeviceCaptureSettingsChanged — reload from DB so the
+                        // in-memory cache is not permanently stale.
+                        match device_repo.find_all_capture_enabled_ids().await {
+                            Ok(ids) => enabled = ids.into_iter().collect(),
+                            Err(e) => tracing::error!(
+                                error = %e,
+                                "failed to re-sync capture-enabled IDs after lag: {e}"
+                            ),
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         tracing::info!("event bus closed; exiting DNS capture runner");

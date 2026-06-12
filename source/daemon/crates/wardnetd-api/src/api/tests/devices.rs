@@ -249,9 +249,9 @@ impl DeviceService for MockDeviceService {
     async fn update_dns_capture_settings(
         &self,
         _id: &str,
-        _enabled: bool,
-        _cap_count: i64,
-        _cap_days: i64,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
     ) -> Result<(), AppError> {
         unimplemented!()
     }

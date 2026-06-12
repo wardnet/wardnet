@@ -65,6 +65,8 @@ pub struct DnsLogSink {
     capture_tx: Option<mpsc::Sender<QueryLogRow>>,
     stream_tx: broadcast::Sender<QueryLogEvent>,
     dropped_entries: AtomicU64,
+    /// Rows dropped because the capture channel was full.
+    capture_dropped_entries: AtomicU64,
     /// Stats instruments — `None` when the stats subsystem is not wired in
     /// (e.g. tests that build a bare sink via [`DnsLogSink::new`]).
     stat_instruments: Option<DnsStatInstruments>,
@@ -97,6 +99,7 @@ impl DnsLogSink {
             capture_tx: Some(capture_tx),
             stream_tx,
             dropped_entries: AtomicU64::new(0),
+            capture_dropped_entries: AtomicU64::new(0),
             stat_instruments: Some(DnsStatInstruments {
                 queries: meter.counter("dns.queries"),
                 latency: meter.gauge("dns.latency_ms"),
@@ -127,6 +130,7 @@ impl DnsLogSink {
             capture_tx: None,
             stream_tx,
             dropped_entries: AtomicU64::new(0),
+            capture_dropped_entries: AtomicU64::new(0),
             stat_instruments: None,
         });
         (sink, persist_rx)
@@ -144,11 +148,18 @@ impl DnsLogSink {
         }
         let event = row_to_event(&row);
         // Forward to capture runner only when a device is identified.
+        // Avoid cloning when the channel is already known-full — check
+        // capacity first to skip the heap allocation on a saturated buffer.
         if row.device_id.is_some()
             && let Some(ref cap_tx) = self.capture_tx
         {
-            // Non-blocking; drop silently when the buffer is full.
-            let _ = cap_tx.try_send(row.clone());
+            if cap_tx.capacity() > 0 {
+                if let Err(mpsc::error::TrySendError::Full(_)) = cap_tx.try_send(row.clone()) {
+                    self.capture_dropped_entries.fetch_add(1, Ordering::Relaxed);
+                }
+            } else {
+                self.capture_dropped_entries.fetch_add(1, Ordering::Relaxed);
+            }
         }
         if let Err(mpsc::error::TrySendError::Full(_)) = self.persist_tx.try_send(row) {
             self.dropped_entries.fetch_add(1, Ordering::Relaxed);
@@ -172,6 +183,11 @@ impl DnsLogSink {
     #[must_use]
     pub fn dropped_count(&self) -> u64 {
         self.dropped_entries.load(Ordering::Relaxed)
+    }
+
+    /// Take the current capture-dropped count and reset it to zero.
+    pub fn take_capture_dropped(&self) -> u64 {
+        self.capture_dropped_entries.swap(0, Ordering::Relaxed)
     }
 }
 
