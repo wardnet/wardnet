@@ -71,7 +71,6 @@ pub async fn issue(
 /// Returns an [`AccountBuilder`] that trusts the pebble WFE CA when the
 /// `BRIDGE_TEST_PEBBLE_CA` env var is set (integration-test harness only).
 fn make_account_builder() -> anyhow::Result<AccountBuilder> {
-    #[cfg(test)]
     if let Ok(path) = std::env::var("BRIDGE_TEST_PEBBLE_CA") {
         return Ok(Account::builder_with_root(path)?);
     }

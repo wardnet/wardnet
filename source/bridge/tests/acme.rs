@@ -62,6 +62,7 @@ impl Http01Solver for InMemorySolver {
 #[tokio::test]
 #[ignore = "requires pebble (docker compose up -d)"]
 async fn issue_creates_cert_from_scratch() {
+    common::install_crypto_provider();
     let solver = InMemorySolver::new();
     let result = issue(
         &pebble_directory_url(),
@@ -93,6 +94,7 @@ async fn issue_creates_cert_from_scratch() {
 #[tokio::test]
 #[ignore = "requires pebble (docker compose up -d)"]
 async fn issue_reuses_account_credentials() {
+    common::install_crypto_provider();
     let dir = pebble_directory_url();
 
     let first = issue(

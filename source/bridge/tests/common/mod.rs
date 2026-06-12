@@ -12,6 +12,17 @@ use wardnet_bridge::repository::{
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
+/// Install the aws-lc-rs [`CryptoProvider`] as the process default (idempotent).
+///
+/// Must be called before any code that touches rustls TLS (instant-acme,
+/// axum-server, etc.).  The `install_default` error is suppressed because
+/// tests may run concurrently and multiple threads can race to install it.
+pub fn install_crypto_provider() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+}
+
 /// Return the pebble ACME directory URL.
 ///
 /// Reads `BRIDGE_TEST_PEBBLE_URL` (default `https://localhost:14000/dir`).
