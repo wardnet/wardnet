@@ -17,6 +17,23 @@ cd source/web-ui && yarn type-check && yarn lint && yarn format:check
 make check
 ```
 
+## Test file layout — STRICT RULE
+
+Tests **must** live in separate files. Never put `#[test]` or `#[tokio::test]` blocks inline in source files.
+
+**In a module directory** (e.g., `src/device/`):
+- Create `src/device/tests/mod.rs` listing sub-modules: `mod service; mod discovery;`
+- Create one file per concern: `src/device/tests/service.rs`, `src/device/tests/discovery.rs`, etc.
+- In `src/device/mod.rs`, add: `#[cfg(test)] mod tests;`
+
+**In a crate root** (e.g., `src/lib.rs`):
+- Create `src/tests/mod.rs` listing sub-modules
+- In `src/lib.rs`, add: `#[cfg(test)] mod tests;`
+
+**Repository tests** follow the same layout under `src/repository/tests/`. The shared `test_pool()` helper lives in `src/repository/tests/mod.rs`.
+
+This rule is enforced by clippy and code review — no exceptions.
+
 ## Test patterns
 
 ### Service tests — mock repositories, test business logic
