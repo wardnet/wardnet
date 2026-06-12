@@ -86,10 +86,13 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           <CardTitle>DNS capture</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-wide text-ink-3">
-              Capture enabled
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium text-ink-3">Capture enabled</p>
+              <p className="mt-0.5 text-xs text-ink-3">
+                Store DNS queries made by this device for review and analysis.
+              </p>
+            </div>
             <Toggle
               checked={enabled}
               onCheckedChange={setEnabled}
@@ -98,9 +101,7 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <div>
-              <p className="text-xs uppercase tracking-wide text-ink-3">
-                Max records
-              </p>
+              <p className="text-xs font-medium text-ink-3">Max records</p>
               <p className="mt-0.5 text-xs text-ink-3">
                 Maximum events to retain.
               </p>
@@ -113,9 +114,7 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
               />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-ink-3">
-                Retain days
-              </p>
+              <p className="text-xs font-medium text-ink-3">Retain days</p>
               <p className="mt-0.5 text-xs text-ink-3">
                 Delete events older than this.
               </p>
