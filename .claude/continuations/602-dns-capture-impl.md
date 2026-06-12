@@ -1,5 +1,12 @@
 # Continuation: Fix service layer violations + implement issue #602
 
+## Before you start — merge PR #604 first
+
+The agent rules referenced below (`.agents/architecture.md`, `.agents/testing.md`) were
+updated on branch `chore/enforce-service-layer-rules` and are live in PR #604.
+**Merge that PR into `main` before creating your worktree**, so the rules land in `main`
+and your worktree inherits them. If the PR is already merged, ignore this note.
+
 ## Context
 
 This session has two sequential tasks. **Complete Phase 1 fully before starting Phase 2.**
