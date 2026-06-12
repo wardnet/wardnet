@@ -62,7 +62,9 @@ impl DhcpService for MockDhcp {
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         match self.lease_secs {
             Some(n) => Ok(dhcp_config(n)),
-            None => Err(AppError::Internal(anyhow::anyhow!("mock dhcp config error"))),
+            None => Err(AppError::Internal(anyhow::anyhow!(
+                "mock dhcp config error"
+            ))),
         }
     }
 

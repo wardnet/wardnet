@@ -87,9 +87,13 @@ impl DdnsService for MockDdns {
     async fn configure_cloudflare(
         &self,
         _token: String,
-        _domain: String,
+        domain: String,
     ) -> Result<DdnsRegistration, AppError> {
-        unimplemented!()
+        // BYOD: the configured domain becomes the serving FQDN; no bridge region.
+        Ok(DdnsRegistration {
+            subdomain: domain,
+            region: "us".to_owned(),
+        })
     }
     // Returns `Ok` (not `unimplemented!`) so the detached provisioning task the
     // register handler spawns can't panic if it races the test's teardown.
@@ -181,6 +185,10 @@ fn app(state: AppState) -> Router {
     Router::new()
         .route("/api/ddns/check", get(crate::api::ddns::ddns_check))
         .route("/api/ddns/register", post(crate::api::ddns::ddns_register))
+        .route(
+            "/api/ddns/cloudflare",
+            post(crate::api::ddns::ddns_cloudflare),
+        )
         .route("/api/ddns/status", get(crate::api::ddns::ddns_status))
         .route(
             "/api/ddns/resolution-check",
@@ -309,4 +317,30 @@ async fn ddns_teardown_returns_no_content() {
         .unwrap();
     let resp = app(state).oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn ddns_cloudflare_returns_configured_domain() {
+    // BYOD-Cloudflare: the handler returns the configured domain as the FQDN
+    // with no bridge region, and kicks off provisioning (mocks return Ok).
+    let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/ddns/cloudflare")
+        .header("Cookie", "wardnet_session=test")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "token": "cf-token",
+                "domain": "home.example.com",
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: DdnsRegisterResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json.fqdn, "home.example.com");
+    assert_eq!(json.region, None);
 }
