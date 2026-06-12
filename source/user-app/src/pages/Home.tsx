@@ -124,7 +124,7 @@ function VerifyCard({
       <CardHeader>
         <CardTitle>Verify your route</CardTitle>
         {activeTunnel && matchState !== "neutral" && (
-          <span className="ml-auto">
+          <span>
             {matchState === "match" ? (
               <Pill variant="ok" className="flex items-center gap-1">
                 <ShieldCheckIcon className="size-3" />
@@ -141,7 +141,7 @@ function VerifyCard({
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="flex h-7 w-7 items-center justify-center rounded-lg bg-sunken text-ink-3 transition-colors duration-snap active:bg-line disabled:opacity-40"
+          className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg bg-sunken text-ink-3 transition-colors duration-snap active:bg-line disabled:opacity-40"
           aria-label="Refresh route check"
         >
           <RefreshCwIcon
