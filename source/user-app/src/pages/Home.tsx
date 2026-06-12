@@ -6,7 +6,7 @@ import {
   ShieldXIcon,
   WifiOffIcon,
 } from "lucide-react";
-import { MapContainer, Marker, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ApiErrorAlert,
@@ -104,6 +104,13 @@ function RoutingForm({
   );
 }
 
+function KeepCentered({ center }: { center: [number, number] }) {
+  const map = useMapEvents({
+    zoomend: () => map.setView(center, map.getZoom(), { animate: false }),
+  });
+  return null;
+}
+
 function VerifyCard({
   activeTunnel,
 }: {
@@ -171,9 +178,7 @@ function VerifyCard({
             <MapContainer
               center={[geo.latitude, geo.longitude]}
               zoom={8}
-              zoomControl={false}
               dragging={false}
-              scrollWheelZoom={false}
               style={{ height: "180px", width: "100%" }}
             >
               <TileLayer
@@ -181,6 +186,7 @@ function VerifyCard({
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               />
               <Marker position={[geo.latitude, geo.longitude]} />
+              <KeepCentered center={[geo.latitude, geo.longitude]} />
             </MapContainer>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line p-4 pt-3">
               <div>
