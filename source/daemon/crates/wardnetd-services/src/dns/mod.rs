@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod capture_runner;
 pub mod cron_parse;
 pub mod filter_parser;
 pub mod log_sink;
@@ -8,7 +9,8 @@ pub mod server;
 pub mod service;
 
 pub use cache::DnsCache;
-pub use log_sink::{DnsLogSink, row_to_event};
+pub use capture_runner::DnsCaptureRunner;
+pub use log_sink::{DnsLogSink, DnsLogSinkChannels, row_to_event};
 pub use query_log_runner::DnsQueryLogRunner;
 pub use runner::DnsRunner;
 pub use server::{DnsServer, DnsSocket};

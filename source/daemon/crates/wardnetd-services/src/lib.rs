@@ -33,9 +33,11 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_data::RepositoryFactory;
-use wardnetd_data::repository::{DnsFilterRepository, DnsRepository, QueryLogRow};
+use wardnetd_data::repository::{
+    DnsEventsRepository, DnsFilterRepository, DnsRepository, QueryLogRow,
+};
 
-use crate::dns::log_sink::DnsLogSink;
+use crate::dns::log_sink::{DnsLogSink, DnsLogSinkChannels};
 use crate::stats::Meter;
 use crate::stats::service::StatsServiceImpl;
 
@@ -155,6 +157,7 @@ pub struct Services {
     pub update: Arc<dyn UpdateService>,
     pub event_publisher: Arc<dyn EventPublisher>,
     pub jobs: Arc<dyn JobService>,
+    pub device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     pub dns_repo: Arc<dyn DnsRepository>,
     pub dns_filter_repo: Arc<dyn DnsFilterRepository>,
     /// Cross-cutting DB maintenance (incremental vacuum etc.). Exposed
@@ -171,6 +174,10 @@ pub struct Services {
     pub dns_log_sink: Arc<DnsLogSink>,
     /// Persistence receiver, taken by the runner once at startup.
     pub dns_log_persist_rx: Mutex<Option<mpsc::Receiver<QueryLogRow>>>,
+    /// Capture receiver, taken by [`DnsCaptureRunner`] once at startup.
+    pub dns_capture_rx: Mutex<Option<mpsc::Receiver<QueryLogRow>>>,
+    /// DNS events repository — used by the capture runner and API handlers.
+    pub dns_events_repo: Arc<dyn DnsEventsRepository>,
     /// Generic pre-aggregating stats service — used by HTTP handlers.
     pub stats: Arc<dyn StatsService>,
     /// Shared stats buffer — drained by [`StatsFlushRunner`] in `main.rs`.
@@ -377,8 +384,11 @@ fn create_services(
         config.auth.remember_me_expiry_hours,
     ));
 
+    let dns_events_repo = repo_factory.dns_events();
+
     let device_service: Arc<dyn DeviceService> = Arc::new(DeviceServiceImpl::new(
         device_repo.clone(),
+        dns_events_repo.clone(),
         event_publisher.clone(),
     ));
 
@@ -389,7 +399,13 @@ fn create_services(
         lan_ip,
     ));
 
-    let (dns_log_sink, dns_log_persist_rx) = DnsLogSink::new_with_stats(&stats_meter);
+    let (
+        dns_log_sink,
+        DnsLogSinkChannels {
+            persist_rx: dns_log_persist_rx,
+            capture_rx: dns_capture_rx,
+        },
+    ) = DnsLogSink::new_with_stats(&stats_meter);
     let dns_service: Arc<dyn DnsService> = Arc::new(DnsServiceImpl::new(
         system_config_repo.clone(),
         dns_repo.clone(),
@@ -444,7 +460,7 @@ fn create_services(
     );
 
     let routing_service = build_routing_service(
-        device_repo,
+        device_repo.clone(),
         tunnel_repo.clone(),
         tunnel_service.clone(),
         backends.policy_router,
@@ -487,12 +503,15 @@ fn create_services(
         update: update_service,
         event_publisher,
         jobs: job_service,
+        device_repo,
         dns_repo,
         dns_filter_repo,
         maintenance_repo,
         tunnel_repo,
         dns_log_sink,
         dns_log_persist_rx: Mutex::new(Some(dns_log_persist_rx)),
+        dns_capture_rx: Mutex::new(Some(dns_capture_rx)),
+        dns_events_repo,
         stats: stats_service,
         stats_buffer,
     }

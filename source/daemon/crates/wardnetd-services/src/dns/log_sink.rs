@@ -49,10 +49,20 @@ struct DnsStatInstruments {
     by_client: Counter,
 }
 
+/// Receivers returned by [`DnsLogSink::new_with_stats`].
+pub struct DnsLogSinkChannels {
+    /// Drained by the persistence runner ([`super::query_log_runner`]).
+    pub persist_rx: mpsc::Receiver<QueryLogRow>,
+    /// Drained by the capture runner ([`super::capture_runner`]).
+    /// Only rows whose `device_id` is `Some` are forwarded here.
+    pub capture_rx: mpsc::Receiver<QueryLogRow>,
+}
+
 /// Hot-path sink shared between the DNS server (producer) and the
 /// persistence runner + WS subscribers (consumers).
 pub struct DnsLogSink {
     persist_tx: mpsc::Sender<QueryLogRow>,
+    capture_tx: Option<mpsc::Sender<QueryLogRow>>,
     stream_tx: broadcast::Sender<QueryLogEvent>,
     dropped_entries: AtomicU64,
     /// Stats instruments — `None` when the stats subsystem is not wired in
@@ -74,12 +84,17 @@ impl DnsLogSink {
     /// Build a sink wired to the stats subsystem. Every call to
     /// [`DnsLogSink::record`] will also push measurements into the shared
     /// [`crate::stats::StatsBuffer`] via the four DNS instruments.
+    ///
+    /// Returns the sink and a [`DnsLogSinkChannels`] holding both the
+    /// persistence receiver and the capture receiver.
     #[must_use]
-    pub fn new_with_stats(meter: &Meter) -> (Arc<Self>, mpsc::Receiver<QueryLogRow>) {
+    pub fn new_with_stats(meter: &Meter) -> (Arc<Self>, DnsLogSinkChannels) {
         let (persist_tx, persist_rx) = mpsc::channel(DEFAULT_MPSC_CAPACITY);
+        let (capture_tx, capture_rx) = mpsc::channel(DEFAULT_MPSC_CAPACITY);
         let (stream_tx, _) = broadcast::channel(DEFAULT_BROADCAST_CAPACITY);
         let sink = Arc::new(Self {
             persist_tx,
+            capture_tx: Some(capture_tx),
             stream_tx,
             dropped_entries: AtomicU64::new(0),
             stat_instruments: Some(DnsStatInstruments {
@@ -89,7 +104,13 @@ impl DnsLogSink {
                 by_client: meter.counter("dns.queries.by_client"),
             }),
         });
-        (sink, persist_rx)
+        (
+            sink,
+            DnsLogSinkChannels {
+                persist_rx,
+                capture_rx,
+            },
+        )
     }
 
     /// Build a sink with custom capacities — exposed for tests that need
@@ -103,6 +124,7 @@ impl DnsLogSink {
         let (stream_tx, _) = broadcast::channel(broadcast_capacity);
         let sink = Arc::new(Self {
             persist_tx,
+            capture_tx: None,
             stream_tx,
             dropped_entries: AtomicU64::new(0),
             stat_instruments: None,
@@ -121,6 +143,13 @@ impl DnsLogSink {
             record_dns_stats(inst, &row);
         }
         let event = row_to_event(&row);
+        // Forward to capture runner only when a device is identified.
+        if row.device_id.is_some()
+            && let Some(ref cap_tx) = self.capture_tx
+        {
+            // Non-blocking; drop silently when the buffer is full.
+            let _ = cap_tx.try_send(row.clone());
+        }
         if let Err(mpsc::error::TrySendError::Full(_)) = self.persist_tx.try_send(row) {
             self.dropped_entries.fetch_add(1, Ordering::Relaxed);
         }

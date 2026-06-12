@@ -1261,3 +1261,19 @@ pub struct QueryLogEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Default)]
+pub struct DnsCaptureSettingsRequest {
+    pub enabled: Option<bool>,
+    pub cap_count: Option<i64>,
+    pub cap_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsCaptureSettingsResponse {
+    pub enabled: bool,
+    pub cap_count: i64,
+    pub cap_days: i64,
+    pub row_count: i64,
+    pub size_bytes: i64,
+}

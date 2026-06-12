@@ -176,6 +176,11 @@ pub enum WardnetEvent {
         tunnel_id: Uuid,
         timestamp: DateTime<Utc>,
     },
+    DeviceCaptureSettingsChanged {
+        device_id: Uuid,
+        enabled: bool,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

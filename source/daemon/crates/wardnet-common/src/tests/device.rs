@@ -40,6 +40,9 @@ fn device_round_trip() {
         last_seen: "2026-03-07T01:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
+        dns_capture_enabled: false,
+        dns_capture_cap_count: 1000,
+        dns_capture_cap_days: 7,
     };
     let json = serde_json::to_string(&device).unwrap();
     let back: Device = serde_json::from_str(&json).unwrap();

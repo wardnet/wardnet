@@ -13,6 +13,7 @@ use crate::event::EventPublisher;
 use crate::{DeviceService, DeviceServiceImpl};
 use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::device::DeviceRow;
+use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventsRepository};
 
 // -- Mock repository ------------------------------------------------------
 
@@ -93,6 +94,53 @@ impl DeviceRepository for MockDeviceRepo {
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: bool,
+        _cap_count: i64,
+        _cap_days: i64,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+}
+
+struct MockDnsEventsRepo;
+
+#[async_trait]
+impl DnsEventsRepository for MockDnsEventsRepo {
+    async fn insert(
+        &self,
+        _device_id: &str,
+        _domain: &str,
+        _status: &str,
+        _captured_at: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn stats_for_device(&self, _device_id: &str) -> anyhow::Result<DnsCaptureStats> {
+        Ok(DnsCaptureStats {
+            row_count: 0,
+            size_bytes: 0,
+        })
+    }
+    async fn prune_for_device(
+        &self,
+        _device_id: &str,
+        _cap_count: i64,
+        _cap_days: i64,
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_all_for_device(&self, _device_id: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn find_device_ids_with_data(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
 }
 
 // -- Mock event publisher -------------------------------------------------
@@ -123,6 +171,9 @@ fn sample_device(locked: bool) -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: locked,
+        dns_capture_enabled: false,
+        dns_capture_cap_count: 1000,
+        dns_capture_cap_days: 7,
     }
 }
 
@@ -153,6 +204,7 @@ fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
             rule,
             all_rules: vec![],
         }),
+        Arc::new(MockDnsEventsRepo),
         Arc::new(MockEventPublisher),
     )
 }
@@ -164,6 +216,7 @@ fn make_svc_no_device() -> DeviceServiceImpl {
             rule: None,
             all_rules: vec![],
         }),
+        Arc::new(MockDnsEventsRepo),
         Arc::new(MockEventPublisher),
     )
 }
@@ -175,6 +228,7 @@ fn make_svc_with_rules(all_rules: Vec<RoutingRule>) -> DeviceServiceImpl {
             rule: None,
             all_rules,
         }),
+        Arc::new(MockDnsEventsRepo),
         Arc::new(MockEventPublisher),
     )
 }

@@ -97,6 +97,21 @@ impl DeviceService for StubDeviceService {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn get_dns_capture_settings(
+        &self,
+        _id: &str,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: bool,
+        _cap_count: i64,
+        _cap_days: i64,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubDhcpService;
