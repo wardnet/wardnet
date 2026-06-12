@@ -174,3 +174,6 @@ async fn register_lease(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
