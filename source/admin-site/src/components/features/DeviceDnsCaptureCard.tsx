@@ -22,6 +22,19 @@ interface DeviceDnsCaptureCardProps {
   deviceId: string;
 }
 
+function StorageBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  const color = pct >= 90 ? "bg-danger" : pct >= 70 ? "bg-warn" : "bg-accent";
+  return (
+    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
+      <div
+        className={`h-full rounded-full transition-all ${color}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
 export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
   const { data, isLoading } = useDnsCaptureSettings(deviceId);
   const update = useUpdateDnsCaptureSettings(deviceId);
@@ -134,27 +147,33 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-ink-2">Status</span>
-          <span className="text-sm text-ink-1">
-            {data.enabled ? "Enabled" : "Disabled"}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-ink-2">Retention</span>
-          <span className="text-sm text-ink-1">
-            Up to {data.cap_count.toLocaleString()} records · {data.cap_days}{" "}
-            days
-          </span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-ink-2">Stored</span>
-          <span className="text-sm text-ink-1">
-            {data.row_count.toLocaleString()} records ·{" "}
-            {formatBytes(data.size_bytes)}
-          </span>
-        </div>
+      <CardContent>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-ink-3">
+              Status
+            </dt>
+            <dd>{data.enabled ? "Enabled" : "Disabled"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-ink-3">
+              Retention
+            </dt>
+            <dd>
+              {data.cap_count.toLocaleString()} records · {data.cap_days} days
+            </dd>
+          </div>
+          <div className="col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-ink-3">
+              Storage
+            </dt>
+            <dd>
+              {data.row_count.toLocaleString()} records ·{" "}
+              {formatBytes(data.size_bytes)}
+            </dd>
+            <StorageBar value={data.row_count} max={data.cap_count} />
+          </div>
+        </dl>
       </CardContent>
     </Card>
   );

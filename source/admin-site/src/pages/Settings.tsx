@@ -42,27 +42,37 @@ export default function Settings() {
           ) : status ? (
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
               <div>
-                <dt className="text-ink-3">Version</dt>
+                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  Version
+                </dt>
                 <dd className="font-medium" title={`build: ${status.version}`}>
                   {status.release_version}
                 </dd>
               </div>
               <div>
-                <dt className="text-ink-3">Uptime</dt>
+                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  Uptime
+                </dt>
                 <dd className="font-medium">
                   {formatUptime(status.uptime_seconds)}
                 </dd>
               </div>
               <div>
-                <dt className="text-ink-3">Devices</dt>
+                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  Devices
+                </dt>
                 <dd className="font-medium">{status.device_count}</dd>
               </div>
               <div>
-                <dt className="text-ink-3">Tunnels</dt>
+                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  Tunnels
+                </dt>
                 <dd className="font-medium">{status.tunnel_count}</dd>
               </div>
               <div>
-                <dt className="text-ink-3">Database size</dt>
+                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  Database size
+                </dt>
                 <dd className="font-medium">
                   {formatBytes(status.db_size_bytes)}
                 </dd>
