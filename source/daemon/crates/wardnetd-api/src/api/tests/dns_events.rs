@@ -32,6 +32,26 @@ use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
 
 // ---------------------------------------------------------------------------
+// LagPublisher — 1-slot broadcast that triggers RecvError::Lagged
+// ---------------------------------------------------------------------------
+
+struct LagPublisher {
+    tx: Arc<broadcast::Sender<WardnetEvent>>,
+    subscribed: Arc<tokio::sync::Notify>,
+}
+
+impl EventPublisher for LagPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        let _ = self.tx.send(event);
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
+        self.subscribed.notify_one();
+        self.tx.subscribe()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MockAuthService — always validates sessions as admin
 // ---------------------------------------------------------------------------
 
@@ -510,20 +530,6 @@ async fn stream_closes_on_bus_lag() {
     let (tx, _rx) = broadcast::channel::<WardnetEvent>(1);
     let tx = Arc::new(tx);
     let subscribed = Arc::new(tokio::sync::Notify::new());
-
-    struct LagPublisher {
-        tx: Arc<broadcast::Sender<WardnetEvent>>,
-        subscribed: Arc<tokio::sync::Notify>,
-    }
-    impl EventPublisher for LagPublisher {
-        fn publish(&self, event: WardnetEvent) {
-            let _ = self.tx.send(event);
-        }
-        fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
-            self.subscribed.notify_one();
-            self.tx.subscribe()
-        }
-    }
 
     let publisher = LagPublisher {
         tx: Arc::clone(&tx),
