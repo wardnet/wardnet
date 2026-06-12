@@ -128,6 +128,8 @@ export type {
   SetupProviderRequest,
   SetupProviderResponse,
   TunnelSummary,
+  DnsCaptureSettingsRequest,
+  DnsCaptureSettingsResponse,
 } from "./types/api.js";
 
 // Services — DNS

@@ -3,6 +3,7 @@ import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { DeviceIcon } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
+import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard";
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
@@ -86,6 +87,7 @@ export default function DeviceDetail() {
       <DeviceIdentityCard device={device} />
       <DeviceSettingsCard device={device} currentRule={data.current_rule} />
       <DeviceDnsFilterCard device={device} />
+      <DeviceDnsCaptureCard deviceId={device.id} />
       <DeviceNetworkCard device={device} />
     </div>
   );

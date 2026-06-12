@@ -182,3 +182,19 @@ export interface SetupProviderResponse {
   server: ServerInfo;
   message: string;
 }
+
+/** Request body for PATCH /api/devices/:id/dns-capture. */
+export interface DnsCaptureSettingsRequest {
+  enabled?: boolean;
+  cap_count?: number;
+  cap_days?: number;
+}
+
+/** Response for GET/PATCH /api/devices/:id/dns-capture. */
+export interface DnsCaptureSettingsResponse {
+  enabled: boolean;
+  cap_count: number;
+  cap_days: number;
+  row_count: number;
+  size_bytes: number;
+}
