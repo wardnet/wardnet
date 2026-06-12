@@ -97,7 +97,7 @@ jobs:
 
       - name: Extract pebble WFE CA cert
         run: |
-          CONTAINER=$(docker ps -q --filter ancestor=ghcr.io/letsencrypt/pebble)
+          CONTAINER=$(docker ps -q --filter name=pebble)
           docker exec "$CONTAINER" cat /test/certs/pebble.minica.pem > /tmp/pebble-wfe-ca.pem
 
       - name: Tests
