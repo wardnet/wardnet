@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
-import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
@@ -87,37 +86,50 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           <CardTitle>DNS capture</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <Field label="Capture enabled">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-ink-3">
+              Capture enabled
+            </p>
             <Toggle
               checked={enabled}
               onCheckedChange={setEnabled}
               aria-label="Enable DNS capture"
             />
-          </Field>
-          <Field
-            label="Max records"
-            help="Maximum number of DNS events to retain."
-          >
-            <Input
-              type="number"
-              min={1}
-              value={capCount}
-              onChange={(e) => setCapCount(Number(e.target.value))}
-              disabled={!enabled}
-            />
-          </Field>
-          <Field
-            label="Retain days"
-            help="Delete events older than this many days."
-          >
-            <Input
-              type="number"
-              min={1}
-              value={capDays}
-              onChange={(e) => setCapDays(Number(e.target.value))}
-              disabled={!enabled}
-            />
-          </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink-3">
+                Max records
+              </p>
+              <p className="mt-0.5 text-xs text-ink-3">
+                Maximum events to retain.
+              </p>
+              <Input
+                type="number"
+                min={1}
+                value={capCount}
+                onChange={(e) => setCapCount(Number(e.target.value))}
+                disabled={!enabled}
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-ink-3">
+                Retain days
+              </p>
+              <p className="mt-0.5 text-xs text-ink-3">
+                Delete events older than this.
+              </p>
+              <Input
+                type="number"
+                min={1}
+                value={capDays}
+                onChange={(e) => setCapDays(Number(e.target.value))}
+                disabled={!enabled}
+                className="mt-2"
+              />
+            </div>
+          </div>
           {update.isError && <ApiErrorAlert error={update.error} />}
         </CardContent>
         <CardFooter className="flex gap-2">
