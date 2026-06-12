@@ -16,8 +16,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use instant_acme::{
-    Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
-    NewOrder, RetryPolicy,
+    Account, AccountBuilder, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier,
+    NewAccount, NewOrder, RetryPolicy,
 };
 
 /// Presents and tears down an ACME HTTP-01 challenge response.
@@ -68,6 +68,16 @@ pub async fn issue(
     })
 }
 
+/// Returns an [`AccountBuilder`] that trusts the pebble WFE CA when the
+/// `BRIDGE_TEST_PEBBLE_CA` env var is set (integration-test harness only).
+fn make_account_builder() -> anyhow::Result<AccountBuilder> {
+    #[cfg(test)]
+    if let Ok(path) = std::env::var("BRIDGE_TEST_PEBBLE_CA") {
+        return Ok(Account::builder_with_root(path)?);
+    }
+    Ok(Account::builder()?)
+}
+
 /// Restore the ACME account from `credentials`, or create a fresh one and return
 /// its serialized credentials JSON for the caller to persist.
 async fn load_or_create_account(
@@ -76,11 +86,11 @@ async fn load_or_create_account(
 ) -> anyhow::Result<(Account, Vec<u8>)> {
     if let Some(bytes) = credentials {
         let creds: AccountCredentials = serde_json::from_slice(bytes)?;
-        let account = Account::builder()?.from_credentials(creds).await?;
+        let account = make_account_builder()?.from_credentials(creds).await?;
         return Ok((account, bytes.to_vec()));
     }
 
-    let (account, creds) = Account::builder()?
+    let (account, creds) = make_account_builder()?
         .create(
             &NewAccount {
                 contact: &[],

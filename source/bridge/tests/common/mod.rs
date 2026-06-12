@@ -8,6 +8,19 @@ use wardnet_bridge::repository::{
     ChallengeRepository, Install, InstallRepository, NameRepository, RegistrationChallenge,
 };
 
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
+/// Return the pebble ACME directory URL.
+///
+/// Reads `BRIDGE_TEST_PEBBLE_URL` (default `https://localhost:14000/dir`).
+/// Tests using this must also be gated on
+/// `#[ignore = "requires Postgres + pebble (docker compose up -d)"]` and must
+/// set `BRIDGE_TEST_PEBBLE_CA` to the path of the pebble WFE CA PEM.
+pub fn pebble_directory_url() -> String {
+    std::env::var("BRIDGE_TEST_PEBBLE_URL")
+        .unwrap_or_else(|_| "https://localhost:14000/dir".to_owned())
+}
+
 // ── Mock install repository ──────────────────────────────────────────────────
 
 pub struct MockInstallRepository {

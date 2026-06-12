@@ -44,11 +44,26 @@ Conventions and invariants for agents working inside `source/bridge/`.
 
 ## Test placement
 
-Tests **must not** be inline (`mod tests { ... }` inside the source file). They belong in:
-- `src/<module>/tests.rs` — unit tests of a single module
-- `src/tests/<module>.rs` — repository integration tests
+Tests **must not** be inline (`mod tests { ... }` inside the source file).
 
-Declare them with `#[cfg(test)] mod tests;` at the bottom of the source file. Repository/integration tests run against a live Postgres started via `docker compose up -d` before running the tests.
+### Unit tests (`src/`)
+
+Tests that access private internals or use mock/in-memory substitutes belong inside the crate:
+
+- `src/<module>/tests.rs` — unit tests of a single module (access to private items via the child-module relationship)
+- `src/tests/<module>.rs` — repository-level unit tests using a live Postgres pool (still inside the crate, gated with `#[ignore = "requires Postgres (docker compose up -d)"]`)
+
+Declare them with `#[cfg(test)] mod tests;` at the bottom of the source file.
+
+### Integration tests (`tests/`)
+
+Tests that exercise the public API end-to-end and require external infrastructure (Postgres, pebble ACME server, wiremock, …) belong in `tests/`. They are compiled as a separate crate so they can only call `pub` items — this is intentional. Shared helpers live in `tests/common/mod.rs`.
+
+- `tests/api.rs` — full HTTP API surface via mock repos
+- `tests/acme.rs` — ACME issuance via pebble; gate with `#[ignore = "requires pebble (docker compose up -d)"]`
+- `tests/tls_renewal.rs` — TLS renewal runner via pebble + Postgres; gate with `#[ignore = "requires Postgres + pebble (docker compose up -d)"]`
+
+Add new integration test files here when a feature requires two or more real infrastructure components to test correctly.
 
 ## SQL conventions
 
