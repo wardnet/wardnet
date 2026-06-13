@@ -540,7 +540,7 @@ e2e-ui: build-web
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy; \
 	echo "::group::compose ps before playwright"; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a; \
 	echo "::endgroup::"; \

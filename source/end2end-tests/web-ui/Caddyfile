@@ -1,0 +1,28 @@
+# TLS-terminating reverse proxy for the web-ui e2e stack.
+#
+# The daemon serves plain HTTP on :7411; its own :443 is 503-gated until
+# an ACME cert is issued (infeasible in compose). But the browser needs a
+# real HTTPS origin so the daemon's `Secure` session cookie is stored and
+# PWA service workers register. Caddy terminates TLS here with an
+# auto-generated self-signed cert (`tls internal`) and proxies to each
+# daemon; Playwright trusts it via `ignoreHTTPSErrors`.
+#
+# One vhost per daemon, matched by SNI/Host; both listen on :443. The
+# hostnames resolve to this container via compose network aliases.
+{
+	admin off
+	auto_https disable_redirects
+	# Self-signed CA generated in-container; never trusted outside the
+	# e2e stack (Playwright uses ignoreHTTPSErrors).
+	local_certs
+}
+
+https://wardnetd-ui-tls {
+	tls internal
+	reverse_proxy wardnetd-ui:7411
+}
+
+https://wardnetd-ui-fresh-tls {
+	tls internal
+	reverse_proxy wardnetd-ui-fresh:7411
+}

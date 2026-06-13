@@ -24,23 +24,31 @@ self-seeded `wardnetd-ui` instance (`compose.ui.yaml`) — isolated from
 the API/kernel Vitest suite under `../daemon`. JUnit + an HTML report are
 written to `reports/`.
 
-## Why HTTP + an insecure-origin flag (not HTTPS)
+## Why a self-signed TLS proxy (HTTPS)
 
-The daemon's `:443` listener is bound but **503-gated** behind a
-throwaway placeholder certificate until a real ACME certificate is
-issued — which requires DDNS and is infeasible in a compose stack. The
-always-on honest surface is plain HTTP on `:7411`.
-
-But two things need a *secure context*: the session cookie is set
+Two things need a *secure context*: the daemon's session cookie is set
 `Secure` (`crates/wardnetd-api/src/api/auth.rs`), and both PWAs register
-service workers. So Chromium is launched with
-`--unsafely-treat-insecure-origin-as-secure=<UI_BASE_URL>` — the browser
-then treats the HTTP origin as secure, the `Secure` cookie is stored and
-replayed, and service workers register, all without TLS/proxy plumbing.
+service workers. The browser therefore needs a real HTTPS origin.
 
-When daemon-owned TLS becomes testable end-to-end, the PWA install /
-offline / secure-context assertions (B1/C1) can move to a real HTTPS
-origin; until then this flag is the harness's secure-context shim.
+The daemon's own `:443` can't provide it here — it's **503-gated**
+behind a placeholder certificate until a real ACME cert is issued, which
+needs DDNS and is infeasible in a compose stack (`:7411` is the
+always-on plain-HTTP surface). So a **Caddy sidecar (`tls_proxy`)**
+terminates TLS with an auto-generated self-signed cert (`tls internal`)
+and reverse-proxies to each daemon's `:7411`; Playwright trusts it via
+`ignoreHTTPSErrors`. The browser hits `https://wardnetd-ui-tls` /
+`https://wardnetd-ui-fresh-tls` (Caddy routes by Host/SNI).
+
+This replaced an earlier plain-HTTP +
+`--unsafely-treat-insecure-origin-as-secure` approach: that flag is
+ignored by headless Chromium (playwright#22944, so the `Secure` cookie
+was dropped) and hung under `xvfb` when run headed. Real TLS keeps the
+suite headless and makes the cookie + service workers work natively.
+
+Node-side seeding (`global.setup`) still talks to the daemon's
+plain-HTTP `:7411` directly — it reads the login token from the response
+body and never relies on the cookie, avoiding self-signed-TLS handling
+in Node.
 
 ## Auth
 

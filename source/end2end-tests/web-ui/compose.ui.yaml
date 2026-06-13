@@ -143,6 +143,38 @@ services:
       retries: 30
       start_period: 30s
 
+  # TLS-terminating reverse proxy (self-signed) in front of both daemons,
+  # so the browser gets a real HTTPS origin — required for the daemon's
+  # `Secure` session cookie + PWA service workers. The daemon's own :443
+  # is ACME-gated (503) and unusable in compose. Routes by SNI/Host via
+  # the two network aliases below; Playwright trusts the cert with
+  # ignoreHTTPSErrors.
+  tls_proxy:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    depends_on:
+      wardnetd-ui:
+        condition: service_healthy
+      wardnetd-ui-fresh:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      wardnet_mgmt:
+        aliases:
+          - wardnetd-ui-tls
+          - wardnetd-ui-fresh-tls
+    healthcheck:
+      # Proxied /api/info through the TLS vhost (self-signed → -k).
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O - --no-check-certificate --header='Host: wardnetd-ui-tls' https://127.0.0.1/api/info || exit 1",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
   ui_runner:
     build:
       context: ../../..
@@ -153,9 +185,12 @@ services:
         condition: service_healthy
       wardnetd-ui-fresh:
         condition: service_healthy
+      tls_proxy:
+        condition: service_healthy
     environment:
-      WARDNET_UI_BASE_URL: "http://wardnetd-ui:7411"
-      WARDNET_UI_FRESH_BASE_URL: "http://wardnetd-ui-fresh:7411"
+      WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
+      WARDNET_UI_FRESH_BASE_URL: "https://wardnetd-ui-fresh-tls"
+      WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.

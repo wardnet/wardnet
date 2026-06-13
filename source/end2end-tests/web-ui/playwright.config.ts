@@ -13,31 +13,24 @@ import {
  *   - admin-app  (mobile PWA)  → `/admin-app/`
  *   - user-app   (device PWA)  → `/`
  *
- * Why plain HTTP + an insecure-origin flag (not HTTPS): the daemon's
- * `:443` is 503-gated behind a placeholder cert until an ACME cert is
- * issued, which needs DDNS and is infeasible in a compose stack. `:7411`
- * is the always-on plain-HTTP surface, but the session cookie is
- * `Secure` and the PWAs register service workers — both need a secure
- * context. Launching Chromium with
- * `--unsafely-treat-insecure-origin-as-secure` makes the browser treat
- * the HTTP origin as secure, so the cookie stores and SWs register
- * without any TLS/proxy plumbing. See README.md.
+ * The browser reaches the daemon over a self-signed HTTPS proxy
+ * (`tls_proxy`, Caddy) rather than the daemon's plain-HTTP :7411: a real
+ * HTTPS origin is what lets the daemon's `Secure` session cookie be
+ * stored and PWA service workers register. (The daemon's own :443 is
+ * 503-gated until an ACME cert is issued, infeasible in compose; the
+ * earlier `--unsafely-treat-insecure-origin-as-secure` route is ignored
+ * by headless Chromium — playwright#22944 — and hung under xvfb when run
+ * headed, so a TLS proxy + `ignoreHTTPSErrors` is the robust path.)
  *
  * One shared daemon backs every spec, so file parallelism is hostile
  * (race on shared state): `fullyParallel:false`, `workers:1`.
  */
 
 const CHROMIUM_ARGS = [
-  // Treat both daemon origins (shared + fresh wizard daemon) as secure so
-  // the daemon's `Secure` session cookie is stored/replayed and SWs
-  // register over plain HTTP. Honoured only headed (see use.headless).
-  `--unsafely-treat-insecure-origin-as-secure=${UI_BASE_URL},${UI_FRESH_BASE_URL}`,
-  "--allow-insecure-localhost",
   // Chromium runs as root in the Playwright image — required or it
   // refuses to launch.
   "--no-sandbox",
-  // Docker's default /dev/shm is 64 MB; headed Chromium exhausts it and
-  // hangs. Use /tmp instead.
+  // Docker's default /dev/shm is 64 MB; Chromium can exhaust it. Use /tmp.
   "--disable-dev-shm-usage",
 ];
 
@@ -61,15 +54,10 @@ export default defineConfig({
     ["html", { outputFolder: "reports/html", open: "never" }],
   ],
   use: {
+    // Trust the proxy's self-signed cert.
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    // Run headed (under xvfb in the runner image). Chromium ignores
-    // --unsafely-treat-insecure-origin-as-secure in headless mode
-    // (playwright#22944), which silently drops the daemon's `Secure`
-    // session cookie over the plain-HTTP origin. Headed honours the
-    // flag, so authenticated flows (login, wizard advance) work.
-    headless: false,
   },
   projects: [
     // Runs first: seeds the admin via the SDK and writes the admin

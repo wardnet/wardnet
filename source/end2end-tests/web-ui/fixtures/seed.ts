@@ -15,27 +15,34 @@ import { createHash } from "node:crypto";
  */
 
 /**
- * Base URL of the daemon as the browser reaches it. `wardnetd-ui` is the
- * compose service name on `wardnet_mgmt`; override locally with
- * `WARDNET_UI_BASE_URL=http://localhost:7411`.
+ * Base URL of the daemon as the BROWSER reaches it — over the Caddy TLS
+ * proxy (`tls_proxy`), not the daemon's plain-HTTP port. Real HTTPS is
+ * required so the daemon's `Secure` session cookie is stored and PWA
+ * service workers register; the daemon's own :443 is ACME-gated (503) so
+ * a self-signed proxy terminates TLS in front of :7411. Override locally
+ * with `WARDNET_UI_BASE_URL=https://localhost:8443`.
  */
 export const UI_BASE_URL =
-  process.env.WARDNET_UI_BASE_URL ?? "http://wardnetd-ui:7411";
+  process.env.WARDNET_UI_BASE_URL ?? "https://wardnetd-ui-tls";
 
 /** Hostname the session cookie is scoped to (derived from UI_BASE_URL). */
 export const UI_HOST = new URL(UI_BASE_URL).hostname;
 
 /**
- * Base URL of the pristine, never-seeded daemon used by the first-run
- * setup-wizard spec (A1). Distinct from UI_BASE_URL so the wizard UI can
- * be walked from a clean state; the shared daemon is always pre-seeded.
+ * Browser base URL of the pristine, never-seeded daemon used by the
+ * first-run setup-wizard spec (A1), via its own TLS proxy vhost.
  */
 export const UI_FRESH_BASE_URL =
-  process.env.WARDNET_UI_FRESH_BASE_URL ?? "http://wardnetd-ui-fresh:7411";
+  process.env.WARDNET_UI_FRESH_BASE_URL ?? "https://wardnetd-ui-fresh-tls";
 
-/** API base (same origin as the browser surface). */
+/**
+ * API base for Node-side seeding (global.setup). Hits the daemon's
+ * plain-HTTP port DIRECTLY (not through the proxy): seeding reads the
+ * login token from the response body, never relies on the cookie, and
+ * avoids Node self-signed-TLS handling.
+ */
 export const API_BASE_URL =
-  process.env.WARDNET_API_BASE_URL ?? `${UI_BASE_URL}/api`;
+  process.env.WARDNET_API_BASE_URL ?? "http://wardnetd-ui:7411/api";
 
 /** Where the `setup` project writes the admin session for authed surfaces. */
 export const STORAGE_STATE = ".auth/admin.json";
