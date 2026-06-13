@@ -120,6 +120,16 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         );
     }
 
+    // Enable DNS capture on the localhost device (the first seeded device,
+    // 127.0.0.1) so the user PWA — which resolves `/devices/me` to this device
+    // during local dev — receives a live DNS-events stream out of the box.
+    if let Some(localhost_id) = device_ids.first() {
+        device_repo
+            .update_dns_capture_settings(&localhost_id.to_string(), Some(true), None, None)
+            .await?;
+        tracing::debug!(device_id = %localhost_id, "enabled DNS capture on localhost device");
+    }
+
     // ------------------------------------------------------------------
     // DHCP leases — one active lease per seeded device so the Leases tab
     // and the dashboard "Active leases" stat have something to render.
