@@ -158,8 +158,9 @@ async fn run(
     // Re-read devices so the fake-DNS emitter can attribute events to real
     // seeded clients (lights up the top-clients table + filter dropdown) and
     // so the per-device capture pipeline can pick them up. `capture_target` is
-    // the localhost device (127.0.0.1) — capture-enabled in the seed — that the
-    // user PWA resolves `/devices/me` to during local dev.
+    // whichever device has DNS capture enabled (the seed turns it on for the
+    // 127.0.0.1 localhost device that the user PWA resolves `/devices/me` to) —
+    // keying off the flag keeps the emitter and the seed in sync.
     let (dns_clients, capture_target) = {
         let devices = factory.device().find_all().await?;
         let clients = devices
@@ -169,8 +170,15 @@ async fn run(
             .collect::<Vec<(String, String)>>();
         let target = devices
             .iter()
-            .find(|d| d.last_ip == "127.0.0.1")
+            .find(|d| d.dns_capture_enabled)
             .map(|d| (d.id.to_string(), d.last_ip.clone()));
+        if target.is_none() {
+            tracing::warn!(
+                "no DNS-capture-enabled device found — the user PWA DNS-events \
+                 stream will stay empty. On a --no-seed run against an older DB, \
+                 delete the DB to re-seed or enable capture on a device."
+            );
+        }
         (clients, target)
     };
 

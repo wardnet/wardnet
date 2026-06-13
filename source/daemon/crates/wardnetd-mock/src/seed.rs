@@ -89,6 +89,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
 
     let mut device_ids = Vec::with_capacity(devices.len());
     let mut device_lease_inputs = Vec::with_capacity(devices.len());
+    // The device the user PWA resolves `/devices/me` to in local dev — tracked
+    // by IP (not insertion order) so it stays correct if the seed list changes.
+    let mut localhost_device_id: Option<Uuid> = None;
     for (mac, hostname, manufacturer, device_type, ip, last_seen_ago) in devices {
         let id = Uuid::new_v4();
         let first_seen = (now - Duration::days(7)).to_rfc3339();
@@ -106,6 +109,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         };
         device_repo.insert(&row).await?;
         device_ids.push(id);
+        if ip == "127.0.0.1" {
+            localhost_device_id = Some(id);
+        }
         device_lease_inputs.push((
             id,
             mac.to_owned(),
@@ -120,10 +126,11 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         );
     }
 
-    // Enable DNS capture on the localhost device (the first seeded device,
-    // 127.0.0.1) so the user PWA — which resolves `/devices/me` to this device
-    // during local dev — receives a live DNS-events stream out of the box.
-    if let Some(localhost_id) = device_ids.first() {
+    // Enable DNS capture on the localhost device (127.0.0.1) so the user PWA —
+    // which resolves `/devices/me` to this device during local dev — receives a
+    // live DNS-events stream out of the box. The fake-DNS emitter targets the
+    // capture-enabled device, so the two stay in sync via the flag.
+    if let Some(localhost_id) = localhost_device_id {
         device_repo
             .update_dns_capture_settings(&localhost_id.to_string(), Some(true), None, None)
             .await?;
