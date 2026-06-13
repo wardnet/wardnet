@@ -164,16 +164,15 @@ services:
           - wardnetd-ui-tls
           - wardnetd-ui-fresh-tls
     healthcheck:
-      # Proxied /api/info through the TLS vhost (self-signed → -k).
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q -O - --no-check-certificate --header='Host: wardnetd-ui-tls' https://127.0.0.1/api/info || exit 1",
-        ]
+      # BusyBox wget in the Caddy Alpine image has no HTTPS support, so
+      # check the TLS port is accepting connections instead. Caddy starts
+      # serving in <1s; the daemons (proxy upstreams) gate separately and
+      # the runner depends on all three.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443 || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
-      start_period: 15s
+      start_period: 10s
 
   ui_runner:
     build:
