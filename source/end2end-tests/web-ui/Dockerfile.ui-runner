@@ -15,7 +15,7 @@
 # Pinned-Dependencies). The tag must match @playwright/test in
 # package.json so the bundled browsers match the test runner; bump them
 # together.
-FROM mcr.microsoft.com/playwright:v1.49.1-jammy@sha256:019b822658965bf5f6d509472802797554360f2940e677b2afb0f17748d0d0e3
+FROM mcr.microsoft.com/playwright:v1.55.1-jammy@sha256:a012a91c32e36b3300514684c5bdb60c07f01464abd03380320179e5273427ab
 
 RUN corepack enable
 
