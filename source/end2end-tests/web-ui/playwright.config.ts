@@ -57,6 +57,12 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    // Run headed (under xvfb in the runner image). Chromium ignores
+    // --unsafely-treat-insecure-origin-as-secure in headless mode
+    // (playwright#22944), which silently drops the daemon's `Secure`
+    // session cookie over the plain-HTTP origin. Headed honours the
+    // flag, so authenticated flows (login, wizard advance) work.
+    headless: false,
   },
   projects: [
     // Runs first: seeds the admin via the SDK and writes the admin

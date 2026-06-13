@@ -36,4 +36,7 @@ COPY source/end2end-tests/web-ui/tsconfig.json \
 COPY source/end2end-tests/web-ui/fixtures ./fixtures
 COPY source/end2end-tests/web-ui/tests ./tests
 
-CMD ["yarn", "test"]
+# Headed Chromium under a virtual framebuffer: the suite runs headed so
+# the insecure-origin flag is honoured (see playwright.config.ts), and
+# `xvfb-run` (bundled in the Playwright image) supplies the X display.
+CMD ["xvfb-run", "-a", "yarn", "test"]

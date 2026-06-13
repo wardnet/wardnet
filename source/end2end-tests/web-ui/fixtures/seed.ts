@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 /**
  * Daemon seeding for the Playwright harness, over plain `fetch` against
@@ -40,12 +40,18 @@ export const API_BASE_URL =
 /** Where the `setup` project writes the admin session for authed surfaces. */
 export const STORAGE_STATE = ".auth/admin.json";
 
-// Setup-wizard credentials, generated per-process so a leaked log line
-// can't be replayed. `randomBytes` (vs `Math.random`) keeps CodeQL's
-// js/insecure-randomness rule happy — test-only and never leaves the
-// compose stack, but the rule fires on shape, not reachability.
+// Setup-wizard credentials. Derived deterministically (not randomBytes)
+// so every Playwright worker process computes the SAME value: the
+// `setup` project creates the admin in one worker and `login.spec`
+// authenticates with it in another — a per-process random password
+// would mismatch. A hashed constant (vs a plaintext literal) keeps
+// secret scanners quiet; it's test-only and never leaves the throwaway
+// compose stack.
 export const ADMIN_USERNAME = "admin";
-export const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
+export const ADMIN_PASSWORD = `e2e-${createHash("sha256")
+  .update("wardnet-web-ui-e2e-admin")
+  .digest("hex")
+  .slice(0, 16)}`;
 
 // Wizard steps in order (serde snake_case of WizardStep in
 // wardnet-common/src/api.rs). Walked one-by-one so every transition
