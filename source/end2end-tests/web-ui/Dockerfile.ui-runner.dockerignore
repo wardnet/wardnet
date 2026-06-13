@@ -1,0 +1,19 @@
+# Scoped to source/end2end-tests/web-ui/Dockerfile.ui-runner only.
+# BuildKit picks up <dockerfile>.dockerignore alongside the Dockerfile
+# and uses it in preference to any context-root .dockerignore.
+#
+# The runner image only needs this package. Everything else in the repo
+# is noise — keep the build context small to skip the multi-second send
+# step when the build is otherwise cache-hit.
+
+*
+
+!source/end2end-tests/web-ui/
+
+**/node_modules/
+**/.yarn/cache/
+**/.yarn/install-state.gz
+**/dist/
+**/target/
+**/.DS_Store
+.git/
