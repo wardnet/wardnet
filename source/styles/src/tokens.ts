@@ -12,16 +12,17 @@
  */
 
 export const brand = {
-  /** Primary brand accent — Signal Green. Single, locked across the system. */
-  accent: "#1ed68a",
-  accentInk: "#042619",
-  /** Ward Navy — sidebar / chrome on dark surfaces. */
-  navy: "#0c1230",
+  /** Primary brand accent — Wardnet Emerald. Single, locked across the system. */
+  accent: "#12B981",
+  /** Ink — text/marks on an emerald surface (e.g. primary buttons). */
+  accentInk: "#11152B",
+  /** Ink — sidebar / chrome on dark surfaces (formerly "Ward Navy"). */
+  navy: "#11152B",
 } as const;
 
 export const status = {
   warn: "#f1b13b",
-  danger: "#e5484d",
+  danger: "#E5484D",
   info: "#4d8df6",
 } as const;
 
