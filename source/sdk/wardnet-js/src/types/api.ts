@@ -198,3 +198,14 @@ export interface DnsCaptureSettingsResponse {
   row_count: number;
   size_bytes: number;
 }
+
+export interface DnsEventItem {
+  id: number;
+  domain: string;
+  status: string;
+  captured_at: string;
+}
+
+export interface DnsEventsAckRequest {
+  up_to_id: number;
+}

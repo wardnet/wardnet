@@ -44,6 +44,8 @@ anyhow.workspace = true
 utoipa.workspace = true
 # https://crates.io/crates/utoipa-axum
 utoipa-axum.workspace = true
+# https://crates.io/crates/tokio-stream — ReceiverStream for SSE handlers
+tokio-stream.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

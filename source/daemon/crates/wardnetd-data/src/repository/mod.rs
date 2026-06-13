@@ -19,7 +19,7 @@ pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
-pub use dns_events::{DnsCaptureStats, DnsEventsRepository};
+pub use dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
 pub use dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
     DeviceSettingsRow, DeviceSettingsWithIp, DnsFilterRepository, ProfileFilterInputs,

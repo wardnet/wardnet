@@ -4,6 +4,7 @@ import { AppLayout } from "@/layouts/AppLayout";
 import Home from "@/pages/Home";
 import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
+import { useDnsEventsSync } from "@/hooks/useDnsEventsSync";
 
 /**
  * User PWA shell.
@@ -14,9 +15,15 @@ import Settings from "@/pages/Settings";
  * context, and the mobile layout. Each tab is a placeholder until its feature
  * stage (#590–#594) fills it in.
  */
+function DnsSync() {
+  useDnsEventsSync();
+  return null;
+}
+
 export default function App() {
   return (
     <OnlineStatusProvider>
+      <DnsSync />
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<Home />} />

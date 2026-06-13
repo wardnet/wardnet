@@ -1879,6 +1879,100 @@
         ]
       }
     },
+    "/api/devices/me/dns-events/ack": {
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Acknowledge receipt of DNS events up to and including `up_to_id`. The daemon deletes all events with id ≤ up_to_id for this device.",
+        "operationId": "ack_dns_events",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DnsEventsAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Events acknowledged and deleted"
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/devices/me/dns-events/stream": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "description": "SSE stream of captured DNS events for this device. Reconnect with `Last-Event-ID` to resume from the last seen row; omit the header to replay all pending events.",
+        "operationId": "stream_dns_events",
+        "responses": {
+          "200": {
+            "description": "SSE stream of DnsEventItem (text/event-stream)"
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/devices/me/rule": {
       "put": {
         "tags": [
@@ -18800,6 +18894,18 @@
         "properties": {
           "config": {
             "$ref": "#/components/schemas/DnsConfig"
+          }
+        }
+      },
+      "DnsEventsAckRequest": {
+        "type": "object",
+        "required": [
+          "up_to_id"
+        ],
+        "properties": {
+          "up_to_id": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

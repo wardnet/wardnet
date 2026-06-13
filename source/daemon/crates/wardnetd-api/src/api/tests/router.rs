@@ -64,6 +64,8 @@ async fn all_api_routes_are_reachable() {
         ("GET", "/api/devices".to_owned()),
         ("GET", "/api/devices/me".to_owned()),
         ("PUT", "/api/devices/me/rule".to_owned()),
+        ("GET", "/api/devices/me/dns-events/stream".to_owned()),
+        ("POST", "/api/devices/me/dns-events/ack".to_owned()),
         ("GET", format!("/api/devices/{fake_uuid}")),
         ("PUT", format!("/api/devices/{fake_uuid}")),
         ("GET", "/api/info".to_owned()),

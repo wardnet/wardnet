@@ -146,6 +146,8 @@ libc = "0.2"
 age = { version = "0.11", default-features = false }
 # https://crates.io/crates/futures
 futures = "0.3"
+# https://crates.io/crates/tokio-stream — ReceiverStream adapter used by SSE handlers
+tokio-stream = { version = "0.1", features = ["sync"] }
 # https://crates.io/crates/cron
 cron = "0.16"
 

@@ -4,6 +4,7 @@ mod ddns;
 mod devices;
 mod dhcp;
 mod dns_capture;
+mod dns_events;
 mod dns_filter;
 mod dns_local;
 mod info;

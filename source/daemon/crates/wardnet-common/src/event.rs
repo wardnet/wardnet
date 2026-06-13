@@ -189,6 +189,17 @@ pub enum WardnetEvent {
         enabled: bool,
         timestamp: DateTime<Utc>,
     },
+    /// A DNS capture event was durably inserted for a capture-enabled device.
+    /// Emitted by `capture_runner` after the DB write succeeds so the SSE
+    /// stream handler can push the row to the device without polling.
+    DnsEventInserted {
+        device_id: Uuid,
+        row_id: i64,
+        domain: String,
+        status: String,
+        captured_at: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

@@ -597,7 +597,7 @@ async fn run(
         .expect("dns capture rx taken twice");
     let dns_capture_runner = DnsCaptureRunner::start(
         dns_capture_rx,
-        services.device_repo.clone(),
+        services.device.clone(),
         services.dns_events_repo.clone(),
         services.event_publisher.clone(),
         &root_span,

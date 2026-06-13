@@ -5,6 +5,7 @@ pub mod devices;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_capture;
+pub mod dns_events;
 pub mod dns_filter;
 pub mod dns_local;
 pub mod dns_log_ws;
@@ -54,6 +55,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = info::register(r);
     r = devices::register(r);
     r = dns_capture::register(r);
+    r = dns_events::register(r);
     r = tunnels::register(r);
     r = providers::register(r);
     r = dhcp::register(r);

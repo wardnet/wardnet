@@ -1601,3 +1601,16 @@ pub struct UpdateForwardingRuleResponse {
 pub struct DeleteForwardingRuleResponse {
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DnsEventItem {
+    pub id: i64,
+    pub domain: String,
+    pub status: String,
+    pub captured_at: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct DnsEventsAckRequest {
+    pub up_to_id: i64,
+}
