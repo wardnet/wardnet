@@ -259,7 +259,7 @@ fn client_connect_info() -> axum::extract::ConnectInfo<std::net::SocketAddr> {
     ))
 }
 
-/// Self-service (device-IP) PATCH — no auth cookie, ConnectInfo extension set.
+/// Self-service (device-IP) PATCH — no auth cookie, `ConnectInfo` extension set.
 async fn patch_me(app: Router, json_body: &str) -> (StatusCode, serde_json::Value) {
     let resp = app
         .oneshot(
