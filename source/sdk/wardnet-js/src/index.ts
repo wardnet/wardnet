@@ -17,6 +17,7 @@ export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
+export { RuleRequestService } from "./services/rule-requests.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
 
@@ -104,6 +105,12 @@ export type {
 // Types — API DTOs
 export type {
   ApiError,
+  DeviceCaptureToggleRequest,
+  RuleRequestKind,
+  RuleRequestStatus,
+  DeviceRuleRequest,
+  CreateRuleRequestRequest,
+  DecideRuleRequestRequest,
   DeviceMeResponse,
   SetMyRuleRequest,
   SetMyRuleResponse,

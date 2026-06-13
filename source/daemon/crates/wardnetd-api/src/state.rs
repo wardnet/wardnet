@@ -6,7 +6,8 @@ use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
     DnsFilterService, DnsLocalService, DnsService, JobService, LogService, RoutingService,
-    StatsService, SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
+    RuleRequestService, StatsService, SystemService, TlsService, TunnelService, UpdateService,
+    VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -40,6 +41,7 @@ struct Inner {
     event_publisher: Arc<dyn EventPublisher>,
     job_service: Arc<dyn JobService>,
     stats_service: Arc<dyn StatsService>,
+    rule_request_service: Arc<dyn RuleRequestService>,
 }
 
 impl AppState {
@@ -70,6 +72,7 @@ impl AppState {
         event_publisher: Arc<dyn EventPublisher>,
         job_service: Arc<dyn JobService>,
         stats_service: Arc<dyn StatsService>,
+        rule_request_service: Arc<dyn RuleRequestService>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -94,6 +97,7 @@ impl AppState {
                 event_publisher,
                 job_service,
                 stats_service,
+                rule_request_service,
             }),
         }
     }
@@ -233,5 +237,11 @@ impl AppState {
     #[must_use]
     pub fn stats_service(&self) -> &dyn StatsService {
         self.inner.stats_service.as_ref()
+    }
+
+    /// Access the rule-request inbox service.
+    #[must_use]
+    pub fn rule_request_service(&self) -> &dyn RuleRequestService {
+        self.inner.rule_request_service.as_ref()
     }
 }

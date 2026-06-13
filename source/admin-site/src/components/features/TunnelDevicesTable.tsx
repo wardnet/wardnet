@@ -1,7 +1,13 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  deviceDisplayName,
+} from "@wardnet/web";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@wardnet/web";
 import { HostCell } from "@/components/compound/HostCell";
@@ -19,7 +25,7 @@ function buildColumns(): ColumnDef<Device>[] {
       header: "Device",
       cell: ({ row }) => {
         const device = row.original;
-        const primary = device.name ?? device.hostname ?? device.mac;
+        const primary = deviceDisplayName(device);
         const secondary = primary === device.mac ? null : device.mac;
         return (
           <HostCell

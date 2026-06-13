@@ -1,41 +1,17 @@
 import { useEffect, useRef } from "react";
 
-const DB_NAME = "wardnet-dns-events";
-const STORE_NAME = "events";
+import {
+  applyEvent,
+  type DnsEventItem,
+  notifyStatsChanged,
+  openDb,
+  pruneEvents,
+} from "../lib/dnsDb.js";
+
 const ACK_BATCH_SIZE = 50;
 const ACK_INTERVAL_MS = 5_000;
 const STREAM_PATH = "/api/devices/me/dns-events/stream";
 const ACK_PATH = "/api/devices/me/dns-events/ack";
-
-interface DnsEventItem {
-  id: number;
-  domain: string;
-  status: string;
-  captured_at: string;
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function writeEvent(db: IDBDatabase, item: DnsEventItem): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(item);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
 async function ackUpTo(upToId: number): Promise<void> {
   await fetch(ACK_PATH, {
@@ -47,12 +23,15 @@ async function ackUpTo(upToId: number): Promise<void> {
 
 /**
  * Opens an SSE stream from the daemon and persists each captured DNS event
- * into IndexedDB ("wardnet-dns-events"/"events"). After every 50 events or
- * 5 seconds (whichever comes first) the highest received ID is acked so the
- * daemon can delete the rows.
+ * into the device-local IndexedDB store (see `lib/dnsDb`). Each event is stored
+ * raw (for the activity feed) and folded into the per-day, per-domain
+ * aggregate that the Stats page reads. After every 50 events or 5 seconds the
+ * highest received ID is acked so the daemon can delete the rows, and the raw
+ * event ring is pruned.
  *
  * The browser manages `Last-Event-ID` automatically, so reconnects resume
- * from the last acked cursor without any extra code here.
+ * from the last acked cursor; the `lastAggregatedId` cursor in IndexedDB keeps
+ * re-delivered rows from being double-counted.
  *
  * Mount unconditionally — the stream is a no-op when there are no pending
  * events, and the hook tears itself down cleanly on unmount.
@@ -79,6 +58,11 @@ export function useDnsEventsSync(): void {
         ackUpTo(id).catch(() => {
           // Best-effort; server will re-deliver on next connect.
         });
+        if (db) {
+          pruneEvents(db).catch(() => {
+            // Pruning is best-effort housekeeping.
+          });
+        }
       }
     }
 
@@ -106,16 +90,20 @@ export function useDnsEventsSync(): void {
         }
 
         if (db) {
-          writeEvent(db, item).then(() => {
-            pendingAckId.current = item.id;
-            pendingCount.current += 1;
-            if (pendingCount.current >= ACK_BATCH_SIZE) {
-              flushAck();
-            } else {
-              scheduleAck();
-            }
-          });
-          // On write failure, don't advance cursor — daemon re-delivers on reconnect.
+          applyEvent(db, item)
+            .then(() => {
+              pendingAckId.current = item.id;
+              pendingCount.current += 1;
+              notifyStatsChanged();
+              if (pendingCount.current >= ACK_BATCH_SIZE) {
+                flushAck();
+              } else {
+                scheduleAck();
+              }
+            })
+            .catch(() => {
+              // On write failure, don't advance cursor — daemon re-delivers.
+            });
         }
       };
 

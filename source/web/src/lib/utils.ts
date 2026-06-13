@@ -1,9 +1,16 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { WardnetApiError } from "@wardnet/js";
+import { WardnetApiError, type Device } from "@wardnet/js";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/** Canonical display name for a device: explicit name, else hostname, else MAC. */
+export function deviceDisplayName(
+  device: Pick<Device, "name" | "hostname" | "mac">,
+): string {
+  return device.name ?? device.hostname ?? device.mac;
 }
 
 /** Format bytes into a human-readable string (e.g. "1.2 GB"). */

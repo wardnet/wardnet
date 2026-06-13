@@ -20,6 +20,7 @@ import {
   RoutingSelector,
   TunnelStatusPill,
   countryFlag,
+  deviceDisplayName,
   useMyDevice,
   useSetMyRule,
 } from "@wardnet/web";
@@ -291,7 +292,7 @@ export default function Home() {
           className="text-ink/60"
         />
         <h1 className="text-lg font-semibold text-ink">
-          {device.name ?? device.hostname ?? device.mac}
+          {deviceDisplayName(device)}
         </h1>
       </div>
 

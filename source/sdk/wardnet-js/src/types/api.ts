@@ -190,6 +190,11 @@ export interface DnsCaptureSettingsRequest {
   cap_days?: number;
 }
 
+/** Request body for PATCH /api/devices/me/dns-capture (self-service toggle). */
+export interface DeviceCaptureToggleRequest {
+  enabled: boolean;
+}
+
 /** Response for GET/PATCH /api/devices/:id/dns-capture. */
 export interface DnsCaptureSettingsResponse {
   enabled: boolean;
@@ -197,6 +202,37 @@ export interface DnsCaptureSettingsResponse {
   cap_days: number;
   row_count: number;
   size_bytes: number;
+}
+
+/** What a device rule request is asking for. */
+export type RuleRequestKind = "block" | "allow";
+
+/** Lifecycle state of a device rule request. */
+export type RuleRequestStatus = "pending" | "approved" | "rejected";
+
+/** A device's request for the admin to block or allow a domain. */
+export interface DeviceRuleRequest {
+  id: string;
+  device_id: string;
+  kind: RuleRequestKind;
+  domain: string;
+  reason: string | null;
+  status: RuleRequestStatus;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
+/** Request body for POST /api/devices/me/rule-requests. */
+export interface CreateRuleRequestRequest {
+  kind: RuleRequestKind;
+  domain: string;
+  reason?: string | null;
+}
+
+/** Request body for PATCH /api/rule-requests/:id (admin decision). */
+export interface DecideRuleRequestRequest {
+  status: RuleRequestStatus;
 }
 
 export interface DnsEventItem {

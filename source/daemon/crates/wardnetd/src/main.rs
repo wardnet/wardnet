@@ -663,6 +663,7 @@ async fn run(
         services.event_publisher.clone(),
         services.jobs.clone(),
         services.stats.clone(),
+        services.rule_request.clone(),
     );
 
     let app = wardnetd_api::api::router(state);

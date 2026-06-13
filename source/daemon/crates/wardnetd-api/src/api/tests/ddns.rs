@@ -178,6 +178,7 @@ fn make_state(ddns: Arc<dyn DdnsService>, tls: Arc<dyn TlsService>) -> AppState 
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 

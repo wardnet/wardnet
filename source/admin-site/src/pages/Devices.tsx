@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
-import { useDevices } from "@wardnet/web";
+import { deviceDisplayName, useDevices } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 type GroupId = "all" | "managed" | "unmanaged" | "recent";
@@ -34,8 +34,8 @@ function matchesSearch(d: Device, q: string): boolean {
 
 function sortDevices(devices: Device[]): Device[] {
   return [...devices].sort((a, b) => {
-    const nameA = (a.name ?? a.hostname ?? a.mac).toLowerCase();
-    const nameB = (b.name ?? b.hostname ?? b.mac).toLowerCase();
+    const nameA = deviceDisplayName(a).toLowerCase();
+    const nameB = deviceDisplayName(b).toLowerCase();
     return nameA.localeCompare(nameB);
   });
 }

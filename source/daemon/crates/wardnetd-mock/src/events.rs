@@ -43,11 +43,17 @@ impl FakeEventEmitter {
     /// If the list is empty no tunnel-stats events are emitted (only the
     /// DNS toggle cycle continues).
     #[must_use]
+    /// `dns_clients` is the `(device_id, ip)` of every seeded device so fake
+    /// queries are attributed to a real device. `capture_target` is the
+    /// `(device_id, ip)` of the capture-enabled localhost device; one query
+    /// per tick is forced onto it so the user PWA's DNS-events stream stays
+    /// lively during local dev.
     pub fn start(
         publisher: Arc<dyn EventPublisher>,
         tunnel_ids: Vec<Uuid>,
         dns_sink: Arc<DnsLogSink>,
-        dns_client_ips: Vec<String>,
+        dns_clients: Vec<(String, String)>,
+        capture_target: Option<(String, String)>,
     ) -> Self {
         let cancel = CancellationToken::new();
         let cancel_child = cancel.clone();
@@ -89,8 +95,13 @@ impl FakeEventEmitter {
 
                         // Emit a handful of fake DNS query events every tick so
                         // the live-tail and stats keep updating during dev.
-                        if !dns_client_ips.is_empty() {
-                            emit_fake_dns_queries(&dns_sink, &dns_client_ips, tick);
+                        if !dns_clients.is_empty() {
+                            emit_fake_dns_queries(
+                                &dns_sink,
+                                &dns_clients,
+                                capture_target.as_ref(),
+                                tick,
+                            );
                         }
 
                         // Toggle DNS server status every 12 ticks (~1 minute).
@@ -142,7 +153,12 @@ impl FakeEventEmitter {
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
-fn emit_fake_dns_queries(sink: &DnsLogSink, client_ips: &[String], tick: u64) {
+fn emit_fake_dns_queries(
+    sink: &DnsLogSink,
+    clients: &[(String, String)],
+    capture_target: Option<&(String, String)>,
+    tick: u64,
+) {
     const POPULAR: [&str; 6] = [
         "github.com",
         "youtube.com",
@@ -169,7 +185,13 @@ fn emit_fake_dns_queries(sink: &DnsLogSink, client_ips: &[String], tick: u64) {
     // Per tick, fire 4 events so the chart actually moves.
     for q in 0..4u64 {
         let seed = tick.wrapping_mul(2_654_435_761).wrapping_add(q);
-        let client = &client_ips[(seed as usize) % client_ips.len()];
+        // Force the first query of each tick onto the capture-enabled localhost
+        // device so its DNS-events stream (consumed by the user PWA) keeps
+        // flowing; spread the rest across all seeded clients.
+        let client = match (q, capture_target) {
+            (0, Some(target)) => target,
+            _ => &clients[(seed as usize) % clients.len()],
+        };
         let bucket = (seed >> 7) % 10;
 
         let (domain, result) = if bucket < 2 {
@@ -207,13 +229,15 @@ fn emit_fake_dns_queries(sink: &DnsLogSink, client_ips: &[String], tick: u64) {
 
         sink.record(QueryLogRow {
             timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            client_ip: client.clone(),
+            client_ip: client.1.clone(),
             domain,
             query_type: "A".to_owned(),
             result: result.to_owned(),
             upstream,
             latency_ms,
-            device_id: None,
+            // Attribute to the real device so the per-device capture pipeline
+            // can pick up queries for capture-enabled devices.
+            device_id: Some(client.0.clone()),
         });
     }
 }

@@ -6,6 +6,7 @@ import {
   Cable,
   Globe,
   GlobeLock,
+  Inbox,
   LayoutGrid,
   Monitor,
   Network,
@@ -56,6 +57,7 @@ const adminSections: NavSection[] = [
       { to: "/dns", label: "DNS", icon: Globe, end: true },
       { to: "/dns/local", label: "Local DNS", icon: Network },
       { to: "/dns/filter", label: "DNS Filtering", icon: ShieldCheck },
+      { to: "/rule-requests", label: "Rule requests", icon: Inbox },
     ],
   },
   {

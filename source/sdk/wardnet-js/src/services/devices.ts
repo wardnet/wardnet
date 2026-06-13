@@ -1,6 +1,7 @@
 import type { WardnetClient } from "../client.js";
 import type { RoutingTarget } from "../types/device.js";
 import type {
+  DeviceCaptureToggleRequest,
   DeviceDetailResponse,
   DeviceMeResponse,
   DnsCaptureSettingsRequest,
@@ -59,6 +60,18 @@ export class DeviceService {
     return this.client.request<DnsCaptureSettingsResponse>(`/devices/${id}/dns-capture`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Enable or disable DNS capture for the calling device (no auth required,
+   * resolved by source IP). Only the `enabled` flag changes — retention caps
+   * are admin-only. Returns the device's current capture settings and stats.
+   */
+  async setMyCaptureEnabled(enabled: boolean): Promise<DnsCaptureSettingsResponse> {
+    return this.client.request<DnsCaptureSettingsResponse>("/devices/me/dns-capture", {
+      method: "PATCH",
+      body: JSON.stringify({ enabled } satisfies DeviceCaptureToggleRequest),
     });
   }
 

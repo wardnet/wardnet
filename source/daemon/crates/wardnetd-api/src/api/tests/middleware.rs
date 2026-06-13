@@ -108,6 +108,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 
@@ -416,6 +417,13 @@ impl DeviceService for MockDeviceService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        _enabled: bool,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
     async fn fetch_pending_dns_events(
         &self,
         _device_id: &str,
@@ -471,6 +479,7 @@ fn make_state_with_device(
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 

@@ -16,12 +16,13 @@ use crate::db::DbPools;
 use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
     DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository,
-    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
-    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
-    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteMaintenanceRepository,
-    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteUpdateRepository, StatsRepository, SystemConfigRepository,
-    TunnelRepository, UpdateRepository,
+    RuleRequestRepository, SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository,
+    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
+    SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
+    SqliteMaintenanceRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
+    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteUpdateRepository, StatsRepository, SystemConfigRepository, TunnelRepository,
+    UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -43,6 +44,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn stats(&self) -> Arc<dyn StatsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
     fn maintenance(&self) -> Arc<dyn MaintenanceRepository>;
+    fn rule_request(&self) -> Arc<dyn RuleRequestRepository>;
 
     /// Provider-specific database dumper for backup/restore.
     ///
@@ -179,6 +181,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn maintenance(&self) -> Arc<dyn MaintenanceRepository> {
         Arc::new(SqliteMaintenanceRepository::new_pools(self.pools.clone()))
+    }
+
+    fn rule_request(&self) -> Arc<dyn RuleRequestRepository> {
+        Arc::new(SqliteRuleRequestRepository::new_pools(self.pools.clone()))
     }
 
     fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper> {

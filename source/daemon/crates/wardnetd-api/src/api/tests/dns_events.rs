@@ -199,6 +199,13 @@ impl DeviceService for MockDnsEventsDeviceService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        _enabled: bool,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
     async fn fetch_pending_dns_events(
         &self,
         _device_id: &str,
@@ -309,6 +316,7 @@ fn build_state_with_publisher(
         Arc::new(publisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 

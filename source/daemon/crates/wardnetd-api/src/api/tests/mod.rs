@@ -16,6 +16,7 @@ mod openapi;
 mod providers;
 mod request_context;
 mod router;
+mod rule_requests;
 mod setup;
 mod system;
 mod tunnels;

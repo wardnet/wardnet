@@ -38,6 +38,7 @@ use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
+use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::logging::{
@@ -154,15 +155,31 @@ async fn run(
         tunnels.into_iter().map(|t| t.id).collect::<Vec<_>>()
     };
 
-    // Re-read device IPs so the fake-DNS emitter can attribute events to
-    // real seeded clients (lights up the top-clients table + filter dropdown).
-    let dns_client_ips = {
+    // Re-read devices so the fake-DNS emitter can attribute events to real
+    // seeded clients (lights up the top-clients table + filter dropdown) and
+    // so the per-device capture pipeline can pick them up. `capture_target` is
+    // whichever device has DNS capture enabled (the seed turns it on for the
+    // 127.0.0.1 localhost device that the user PWA resolves `/devices/me` to) —
+    // keying off the flag keeps the emitter and the seed in sync.
+    let (dns_clients, capture_target) = {
         let devices = factory.device().find_all().await?;
-        devices
-            .into_iter()
-            .map(|d| d.last_ip)
-            .filter(|ip| !ip.is_empty())
-            .collect::<Vec<_>>()
+        let clients = devices
+            .iter()
+            .filter(|d| !d.last_ip.is_empty())
+            .map(|d| (d.id.to_string(), d.last_ip.clone()))
+            .collect::<Vec<(String, String)>>();
+        let target = devices
+            .iter()
+            .find(|d| d.dns_capture_enabled)
+            .map(|d| (d.id.to_string(), d.last_ip.clone()));
+        if target.is_none() {
+            tracing::warn!(
+                "no DNS-capture-enabled device found — the user PWA DNS-events \
+                 stream will stay empty. On a --no-seed run against an older DB, \
+                 delete the DB to re-seed or enable capture on a device."
+            );
+        }
+        (clients, target)
     };
 
     // No-op backends are used only for subsystems that require Linux kernel
@@ -301,6 +318,7 @@ async fn run(
         services.event_publisher.clone(),
         services.jobs.clone(),
         services.stats.clone(),
+        services.rule_request.clone(),
     );
 
     // Drain the DNS query log persistence channel into SQLite so the
@@ -315,6 +333,22 @@ async fn run(
         services.dns.clone(),
         services.dns_log_sink.clone(),
         dns_log_persist_rx,
+        &tracing::Span::current(),
+    );
+    // Drain the capture channel into `dns_events` for capture-enabled devices
+    // and publish `DnsEventInserted` — this is what feeds the user PWA's
+    // `/devices/me/dns-events/stream` SSE during local dev.
+    let dns_capture_rx = services
+        .dns_capture_rx
+        .lock()
+        .expect("dns capture rx lock poisoned")
+        .take()
+        .expect("dns capture rx taken twice");
+    let dns_capture_runner = DnsCaptureRunner::start(
+        dns_capture_rx,
+        services.device.clone(),
+        services.dns_events_repo.clone(),
+        services.event_publisher.clone(),
         &tracing::Span::current(),
     );
     let db_maintenance_runner =
@@ -342,7 +376,8 @@ async fn run(
             services.event_publisher.clone(),
             tunnel_ids_for_events,
             services.dns_log_sink.clone(),
-            dns_client_ips,
+            dns_clients,
+            capture_target,
         ))
     };
 
@@ -370,6 +405,7 @@ async fn run(
         emitter.shutdown().await;
     }
     dns_query_log_runner.shutdown().await;
+    dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
 

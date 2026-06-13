@@ -6,6 +6,7 @@ mod dns;
 mod dns_events;
 mod dns_filter;
 mod dns_local;
+mod rule_request;
 mod session;
 mod stats;
 mod system_config;

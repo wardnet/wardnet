@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Pill } from "@wardnet/web";
+import { Pill, deviceDisplayName } from "@wardnet/web";
 import {
   DataTable,
   type DataTableGroup,
@@ -31,7 +31,7 @@ function buildColumns(
       header: "Device",
       cell: ({ row }) => {
         const device = row.original;
-        const primary = device.name ?? device.hostname ?? device.mac;
+        const primary = deviceDisplayName(device);
         const secondary = device.name || device.hostname ? device.mac : null;
         return (
           <HostCell

@@ -160,6 +160,7 @@ export {
   timeAgo,
   apiErrorMessage,
   apiRequestId,
+  deviceDisplayName,
 } from "./lib/utils";
 
 // Country / device helpers
@@ -180,6 +181,10 @@ export { useAuthStore } from "./stores/authStore";
 
 // Components
 export { ApiErrorAlert } from "./components/ApiErrorAlert";
+export { FormActions } from "./components/FormActions";
+export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
+export { SegmentedTabs } from "./components/SegmentedTabs";
+export type { SegmentedTab } from "./components/SegmentedTabs";
 export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";
@@ -194,10 +199,19 @@ export {
   useDevice,
   useMyDevice,
   useSetMyRule,
+  useSetMyCaptureEnabled,
   useUpdateDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
 } from "./hooks/useDevices";
+
+// Hooks — rule requests
+export {
+  useMyRuleRequests,
+  useCreateRuleRequest,
+  useRuleRequests,
+  useDecideRuleRequest,
+} from "./hooks/useRuleRequests";
 
 // Hooks — tunnels
 export {
