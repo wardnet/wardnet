@@ -1,7 +1,11 @@
 import { useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { RoutingTarget, UpdateDeviceRequest, DnsCaptureSettingsRequest } from "@wardnet/js";
+import type {
+  RoutingTarget,
+  UpdateDeviceRequest,
+  DnsCaptureSettingsRequest,
+} from "@wardnet/js";
 import { deviceService } from "../lib/sdk";
 
 export function useDevices() {
@@ -37,6 +41,24 @@ export function useSetMyRule() {
       qc.invalidateQueries({ queryKey: ["devices", "me"] });
     },
     onError: () => toast.error("Failed to update routing"),
+  });
+}
+
+/**
+ * Self-service DNS capture toggle for the calling device. Flips only the
+ * `enabled` flag; retention caps stay admin-only. Refreshes `["devices","me"]`
+ * so the toggle state stays in sync with the device record.
+ */
+export function useSetMyCaptureEnabled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      deviceService.setMyCaptureEnabled(enabled),
+    onSuccess: (_data, enabled) => {
+      toast.success(enabled ? "DNS capture enabled" : "DNS capture disabled");
+      qc.invalidateQueries({ queryKey: ["devices", "me"] });
+    },
+    onError: () => toast.error("Failed to update DNS capture"),
   });
 }
 

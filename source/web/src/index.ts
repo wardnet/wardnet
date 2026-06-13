@@ -194,6 +194,7 @@ export {
   useDevice,
   useMyDevice,
   useSetMyRule,
+  useSetMyCaptureEnabled,
   useUpdateDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
