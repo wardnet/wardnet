@@ -1,4 +1,3 @@
-import { brand } from "@wardnet/styles/tokens";
 import { ChevronDown } from "lucide-react";
 import { LatestReleaseBadge } from "@/components/compound/LatestReleaseBadge";
 import { Logo } from "@/components/compound/Logo";
@@ -19,20 +18,12 @@ interface HeroProps {
 export function Hero({ onExplore }: HeroProps) {
   return (
     <section className="bg-side relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
-      <div className="mb-8 flex items-center gap-6">
-        <Logo size={112} />
-        {/* Inline color overrides Forge's unlayered `.h-title { color:
-            var(--ink) }` which would otherwise win against Tailwind's
-            `text-side-ink-active` utility and render Ward in the dark
-            ink instead of white on the navy hero. */}
-        <h1
-          className="text-6xl font-semibold tracking-tight sm:text-7xl"
-          style={{ color: "var(--side-ink-active)" }}
-        >
-          Ward<span style={{ color: brand.accent }}>net</span>
-        </h1>
-      </div>
-      <p className="h-sub text-side-ink mb-2 text-xl sm:text-2xl">Your network. Your rules.</p>
+      <Logo
+        tagline
+        variant="dark"
+        height={96}
+        className="mb-8 max-w-[88vw]"
+      />
       <p className="h-sub text-side-ink-2 mb-6 max-w-xl text-base leading-relaxed">
         A self-hosted privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or
         any Linux host. Per-device VPN routing, DNS ad blocking, and a web dashboard, all in a

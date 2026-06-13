@@ -1,4 +1,3 @@
-import { brand } from "@wardnet/styles/tokens";
 import { type ComponentType, type SVGProps } from "react";
 import { NavLink, useNavigate } from "react-router";
 import {
@@ -18,7 +17,7 @@ import {
 import { useAuth } from "@wardnet/web";
 import { useDaemonStatus } from "@wardnet/web";
 import { useUpdateStatus } from "@wardnet/web";
-import { Logo } from "./Logo";
+import { Logo } from "@wardnet/web";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { UpdateBanner } from "./UpdateBanner";
 
@@ -103,17 +102,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   return (
     <div className="side h-full">
       <div className="side__brand">
-        <Logo size={22} />
-        <span>
-          Ward<span style={{ color: brand.accent }}>net</span>
-        </span>
+        <Logo height={28} variant="dark" />
       </div>
       {daemonStatus?.version && (
-        // -mt absorbs the version into `.side__brand`'s bottom padding
-        // so the wordmark stays vertically centered on the logo while
-        // the version sits as a tight caption right under it.
-        // pl-[50px] = 18px (brand padding) + 22px (logo) + 10px (gap)
-        // → aligns the "v" with the start of "Wardnet".
+        // -mt absorbs the version into `.side__brand`'s bottom padding so it
+        // sits as a tight caption right under the logo lockup. pl-[50px] lines
+        // the "v" up under the start of the "WARDNET" wordmark at this height.
         <div className="-mt-6 pb-2 pl-[50px] text-[10px] font-normal text-side-ink/40">
           v{daemonStatus.version}
         </div>

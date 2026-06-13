@@ -14,7 +14,7 @@ import { Logo } from "@/components/compound/Logo";
 export function NotFound() {
   return (
     <section className="empty col min-h-screen items-center justify-center gap-4">
-      <Logo size={96} />
+      <Logo height={72} variant="light" />
 
       <div className="row gap-8 text-xs font-semibold uppercase tracking-[0.3em]">
         <SearchX size={14} aria-hidden="true" />

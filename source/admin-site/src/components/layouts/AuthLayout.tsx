@@ -1,7 +1,5 @@
-import { brand } from "@wardnet/styles/tokens";
 import { Outlet, useLocation } from "react-router";
-import { Card } from "@wardnet/web";
-import { Logo } from "@/components/compound/Logo";
+import { Card, Logo } from "@wardnet/web";
 
 /**
  * Centered-card layout for unauthenticated screens (Login, first-run Setup).
@@ -20,12 +18,7 @@ export function AuthLayout() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-bg px-4 py-10 text-ink">
       <div className="flex flex-col items-center gap-3">
-        <div className="flex items-center gap-3">
-          <Logo size={48} />
-          <h1 className="text-2xl font-bold tracking-wider uppercase">
-            Ward<span style={{ color: brand.accent }}>net</span>
-          </h1>
-        </div>
+        <Logo height={48} variant="light" />
         <p className="text-sm text-ink-3">{tagline}</p>
       </div>
 

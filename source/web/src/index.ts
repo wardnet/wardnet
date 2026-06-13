@@ -181,6 +181,9 @@ export { useAuthStore } from "./stores/authStore";
 
 // Components
 export { ApiErrorAlert } from "./components/ApiErrorAlert";
+export { AppHeader } from "./components/AppHeader";
+export type { ConnState } from "./components/AppHeader";
+export { Logo } from "./components/Logo";
 export { FormActions } from "./components/FormActions";
 export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
 export { SegmentedTabs } from "./components/SegmentedTabs";

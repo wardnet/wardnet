@@ -1,7 +1,7 @@
-import logoDark from "@/assets/wardnet-logo-dark.svg";
-import logoLight from "@/assets/wardnet-logo-light.svg";
-import logoTaglineDark from "@/assets/wardnet-logo-tagline-dark.svg";
-import logoTaglineLight from "@/assets/wardnet-logo-tagline-light.svg";
+import logoDark from "../assets/wardnet-logo-dark.svg";
+import logoLight from "../assets/wardnet-logo-light.svg";
+import logoTaglineDark from "../assets/wardnet-logo-tagline-dark.svg";
+import logoTaglineLight from "../assets/wardnet-logo-tagline-light.svg";
 
 interface LogoProps {
   /** Rendered height in px; width scales with the lockup's aspect ratio. */
@@ -11,7 +11,7 @@ interface LogoProps {
    * "light" → ink "WARD" (for light surfaces). "NET" is always emerald.
    */
   variant?: "light" | "dark";
-  /** Use the lockup that includes the tagline (hero / primary brand moment). */
+  /** Use the lockup that includes the tagline (marketing surfaces). */
   tagline?: boolean;
   className?: string;
 }
