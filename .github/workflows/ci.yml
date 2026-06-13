@@ -2,10 +2,13 @@ name: CI
 
 # Orchestrator for pushes to `main`.
 #
-# Composes the same reusable leaves as pr.yml but skips the PR-only
-# gates (coverage, tests-e2e). Coverage runs only on PR because
-# Codecov's patch-coverage + PR-comment flow is PR-keyed; running it
-# on push-to-main would just produce uncommented uploads.
+# Composes the same reusable leaves as pr.yml. Coverage ALSO runs here
+# (push-to-main) so Codecov records a report for the merged main commit —
+# that default-branch upload is what advances the coverage number/badge
+# and gives later PRs an accurate base to diff against. Without it (main
+# is squash-merged, so PR-head reports are never main ancestors) the
+# default-branch number freezes. Patch-coverage and the PR comment stay
+# PR-only — a push has no PR to land them on, which is fine.
 #
 # Structure:
 #   preflight     — detect-changes + check-version composite actions
@@ -120,12 +123,30 @@ jobs:
     uses: ./.github/workflows/build-user-app.yml
     secrets: inherit
 
+  coverage:
+    name: Coverage
+    needs: preflight
+    # Default-branch coverage upload so the Codecov number/badge advances on
+    # every merge. NO bot-author skip here (unlike pr.yml): that skip exists
+    # because `pull_request` events from same-repo bot branches get no repo
+    # secrets, so CODECOV_TOKEN is absent. A `push` to main is a trusted event
+    # that DOES receive secrets regardless of who authored the merge, so the
+    # token is always present. And this runs post-merge with non-fatal uploads
+    # (`fail_ci_if_error: false`), so it can neither block a merge nor go red
+    # from an upload hiccup.
+    if: >
+      needs.preflight.outputs.daemon == 'true' ||
+      needs.preflight.outputs.bridge == 'true' ||
+      needs.preflight.outputs.site == 'true' ||
+      needs.preflight.outputs.ci == 'true'
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
   tests-e2e:
     name: E2E Tests
     needs: preflight
     # Push-to-main parity with pr.yml — daemon or CI changes trigger
-    # the full e2e gauntlet. Coverage stays PR-only (Codecov's
-    # PR-comment flow has nothing to land on for push-to-main).
+    # the full e2e gauntlet.
     if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
