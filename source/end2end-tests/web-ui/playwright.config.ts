@@ -27,14 +27,18 @@ import {
  * (race on shared state): `fullyParallel:false`, `workers:1`.
  */
 
-// Chromium needs the origin treated as secure for the `Secure` session
-// cookie (set by the daemon on login) to be stored and replayed, and
-// for the PWAs' service workers to register over plain HTTP.
-const INSECURE_ORIGIN_ARGS = [
-  // Both daemon origins (shared + the fresh wizard daemon) are listed so
-  // the Secure session cookie stores and SWs register on either.
+const CHROMIUM_ARGS = [
+  // Treat both daemon origins (shared + fresh wizard daemon) as secure so
+  // the daemon's `Secure` session cookie is stored/replayed and SWs
+  // register over plain HTTP. Honoured only headed (see use.headless).
   `--unsafely-treat-insecure-origin-as-secure=${UI_BASE_URL},${UI_FRESH_BASE_URL}`,
   "--allow-insecure-localhost",
+  // Chromium runs as root in the Playwright image — required or it
+  // refuses to launch.
+  "--no-sandbox",
+  // Docker's default /dev/shm is 64 MB; headed Chromium exhausts it and
+  // hangs. Use /tmp instead.
+  "--disable-dev-shm-usage",
 ];
 
 export default defineConfig({
@@ -42,6 +46,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // Whole-suite ceiling so a stuck browser launch fails fast with output
+  // instead of hanging the CI job (8 short tests finish in minutes).
+  globalTimeout: 15 * 60_000,
   // Generous ceilings: compose health waits + first-boot setup push the
   // setup project past Playwright's 30 s default on a cold stack.
   timeout: 60_000,
@@ -79,7 +86,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: `${UI_BASE_URL}/admin/`,
         storageState: STORAGE_STATE,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
     {
@@ -91,7 +98,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         baseURL: `${UI_FRESH_BASE_URL}/admin/`,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
     {
@@ -102,7 +109,7 @@ export default defineConfig({
         ...devices["Pixel 7"],
         baseURL: `${UI_BASE_URL}/admin-app/`,
         storageState: STORAGE_STATE,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
     {
@@ -116,7 +123,7 @@ export default defineConfig({
       use: {
         ...devices["Pixel 7"],
         baseURL: `${UI_BASE_URL}/`,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
   ],
