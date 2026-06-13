@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+#
+# Playwright runner image for the web-ui e2e suite.
+#
+# Microsoft's Playwright image ships Node + the browser binaries already
+# matched to the bundled Playwright version, so the only build work is a
+# corepack-enabled yarn 4 install of this package's deps (it has no
+# runtime deps beyond @playwright/test — seeding is plain fetch, no SDK).
+# Only dependency changes (package.json / yarn.lock) trigger a rebuild.
+#
+# Build context: repo root.
+#   docker build -f source/end2end-tests/web-ui/Dockerfile.ui-runner -t wardnet-e2e-ui-runner .
+#
+# Pinned by digest for supply-chain integrity (OSSF Scorecard
+# Pinned-Dependencies). The tag must match @playwright/test in
+# package.json so the bundled browsers match the test runner; bump them
+# together.
+FROM mcr.microsoft.com/playwright:v1.49.1-jammy@sha256:019b822658965bf5f6d509472802797554360f2940e677b2afb0f17748d0d0e3
+
+RUN corepack enable
+
+WORKDIR /work/source/end2end-tests/web-ui
+
+COPY source/end2end-tests/web-ui/package.json \
+     source/end2end-tests/web-ui/yarn.lock \
+     source/end2end-tests/web-ui/.yarnrc.yml \
+     ./
+
+RUN yarn install --immutable
+
+# Tests + configs last so iterating on specs doesn't bust the
+# yarn-install cache layer.
+COPY source/end2end-tests/web-ui/tsconfig.json \
+     source/end2end-tests/web-ui/playwright.config.ts \
+     ./
+COPY source/end2end-tests/web-ui/fixtures ./fixtures
+COPY source/end2end-tests/web-ui/tests ./tests
+
+CMD ["yarn", "test"]

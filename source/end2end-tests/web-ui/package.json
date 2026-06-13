@@ -1,0 +1,17 @@
+{
+  "name": "@wardnet/end2end-web-ui",
+  "version": "0.1.0",
+  "description": "Playwright end-to-end tests for the Wardnet web UIs (admin-site, admin-app, user-app)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "25.9.3",
+    "typescript": "6.0.3"
+  },
+  "packageManager": "yarn@4.13.0"
+}

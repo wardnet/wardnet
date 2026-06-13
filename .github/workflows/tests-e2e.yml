@@ -15,6 +15,11 @@ name: E2E Tests
 #                          stack, runs `yarn vitest run` inside the
 #                          test_runner container, uploads the JUnit/
 #                          JSON reports + compose logs as artefacts.
+#   end2end-tests-ui     — parallel ubuntu-latest job, builds the three
+#                          frontends + a real-asset wardnetd-ui image,
+#                          and runs the Playwright suite (admin-site /
+#                          admin-app / user-app smokes) inside the
+#                          ui_runner container.
 #
 # Triggered indirectly via pr.yml + ci.yml as a workflow_call leaf —
 # matches the rest of the build-* / coverage / placeholder pattern in
@@ -124,5 +129,74 @@ jobs:
         with:
           name: end2end-tests-daemon-reports
           path: source/end2end-tests/daemon/reports/
+          retention-days: 7
+          if-no-files-found: warn
+
+  end2end-tests-ui:
+    name: E2E Web UI Tests
+    runs-on: ubuntu-latest
+    # Builds the three frontends + a real-asset wardnetd-ui image (cargo
+    # build inside Docker, ~7-10 min cold) before the Playwright run.
+    timeout-minutes: 40
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # Cache the three frontends' yarn installs (run on the host by
+      # `make build-web`). The ui_runner package's own deps install
+      # inside Docker and are served by the Docker layer cache.
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: |
+            source/admin-site/yarn.lock
+            source/user-app/yarn.lock
+            source/admin-app/yarn.lock
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Run web-ui e2e suite
+        # `make e2e-ui` chains: build-web → compose up --build --wait
+        # wardnetd-ui (cargo build + WEB_DIST=real embed inside Docker) →
+        # Playwright in ui_runner → trap dumps compose logs into reports/
+        # and tears the stack down. Reports are written even on failure.
+        # CONTAINER_RT=docker forces BuildKit (see the daemon job note).
+        run: make e2e-ui CONTAINER_RT=$(command -v docker)
+
+      - name: Surface captured logs
+        if: always()
+        run: |
+          set +e
+          REPORTS=source/end2end-tests/web-ui/reports
+          echo "::group::reports directory listing"
+          ls -la "${REPORTS}" 2>&1 || echo "(reports directory missing)"
+          echo "::endgroup::"
+          for f in compose-ps.txt compose-logs.txt inspect.json junit.xml; do
+            path="${REPORTS}/${f}"
+            if [ -s "${path}" ]; then
+              echo "::group::${f}"
+              cat "${path}"
+              echo "::endgroup::"
+            else
+              echo "::warning::${path} missing or empty"
+            fi
+          done
+
+      - name: Ensure Yarn cache directory exists
+        if: always()
+        run: |
+          CACHE_DIR=$(cd source/admin-site && yarn config get cacheFolder 2>/dev/null \
+            || echo "$HOME/.yarn/berry/cache")
+          mkdir -p "$CACHE_DIR"
+
+      - name: Upload Playwright reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: end2end-tests-ui-reports
+          path: source/end2end-tests/web-ui/reports/
           retention-days: 7
           if-no-files-found: warn

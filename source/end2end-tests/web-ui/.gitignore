@@ -1,0 +1,9 @@
+node_modules/
+reports/
+.auth/
+test-results/
+playwright-report/
+.yarn/cache/
+.yarn/install-state.gz
+.pnp.*
+*.log

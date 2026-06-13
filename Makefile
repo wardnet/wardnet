@@ -55,7 +55,7 @@ COV_RUNNER ?=
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
-        end2end-daemon \
+        end2end-daemon e2e-ui e2e-all \
         run-dev run-dev-daemon run-dev-web run-dev-user-app run-dev-admin-app \
         sync-version check-version \
         clean help
@@ -501,6 +501,8 @@ image-base:
 # so a failed CI run doesn't leave dangling containers/networks.
 E2E_DAEMON_DIR := source/end2end-tests/daemon
 E2E_DAEMON_COMPOSE := $(E2E_DAEMON_DIR)/compose.yaml
+E2E_UI_DIR := source/end2end-tests/web-ui
+E2E_UI_COMPOSE := $(E2E_UI_DIR)/compose.ui.yaml
 
 end2end-daemon: image-test
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
@@ -521,6 +523,32 @@ end2end-daemon: image-test
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -a; \
 	echo "::endgroup::"; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) run --rm test_runner
+
+# Web-UI e2e suite (Playwright + docker-compose). Builds the three
+# frontends first so the dedicated wardnetd-ui image embeds the real
+# dist/ trees (WEB_DIST=real via compose --build), then runs the
+# Playwright suite inside the ui_runner container. Mirrors end2end-daemon
+# (trap dumps logs/ps/inspect into reports/ then tears the stack down).
+e2e-ui: build-web
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	@mkdir -p $(E2E_UI_DIR)/reports
+	@set -euo pipefail; \
+	REPORTS=$(E2E_UI_DIR)/reports; \
+	trap '$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a > '"$$REPORTS"'/compose-ps.txt 2>&1 || true; \
+	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) logs --no-color > '"$$REPORTS"'/compose-logs.txt 2>&1 || true; \
+	      for cid in $$($(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -aq 2>/dev/null); do \
+	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
+	      done; \
+	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui; \
+	echo "::group::compose ps before playwright"; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a; \
+	echo "::endgroup::"; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) run --rm ui_runner
+
+# Run both end-to-end suites: daemon (Vitest API/kernel) then web-ui
+# (Playwright). Sequential so the two stacks never share host bridges.
+e2e-all: end2end-daemon e2e-ui
 
 # ---------- Utilities ----------
 
@@ -574,6 +602,9 @@ help:
 	@echo ""
 	@echo "  end2end-daemon Bring up the daemon e2e compose stack and run the Vitest suite"
 	@echo "                 (depends on image-test). Reports under $(E2E_DAEMON_DIR)/reports/."
+	@echo "  e2e-ui         Build web + run the Playwright UI suite (3 surfaces) against a"
+	@echo "                 dedicated wardnetd-ui. Reports under $(E2E_UI_DIR)/reports/."
+	@echo "  e2e-all        Run both e2e suites: end2end-daemon then e2e-ui"
 	@echo ""
 	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"
 	@echo "  check-version  Verify all versioned files match ./VERSION (CI gate)"

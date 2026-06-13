@@ -3,18 +3,24 @@
 # preference to any context-root .dockerignore.
 #
 # The test Dockerfile compiles the Rust workspace from local sources,
-# embeds source/admin-app/web/dist/ via rust-embed, and runs deploy/install.sh
-# against a synthetic release bundle. Everything else in the repo is
-# noise — exclude build artefacts, IDE state, and unrelated workspaces
-# to keep the build context small and avoid cache invalidation when
-# files outside the daemon scope change.
+# embeds the three frontend dist/ trees via rust-embed, and runs
+# deploy/install.sh against a synthetic release bundle. Everything else
+# in the repo is noise — exclude build artefacts, IDE state, and
+# unrelated workspaces to keep the build context small and avoid cache
+# invalidation when files outside the daemon scope change.
 
-# Default-deny, then allow the three trees the Dockerfile copies.
+# Default-deny, then allow the trees the Dockerfile copies.
 *
 
 !source/daemon/
-!source/admin-app/web/dist/
-!source/admin-app/web/src/assets/
+# Real frontend dist/ + admin-site's include'd logo asset, copied only
+# by the WEB_DIST=real path (web-real stage) for the Playwright UI
+# suite. Harmless for the default placeholder build, which never reads
+# them. Populate with `make build-web` before a WEB_DIST=real build.
+!source/admin-site/dist/
+!source/admin-site/src/assets/
+!source/user-app/dist/
+!source/admin-app/dist/
 !deploy/
 # Public-facing release version. The daemon's build scripts read it
 # at compile time via build-support/version.rs::read_calver.

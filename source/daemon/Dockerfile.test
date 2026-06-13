@@ -16,7 +16,44 @@
 #
 # Build context: repo root
 #   docker build -f source/daemon/Dockerfile.test -t wardnetd:dev-test .
-#   make image-test            (builds all three web dist/ trees first)
+#   make image-test            (placeholder web assets — API/kernel suite)
+#   docker build --build-arg WEB_DIST=real …   (real web assets — UI suite)
+
+# ---- Web asset stages (selected by the WEB_DIST build arg) ----
+# wardnetd embeds three frontend dist/ trees via rust-embed at compile
+# time (crates/wardnetd-api/src/web.rs). The API/kernel e2e suite never
+# renders the UI, so the default `placeholder` path bakes empty
+# index.html files and keeps this image independent of `make build-web`.
+# The Playwright UI suite (source/end2end-tests/web-ui) builds with
+# `--build-arg WEB_DIST=real` to embed the real dist/ trees — run
+# `make build-web` first to populate them in the context. BuildKit only
+# builds the stage the `web` alias selects, so the default placeholder
+# build never reads the real dist/ paths and works on a bare checkout.
+ARG WEB_DIST=placeholder
+
+FROM busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 AS web-placeholder
+RUN mkdir -p \
+        /web/admin-site/dist \
+        /web/user-app/dist \
+        /web/admin-app/dist \
+        /web/admin-site/src/assets \
+    && printf '<!doctype html><html><head></head><body></body></html>\n' \
+        | tee /web/admin-site/dist/index.html \
+              /web/user-app/dist/index.html \
+              /web/admin-app/dist/index.html > /dev/null \
+    && printf 'placeholder\n' > /web/admin-site/src/assets/logo.png
+
+# Real built frontends, copied from the context (populated by
+# `make build-web`). Only built when WEB_DIST=real, so the default build
+# never reads these paths — and a bare checkout without dist/ still
+# builds the placeholder image.
+FROM scratch AS web-real
+COPY source/admin-site/dist /web/admin-site/dist
+COPY source/user-app/dist /web/user-app/dist
+COPY source/admin-app/dist /web/admin-app/dist
+COPY source/admin-site/src/assets /web/admin-site/src/assets
+
+FROM web-${WEB_DIST} AS web
 
 # ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
@@ -38,26 +75,16 @@ WORKDIR /build
 # relative path that walks back to the repo root, so the deploy tree
 # must mirror its repo location too.
 COPY source/daemon/ /build/
-# web.rs embeds three asset trees via rust-embed; paths are resolved from the
-# crate manifest dir (/build/crates/wardnetd-api/) with three ../ steps, which
-# lands at the filesystem root.
-#
-# Docker BuildKit's context snapshot caches directory contents keyed on inode
-# numbers. Directories that are new in a PR (admin-site/, user-app/, admin-app/)
-# were never seen by the reused daemon, so they come back "not found" even after
-# checkout. Creating placeholder content inside the image with RUN sidesteps the
-# context cache entirely. The e2e suite exercises API endpoints, not the web UI,
-# so placeholder dist content is sufficient for rust-embed compilation.
-RUN mkdir -p \
-        /admin-site/dist \
-        /user-app/dist \
-        /admin-app/dist \
-        /admin-site/src/assets && \
-    printf '<!doctype html><html><head></head><body></body></html>\n' \
-        | tee /admin-site/dist/index.html \
-              /user-app/dist/index.html \
-              /admin-app/dist/index.html > /dev/null && \
-    printf 'placeholder\n' > /admin-site/src/assets/logo.png
+# web.rs embeds three asset trees via rust-embed; paths resolve from the
+# crate manifest dir (/build/crates/wardnetd-api/) three ../ steps up,
+# landing at the filesystem root — so the trees go to /admin-site/dist,
+# /user-app/dist, /admin-app/dist, and admin-site's include'd logo asset
+# at /admin-site/src/assets. Pulled from the `web` stage, which is the
+# placeholder or the real build per the WEB_DIST arg.
+COPY --from=web /web/admin-site/dist /admin-site/dist
+COPY --from=web /web/user-app/dist /user-app/dist
+COPY --from=web /web/admin-app/dist /admin-app/dist
+COPY --from=web /web/admin-site/src/assets /admin-site/src/assets
 COPY deploy/ /deploy/
 # CALVER is read by the daemon build scripts (build-support/version.rs)
 # and resolved as `../../../../CALVER` from each crate's build.rs cwd
