@@ -2,26 +2,26 @@ import { useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import {
   ApiErrorAlert,
-  Button,
   Card,
+  CardAction,
   CardContent,
+  CardHeader,
+  CardTitle,
+  FormActions,
   RuleRequestStatusPill,
+  SegmentedTabs,
+  deviceDisplayName,
   useDecideRuleRequest,
   useDevices,
   useRuleRequests,
 } from "@wardnet/web";
 import type { Device, DeviceRuleRequest, RuleRequestStatus } from "@wardnet/js";
 
-const FILTERS: { label: string; value: RuleRequestStatus | undefined }[] = [
-  { label: "Pending", value: "pending" },
-  { label: "Approved", value: "approved" },
-  { label: "Rejected", value: "rejected" },
-  { label: "All", value: undefined },
-];
+const ALL = "all";
 
 function deviceLabel(device: Device | undefined, deviceId: string): string {
   if (!device) return `Unknown device (${deviceId.slice(0, 8)})`;
-  return device.name ?? device.hostname ?? device.mac;
+  return deviceDisplayName(device);
 }
 
 function RequestRow({
@@ -36,42 +36,25 @@ function RequestRow({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <span className="font-mono text-sm text-ink">{req.domain}</span>
-            <span className="block text-xs text-ink-3">
-              {req.kind === "block" ? "Block request" : "Allow request"} ·{" "}
-              {deviceName} · {new Date(req.created_at).toLocaleString()}
-            </span>
-          </div>
+      <CardHeader>
+        <CardTitle>
+          {req.kind === "block" ? "Block request" : "Allow request"}
+        </CardTitle>
+        <CardAction>
           <RuleRequestStatusPill status={req.status} />
-        </div>
+        </CardAction>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-1">
+        <span className="font-mono text-sm text-ink">{req.domain}</span>
+        <span className="text-xs text-ink-3">
+          {deviceName} · {new Date(req.created_at).toLocaleString()}
+        </span>
 
         {req.reason && (
-          <p className="rounded-lg bg-sunken px-3 py-2 text-sm text-ink-2">
+          <p className="mt-2 rounded-lg bg-sunken px-3 py-2 text-sm text-ink-2">
             “{req.reason}”
           </p>
-        )}
-
-        {pending && (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              onClick={() => decide.mutate({ id: req.id, status: "approved" })}
-              disabled={decide.isPending}
-            >
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => decide.mutate({ id: req.id, status: "rejected" })}
-              disabled={decide.isPending}
-            >
-              Reject
-            </Button>
-          </div>
         )}
 
         {decide.isError && (
@@ -81,6 +64,16 @@ function RequestRow({
           />
         )}
       </CardContent>
+
+      {pending && (
+        <FormActions
+          secondaryLabel="Reject"
+          onSecondary={() => decide.mutate({ id: req.id, status: "rejected" })}
+          primaryLabel="Approve"
+          onPrimary={() => decide.mutate({ id: req.id, status: "approved" })}
+          disabled={decide.isPending}
+        />
+      )}
     </Card>
   );
 }
@@ -93,43 +86,54 @@ export default function RuleRequests() {
   const [filter, setFilter] = useState<RuleRequestStatus | undefined>(
     "pending",
   );
-  const { data, isLoading, isError, error } = useRuleRequests(filter);
+  // Fetch every request once and filter/count client-side (same pattern as the
+  // DHCP table) so the tabs can show per-status counters.
+  const { data, isLoading, isError, error } = useRuleRequests();
   const { data: devicesData } = useDevices();
 
   const deviceById = new Map(
     (devicesData?.devices ?? []).map((d) => [d.id, d]),
   );
 
+  const all = data ?? [];
+  const countOf = (s: RuleRequestStatus) =>
+    all.filter((r) => r.status === s).length;
+  const tabs = [
+    { id: "pending", label: "Pending", count: countOf("pending") },
+    { id: "approved", label: "Approved", count: countOf("approved") },
+    { id: "rejected", label: "Rejected", count: countOf("rejected") },
+    { id: ALL, label: "All", count: all.length },
+  ];
+  const visible = filter ? all.filter((r) => r.status === filter) : all;
+
   return (
-    <div className="flex flex-col gap-5">
+    <>
       <PageHeader
         title="Rule requests"
         description="Block / allow requests from household devices. Approving records the decision — apply the rule in DNS Filtering."
       />
 
-      <div className="flex gap-2">
-        {FILTERS.map((f) => (
-          <Button
-            key={f.label}
-            size="sm"
-            variant={filter === f.value ? "default" : "outline"}
-            onClick={() => setFilter(f.value)}
-          >
-            {f.label}
-          </Button>
-        ))}
-      </div>
+      <div className="flex flex-col gap-4">
+        <SegmentedTabs
+          tabs={tabs}
+          activeId={filter ?? ALL}
+          onChange={(id) =>
+            setFilter(id === ALL ? undefined : (id as RuleRequestStatus))
+          }
+        />
 
-      {isLoading && <p className="text-sm text-ink-3">Loading…</p>}
-      {isError && (
-        <ApiErrorAlert error={error} fallback="Failed to load rule requests" />
-      )}
-      {data && data.length === 0 && (
-        <p className="text-sm text-ink-3">No requests.</p>
-      )}
+        {isLoading && <p className="text-sm text-ink-3">Loading…</p>}
+        {isError && (
+          <ApiErrorAlert
+            error={error}
+            fallback="Failed to load rule requests"
+          />
+        )}
+        {!isLoading && visible.length === 0 && (
+          <p className="text-sm text-ink-3">No requests.</p>
+        )}
 
-      <div className="flex flex-col gap-3">
-        {data?.map((req) => (
+        {visible.map((req) => (
           <RequestRow
             key={req.id}
             req={req}
@@ -140,6 +144,6 @@ export default function RuleRequests() {
           />
         ))}
       </div>
-    </div>
+    </>
   );
 }
