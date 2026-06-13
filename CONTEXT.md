@@ -46,7 +46,7 @@
 
 ## Infrastructure
 
-**DDNS service** — Wardnet-operated service that assigns each installation a unique subdomain (`<install-id>.wardnet.network`) and manages DNS records for it. Also acts as an ACME bridge: handles `_acme-challenge` TXT records on behalf of the Pi so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it.
+**DDNS service** — Wardnet-operated service that assigns each installation a **vanity name** under `<vanity>.my.wardnet.services` and manages DNS records for it. Also acts as an ACME bridge: publishes the `_acme-challenge` TXT records the Pi's own ACME client needs, so Let's Encrypt can issue a certificate via DNS-01 without the user needing a domain or DNS provider credentials. The cert private key is generated on the Pi and never leaves it. A **regional** deployment (see *Service decomposition*) that writes records into the global Cloudflare `wardnet.services` zone; it is a **premium-tier** capability, gated by the **entitlement lease**.
 
 **Remote access (setup step)** — The setup wizard's HTTPS step (`wizard_step == remote_access`, between Policy and Completed). The operator picks a **DnsProvider** — the wardnet **bridge** (default; suggests an editable two-word hostname with a live availability check) or **BYOD-Cloudflare** (their own domain + API token) — and the daemon registers it synchronously, then issues the certificate in the background (`POST /api/ddns/register` / `/cloudflare` → `mark_provisioning_started` → detached `ensure_certificate`). Non-blocking: the step is skippable and completes even offline, with issuance retried later from Settings. Progress is the **TLS provisioning phase**.
 
@@ -95,3 +95,27 @@
 **Issuance lease** — The coordination primitive that lets multiple bridge hosts behind one FQDN renew safely: a host claims issuance by winning a conditional row `UPDATE` (a lease, not a held DB lock), so only one host runs the ACME round-trip and concurrent hosts never race-burn the Let's Encrypt rate limit. A non-issuing host instead reloads (hot-swaps) its in-memory cert when the stored cert `version` overtakes what it serves.
 
 **Shared challenge token** — The bridge's HTTP-01 challenge token, written to a shared Postgres table rather than held in one host's memory, so Let's Encrypt's `:80` validation is answered correctly no matter which host it reaches. Reaped on a TTL by the bridge sweep, mirroring the daemon's "always clear the challenge" discipline.
+
+## Monetization and entitlement
+
+**Free tier** — Self-host the daemon with your **own** domain (the **BYOD-Cloudflare DnsProvider**). Full features, uncapped, forever-free; touches no wardnet-operated service beyond release downloads, so it costs Wardnet nothing. The growth surface.
+
+**Premium tier** — Paid. Grants the two wardnet-operated, cost-bearing capabilities: the **DDNS service** (a managed `<vanity>.my.wardnet.services` via the **bridge DnsProvider**) and the **Tunneler** (private DNS while roaming). A free user who wants the mobile PWAs but no premium can still get them by bringing their own domain — premium buys *not needing a domain*, plus the tunnel.
+
+**Premium account** — The *durable* billing principal, keyed to an **email**. Its master record lives in **tenant management** (alongside the **global naming authority**); the **Stripe customer** is *referenced* (`stripe_customer_id`), never authoritative for identity — so the processor can be swapped without losing accounts. Survives daemon reinstalls.
+
+**Install binding** — The *ephemeral* link from a **premium account** to a running install's Ed25519 key. One **active** binding per subscription; reinstall re-binds the single slot (no re-payment) by proving account ownership via an email **magic-link**. A second simultaneous install is a second subscription; moving premium between Pis is a serial rebind.
+
+**Entitlement** — An account's current right to wardnet services, derived from Stripe via webhooks (plus a nightly reconciliation). **Active through Stripe `past_due`** (a failed card enters dunning grace, not an instant cutoff) and **revoked on `canceled`**. Held on the tenant-management account record.
+
+**Entitlement lease** — A short-lived signed token `{install_id, entitled, exp}` issued by **tenant management** (global) and verified *locally* — by the regional **DDNS** and **Tunneler** services and by the daemon — against tenant's public key. It is the **only** thing crossing the global↔regional boundary for entitlement, so no regional service ever queries the global DB on the hot path. TTL ~7 days; the daemon refreshes daily, so a transient outage cannot break a paying customer for up to the TTL. Distinct from the **Issuance lease** (TLS-renewal coordination) — same word, unrelated mechanism.
+
+**Suspended** — The daemon state once its **entitlement lease** goes invalid: the user and admin PWAs return `403`, the **Tunneler** drops, and ACME renewal stops (the cert ages out within ≤90 days). Enforcement is belt-and-suspenders — regional services refuse at the boundary *and* the daemon self-degrades. Distinct from **Free tier**, which is fully functional via its own domain; a Suspended install has no working domain until it either resubscribes or adds its own. Re-entry is always reachable: the desktop **admin site** during the cert window, plus a LAN-local HTTP admin fallback after expiry; resubscribing refreshes the lease and restores service.
+
+## Service decomposition
+
+**Tenant management** — The *global* service and the single global database. Owns **premium accounts**, **entitlement**, **install bindings**, the **global naming authority** (vanity-name allocation), Stripe linkage, and **entitlement-lease** signing. Lowest-traffic, most security-sensitive — isolating it from the internet-facing planes is the primary reason to split, ahead of scaling.
+
+**Regional plane** — The **DDNS** and **Tunneler** services, deployed per region. The daemon pins a region at install (lowest-latency probe) and stays. Each holds only regional/operational state and trusts the **entitlement lease** rather than the global DB. DDNS writes into the global Cloudflare zone; the Tunneler accepts the daemon's relay connection at its PoP.
+
+> **Status:** today these are one **bridge** deployment (per-region install DB + the global names DB). The three-way split — **tenant management** (global), **DDNS** (regional), **Tunneler** (regional) — is the agreed target, with the **entitlement lease** as the boundary primitive. There is **no** OAuth/IdP server: machine auth is the Ed25519 install key, human recovery is the **magic-link**, and future inter-service auth is **mTLS**.
