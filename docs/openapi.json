@@ -1879,6 +1879,70 @@
         ]
       }
     },
+    "/api/devices/me/dns-capture": {
+      "patch": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Let the caller enable or disable DNS capture for their own device. The device is identified by source IP — no authentication is required (self-service by IP). Only the `enabled` flag is changed; retention caps (cap_count / cap_days) are admin-only and left untouched.",
+        "operationId": "set_my_dns_capture",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceCaptureToggleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated capture settings and stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsCaptureSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found for this IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/devices/me/dns-events/ack": {
       "post": {
         "tags": [
@@ -18322,6 +18386,18 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "DeviceCaptureToggleRequest": {
+        "type": "object",
+        "description": "Request body for `PATCH /api/devices/me/dns-capture` — the self-service\ncapture toggle. Flips only the `enabled` flag; retention caps stay\nadmin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint).",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },

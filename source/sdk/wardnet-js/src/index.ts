@@ -104,6 +104,7 @@ export type {
 // Types — API DTOs
 export type {
   ApiError,
+  DeviceCaptureToggleRequest,
   DeviceMeResponse,
   SetMyRuleRequest,
   SetMyRuleResponse,

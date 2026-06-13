@@ -1398,6 +1398,14 @@ pub struct DnsCaptureSettingsResponse {
     pub size_bytes: i64,
 }
 
+/// Request body for `PATCH /api/devices/me/dns-capture` — the self-service
+/// capture toggle. Flips only the `enabled` flag; retention caps stay
+/// admin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeviceCaptureToggleRequest {
+    pub enabled: bool,
+}
+
 // ===========================================================================
 // Local DNS — authoritative zones, custom records, forwarding rules (issue
 // #217). CRUD surface under /api/dns/local/..., parallel to /api/dns/filter.

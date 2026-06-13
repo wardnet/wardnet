@@ -80,6 +80,17 @@ pub trait DeviceService: Send + Sync {
         cap_days: Option<i64>,
     ) -> Result<(), AppError>;
 
+    /// Self-service capture toggle: enable/disable DNS capture for the device
+    /// resolved by source `ip`. Flips only the `enabled` flag — retention caps
+    /// (`cap_count`/`cap_days`) stay admin-only and are left untouched. The
+    /// caller must be the device itself (matched by IP/MAC) or an admin.
+    /// Returns the device's current capture settings and storage stats.
+    async fn set_my_capture_enabled(
+        &self,
+        ip: &str,
+        enabled: bool,
+    ) -> Result<DnsCaptureSettingsResponse, AppError>;
+
     /// Return pending (unsynced) DNS events for the device with `id > after_id`,
     /// oldest first, up to `limit` rows. No auth check — caller resolves device
     /// by IP.
@@ -374,6 +385,57 @@ impl DeviceService for DeviceServiceImpl {
             });
 
         Ok(())
+    }
+
+    async fn set_my_capture_enabled(
+        &self,
+        ip: &str,
+        enabled: bool,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        let device = self
+            .devices
+            .find_by_ip(ip)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("device not found for this IP".to_owned()))?;
+
+        // Self-service: the caller must be this device (by IP/MAC) or an admin.
+        // Capture is independent of the routing admin-lock, so pass `false`.
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        Self::check_device_mutation_auth(&ctx, &device.mac, false)?;
+
+        let device_id = device.id.to_string();
+
+        // Flip only the `enabled` flag; leave retention caps (admin-owned) alone.
+        let found = self
+            .devices
+            .update_dns_capture_settings(&device_id, Some(enabled), None, None)
+            .await
+            .map_err(AppError::Internal)?;
+        if !found {
+            return Err(AppError::NotFound("device not found".to_owned()));
+        }
+
+        self.events
+            .publish(WardnetEvent::DeviceCaptureSettingsChanged {
+                device_id: device.id,
+                enabled,
+                timestamp: Utc::now(),
+            });
+
+        let stats = self
+            .dns_events
+            .stats_for_device(&device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(DnsCaptureSettingsResponse {
+            enabled,
+            cap_count: device.dns_capture_cap_count,
+            cap_days: device.dns_capture_cap_days,
+            row_count: stats.row_count,
+            size_bytes: stats.size_bytes,
+        })
     }
 
     async fn fetch_pending_dns_events(

@@ -190,6 +190,11 @@ export interface DnsCaptureSettingsRequest {
   cap_days?: number;
 }
 
+/** Request body for PATCH /api/devices/me/dns-capture (self-service toggle). */
+export interface DeviceCaptureToggleRequest {
+  enabled: boolean;
+}
+
 /** Response for GET/PATCH /api/devices/:id/dns-capture. */
 export interface DnsCaptureSettingsResponse {
   enabled: boolean;

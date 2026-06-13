@@ -157,6 +157,18 @@ impl DeviceService for MockDnsDeviceService {
         }
         Ok(())
     }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        enabled: bool,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        let mut settings = self
+            .get_result
+            .clone()
+            .ok_or_else(|| AppError::NotFound("device not found for this IP".to_owned()))?;
+        settings.enabled = enabled;
+        Ok(settings)
+    }
     async fn fetch_pending_dns_events(
         &self,
         _device_id: &str,
@@ -233,7 +245,39 @@ fn dns_capture_router(state: AppState) -> Router {
             get(crate::api::dns_capture::get_dns_capture_settings)
                 .patch(crate::api::dns_capture::update_dns_capture_settings),
         )
+        .route(
+            "/api/devices/me/dns-capture",
+            axum::routing::patch(crate::api::dns_capture::set_my_dns_capture),
+        )
         .with_state(state)
+}
+
+fn client_connect_info() -> axum::extract::ConnectInfo<std::net::SocketAddr> {
+    axum::extract::ConnectInfo(std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 100)),
+        12345,
+    ))
+}
+
+/// Self-service (device-IP) PATCH — no auth cookie, ConnectInfo extension set.
+async fn patch_me(app: Router, json_body: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/devices/me/dns-capture")
+                .header("Content-Type", "application/json")
+                .extension(client_connect_info())
+                .body(Body::from(json_body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
 }
 
 /// Authenticated GET request.
@@ -352,6 +396,32 @@ async fn patch_returns_404_for_unknown_device() {
         r#"{"enabled":false}"#,
     )
     .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"], "not found");
+}
+
+#[tokio::test]
+async fn set_my_capture_returns_200_and_flips_enabled() {
+    // sample_settings has enabled=true; the self-service PATCH flips it off and
+    // leaves the admin-owned caps untouched.
+    let state = build_state(MockDnsDeviceService::found(sample_settings()));
+    let app = dns_capture_router(state);
+
+    let (status, json) = patch_me(app, r#"{"enabled":false}"#).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["enabled"], false);
+    assert_eq!(json["cap_count"], 500);
+    assert_eq!(json["cap_days"], 14);
+}
+
+#[tokio::test]
+async fn set_my_capture_returns_404_for_unknown_ip() {
+    let state = build_state(MockDnsDeviceService::get_not_found());
+    let app = dns_capture_router(state);
+
+    let (status, json) = patch_me(app, r#"{"enabled":true}"#).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(json["error"], "not found");

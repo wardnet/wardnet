@@ -255,6 +255,13 @@ impl DeviceService for MockDeviceService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        _enabled: bool,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
     async fn fetch_pending_dns_events(
         &self,
         _device_id: &str,
