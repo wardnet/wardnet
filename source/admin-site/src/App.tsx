@@ -22,6 +22,7 @@ import DnsLogs from "@/pages/DnsLogs";
 import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
 import DnsFilterProfileNew from "@/pages/DnsFilterProfileNew";
+import RuleRequests from "@/pages/RuleRequests";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
 import NotFound from "@/pages/NotFound";
@@ -182,6 +183,14 @@ export default function App() {
           element={
             <AdminRoute>
               <DnsFilter />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="rule-requests"
+          element={
+            <AdminRoute>
+              <RuleRequests />
             </AdminRoute>
           }
         />
