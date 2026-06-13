@@ -5,15 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import { Navbar } from "@/components/layouts/Navbar";
 
 describe("Navbar", () => {
-  it("renders the Wardnet logo and name", () => {
+  it("renders the Wardnet logo lockup", () => {
     render(
       <MemoryRouter>
         <Navbar />
       </MemoryRouter>,
     );
-    expect(
-      screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "Wardnet"),
-    ).toBeInTheDocument();
     expect(screen.getByAltText("Wardnet")).toBeInTheDocument();
   });
 

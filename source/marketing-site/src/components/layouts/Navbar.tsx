@@ -1,4 +1,3 @@
-import { brand } from "@wardnet/styles/tokens";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router";
 import { Logo } from "@/components/compound/Logo";
@@ -26,10 +25,7 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
   const logoContent = (
     <>
       {showBack && <ArrowLeft size={16} className="text-side-ink-2" />}
-      <Logo size={28} />
-      <span className="text-sm font-semibold text-side-ink-active">
-        Ward<span style={{ color: brand.accent }}>net</span>
-      </span>
+      <Logo height={28} variant="dark" />
     </>
   );
 

@@ -1,6 +1,5 @@
 import { RefreshCwIcon, WifiOffIcon } from "lucide-react";
-import { Banner } from "@wardnet/web";
-import type { ConnState } from "@/components/Header";
+import { Banner, type ConnState } from "@wardnet/web";
 
 interface Props {
   connState: ConnState;

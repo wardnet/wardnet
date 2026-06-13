@@ -3,29 +3,29 @@
   --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* base hues — light mode */
-  --bg: #f5f5f1;
-  --bg-elev: #ffffff;
-  --bg-sunken: #ecebe5;
-  --bg-card: #ffffff;
-  --line: #e3e1d8;
-  --line-strong: #cfccbf;
-  --ink: #15171a;
-  --ink-2: #3b3f45;
-  --ink-3: #6a6e75;
-  --ink-4: #9ca0a6;
+  /* base hues — light mode (Wardnet brand: Paper / Ink / Emerald) */
+  --bg: #f4f3ee;              /* Paper */
+  --bg-elev: #ffffff;         /* White */
+  --bg-sunken: #eceae2;       /* Paper, recessed */
+  --bg-card: #ffffff;         /* White */
+  --line: #e6e4dc;            /* Line */
+  --line-strong: #d6d3c8;
+  --ink: #11152b;             /* Ink */
+  --ink-2: #5b6178;           /* Slate */
+  --ink-3: #8a90a6;           /* Mist */
+  --ink-4: #abb1c4;
 
-  --side-bg: #0c1230;
-  --side-line: #1a2148;
+  --side-bg: #11152b;         /* Ink (chrome on dark surfaces) */
+  --side-line: #2a3155;       /* Line, dark */
   --side-ink: #c9cce0;
-  --side-ink-2: #7a82a3;
+  --side-ink-2: #7e859b;      /* Mist, dark */
   --side-ink-active: #ffffff;
-  --side-active-bg: #1a2148;
+  --side-active-bg: #1b2140;  /* Ink 2 */
 
-  --accent: #1ed68a;          /* brand green, slightly more vivid than the screenshots */
-  --accent-ink: #042619;
-  --accent-soft: #d6f7e6;
-  --accent-soft-ink: #0b6b40;
+  --accent: #12b981;          /* Wardnet Emerald */
+  --accent-ink: #11152b;      /* Ink — text/marks on an emerald surface */
+  --accent-soft: #e7f8f0;     /* Emerald Tint */
+  --accent-soft-ink: #0e9266; /* Emerald Deep */
 
   --warn: #f1b13b;
   --warn-soft: #fcefcf;
@@ -61,27 +61,28 @@
 }
 
 [data-theme="dark"] {
-  --bg: #0a0e1a;
-  --bg-elev: #11162a;
-  --bg-sunken: #070a14;
-  --bg-card: #11162a;
-  --line: #1d2440;
-  --line-strong: #2a3357;
+  /* dark mode — rebased on the brand Ink family */
+  --bg: #0c1022;             /* deep Ink */
+  --bg-elev: #1b2140;        /* Ink 2 */
+  --bg-sunken: #080b16;
+  --bg-card: #1b2140;        /* Ink 2 */
+  --line: #2a3155;           /* Line, dark */
+  --line-strong: #38406a;
   --ink: #ecedf2;
   --ink-2: #c2c6d4;
-  --ink-3: #8a90a3;
-  --ink-4: #5b6178;
+  --ink-3: #8a90a6;          /* Mist */
+  --ink-4: #5b6178;          /* Slate */
 
-  --side-bg: #070a14;
-  --side-line: #161c33;
+  --side-bg: #080b16;
+  --side-line: #1c2444;
   --side-ink: #b6bbcf;
-  --side-ink-2: #6c7395;
+  --side-ink-2: #7e859b;     /* Mist, dark */
   --side-ink-active: #ffffff;
-  --side-active-bg: #141a31;
+  --side-active-bg: #1b2140; /* Ink 2 */
 
-  --accent-ink: #042619;
-  --accent-soft: #0f3d28;
-  --accent-soft-ink: #6cf4af;
+  --accent-ink: #11152b;     /* Ink — text/marks on an emerald surface */
+  --accent-soft: #103d2a;    /* Emerald, dark surface */
+  --accent-soft-ink: #57e0a3;
 
   --warn-soft: #3a2d10;
   --warn-soft-ink: #f1b13b;
