@@ -29,7 +29,8 @@ test("good credentials land on the dashboard", async ({ page }) => {
   await page.goto("./login");
   await loginViaUi(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 
-  await expect(page).toHaveURL(/\/admin\/$/);
+  // Dashboard is the router basename root — `/admin`, no trailing slash.
+  await expect(page).toHaveURL(/\/admin\/?$/);
   await expect(page.getByRole("main")).toBeVisible();
 });
 

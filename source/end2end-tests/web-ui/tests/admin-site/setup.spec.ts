@@ -76,7 +76,8 @@ test("first-run wizard creates the admin and reaches the dashboard", async ({
   await expect(page.getByRole("heading", { name: /all set/i })).toBeVisible();
   await page.getByRole("button", { name: /go to dashboard/i }).click();
 
-  // Lands on the authenticated app shell at the admin-site root.
-  await expect(page).toHaveURL(/\/admin\/$/);
+  // Lands on the authenticated app shell at the admin-site root
+  // (`/admin`, the router basename — no trailing slash).
+  await expect(page).toHaveURL(/\/admin\/?$/);
   await expect(page.getByRole("main")).toBeVisible();
 });
