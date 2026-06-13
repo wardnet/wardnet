@@ -101,7 +101,14 @@ function DomainList({
   );
 }
 
-function ActivityFeed({ events }: { events: DnsEventItem[] }) {
+function ActivityFeed({
+  events,
+  onRequest,
+}: {
+  events: DnsEventItem[];
+  /** Ask-admin action for a single event; default kind derives from status. */
+  onRequest: (domain: string, kind: "block" | "allow") => void;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -112,23 +119,39 @@ function ActivityFeed({ events }: { events: DnsEventItem[] }) {
           <p className="text-sm text-ink-3">No recent activity.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {events.map((e) => (
-              <li key={e.id} className="flex items-center justify-between gap-3">
-                <span className="truncate font-mono text-[13px] text-ink">
-                  {e.domain}
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  {e.status === "blocked" ? (
-                    <Pill variant="warn">Blocked</Pill>
-                  ) : (
-                    <Pill variant="ok">Allowed</Pill>
-                  )}
-                  <span className="text-xs text-ink-3">
-                    {relativeTime(e.captured_at)}
+            {events.map((e) => {
+              const blocked = e.status === "blocked";
+              return (
+                <li
+                  key={e.id}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <span className="truncate font-mono text-[13px] text-ink">
+                    {e.domain}
                   </span>
-                </span>
-              </li>
-            ))}
+                  <span className="flex shrink-0 items-center gap-2">
+                    {blocked ? (
+                      <Pill variant="warn">Blocked</Pill>
+                    ) : (
+                      <Pill variant="ok">Allowed</Pill>
+                    )}
+                    <span className="text-xs text-ink-3">
+                      {relativeTime(e.captured_at)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onRequest(e.domain, blocked ? "allow" : "block")
+                      }
+                      aria-label={`Ask admin about ${e.domain}`}
+                      className="text-ink-3 active:text-accent"
+                    >
+                      <MessageSquarePlusIcon className="size-4" />
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </CardContent>
@@ -272,7 +295,10 @@ export default function Stats() {
       />
 
       {/* Recent activity is global (latest events), not day-scoped. */}
-      <ActivityFeed events={recent} />
+      <ActivityFeed
+        events={recent}
+        onRequest={(domain, kind) => setRequestTarget({ domain, kind })}
+      />
 
       <RequestRuleModal
         target={requestTarget}

@@ -7,9 +7,10 @@ import {
   CardContent,
   RuleRequestStatusPill,
   useDecideRuleRequest,
+  useDevices,
   useRuleRequests,
 } from "@wardnet/web";
-import type { DeviceRuleRequest, RuleRequestStatus } from "@wardnet/js";
+import type { Device, DeviceRuleRequest, RuleRequestStatus } from "@wardnet/js";
 
 const FILTERS: { label: string; value: RuleRequestStatus | undefined }[] = [
   { label: "Pending", value: "pending" },
@@ -18,7 +19,18 @@ const FILTERS: { label: string; value: RuleRequestStatus | undefined }[] = [
   { label: "All", value: undefined },
 ];
 
-function RequestRow({ req }: { req: DeviceRuleRequest }) {
+function deviceLabel(device: Device | undefined, deviceId: string): string {
+  if (!device) return `Unknown device (${deviceId.slice(0, 8)})`;
+  return device.name ?? device.hostname ?? device.mac;
+}
+
+function RequestRow({
+  req,
+  deviceName,
+}: {
+  req: DeviceRuleRequest;
+  deviceName: string;
+}) {
   const decide = useDecideRuleRequest();
   const pending = req.status === "pending";
 
@@ -29,9 +41,8 @@ function RequestRow({ req }: { req: DeviceRuleRequest }) {
           <div className="min-w-0">
             <span className="font-mono text-sm text-ink">{req.domain}</span>
             <span className="block text-xs text-ink-3">
-              {req.kind === "block" ? "Block request" : "Allow request"} ·
-              device {req.device_id.slice(0, 8)} ·{" "}
-              {new Date(req.created_at).toLocaleString()}
+              {req.kind === "block" ? "Block request" : "Allow request"} ·{" "}
+              {deviceName} · {new Date(req.created_at).toLocaleString()}
             </span>
           </div>
           <RuleRequestStatusPill status={req.status} />
@@ -83,6 +94,11 @@ export default function RuleRequests() {
     "pending",
   );
   const { data, isLoading, isError, error } = useRuleRequests(filter);
+  const { data: devicesData } = useDevices();
+
+  const deviceById = new Map(
+    (devicesData?.devices ?? []).map((d) => [d.id, d]),
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -114,7 +130,14 @@ export default function RuleRequests() {
 
       <div className="flex flex-col gap-3">
         {data?.map((req) => (
-          <RequestRow key={req.id} req={req} />
+          <RequestRow
+            key={req.id}
+            req={req}
+            deviceName={deviceLabel(
+              deviceById.get(req.device_id),
+              req.device_id,
+            )}
+          />
         ))}
       </div>
     </div>
