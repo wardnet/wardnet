@@ -251,6 +251,7 @@ fn make_state(auth: impl AuthService + 'static, backup: Arc<dyn BackupService>) 
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 

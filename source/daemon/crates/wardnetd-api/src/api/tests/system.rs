@@ -335,6 +335,7 @@ fn make_state_with_routing(
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     )
 }
 
@@ -615,6 +616,7 @@ async fn recent_errors_returns_populated_errors() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     );
 
     let app = system_app_full(state);
@@ -743,6 +745,7 @@ async fn download_logs_returns_text_when_log_exists() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     );
 
     let app = system_app_full(state);
@@ -836,6 +839,7 @@ async fn download_logs_formats_non_json_lines_as_is() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     );
 
     let app = system_app_full(state);
@@ -915,6 +919,7 @@ async fn download_logs_finds_dated_file() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     );
 
     let app = system_app_full(state);
@@ -994,6 +999,7 @@ async fn download_logs_no_file_returns_500() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
     );
 
     let app = system_app_full(state);

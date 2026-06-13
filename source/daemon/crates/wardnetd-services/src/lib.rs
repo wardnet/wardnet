@@ -22,6 +22,7 @@ pub mod garp;
 pub mod logging;
 pub mod maintenance;
 pub mod routing;
+pub mod rule_request;
 pub mod system;
 pub mod tls;
 pub mod tunnel;
@@ -58,6 +59,7 @@ use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
 use crate::routing::RoutingServiceImpl;
+use crate::rule_request::RuleRequestServiceImpl;
 use crate::system::SystemServiceImpl;
 use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
@@ -76,6 +78,7 @@ pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::routing::RoutingService;
+pub use crate::rule_request::RuleRequestService;
 pub use crate::stats::{
     DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
     StatsService,
@@ -177,6 +180,7 @@ pub struct Services {
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
     pub routing: Arc<dyn RoutingService>,
+    pub rule_request: Arc<dyn RuleRequestService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub update: Arc<dyn UpdateService>,
@@ -418,6 +422,11 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    let rule_request_service: Arc<dyn RuleRequestService> = Arc::new(RuleRequestServiceImpl::new(
+        repo_factory.rule_request(),
+        device_service.clone(),
+    ));
+
     let dhcp_service: Arc<dyn DhcpService> = Arc::new(DhcpServiceImpl::new(
         dhcp_repo.clone(),
         system_config_repo.clone(),
@@ -556,6 +565,7 @@ fn create_services(
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,
         routing: routing_service,
+        rule_request: rule_request_service,
         system: system_service,
         tunnel: tunnel_service,
         update: update_service,

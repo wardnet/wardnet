@@ -1053,6 +1053,48 @@ impl wardnetd_services::dns::server::DnsServer for StubDnsServer {
 // Helper: test_app_state
 // ---------------------------------------------------------------------------
 
+pub struct StubRuleRequestService;
+
+#[async_trait]
+impl wardnetd_services::RuleRequestService for StubRuleRequestService {
+    async fn create_for_ip(
+        &self,
+        _ip: &str,
+        _kind: wardnet_common::rule_request::RuleRequestKind,
+        _domain: &str,
+        _reason: Option<String>,
+    ) -> Result<wardnet_common::rule_request::DeviceRuleRequest, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+    async fn list_for_ip(
+        &self,
+        _ip: &str,
+    ) -> Result<
+        Vec<wardnet_common::rule_request::DeviceRuleRequest>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn list(
+        &self,
+        _status: Option<wardnet_common::rule_request::RuleRequestStatus>,
+    ) -> Result<
+        Vec<wardnet_common::rule_request::DeviceRuleRequest>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!()
+    }
+    async fn decide(
+        &self,
+        _id: &str,
+        _status: wardnet_common::rule_request::RuleRequestStatus,
+    ) -> Result<wardnet_common::rule_request::DeviceRuleRequest, wardnetd_services::error::AppError>
+    {
+        unimplemented!()
+    }
+}
+
 pub struct StubStatsService;
 
 #[async_trait]
@@ -1182,5 +1224,6 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubEventPublisher),
         wardnetd_services::jobs::JobServiceImpl::new(),
         Arc::new(StubStatsService),
+        Arc::new(StubRuleRequestService),
     )
 }
