@@ -159,6 +159,7 @@ export function pruneEvents(db: IDBDatabase): Promise<void> {
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));
   });
 }
 

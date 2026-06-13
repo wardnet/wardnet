@@ -180,6 +180,7 @@ export { useAuthStore } from "./stores/authStore";
 
 // Components
 export { ApiErrorAlert } from "./components/ApiErrorAlert";
+export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
 export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";

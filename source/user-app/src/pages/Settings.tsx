@@ -5,19 +5,12 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Pill,
+  RuleRequestStatusPill,
   Toggle,
   useMyDevice,
   useMyRuleRequests,
   useSetMyCaptureEnabled,
 } from "@wardnet/web";
-import type { DeviceRuleRequest } from "@wardnet/js";
-
-function statusPill(status: DeviceRuleRequest["status"]) {
-  if (status === "approved") return <Pill variant="ok">Approved</Pill>;
-  if (status === "rejected") return <Pill variant="down">Rejected</Pill>;
-  return <Pill variant="info">Pending</Pill>;
-}
 
 function MyRequests() {
   const { data, isLoading } = useMyRuleRequests();
@@ -43,7 +36,7 @@ function MyRequests() {
                   {r.kind === "block" ? "Block request" : "Allow request"}
                 </span>
               </span>
-              {statusPill(r.status)}
+              <RuleRequestStatusPill status={r.status} />
             </li>
           ))}
         </ul>

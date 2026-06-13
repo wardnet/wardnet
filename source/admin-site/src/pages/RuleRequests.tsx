@@ -5,7 +5,7 @@ import {
   Button,
   Card,
   CardContent,
-  Pill,
+  RuleRequestStatusPill,
   useDecideRuleRequest,
   useRuleRequests,
 } from "@wardnet/web";
@@ -17,12 +17,6 @@ const FILTERS: { label: string; value: RuleRequestStatus | undefined }[] = [
   { label: "Rejected", value: "rejected" },
   { label: "All", value: undefined },
 ];
-
-function statusPill(status: RuleRequestStatus) {
-  if (status === "approved") return <Pill variant="ok">Approved</Pill>;
-  if (status === "rejected") return <Pill variant="down">Rejected</Pill>;
-  return <Pill variant="info">Pending</Pill>;
-}
 
 function RequestRow({ req }: { req: DeviceRuleRequest }) {
   const decide = useDecideRuleRequest();
@@ -40,7 +34,7 @@ function RequestRow({ req }: { req: DeviceRuleRequest }) {
               {new Date(req.created_at).toLocaleString()}
             </span>
           </div>
-          {statusPill(req.status)}
+          <RuleRequestStatusPill status={req.status} />
         </div>
 
         {req.reason && (

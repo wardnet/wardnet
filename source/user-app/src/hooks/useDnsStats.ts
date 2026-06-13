@@ -1,31 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  type DnsEventItem,
-  recentDates,
-  subscribeStats,
-} from "@/lib/dnsDb";
-import {
-  type DayHeadline,
-  type DomainCount,
-  type TrendDay,
-  getDayHeadline,
-  getRecentActivity,
-  getTopBlocked,
-  getTopQueried,
-  getTrend,
-  hasAnyData,
-} from "@/lib/dnsStats";
+import { recentDates, subscribeStats } from "@/lib/dnsDb";
+import { type DnsStatsSnapshot, loadDnsStats } from "@/lib/dnsStats";
 
 export const TREND_DAYS = 7;
 
-export interface DnsStatsData {
-  headline: DayHeadline;
-  topBlocked: DomainCount[];
-  topQueried: DomainCount[];
-  recent: DnsEventItem[];
-  trend: TrendDay[];
-  hasData: boolean;
+export interface DnsStatsData extends DnsStatsSnapshot {
   loading: boolean;
 }
 
@@ -48,24 +28,8 @@ export function useDnsStats(date: string): DnsStatsData {
   const [data, setData] = useState<DnsStatsData>(EMPTY);
 
   const load = useCallback(async () => {
-    const [headline, topBlocked, topQueried, recent, trend, dataPresent] =
-      await Promise.all([
-        getDayHeadline(date),
-        getTopBlocked(date),
-        getTopQueried(date),
-        getRecentActivity(20),
-        getTrend(recentDates(TREND_DAYS)),
-        hasAnyData(),
-      ]);
-    setData({
-      headline,
-      topBlocked,
-      topQueried,
-      recent,
-      trend,
-      hasData: dataPresent,
-      loading: false,
-    });
+    const snapshot = await loadDnsStats(date, recentDates(TREND_DAYS));
+    setData({ ...snapshot, loading: false });
   }, [date]);
 
   useEffect(() => {
