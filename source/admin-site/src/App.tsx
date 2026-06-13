@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Routes, Route, Navigate } from "react-router";
+import { Routes, Route, Navigate, useLocation } from "react-router";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { ErrorBoundary } from "@/components/core/ErrorBoundary";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
@@ -30,9 +30,15 @@ import NotFound from "@/pages/NotFound";
 /** Route guard that redirects to /login if not admin. */
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { isAdmin, isChecking } = useAuth();
+  const location = useLocation();
 
   if (isChecking) return null;
-  if (!isAdmin) return <Navigate to="/login" replace />;
+  if (!isAdmin) {
+    // Preserve the attempted target so Login can return here after a
+    // successful sign-in (deep-link redirect).
+    const from = `${location.pathname}${location.search}`;
+    return <Navigate to="/login" replace state={{ from }} />;
+  }
   return <>{children}</>;
 }
 

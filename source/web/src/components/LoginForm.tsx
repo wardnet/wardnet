@@ -109,7 +109,11 @@ export function LoginForm({
         </label>
       )}
 
-      {formError && <p className="text-sm text-danger">{formError}</p>}
+      {formError && (
+        <p role="alert" className="text-sm text-danger">
+          {formError}
+        </p>
+      )}
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Signing in…" : "Log in"}
       </Button>

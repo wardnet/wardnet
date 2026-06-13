@@ -81,6 +81,68 @@ services:
       retries: 30
       start_period: 30s
 
+  # Pristine daemon for the first-run setup-wizard UI test (A1, #616).
+  # The setup wizard is one-shot, and the shared `wardnetd-ui` is seeded
+  # to `completed` by the `setup` project before any spec runs — so the
+  # wizard UI can only be walked on a daemon that is never seeded. Reuses
+  # the image `wardnetd-ui` builds (no second build), with its own state
+  # volume and its own LAN network so the `10.91.0.1` lan-interface pin
+  # doesn't clash with the shared daemon.
+  wardnetd-ui-fresh:
+    image: ${WARDNETD_UI_TEST_IMAGE:-wardnetd:dev-test-ui}
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    cgroup: host
+    environment:
+      container: docker
+    tty: true
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - wardnet_ui_fresh_state:/var/lib/wardnet
+      - ../daemon/fixtures/systemd/journald-forward.conf:/etc/systemd/journald.conf.d/forward-console.conf:ro
+      - ../daemon/fixtures/systemd/wardnetd-debug-logging.conf:/etc/systemd/system/wardnetd.service.d/debug-logging.conf:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command:
+      - bash
+      - -c
+      - |
+        set +e
+        chown -R wardnet:wardnet /var/lib/wardnet 2>&1 || true
+        chmod 750 /var/lib/wardnet 2>&1 || true
+        # Pin lan_interface to the NIC holding this daemon's LAN IP
+        # (10.93.0.1 on its dedicated wardnet_lan_fresh network).
+        LAN_IFACE=$$(ip -o -4 addr show | awk '/inet 10\.93\.0\.1\//{print $$2; exit}')
+        if [ -n "$$LAN_IFACE" ]; then
+          sed -i "s|^lan_interface = .*|lan_interface = \"$$LAN_IFACE\"|" /etc/wardnet/wardnet.toml
+          echo "wardnetd-ui-fresh e2e fixture: pinned lan_interface=$$LAN_IFACE" >&2
+        else
+          echo "wardnetd-ui-fresh e2e fixture: WARNING no NIC holds 10.93.0.1; leaving lan_interface as-is" >&2
+        fi
+        exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
+    networks:
+      wardnet_mgmt:
+        ipv4_address: 10.90.0.3
+      wardnet_lan_fresh:
+        ipv4_address: 10.93.0.1
+      wardnet_wan:
+        ipv4_address: 10.92.0.3
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7411/api/info || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
   ui_runner:
     build:
       context: ../../..
@@ -89,8 +151,11 @@ services:
     depends_on:
       wardnetd-ui:
         condition: service_healthy
+      wardnetd-ui-fresh:
+        condition: service_healthy
     environment:
       WARDNET_UI_BASE_URL: "http://wardnetd-ui:7411"
+      WARDNET_UI_FRESH_BASE_URL: "http://wardnetd-ui-fresh:7411"
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.
@@ -105,6 +170,7 @@ services:
 
 volumes:
   wardnet_ui_state:
+  wardnet_ui_fresh_state:
 
 networks:
   wardnet_mgmt:
@@ -120,6 +186,15 @@ networks:
         - subnet: 10.91.0.0/24
           gateway: 10.91.0.254
           ip_range: 10.91.0.0/28
+  # Dedicated LAN for wardnetd-ui-fresh so its lan_interface pin
+  # (10.93.0.1) doesn't clash with the shared daemon's 10.91.0.1.
+  wardnet_lan_fresh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.93.0.0/24
+          gateway: 10.93.0.254
+          ip_range: 10.93.0.0/28
   wardnet_wan:
     driver: bridge
     ipam:

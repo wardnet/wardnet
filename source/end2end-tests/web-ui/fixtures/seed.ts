@@ -25,6 +25,14 @@ export const UI_BASE_URL =
 /** Hostname the session cookie is scoped to (derived from UI_BASE_URL). */
 export const UI_HOST = new URL(UI_BASE_URL).hostname;
 
+/**
+ * Base URL of the pristine, never-seeded daemon used by the first-run
+ * setup-wizard spec (A1). Distinct from UI_BASE_URL so the wizard UI can
+ * be walked from a clean state; the shared daemon is always pre-seeded.
+ */
+export const UI_FRESH_BASE_URL =
+  process.env.WARDNET_UI_FRESH_BASE_URL ?? "http://wardnetd-ui-fresh:7411";
+
 /** API base (same origin as the browser surface). */
 export const API_BASE_URL =
   process.env.WARDNET_API_BASE_URL ?? `${UI_BASE_URL}/api`;

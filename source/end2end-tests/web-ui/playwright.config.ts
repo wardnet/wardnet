@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { STORAGE_STATE, UI_BASE_URL } from "./fixtures/seed.js";
+import {
+  STORAGE_STATE,
+  UI_BASE_URL,
+  UI_FRESH_BASE_URL,
+} from "./fixtures/seed.js";
 
 /**
  * Playwright harness for Wardnet's three web surfaces, each embedded in
@@ -27,7 +31,9 @@ import { STORAGE_STATE, UI_BASE_URL } from "./fixtures/seed.js";
 // cookie (set by the daemon on login) to be stored and replayed, and
 // for the PWAs' service workers to register over plain HTTP.
 const INSECURE_ORIGIN_ARGS = [
-  `--unsafely-treat-insecure-origin-as-secure=${UI_BASE_URL}`,
+  // Both daemon origins (shared + the fresh wizard daemon) are listed so
+  // the Secure session cookie stores and SWs register on either.
+  `--unsafely-treat-insecure-origin-as-secure=${UI_BASE_URL},${UI_FRESH_BASE_URL}`,
   "--allow-insecure-localhost",
 ];
 
@@ -59,11 +65,26 @@ export default defineConfig({
     {
       name: "admin-site",
       testMatch: "tests/admin-site/**/*.spec.ts",
+      // setup.spec runs the one-shot wizard on the pristine daemon
+      // (admin-site-setup project) — exclude it from the seeded surface.
+      testIgnore: "tests/admin-site/setup.spec.ts",
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
         baseURL: `${UI_BASE_URL}/admin/`,
         storageState: STORAGE_STATE,
+        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+      },
+    },
+    {
+      // First-run setup-wizard UI, walked on the never-seeded
+      // `wardnetd-ui-fresh` from a clean state. No `setup` dependency
+      // and no storageState — the wizard creates the admin itself.
+      name: "admin-site-setup",
+      testMatch: "tests/admin-site/setup.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: `${UI_FRESH_BASE_URL}/admin/`,
         launchOptions: { args: INSECURE_ORIGIN_ARGS },
       },
     },
