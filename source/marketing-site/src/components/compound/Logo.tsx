@@ -17,12 +17,7 @@ interface LogoProps {
 }
 
 /** Wardnet logo lockup (mark + WARDNET wordmark) from the brand assets. */
-export function Logo({
-  height = 24,
-  variant = "dark",
-  tagline = false,
-  className,
-}: LogoProps) {
+export function Logo({ height = 24, variant = "dark", tagline = false, className }: LogoProps) {
   const src = tagline
     ? variant === "dark"
       ? logoTaglineDark
@@ -30,12 +25,5 @@ export function Logo({
     : variant === "dark"
       ? logoDark
       : logoLight;
-  return (
-    <img
-      src={src}
-      alt="Wardnet"
-      style={{ height, width: "auto" }}
-      className={className}
-    />
-  );
+  return <img src={src} alt="Wardnet" style={{ height, width: "auto" }} className={className} />;
 }

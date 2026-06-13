@@ -34,10 +34,8 @@ describe("Footer", () => {
     expect(screen.getByRole("link", { name: "Documentation" })).toHaveAttribute("href", "/docs");
   });
 
-  it("renders the Wardnet name", () => {
+  it("renders the Wardnet logo lockup", () => {
     renderFooter();
-    expect(
-      screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "Wardnet"),
-    ).toBeInTheDocument();
+    expect(screen.getByAltText("Wardnet")).toBeInTheDocument();
   });
 });

@@ -18,12 +18,11 @@ interface HeroProps {
 export function Hero({ onExplore }: HeroProps) {
   return (
     <section className="bg-side relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
-      <Logo
-        tagline
-        variant="dark"
-        height={96}
-        className="mb-8 max-w-[88vw]"
-      />
+      {/* The brand lockup is an image of text; expose the name + tagline to
+          search engines and screen readers as the page's single h1. */}
+      <h1 className="sr-only">Wardnet</h1>
+      <p className="sr-only">Your network. Your rules.</p>
+      <Logo tagline variant="dark" height={96} className="mb-8 max-w-[88vw]" />
       <p className="h-sub text-side-ink-2 mb-6 max-w-xl text-base leading-relaxed">
         A self-hosted privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or
         any Linux host. Per-device VPN routing, DNS ad blocking, and a web dashboard, all in a
