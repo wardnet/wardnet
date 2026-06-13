@@ -235,8 +235,11 @@ impl DeviceService for MockDnsEventsDeviceService {
 // Live event publisher — wraps a real broadcast channel so tests can emit events
 // ---------------------------------------------------------------------------
 
+// LiveEventPublisher holds a Weak reference to the sender so that when the
+// test drops its Arc<Sender>, the broadcast channel closes and the SSE
+// handler's live loop exits via RecvError::Closed — preventing a hang.
 struct LiveEventPublisher {
-    tx: Arc<broadcast::Sender<WardnetEvent>>,
+    tx: std::sync::Weak<broadcast::Sender<WardnetEvent>>,
     subscribed: Arc<tokio::sync::Notify>,
 }
 
@@ -245,7 +248,7 @@ impl LiveEventPublisher {
         let (tx, _) = broadcast::channel(64);
         let tx = Arc::new(tx);
         let publisher = Self {
-            tx: Arc::clone(&tx),
+            tx: Arc::downgrade(&tx),
             subscribed: Arc::new(tokio::sync::Notify::new()),
         };
         (publisher, tx)
@@ -258,12 +261,17 @@ impl LiveEventPublisher {
 
 impl EventPublisher for LiveEventPublisher {
     fn publish(&self, event: WardnetEvent) {
-        let _ = self.tx.send(event);
+        if let Some(tx) = self.tx.upgrade() {
+            let _ = tx.send(event);
+        }
     }
 
     fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
         self.subscribed.notify_one();
-        self.tx.subscribe()
+        self.tx
+            .upgrade()
+            .expect("sender dropped before subscribe")
+            .subscribe()
     }
 }
 
