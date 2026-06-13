@@ -5,10 +5,52 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Pill,
   Toggle,
   useMyDevice,
+  useMyRuleRequests,
   useSetMyCaptureEnabled,
 } from "@wardnet/web";
+import type { DeviceRuleRequest } from "@wardnet/js";
+
+function statusPill(status: DeviceRuleRequest["status"]) {
+  if (status === "approved") return <Pill variant="ok">Approved</Pill>;
+  if (status === "rejected") return <Pill variant="down">Rejected</Pill>;
+  return <Pill variant="info">Pending</Pill>;
+}
+
+function MyRequests() {
+  const { data, isLoading } = useMyRuleRequests();
+
+  if (isLoading || !data || data.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>My requests</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="flex flex-col gap-2">
+          {data.map((r) => (
+            <li key={r.id} className="flex items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="truncate font-mono text-[13px] text-ink">
+                  {r.domain}
+                </span>
+                <span className="block text-xs text-ink-3">
+                  {r.kind === "block" ? "Block request" : "Allow request"}
+                </span>
+              </span>
+              {statusPill(r.status)}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * Settings tab — self-service controls for the calling device.
@@ -86,6 +128,8 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      <MyRequests />
 
       <Card>
         <CardHeader>

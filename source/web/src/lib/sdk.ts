@@ -19,6 +19,7 @@ import {
   StatsService,
   UpdateService,
   RemoteAccessService,
+  RuleRequestService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -46,3 +47,4 @@ export const statsService = new StatsService(client);
 export const updateService = new UpdateService(client);
 export const backupService = new BackupService(client);
 export const remoteAccessService = new RemoteAccessService(client);
+export const ruleRequestService = new RuleRequestService(client);

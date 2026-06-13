@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { ChartColumnIcon, ShieldOffIcon, WifiOffIcon } from "lucide-react";
+import {
+  ChartColumnIcon,
+  MessageSquarePlusIcon,
+  ShieldOffIcon,
+  WifiOffIcon,
+} from "lucide-react";
 import { Link } from "react-router";
 import {
   Card,
@@ -14,6 +19,10 @@ import {
 
 import { todayLocal } from "@/lib/dnsDb";
 import { useDnsStats } from "@/hooks/useDnsStats";
+import {
+  RequestRuleModal,
+  type RequestTarget,
+} from "@/features/RequestRuleModal";
 import type { DomainCount } from "@/lib/dnsStats";
 import type { DnsEventItem } from "@/lib/dnsDb";
 
@@ -45,11 +54,14 @@ function DomainList({
   rows,
   emptyText,
   variant,
+  onRequest,
 }: {
   title: string;
   rows: DomainCount[];
   emptyText: string;
   variant: "warn" | "info";
+  /** Called when the user taps the "ask admin" action on a domain row. */
+  onRequest: (domain: string) => void;
 }) {
   return (
     <Card>
@@ -69,7 +81,17 @@ function DomainList({
                 <span className="truncate font-mono text-[13px] text-ink">
                   {r.domain}
                 </span>
-                <Pill variant={variant}>{r.count.toLocaleString()}</Pill>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Pill variant={variant}>{r.count.toLocaleString()}</Pill>
+                  <button
+                    type="button"
+                    onClick={() => onRequest(r.domain)}
+                    aria-label={`Ask admin about ${r.domain}`}
+                    className="text-ink-3 active:text-accent"
+                  >
+                    <MessageSquarePlusIcon className="size-4" />
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
@@ -123,6 +145,7 @@ function ActivityFeed({ events }: { events: DnsEventItem[] }) {
 export default function Stats() {
   const today = todayLocal();
   const [date, setDate] = useState(today);
+  const [requestTarget, setRequestTarget] = useState<RequestTarget | null>(null);
   const { data: me, isLoading: meLoading } = useMyDevice();
   const stats = useDnsStats(date);
 
@@ -231,21 +254,30 @@ export default function Stats() {
         <StatTile label="Allowed" value={headline.allowed.toLocaleString()} />
       </div>
 
+      {/* Blocked domains default to an "allow" (unblock) request. */}
       <DomainList
         title="Top blocked"
         rows={topBlocked}
         emptyText="Nothing blocked on this day."
         variant="warn"
+        onRequest={(domain) => setRequestTarget({ domain, kind: "allow" })}
       />
+      {/* Queried domains default to a "block" request. */}
       <DomainList
         title="Most queried"
         rows={topQueried}
         emptyText="No queries on this day."
         variant="info"
+        onRequest={(domain) => setRequestTarget({ domain, kind: "block" })}
       />
 
       {/* Recent activity is global (latest events), not day-scoped. */}
       <ActivityFeed events={recent} />
+
+      <RequestRuleModal
+        target={requestTarget}
+        onClose={() => setRequestTarget(null)}
+      />
     </div>
   );
 }

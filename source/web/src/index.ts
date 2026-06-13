@@ -200,6 +200,14 @@ export {
   useUpdateDnsCaptureSettings,
 } from "./hooks/useDevices";
 
+// Hooks — rule requests
+export {
+  useMyRuleRequests,
+  useCreateRuleRequest,
+  useRuleRequests,
+  useDecideRuleRequest,
+} from "./hooks/useRuleRequests";
+
 // Hooks — tunnels
 export {
   useTunnels,
