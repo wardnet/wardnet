@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 /**
  * Daemon seeding for the Playwright harness, over plain `fetch` against
@@ -15,29 +15,50 @@ import { randomBytes } from "node:crypto";
  */
 
 /**
- * Base URL of the daemon as the browser reaches it. `wardnetd-ui` is the
- * compose service name on `wardnet_mgmt`; override locally with
- * `WARDNET_UI_BASE_URL=http://localhost:7411`.
+ * Base URL of the daemon as the BROWSER reaches it — over the Caddy TLS
+ * proxy (`tls_proxy`), not the daemon's plain-HTTP port. Real HTTPS is
+ * required so the daemon's `Secure` session cookie is stored and PWA
+ * service workers register; the daemon's own :443 is ACME-gated (503) so
+ * a self-signed proxy terminates TLS in front of :7411. Override locally
+ * with `WARDNET_UI_BASE_URL=https://localhost:8443`.
  */
 export const UI_BASE_URL =
-  process.env.WARDNET_UI_BASE_URL ?? "http://wardnetd-ui:7411";
+  process.env.WARDNET_UI_BASE_URL ?? "https://wardnetd-ui-tls";
 
 /** Hostname the session cookie is scoped to (derived from UI_BASE_URL). */
 export const UI_HOST = new URL(UI_BASE_URL).hostname;
 
-/** API base (same origin as the browser surface). */
+/**
+ * Browser base URL of the pristine, never-seeded daemon used by the
+ * first-run setup-wizard spec (A1), via its own TLS proxy vhost.
+ */
+export const UI_FRESH_BASE_URL =
+  process.env.WARDNET_UI_FRESH_BASE_URL ?? "https://wardnetd-ui-fresh-tls";
+
+/**
+ * API base for Node-side seeding (global.setup). Hits the daemon's
+ * plain-HTTP port DIRECTLY (not through the proxy): seeding reads the
+ * login token from the response body, never relies on the cookie, and
+ * avoids Node self-signed-TLS handling.
+ */
 export const API_BASE_URL =
-  process.env.WARDNET_API_BASE_URL ?? `${UI_BASE_URL}/api`;
+  process.env.WARDNET_API_BASE_URL ?? "http://wardnetd-ui:7411/api";
 
 /** Where the `setup` project writes the admin session for authed surfaces. */
 export const STORAGE_STATE = ".auth/admin.json";
 
-// Setup-wizard credentials, generated per-process so a leaked log line
-// can't be replayed. `randomBytes` (vs `Math.random`) keeps CodeQL's
-// js/insecure-randomness rule happy — test-only and never leaves the
-// compose stack, but the rule fires on shape, not reachability.
+// Setup-wizard credentials. Derived deterministically (not randomBytes)
+// so every Playwright worker process computes the SAME value: the
+// `setup` project creates the admin in one worker and `login.spec`
+// authenticates with it in another — a per-process random password
+// would mismatch. A hashed constant (vs a plaintext literal) keeps
+// secret scanners quiet; it's test-only and never leaves the throwaway
+// compose stack.
 export const ADMIN_USERNAME = "admin";
-export const ADMIN_PASSWORD = `e2e-${randomBytes(6).toString("hex")}`;
+export const ADMIN_PASSWORD = `e2e-${createHash("sha256")
+  .update("wardnet-web-ui-e2e-admin")
+  .digest("hex")
+  .slice(0, 16)}`;
 
 // Wizard steps in order (serde snake_case of WizardStep in
 // wardnet-common/src/api.rs). Walked one-by-one so every transition

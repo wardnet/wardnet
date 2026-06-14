@@ -138,7 +138,11 @@ export default function Step1Admin() {
           validate={(v) => (v !== password ? "Passwords do not match." : null)}
         />
 
-        {formError && <p className="text-sm text-danger">{formError}</p>}
+        {formError && (
+          <p role="alert" className="text-sm text-danger">
+            {formError}
+          </p>
+        )}
         <Button
           type="submit"
           disabled={setup.isPending || advance.isPending}

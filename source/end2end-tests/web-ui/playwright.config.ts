@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { STORAGE_STATE, UI_BASE_URL } from "./fixtures/seed.js";
+import {
+  STORAGE_STATE,
+  UI_BASE_URL,
+  UI_FRESH_BASE_URL,
+} from "./fixtures/seed.js";
 
 /**
  * Playwright harness for Wardnet's three web surfaces, each embedded in
@@ -9,26 +13,25 @@ import { STORAGE_STATE, UI_BASE_URL } from "./fixtures/seed.js";
  *   - admin-app  (mobile PWA)  → `/admin-app/`
  *   - user-app   (device PWA)  → `/`
  *
- * Why plain HTTP + an insecure-origin flag (not HTTPS): the daemon's
- * `:443` is 503-gated behind a placeholder cert until an ACME cert is
- * issued, which needs DDNS and is infeasible in a compose stack. `:7411`
- * is the always-on plain-HTTP surface, but the session cookie is
- * `Secure` and the PWAs register service workers — both need a secure
- * context. Launching Chromium with
- * `--unsafely-treat-insecure-origin-as-secure` makes the browser treat
- * the HTTP origin as secure, so the cookie stores and SWs register
- * without any TLS/proxy plumbing. See README.md.
+ * The browser reaches the daemon over a self-signed HTTPS proxy
+ * (`tls_proxy`, Caddy) rather than the daemon's plain-HTTP :7411: a real
+ * HTTPS origin is what lets the daemon's `Secure` session cookie be
+ * stored and PWA service workers register. (The daemon's own :443 is
+ * 503-gated until an ACME cert is issued, infeasible in compose; the
+ * earlier `--unsafely-treat-insecure-origin-as-secure` route is ignored
+ * by headless Chromium — playwright#22944 — and hung under xvfb when run
+ * headed, so a TLS proxy + `ignoreHTTPSErrors` is the robust path.)
  *
  * One shared daemon backs every spec, so file parallelism is hostile
  * (race on shared state): `fullyParallel:false`, `workers:1`.
  */
 
-// Chromium needs the origin treated as secure for the `Secure` session
-// cookie (set by the daemon on login) to be stored and replayed, and
-// for the PWAs' service workers to register over plain HTTP.
-const INSECURE_ORIGIN_ARGS = [
-  `--unsafely-treat-insecure-origin-as-secure=${UI_BASE_URL}`,
-  "--allow-insecure-localhost",
+const CHROMIUM_ARGS = [
+  // Chromium runs as root in the Playwright image — required or it
+  // refuses to launch.
+  "--no-sandbox",
+  // Docker's default /dev/shm is 64 MB; Chromium can exhaust it. Use /tmp.
+  "--disable-dev-shm-usage",
 ];
 
 export default defineConfig({
@@ -36,6 +39,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // Whole-suite ceiling so a stuck browser launch fails fast with output
+  // instead of hanging the CI job (8 short tests finish in minutes).
+  globalTimeout: 15 * 60_000,
   // Generous ceilings: compose health waits + first-boot setup push the
   // setup project past Playwright's 30 s default on a cold stack.
   timeout: 60_000,
@@ -48,6 +54,7 @@ export default defineConfig({
     ["html", { outputFolder: "reports/html", open: "never" }],
   ],
   use: {
+    // Trust the proxy's self-signed cert.
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -59,12 +66,27 @@ export default defineConfig({
     {
       name: "admin-site",
       testMatch: "tests/admin-site/**/*.spec.ts",
+      // setup.spec runs the one-shot wizard on the pristine daemon
+      // (admin-site-setup project) — exclude it from the seeded surface.
+      testIgnore: "tests/admin-site/setup.spec.ts",
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
         baseURL: `${UI_BASE_URL}/admin/`,
         storageState: STORAGE_STATE,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
+      },
+    },
+    {
+      // First-run setup-wizard UI, walked on the never-seeded
+      // `wardnetd-ui-fresh` from a clean state. No `setup` dependency
+      // and no storageState — the wizard creates the admin itself.
+      name: "admin-site-setup",
+      testMatch: "tests/admin-site/setup.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: `${UI_FRESH_BASE_URL}/admin/`,
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
     {
@@ -75,7 +97,7 @@ export default defineConfig({
         ...devices["Pixel 7"],
         baseURL: `${UI_BASE_URL}/admin-app/`,
         storageState: STORAGE_STATE,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
     {
@@ -89,7 +111,7 @@ export default defineConfig({
       use: {
         ...devices["Pixel 7"],
         baseURL: `${UI_BASE_URL}/`,
-        launchOptions: { args: INSECURE_ORIGIN_ARGS },
+        launchOptions: { args: CHROMIUM_ARGS },
       },
     },
   ],
