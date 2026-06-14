@@ -1129,27 +1129,55 @@ fn build_resolver_with_tcp_upstream_succeeds() {
 }
 
 #[test]
-fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
-    // Encrypted DNS is not yet wired — both DoT (853) and DoH (443) fall
-    // back to plain TCP with an explicit warn log. Hits the Tls + Https
-    // branches in build_resolver and exercises the port-default arm too.
+fn build_resolver_builds_dot_and_doh_with_sni() {
+    // Encrypted upstreams with a TLS server name exercise the Tls + Https
+    // branches (ConnectionConfig::tls/https) and the port-default arm.
     let upstreams = vec![
         UpstreamDns {
             name: "tls".into(),
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Tls,
             port: None,
-            tls_server_name: None,
+            tls_server_name: Some("cloudflare-dns.com".into()),
         },
         UpstreamDns {
             name: "https".into(),
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Https,
             port: None,
-            tls_server_name: None,
+            tls_server_name: Some("cloudflare-dns.com".into()),
         },
     ];
     let _ = crate::dns::server::build_resolver(&upstreams, false);
+}
+
+#[test]
+fn build_resolver_skips_encrypted_upstream_without_sni() {
+    // An encrypted upstream missing its SNI is skipped (not downgraded to
+    // plaintext); with no other servers the builder falls back to
+    // Cloudflare rather than returning an empty config.
+    let upstreams = vec![UpstreamDns {
+        name: "tls-no-sni".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Tls,
+        port: None,
+        tls_server_name: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
+}
+
+#[test]
+fn build_resolver_enables_dnssec_validation() {
+    // Smoke: the dnssec_enabled flag flows into ResolverOpts.validate
+    // without panicking the builder.
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams, true);
 }
 
 #[test]
