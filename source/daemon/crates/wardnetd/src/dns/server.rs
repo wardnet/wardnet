@@ -33,8 +33,9 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::EventPublisher;
 
+use wardnet_common::net::is_private_ip;
+
 use crate::dns::rate_limit::RateLimiter;
-use crate::dns::rebinding::is_private_ip;
 
 // ---------------------------------------------------------------------------
 // UdpDnsSocket — production socket impl
