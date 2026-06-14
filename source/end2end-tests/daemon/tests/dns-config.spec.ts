@@ -37,6 +37,13 @@ describe("dns config", () => {
       if (!cfg.enabled) {
         await dns.toggle({ enabled: true });
       }
+      // Reset to forwarding unconditionally: the resolution_mode
+      // round-trip below flips to recursive, and if its assertions throw
+      // before the inline restore runs, the shared daemon would be left
+      // recursing from the root for every downstream spec.
+      if (cfg.resolution_mode !== "forwarding") {
+        await dns.updateConfig({ resolution_mode: "forwarding" });
+      }
     } catch {
       // ignore — best-effort, real failure surfaces from the spec body
     }
@@ -149,6 +156,21 @@ describe("dns config", () => {
         { address: UPSTREAM_ADDRESS, name: "cloudflare-1", protocol: "udp" },
       ],
     });
+  });
+
+  it("round-trips Stage 5 resolution_mode (forwarding ↔ recursive)", async () => {
+    // Default is forwarding; flip to recursive and confirm persistence,
+    // then restore to forwarding so downstream DNS specs (dns-resolve,
+    // blocklists, ...) keep resolving via the configured upstream rather
+    // than recursing from the root servers.
+    const updated = await dns.updateConfig({ resolution_mode: "recursive" });
+    expect(updated.config.resolution_mode).toBe("recursive");
+
+    const refetched = (await dns.getConfig()).config;
+    expect(refetched.resolution_mode).toBe("recursive");
+
+    const restored = await dns.updateConfig({ resolution_mode: "forwarding" });
+    expect(restored.config.resolution_mode).toBe("forwarding");
   });
 
   it("rejects a DoT/DoH upstream without a TLS server name", async () => {

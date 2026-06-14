@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -14,6 +14,7 @@ use hickory_resolver::config::{
 };
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::recursor::{DnssecConfig, DnssecPolicy, Recursor, RecursorOptions};
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
@@ -21,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsRecordType, FilterAction, UpstreamDns, UpstreamId,
+    DnsConfig, DnsProtocol, DnsRecordType, DnsResolutionMode, FilterAction, UpstreamDns, UpstreamId,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
@@ -84,6 +85,11 @@ pub struct UdpDnsServer {
     /// listener. Built from the current config; rebuilt on every
     /// `update_config`.
     resolver: Arc<RwLock<TokioResolver>>,
+    /// Recursive resolver (Stage 5). `Some` only when
+    /// `resolution_mode == Recursive`; rebuilt/cleared in `update_config`
+    /// when the mode or the DNSSEC toggle changes, so forwarding mode (the
+    /// default) carries no recursor state.
+    recursor: Arc<RwLock<Option<TokioRecursor>>>,
     /// Per-client-IP token-bucket rate limiter (Stage 4). Enforced at the
     /// top of `handle_query`; disabled when `rate_limit_per_second == 0`.
     rate_limiter: Arc<RateLimiter>,
@@ -204,6 +210,15 @@ impl UdpDnsServer {
             &config.upstream_servers,
             config.dnssec_enabled,
         )));
+        // Build the recursor only in recursive mode (the default forwarding
+        // mode carries no recursor state).
+        let recursor = Arc::new(RwLock::new(
+            if config.resolution_mode == DnsResolutionMode::Recursive {
+                build_recursor(config.dnssec_enabled)
+            } else {
+                None
+            },
+        ));
         let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit_per_second));
         let cache_invalidator_cancel = CancellationToken::new();
         // Subscribe BEFORE spawning so any event published between
@@ -220,6 +235,7 @@ impl UdpDnsServer {
         Self {
             config: Arc::new(RwLock::new(config)),
             resolver,
+            recursor,
             rate_limiter,
             cache,
             dns_filter,
@@ -256,6 +272,16 @@ impl UdpDnsServer {
     pub(crate) fn local_addr(&self) -> Option<SocketAddr> {
         self.local_addr.lock().ok().and_then(|g| *g)
     }
+
+    /// Test-only: drop the recursor so the recursive dispatch path can be
+    /// exercised deterministically. With no recursor, `resolve_via_recursor`
+    /// takes the recursor-unavailable branch (fallback to forwarding when
+    /// upstreams are set, else SERVFAIL) instead of contacting the real
+    /// root servers over the network.
+    #[cfg(test)]
+    pub(crate) async fn clear_recursor_for_test(&self) {
+        *self.recursor.write().await = None;
+    }
 }
 
 #[async_trait]
@@ -286,6 +312,7 @@ impl DnsServer for UdpDnsServer {
 
         let config = Arc::clone(&self.config);
         let resolver = Arc::clone(&self.resolver);
+        let recursor = Arc::clone(&self.recursor);
         let rate_limiter = Arc::clone(&self.rate_limiter);
         let cache = Arc::clone(&self.cache);
         let dns_filter = Arc::clone(&self.dns_filter);
@@ -314,6 +341,7 @@ impl DnsServer for UdpDnsServer {
                 socket,
                 config,
                 resolver,
+                recursor,
                 rate_limiter,
                 cache,
                 dns_filter,
@@ -373,12 +401,13 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn update_config(&self, config: DnsConfig) {
-        let (upstream_changed, dnssec_changed, rebinding_changed) = {
+        let (upstream_changed, dnssec_changed, rebinding_changed, mode_changed) = {
             let prev = self.config.read().await;
             (
                 prev.upstream_servers != config.upstream_servers,
                 prev.dnssec_enabled != config.dnssec_enabled,
                 prev.rebinding_protection != config.rebinding_protection,
+                prev.resolution_mode != config.resolution_mode,
             )
         };
 
@@ -391,11 +420,22 @@ impl DnsServer for UdpDnsServer {
             *self.resolver.write().await = new_resolver;
         }
 
+        // (Re)build or clear the recursor when the mode or DNSSEC toggle
+        // changes (Stage 5). Built only in recursive mode.
+        if mode_changed || dnssec_changed {
+            let new_recursor = if config.resolution_mode == DnsResolutionMode::Recursive {
+                build_recursor(config.dnssec_enabled)
+            } else {
+                None
+            };
+            *self.recursor.write().await = new_recursor;
+        }
+
         // Flush cached answers whose validity depends on the changed
         // policy so a toggle takes effect at once rather than after TTL
         // (e.g. enabling rebinding must not keep serving cached private
-        // IPs; changing upstreams/DNSSEC must not serve stale answers).
-        if upstream_changed || dnssec_changed || rebinding_changed {
+        // IPs; changing upstreams/DNSSEC/mode must not serve stale answers).
+        if upstream_changed || dnssec_changed || rebinding_changed || mode_changed {
             self.cache.write().await.flush();
         }
 
@@ -422,6 +462,7 @@ async fn server_loop(
     socket: Arc<dyn DnsSocket>,
     config: Arc<RwLock<DnsConfig>>,
     resolver: Arc<RwLock<TokioResolver>>,
+    recursor: Arc<RwLock<Option<TokioRecursor>>>,
     rate_limiter: Arc<RateLimiter>,
     cache: Arc<RwLock<DnsCache>>,
     dns_filter: Arc<dyn DnsFilterService>,
@@ -452,6 +493,7 @@ async fn server_loop(
                         let cache = Arc::clone(&cache);
                         let dns_filter = Arc::clone(&dns_filter);
                         let resolver = Arc::clone(&resolver);
+                        let recursor = Arc::clone(&recursor);
                         let log_sink = log_sink.clone();
                         let routing_snapshot = Arc::clone(&routing_snapshot);
                         let tunnel_repo = Arc::clone(&tunnel_repo);
@@ -472,6 +514,7 @@ async fn server_loop(
                                 &cache,
                                 dns_filter.as_ref(),
                                 &resolver,
+                                &recursor,
                                 log_sink.as_deref(),
                                 &routing_snapshot,
                                 &tunnel_repo,
@@ -505,6 +548,7 @@ async fn handle_query(
     cache: &Arc<RwLock<DnsCache>>,
     dns_filter: &dyn DnsFilterService,
     resolver: &Arc<RwLock<TokioResolver>>,
+    recursor: &Arc<RwLock<Option<TokioRecursor>>>,
     log_sink: Option<&DnsLogSink>,
     routing_snapshot: &Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
     tunnel_repo: &Arc<dyn TunnelRepository>,
@@ -848,22 +892,43 @@ async fn handle_query(
 
     match upstream_id {
         UpstreamId::Default => {
-            forward_via_default_resolver(
-                resolver,
-                socket,
-                config,
-                cache,
-                log_sink,
-                request,
-                id,
-                src,
-                &domain,
-                rtype,
-                start,
-                pass_result,
-                upstream_id,
-            )
-            .await?;
+            let recursive = config.read().await.resolution_mode == DnsResolutionMode::Recursive;
+            if recursive {
+                resolve_via_recursor(
+                    recursor,
+                    resolver,
+                    socket,
+                    config,
+                    cache,
+                    log_sink,
+                    request,
+                    id,
+                    src,
+                    &domain,
+                    rtype,
+                    start,
+                    pass_result,
+                    upstream_id,
+                )
+                .await?;
+            } else {
+                forward_via_default_resolver(
+                    resolver,
+                    socket,
+                    config,
+                    cache,
+                    log_sink,
+                    request,
+                    id,
+                    src,
+                    &domain,
+                    rtype,
+                    start,
+                    pass_result,
+                    upstream_id,
+                )
+                .await?;
+            }
         }
         UpstreamId::Tunnel(tunnel_id) => {
             match get_or_build_tunnel_forwarder(tunnel_forwarders, tunnel_repo, tunnel_id).await {
@@ -944,8 +1009,6 @@ async fn forward_via_default_resolver(
     pass_result: &str,
     upstream_id: UpstreamId,
 ) -> anyhow::Result<()> {
-    use hickory_proto::rr::RData;
-
     let resolver_guard = resolver.read().await;
     let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
 
@@ -954,78 +1017,25 @@ async fn forward_via_default_resolver(
 
     match lookup {
         Ok(lookup) => {
-            // DNS rebinding protection (Stage 4): reject answers for an
-            // external domain that resolve to a private/internal IP. Only
-            // the default/recursive upstream path reaches here —
-            // authoritative records, `.lan`, and conditional forwarding
-            // (which legitimately return private IPs) short-circuit earlier.
-            if cfg.rebinding_protection
-                && lookup.answers().iter().any(|r| match &r.data {
-                    RData::A(a) => is_private_ip(IpAddr::V4(a.0)),
-                    RData::AAAA(a) => is_private_ip(IpAddr::V6(a.0)),
-                    _ => false,
-                })
-            {
-                // Empty NOERROR (NODATA), not NXDOMAIN: the name exists, we
-                // just refuse the private answer. NXDOMAIN would poison
-                // stub negative caches for every record type on the name.
-                let mut response = Message::response(id, OpCode::Query);
-                response.metadata.recursion_desired = true;
-                response.metadata.recursion_available = true;
-                response.add_queries(request.queries.clone());
-                let bytes = response.to_bytes()?;
-                socket.send_to(&bytes, src).await?;
-                record_query(
-                    log_sink,
-                    domain,
-                    rtype,
-                    src,
-                    "rebinding_blocked",
-                    upstream,
-                    start.elapsed(),
-                );
-                tracing::debug!(%domain, "blocked DNS rebinding: private IP for external domain");
-                return Ok(());
-            }
-
-            let mut response = Message::response(id, OpCode::Query);
-            response.metadata.recursion_desired = true;
-            response.metadata.recursion_available = true;
-            response.add_queries(request.queries.clone());
-
-            let mut min_ttl = u32::MAX;
-            for record in lookup.answers() {
-                response.add_answer(record.clone());
-                min_ttl = min_ttl.min(record.ttl);
-            }
-
-            let bytes = response.to_bytes()?;
-            socket.send_to(&bytes, src).await?;
-
-            if min_ttl < u32::MAX && min_ttl > 0 {
-                let mut cache_guard = cache.write().await;
-                cache_guard.insert(
-                    upstream_id,
-                    domain,
-                    rtype,
-                    response,
-                    min_ttl,
-                    cfg.cache_ttl_min_secs,
-                    cfg.cache_ttl_max_secs,
-                );
-            }
-
-            let elapsed = start.elapsed();
-            tracing::trace!(%domain, ?rtype, ?elapsed, ?upstream_id, "forwarded");
-            record_query(
+            send_resolved(
+                socket,
+                cache,
                 log_sink,
+                &request,
+                id,
+                src,
                 domain,
                 rtype,
-                src,
+                start,
                 pass_result,
-                upstream.clone(),
-                elapsed,
-            );
+                upstream_id,
+                upstream,
+                cfg.rebinding_protection,
+                cfg.cache_ttl_min_secs,
+                cfg.cache_ttl_max_secs,
+                lookup.answers(),
+            )
+            .await?;
         }
         Err(e) => {
             send_servfail(socket, src, id, &request).await?;
@@ -1040,6 +1050,215 @@ async fn forward_via_default_resolver(
                 upstream,
                 elapsed,
             );
+        }
+    }
+    Ok(())
+}
+
+/// Shared post-resolution responder for the direct-device upstream paths
+/// (forwarding + recursive). Applies DNS rebinding protection, builds and
+/// sends the response, caches it, and logs the query. Both paths funnel
+/// through here so recursive resolution can't bypass rebinding/caching.
+#[allow(clippy::too_many_arguments)]
+async fn send_resolved(
+    socket: &Arc<dyn DnsSocket>,
+    cache: &Arc<RwLock<DnsCache>>,
+    log_sink: Option<&DnsLogSink>,
+    request: &Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+    upstream_label: Option<String>,
+    rebinding_protection: bool,
+    cache_ttl_min_secs: u32,
+    cache_ttl_max_secs: u32,
+    answers: &[hickory_proto::rr::Record],
+) -> anyhow::Result<()> {
+    use hickory_proto::rr::RData;
+
+    // DNS rebinding protection (Stage 4): reject answers for an external
+    // domain that resolve to a private/internal IP. Authoritative records,
+    // `.lan`, and conditional forwarding (which legitimately return private
+    // IPs) short-circuit earlier and never reach here.
+    if rebinding_protection
+        && answers.iter().any(|r| match &r.data {
+            RData::A(a) => is_private_ip(IpAddr::V4(a.0)),
+            RData::AAAA(a) => is_private_ip(IpAddr::V6(a.0)),
+            _ => false,
+        })
+    {
+        // Empty NOERROR (NODATA), not NXDOMAIN: the name exists, we just
+        // refuse the private answer.
+        let mut response = Message::response(id, OpCode::Query);
+        response.metadata.recursion_desired = true;
+        response.metadata.recursion_available = true;
+        response.add_queries(request.queries.clone());
+        let bytes = response.to_bytes()?;
+        socket.send_to(&bytes, src).await?;
+        record_query(
+            log_sink,
+            domain,
+            rtype,
+            src,
+            "rebinding_blocked",
+            upstream_label,
+            start.elapsed(),
+        );
+        tracing::debug!(%domain, "blocked DNS rebinding: private IP for external domain");
+        return Ok(());
+    }
+
+    let mut response = Message::response(id, OpCode::Query);
+    response.metadata.recursion_desired = true;
+    response.metadata.recursion_available = true;
+    response.add_queries(request.queries.clone());
+
+    let mut min_ttl = u32::MAX;
+    for record in answers {
+        response.add_answer(record.clone());
+        min_ttl = min_ttl.min(record.ttl);
+    }
+
+    let bytes = response.to_bytes()?;
+    socket.send_to(&bytes, src).await?;
+
+    if min_ttl < u32::MAX && min_ttl > 0 {
+        let mut cache_guard = cache.write().await;
+        cache_guard.insert(
+            upstream_id,
+            domain,
+            rtype,
+            response,
+            min_ttl,
+            cache_ttl_min_secs,
+            cache_ttl_max_secs,
+        );
+    }
+
+    let elapsed = start.elapsed();
+    tracing::trace!(%domain, ?rtype, ?elapsed, ?upstream_id, "resolved");
+    record_query(
+        log_sink,
+        domain,
+        rtype,
+        src,
+        pass_result,
+        upstream_label,
+        elapsed,
+    );
+    Ok(())
+}
+
+/// Recursive resolution (Stage 5): resolve a direct-device query from the
+/// root servers via the recursor. On recursor failure, fall back to
+/// forwarding **only if upstreams are configured**; with none configured
+/// (pure recursive) return SERVFAIL rather than leaking to a default
+/// public resolver.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn resolve_via_recursor(
+    recursor: &Arc<RwLock<Option<TokioRecursor>>>,
+    resolver: &Arc<RwLock<TokioResolver>>,
+    socket: &Arc<dyn DnsSocket>,
+    config: &Arc<RwLock<DnsConfig>>,
+    cache: &Arc<RwLock<DnsCache>>,
+    log_sink: Option<&DnsLogSink>,
+    request: Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+) -> anyhow::Result<()> {
+    let Some(query) = request.queries.first().cloned() else {
+        send_servfail(socket, src, id, &request).await?;
+        return Ok(());
+    };
+
+    let (dnssec_ok, has_upstreams, rebinding, ttl_min, ttl_max) = {
+        let cfg = config.read().await;
+        (
+            cfg.dnssec_enabled,
+            !cfg.upstream_servers.is_empty(),
+            cfg.rebinding_protection,
+            cfg.cache_ttl_min_secs,
+            cfg.cache_ttl_max_secs,
+        )
+    };
+
+    let recursor_result = {
+        let guard = recursor.read().await;
+        match guard.as_ref() {
+            Some(rec) => Some(
+                rec.resolve(query, std::time::Instant::now(), dnssec_ok)
+                    .await,
+            ),
+            None => None,
+        }
+    };
+
+    match recursor_result {
+        Some(Ok(msg)) => {
+            send_resolved(
+                socket,
+                cache,
+                log_sink,
+                &request,
+                id,
+                src,
+                domain,
+                rtype,
+                start,
+                pass_result,
+                upstream_id,
+                Some("recursive".to_owned()),
+                rebinding,
+                ttl_min,
+                ttl_max,
+                &msg.answers,
+            )
+            .await?;
+        }
+        other => {
+            if let Some(Err(e)) = &other {
+                tracing::warn!(%domain, error = %e, "recursive resolution failed");
+            } else {
+                tracing::warn!(%domain, "recursor unavailable; cannot recurse");
+            }
+            if has_upstreams {
+                forward_via_default_resolver(
+                    resolver,
+                    socket,
+                    config,
+                    cache,
+                    log_sink,
+                    request,
+                    id,
+                    src,
+                    domain,
+                    rtype,
+                    start,
+                    pass_result,
+                    upstream_id,
+                )
+                .await?;
+            } else {
+                send_servfail(socket, src, id, &request).await?;
+                record_query(
+                    log_sink,
+                    domain,
+                    rtype,
+                    src,
+                    "recursor_failed",
+                    None,
+                    start.elapsed(),
+                );
+            }
         }
     }
     Ok(())
@@ -1594,4 +1813,50 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) ->
         .with_options(opts)
         .build()
         .expect("failed to build DNS resolver")
+}
+
+type TokioRecursor = Recursor<TokioRuntimeProvider>;
+
+/// IANA root server addresses (a–m) — initial hints for the recursive
+/// resolver (Stage 5). Stable, well-known IPs (b updated 2023); the
+/// recursor discovers the rest of the namespace from these.
+const ROOT_HINTS: &[IpAddr] = &[
+    IpAddr::V4(Ipv4Addr::new(198, 41, 0, 4)), // a.root-servers.net
+    IpAddr::V4(Ipv4Addr::new(170, 247, 170, 2)), // b
+    IpAddr::V4(Ipv4Addr::new(192, 33, 4, 12)), // c
+    IpAddr::V4(Ipv4Addr::new(199, 7, 91, 13)), // d
+    IpAddr::V4(Ipv4Addr::new(192, 203, 230, 10)), // e
+    IpAddr::V4(Ipv4Addr::new(192, 5, 5, 241)), // f
+    IpAddr::V4(Ipv4Addr::new(192, 112, 36, 4)), // g
+    IpAddr::V4(Ipv4Addr::new(198, 97, 190, 53)), // h
+    IpAddr::V4(Ipv4Addr::new(192, 36, 148, 17)), // i
+    IpAddr::V4(Ipv4Addr::new(192, 58, 128, 30)), // j
+    IpAddr::V4(Ipv4Addr::new(193, 0, 14, 129)), // k
+    IpAddr::V4(Ipv4Addr::new(199, 7, 83, 42)), // l
+    IpAddr::V4(Ipv4Addr::new(202, 12, 27, 33)), // m
+];
+
+/// Build a recursive resolver from the root hints (Stage 5).
+/// `dnssec_enabled` selects validating (built-in IANA root trust anchor)
+/// vs security-unaware. Returns `None` (logged) on construction failure so
+/// the caller can fall back to forwarding.
+pub(crate) fn build_recursor(dnssec_enabled: bool) -> Option<TokioRecursor> {
+    let dnssec_policy = if dnssec_enabled {
+        DnssecPolicy::ValidateWithStaticKey(DnssecConfig::default())
+    } else {
+        DnssecPolicy::SecurityUnaware
+    };
+    match Recursor::new(
+        ROOT_HINTS,
+        dnssec_policy,
+        None,
+        RecursorOptions::default(),
+        TokioRuntimeProvider::default(),
+    ) {
+        Ok(recursor) => Some(recursor),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to build recursive resolver; recursive mode will fall back to forwarding");
+            None
+        }
+    }
 }

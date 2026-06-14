@@ -242,6 +242,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1719,6 +1730,7 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0d58d28879ceecde6607729660c2667a081ccdc082e082675042793960f178c"
 dependencies = [
+ "async-recursion",
  "cfg-if",
  "futures-util",
  "hickory-net",
@@ -1726,6 +1738,7 @@ dependencies = [
  "ipconfig",
  "ipnet",
  "jni 0.22.4",
+ "lru-cache",
  "moka",
  "ndk-context",
  "once_cell",

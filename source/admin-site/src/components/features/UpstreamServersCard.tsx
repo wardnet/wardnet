@@ -29,6 +29,9 @@ const PROTOCOLS: DnsProtocol[] = ["udp", "tcp", "tls", "https"];
 interface UpstreamServersCardProps {
   servers: UpstreamDns[];
   isSaving: boolean;
+  /** When true (recursive mode), these upstreams are used only as a
+   *  fallback if recursive resolution fails — surfaced as a note. */
+  fallbackOnly?: boolean;
   onUpdate: (servers: UpstreamDns[]) => void;
 }
 
@@ -38,6 +41,7 @@ interface UpstreamServersCardProps {
 export function UpstreamServersCard({
   servers,
   isSaving,
+  fallbackOnly = false,
   onUpdate,
 }: UpstreamServersCardProps) {
   const [adding, setAdding] = useState(false);
@@ -115,6 +119,13 @@ export function UpstreamServersCard({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {fallbackOnly && (
+          <p className="text-sm text-ink-3">
+            Recursive resolution is active — these upstreams are used only as a
+            fallback if recursion fails. Leave empty to resolve purely from the
+            root servers (failures return SERVFAIL instead of forwarding).
+          </p>
+        )}
         {adding && (
           <AddServerForm
             onCancel={() => setAdding(false)}

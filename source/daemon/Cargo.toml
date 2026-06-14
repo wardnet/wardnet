@@ -157,11 +157,14 @@ hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
 # DNS Stage 4: tls-ring/https-ring enable DoT/DoH upstreams; dnssec-ring
 # enables ResolverOpts.validate; webpki-roots bundles Mozilla roots so the
 # appliance can verify upstream DoT/DoH certs without a system trust store.
+# DNS Stage 5: `recursor` enables hickory_resolver::recursor::Recursor (the
+# standalone hickory-recursor crate was folded into hickory-resolver).
 hickory-resolver = { version = "0.26", features = [
     "tls-ring",
     "https-ring",
     "dnssec-ring",
     "webpki-roots",
+    "recursor",
 ] }
 # https://crates.io/crates/socket2 — raw socket2 wrapper used to set
 # SO_BINDTODEVICE on per-tunnel DNS upstream sockets so tunneled-device
