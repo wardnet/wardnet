@@ -22370,6 +22370,13 @@
           "protocol": {
             "$ref": "#/components/schemas/DnsProtocol",
             "description": "Transport protocol."
+          },
+          "tls_server_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "TLS server name (SNI) for DoT/DoH. Required when `protocol` is\n`Tls`/`Https`, ignored otherwise: `address` is the IP to dial, and\nthis is the hostname the upstream's certificate must match (e.g.\naddress `\"1.1.1.1\"`, `tls_server_name` `\"cloudflare-dns.com\"`)."
           }
         }
       },
@@ -22398,6 +22405,13 @@
           },
           "protocol": {
             "$ref": "#/components/schemas/DnsProtocol"
+          },
+          "tls_server_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "TLS server name (SNI) — required when protocol is tls/https."
           }
         }
       },
