@@ -881,6 +881,9 @@ pub struct UpstreamDnsRequest {
     pub name: String,
     pub protocol: DnsProtocol,
     pub port: Option<u16>,
+    /// TLS server name (SNI) — required when protocol is tls/https.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_server_name: Option<String>,
 }
 
 impl From<UpstreamDnsRequest> for UpstreamDns {
@@ -890,6 +893,7 @@ impl From<UpstreamDnsRequest> for UpstreamDns {
             name: req.name,
             protocol: req.protocol,
             port: req.port,
+            tls_server_name: req.tls_server_name,
         }
     }
 }

@@ -1433,12 +1433,23 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) ->
             DnsProtocol::Udp => ConnectionConfig::udp(),
             DnsProtocol::Tcp => ConnectionConfig::tcp(),
             DnsProtocol::Tls | DnsProtocol::Https => {
-                tracing::warn!(
-                    address = %upstream.address,
-                    protocol = ?upstream.protocol,
-                    "encrypted DNS not yet enabled, falling back to TCP",
-                );
-                ConnectionConfig::tcp()
+                // DoT/DoH need an SNI server name for cert validation. The
+                // API rejects encrypted upstreams without one; if a bad
+                // config slips through, skip the upstream rather than
+                // silently downgrade to plaintext.
+                let Some(sni) = upstream.tls_server_name.clone() else {
+                    tracing::error!(
+                        address = %upstream.address,
+                        protocol = ?upstream.protocol,
+                        "skipping encrypted upstream: tls_server_name is required for DoT/DoH",
+                    );
+                    continue;
+                };
+                let sni: Arc<str> = Arc::from(sni);
+                match upstream.protocol {
+                    DnsProtocol::Https => ConnectionConfig::https(sni, None),
+                    _ => ConnectionConfig::tls(sni),
+                }
             }
         };
 

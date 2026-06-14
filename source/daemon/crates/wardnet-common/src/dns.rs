@@ -51,6 +51,12 @@ pub struct UpstreamDns {
     /// Port (default: 53 for UDP/TCP, 853 for TLS, 443 for HTTPS).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// TLS server name (SNI) for DoT/DoH. Required when `protocol` is
+    /// `Tls`/`Https`, ignored otherwise: `address` is the IP to dial, and
+    /// this is the hostname the upstream's certificate must match (e.g.
+    /// address `"1.1.1.1"`, `tls_server_name` `"cloudflare-dns.com"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_server_name: Option<String>,
 }
 
 /// Top-level DNS server configuration.
@@ -88,12 +94,14 @@ impl Default for DnsConfig {
                     name: "Cloudflare".to_owned(),
                     protocol: DnsProtocol::Udp,
                     port: None,
+                    tls_server_name: None,
                 },
                 UpstreamDns {
                     address: "8.8.8.8".to_owned(),
                     name: "Google".to_owned(),
                     protocol: DnsProtocol::Udp,
                     port: None,
+                    tls_server_name: None,
                 },
             ],
             cache_size: 10_000,

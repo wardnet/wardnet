@@ -578,12 +578,14 @@ fn upstream_label_uses_first_entry() {
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Udp,
             port: None,
+            tls_server_name: None,
         },
         UpstreamDns {
             name: "secondary".into(),
             address: "8.8.8.8".into(),
             protocol: DnsProtocol::Udp,
             port: None,
+            tls_server_name: None,
         },
     ];
     let label = upstream_label(&upstreams).expect("non-empty list returns a label");
@@ -1017,6 +1019,7 @@ async fn handle_query_upstream_error_records_upstream_error() {
             // waiting for hickory's UDP retry budget to elapse.
             protocol: DnsProtocol::Tcp,
             port: Some(1),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };
@@ -1108,6 +1111,7 @@ fn build_resolver_with_udp_upstream_succeeds() {
         address: "1.1.1.1".into(),
         protocol: DnsProtocol::Udp,
         port: None,
+        tls_server_name: None,
     }];
     let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
@@ -1119,6 +1123,7 @@ fn build_resolver_with_tcp_upstream_succeeds() {
         address: "1.1.1.1".into(),
         protocol: DnsProtocol::Tcp,
         port: Some(53),
+        tls_server_name: None,
     }];
     let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
@@ -1134,12 +1139,14 @@ fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Tls,
             port: None,
+            tls_server_name: None,
         },
         UpstreamDns {
             name: "https".into(),
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Https,
             port: None,
+            tls_server_name: None,
         },
     ];
     let _ = crate::dns::server::build_resolver(&upstreams, false);
@@ -1155,6 +1162,7 @@ fn build_resolver_skips_invalid_ip_addresses() {
         address: "not-an-ip".into(),
         protocol: DnsProtocol::Udp,
         port: None,
+        tls_server_name: None,
     }];
     let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
@@ -1486,6 +1494,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
             address: upstream_addr.ip().to_string(),
             protocol: DnsProtocol::Udp,
             port: Some(upstream_addr.port()),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };
@@ -1734,6 +1743,7 @@ async fn authoritative_zone_unknown_name_returns_nxdomain_not_forwarded() {
             address: upstream_addr.ip().to_string(),
             protocol: DnsProtocol::Udp,
             port: Some(upstream_addr.port()),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };

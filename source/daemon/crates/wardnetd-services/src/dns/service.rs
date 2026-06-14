@@ -19,7 +19,7 @@ use wardnet_common::api::{
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
-    DnsConfig, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
 };
 use wardnet_common::event::WardnetEvent;
 
@@ -198,6 +198,21 @@ impl DnsService for DnsServiceImpl {
                 .map_err(AppError::Internal)?;
         }
         if let Some(ref servers) = req.upstream_servers {
+            // DoT/DoH need an SNI server name for certificate validation;
+            // reject encrypted upstreams that omit it rather than silently
+            // dropping them at resolver-build time.
+            for s in servers {
+                if matches!(s.protocol, DnsProtocol::Tls | DnsProtocol::Https)
+                    && s.tls_server_name
+                        .as_deref()
+                        .is_none_or(|n| n.trim().is_empty())
+                {
+                    return Err(AppError::BadRequest(format!(
+                        "upstream '{}' uses {:?} and requires a tls_server_name",
+                        s.name, s.protocol
+                    )));
+                }
+            }
             let upstream: Vec<UpstreamDns> = servers
                 .iter()
                 .map(|s| UpstreamDns {
@@ -205,6 +220,7 @@ impl DnsService for DnsServiceImpl {
                     name: s.name.clone(),
                     protocol: s.protocol,
                     port: s.port,
+                    tls_server_name: s.tls_server_name.clone(),
                 })
                 .collect();
             let json = serde_json::to_string(&upstream)

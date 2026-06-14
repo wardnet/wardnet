@@ -10,6 +10,12 @@ export interface UpstreamDns {
   name: string;
   protocol: DnsProtocol;
   port?: number;
+  /**
+   * TLS server name (SNI) for DoT/DoH. Required when `protocol` is
+   * `"tls"` or `"https"`: `address` is the IP to dial, this is the
+   * hostname the upstream's certificate must match.
+   */
+  tls_server_name?: string;
 }
 
 /** DNS server configuration. */
