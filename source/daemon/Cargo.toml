@@ -152,9 +152,17 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 cron = "0.16"
 
 # https://crates.io/crates/hickory-proto
-hickory-proto = "0.26"
+hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
 # https://crates.io/crates/hickory-resolver
-hickory-resolver = "0.26"
+# DNS Stage 4: tls-ring/https-ring enable DoT/DoH upstreams; dnssec-ring
+# enables ResolverOpts.validate; webpki-roots bundles Mozilla roots so the
+# appliance can verify upstream DoT/DoH certs without a system trust store.
+hickory-resolver = { version = "0.26", features = [
+    "tls-ring",
+    "https-ring",
+    "dnssec-ring",
+    "webpki-roots",
+] }
 # https://crates.io/crates/socket2 — raw socket2 wrapper used to set
 # SO_BINDTODEVICE on per-tunnel DNS upstream sockets so tunneled-device
 # queries egress via the tunnel interface instead of leaking to the ISP.

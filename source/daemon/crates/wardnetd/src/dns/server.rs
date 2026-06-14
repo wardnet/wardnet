@@ -74,6 +74,12 @@ impl DnsSocket for UdpDnsSocket {
 /// (issue #342).
 pub struct UdpDnsServer {
     config: Arc<RwLock<DnsConfig>>,
+    /// Shared upstream resolver. Hoisted onto the struct (rather than being
+    /// loop-local) so `update_config` can rebuild and swap it when
+    /// upstream servers / DNSSEC / protocol change, without restarting the
+    /// listener. Built from the current config; rebuilt on every
+    /// `update_config`.
+    resolver: Arc<RwLock<TokioResolver>>,
     cache: Arc<RwLock<DnsCache>>,
     dns_filter: Arc<dyn DnsFilterService>,
     bind_addr: SocketAddr,
@@ -187,6 +193,10 @@ impl UdpDnsServer {
     ) -> Self {
         let cache_capacity = config.cache_size as usize;
         let cache = Arc::new(RwLock::new(DnsCache::new(cache_capacity)));
+        let resolver = Arc::new(RwLock::new(build_resolver(
+            &config.upstream_servers,
+            config.dnssec_enabled,
+        )));
         let cache_invalidator_cancel = CancellationToken::new();
         // Subscribe BEFORE spawning so any event published between
         // construction and the task running is buffered into this
@@ -201,6 +211,7 @@ impl UdpDnsServer {
         );
         Self {
             config: Arc::new(RwLock::new(config)),
+            resolver,
             cache,
             dns_filter,
             bind_addr,
@@ -265,6 +276,7 @@ impl DnsServer for UdpDnsServer {
         };
 
         let config = Arc::clone(&self.config);
+        let resolver = Arc::clone(&self.resolver);
         let cache = Arc::clone(&self.cache);
         let dns_filter = Arc::clone(&self.dns_filter);
         let running = Arc::clone(&self.running);
@@ -291,6 +303,7 @@ impl DnsServer for UdpDnsServer {
             server_loop(
                 socket,
                 config,
+                resolver,
                 cache,
                 dns_filter,
                 log_sink,
@@ -349,6 +362,11 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn update_config(&self, config: DnsConfig) {
+        // Rebuild the upstream resolver so changed upstream servers, the
+        // DNSSEC toggle, and per-upstream protocol take effect live, without
+        // restarting the listener (the cache + bound socket survive).
+        let new_resolver = build_resolver(&config.upstream_servers, config.dnssec_enabled);
+        *self.resolver.write().await = new_resolver;
         *self.config.write().await = config;
     }
 
@@ -368,6 +386,7 @@ impl DnsServer for UdpDnsServer {
 async fn server_loop(
     socket: Arc<dyn DnsSocket>,
     config: Arc<RwLock<DnsConfig>>,
+    resolver: Arc<RwLock<TokioResolver>>,
     cache: Arc<RwLock<DnsCache>>,
     dns_filter: Arc<dyn DnsFilterService>,
     log_sink: Option<Arc<DnsLogSink>>,
@@ -380,12 +399,6 @@ async fn server_loop(
     conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
 ) {
     let mut buf = vec![0u8; 4096];
-
-    let resolver = {
-        let cfg = config.read().await;
-        build_resolver(&cfg.upstream_servers)
-    };
-    let resolver = Arc::new(RwLock::new(resolver));
 
     loop {
         tokio::select! {
@@ -1412,7 +1425,7 @@ async fn return_socket_to_pool(pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>, s
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;
 
-pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
+pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) -> TokioResolver {
     let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {
@@ -1451,6 +1464,10 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
     let mut opts = ResolverOpts::default();
     opts.cache_size = 0;
     opts.use_hosts_file = ResolveHosts::Never;
+    // DNS Stage 4 — local DNSSEC validation (opt-in; default off). hickory
+    // validates signatures via the upstream as forwarder and surfaces bogus
+    // responses as resolution errors (→ SERVFAIL on the forward path).
+    opts.validate = dnssec_enabled;
 
     TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default())
         .with_options(opts)

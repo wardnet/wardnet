@@ -1109,7 +1109,7 @@ fn build_resolver_with_udp_upstream_succeeds() {
         protocol: DnsProtocol::Udp,
         port: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 #[test]
@@ -1120,7 +1120,7 @@ fn build_resolver_with_tcp_upstream_succeeds() {
         protocol: DnsProtocol::Tcp,
         port: Some(53),
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 #[test]
@@ -1142,7 +1142,7 @@ fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
             port: None,
         },
     ];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 #[test]
@@ -1156,7 +1156,7 @@ fn build_resolver_skips_invalid_ip_addresses() {
         protocol: DnsProtocol::Udp,
         port: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 // ---------------------------------------------------------------------------
