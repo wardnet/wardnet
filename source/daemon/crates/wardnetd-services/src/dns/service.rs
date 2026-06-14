@@ -177,6 +177,7 @@ impl DnsService for DnsServiceImpl {
         Ok(DnsConfigResponse { config })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn update_config(
         &self,
         req: UpdateDnsConfigRequest,
