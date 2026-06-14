@@ -2260,3 +2260,132 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
     );
     assert!(response.answers.is_empty(), "SERVFAIL carries no answers");
 }
+
+#[tokio::test]
+async fn recursive_mode_dispatches_through_handle_query_and_falls_back() {
+    // End-to-end through the real query pipeline: a Recursive-mode server
+    // whose recursor has been dropped takes the recursor-unavailable branch
+    // and falls back to the configured upstream. This exercises the
+    // `handle_query` resolution-mode dispatch (the `if recursive { ... }`
+    // arm) and `with_bind_addr`'s recursive construction branch, without
+    // touching the real root servers.
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::RData;
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    // Drop the (real-root) recursor so dispatch falls back deterministically.
+    server.clear_recursor_for_test().await;
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let resp = query_foo_com(bound).await;
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "recursive dispatch must fall back to the upstream and answer NoError"
+    );
+    assert!(
+        resp.answers.iter().any(|r| matches!(
+            &r.data,
+            RData::A(a) if a.0 == Ipv4Addr::new(93, 184, 216, 34)
+        )),
+        "fallback forwarding must return the stub upstream's answer"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn mode_change_via_update_config_rebuilds_recursor_and_flushes_cache() {
+    // Toggling resolution_mode through update_config must (re)build/clear the
+    // recursor and flush the cache so a stale forwarding answer isn't served
+    // after switching modes. We never query in recursive mode, so no
+    // root-server network I/O happens — only the lifecycle branches run.
+    let upstream_addr = spawn_stub_upstream().await;
+    let forwarding = DnsConfig {
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(forwarding.clone(), loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // Populate the cache via a forwarded query.
+    query_foo_com(bound).await;
+    assert!(
+        server.cache_size().await > 0,
+        "forwarded answer should populate the cache"
+    );
+
+    // Forwarding -> Recursive: builds the recursor and flushes on mode change.
+    server
+        .update_config(DnsConfig {
+            resolution_mode: DnsResolutionMode::Recursive,
+            upstream_servers: vec![udp_upstream(upstream_addr)],
+            ..DnsConfig::default()
+        })
+        .await;
+    assert_eq!(
+        server.cache_size().await,
+        0,
+        "switching resolution mode must flush the cache"
+    );
+
+    // Recursive -> Forwarding: clears the recursor (None branch).
+    server.update_config(forwarding).await;
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn resolve_via_recursor_servfails_on_empty_query() {
+    // A request carrying no question falls through to the early SERVFAIL
+    // guard rather than panicking on `queries.first()`.
+    use hickory_proto::op::{Message, OpCode, ResponseCode};
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let recursor = Arc::new(RwLock::new(None));
+    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let config = Arc::new(RwLock::new(DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        ..DnsConfig::default()
+    }));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent: sent.clone() });
+    let src: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 5353));
+
+    // A Query-opcode message with no questions.
+    let request = Message::response(0xABCD, OpCode::Query);
+    assert!(request.queries.is_empty(), "request must carry no question");
+
+    resolve_via_recursor(
+        &recursor,
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        request,
+        0xABCD,
+        src,
+        "",
+        RecordType::A,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+    )
+    .await
+    .expect("resolve_via_recursor");
+
+    let frames = sent.lock().unwrap().clone();
+    assert_eq!(frames.len(), 1, "exactly one response sent");
+    let response = Message::from_bytes(&frames[0]).expect("parse response");
+    assert_eq!(response.metadata.response_code, ResponseCode::ServFail);
+}

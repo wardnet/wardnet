@@ -272,6 +272,16 @@ impl UdpDnsServer {
     pub(crate) fn local_addr(&self) -> Option<SocketAddr> {
         self.local_addr.lock().ok().and_then(|g| *g)
     }
+
+    /// Test-only: drop the recursor so the recursive dispatch path can be
+    /// exercised deterministically. With no recursor, `resolve_via_recursor`
+    /// takes the recursor-unavailable branch (fallback to forwarding when
+    /// upstreams are set, else SERVFAIL) instead of contacting the real
+    /// root servers over the network.
+    #[cfg(test)]
+    pub(crate) async fn clear_recursor_for_test(&self) {
+        *self.recursor.write().await = None;
+    }
 }
 
 #[async_trait]
