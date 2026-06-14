@@ -20,18 +20,19 @@ use chrono::Utc;
 use hickory_proto::rr::RecordType;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use wardnet_common::dns::{DnsConfig, DnsProtocol, UpstreamDns, UpstreamId};
+use wardnet_common::dns::{DnsConfig, DnsProtocol, DnsResolutionMode, UpstreamDns, UpstreamId};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_common::wireguard_config::WgPeerConfig;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
-use wardnetd_services::dns::server::DnsServer;
+use wardnetd_services::dns::cache::DnsCache;
+use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
-    TunnelForwarderInfo, UdpDnsServer, duration_to_ms, get_or_build_tunnel_forwarder,
-    spawn_cache_invalidator, upstream_label,
+    TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver, duration_to_ms,
+    get_or_build_tunnel_forwarder, resolve_via_recursor, spawn_cache_invalidator, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -2096,4 +2097,166 @@ async fn rebinding_toggle_via_update_config_flushes_cache_and_blocks_private_ip(
     );
 
     server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5 — recursive resolution mode (#219)
+//
+// `resolve_via_recursor`'s happy path hits the real root servers, so it's
+// covered by Pi/manual acceptance rather than CI. These units pin the
+// deterministic, network-free branches: the recursor-unavailable fallback
+// (forward iff upstreams are configured, else SERVFAIL) and that
+// `build_recursor` constructs for both DNSSEC settings.
+// ---------------------------------------------------------------------------
+
+/// A `DnsSocket` that records every datagram passed to `send_to` instead of
+/// touching the network, so a test can inspect the response the server built.
+/// `recv_from` is never exercised by the responder paths under test.
+struct RecordingSocket {
+    sent: Arc<StdMutex<Vec<Vec<u8>>>>,
+}
+
+#[async_trait]
+impl DnsSocket for RecordingSocket {
+    async fn recv_from(&self, _buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "RecordingSocket does not receive",
+        ))
+    }
+
+    async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> std::io::Result<usize> {
+        self.sent.lock().unwrap().push(buf.to_vec());
+        Ok(buf.len())
+    }
+}
+
+/// Parse the foo.com A request (id=0xCAFE) used by the recursor tests from the
+/// same wire bytes as `query_foo_com`, so the request carries exactly one
+/// question.
+fn foo_com_request() -> hickory_proto::op::Message {
+    use hickory_proto::op::Message;
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let query: &[u8] = &[
+        0xCA, 0xFE, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, b'f', b'o',
+        b'o', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    Message::from_bytes(query).expect("parse foo.com request")
+}
+
+#[test]
+fn build_recursor_constructs_for_both_dnssec_settings() {
+    assert!(
+        build_recursor(false).is_some(),
+        "recursor must build with DNSSEC disabled"
+    );
+    assert!(
+        build_recursor(true).is_some(),
+        "recursor must build with DNSSEC validation enabled"
+    );
+}
+
+#[tokio::test]
+async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
+    use hickory_proto::op::{Message, ResponseCode};
+    use hickory_proto::rr::RData;
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let upstreams = vec![udp_upstream(upstream_addr)];
+
+    // Recursor absent (None) → the fallback branch runs. With upstreams
+    // configured, it must forward via the resolver, not SERVFAIL.
+    let recursor = Arc::new(RwLock::new(None));
+    let resolver = Arc::new(RwLock::new(build_resolver(&upstreams, false)));
+    let config = Arc::new(RwLock::new(DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: upstreams,
+        ..DnsConfig::default()
+    }));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent: sent.clone() });
+    let src: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 5353));
+
+    resolve_via_recursor(
+        &recursor,
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        foo_com_request(),
+        0xCAFE,
+        src,
+        "foo.com",
+        RecordType::A,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+    )
+    .await
+    .expect("resolve_via_recursor");
+
+    let frames = sent.lock().unwrap().clone();
+    assert_eq!(frames.len(), 1, "exactly one response sent");
+    let response = Message::from_bytes(&frames[0]).expect("parse response");
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert!(
+        response.answers.iter().any(|r| matches!(
+            &r.data,
+            RData::A(a) if a.0 == Ipv4Addr::new(93, 184, 216, 34)
+        )),
+        "fallback forwarding must return the stub upstream's answer"
+    );
+}
+
+#[tokio::test]
+async fn recursor_unavailable_servfails_when_no_upstreams() {
+    use hickory_proto::op::{Message, ResponseCode};
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    // Recursor absent AND no upstreams configured (pure recursive) → the
+    // server must SERVFAIL rather than leak to a default public resolver.
+    let recursor = Arc::new(RwLock::new(None));
+    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let config = Arc::new(RwLock::new(DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: vec![],
+        ..DnsConfig::default()
+    }));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent: sent.clone() });
+    let src: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 5353));
+
+    resolve_via_recursor(
+        &recursor,
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        foo_com_request(),
+        0xCAFE,
+        src,
+        "foo.com",
+        RecordType::A,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+    )
+    .await
+    .expect("resolve_via_recursor");
+
+    let frames = sent.lock().unwrap().clone();
+    assert_eq!(frames.len(), 1, "exactly one response sent");
+    let response = Message::from_bytes(&frames[0]).expect("parse response");
+    assert_eq!(
+        response.metadata.response_code,
+        ResponseCode::ServFail,
+        "pure recursive with no upstreams must SERVFAIL, never forward to a default"
+    );
+    assert!(response.answers.is_empty(), "SERVFAIL carries no answers");
 }

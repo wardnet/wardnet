@@ -151,6 +151,21 @@ describe("dns config", () => {
     });
   });
 
+  it("round-trips Stage 5 resolution_mode (forwarding ↔ recursive)", async () => {
+    // Default is forwarding; flip to recursive and confirm persistence,
+    // then restore to forwarding so downstream DNS specs (dns-resolve,
+    // blocklists, ...) keep resolving via the configured upstream rather
+    // than recursing from the root servers.
+    const updated = await dns.updateConfig({ resolution_mode: "recursive" });
+    expect(updated.config.resolution_mode).toBe("recursive");
+
+    const refetched = (await dns.getConfig()).config;
+    expect(refetched.resolution_mode).toBe("recursive");
+
+    const restored = await dns.updateConfig({ resolution_mode: "forwarding" });
+    expect(restored.config.resolution_mode).toBe("forwarding");
+  });
+
   it("rejects a DoT/DoH upstream without a TLS server name", async () => {
     let status: number | undefined;
     try {

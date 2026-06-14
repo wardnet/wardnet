@@ -1149,7 +1149,7 @@ async fn send_resolved(
 /// (pure recursive) return SERVFAIL rather than leaking to a default
 /// public resolver.
 #[allow(clippy::too_many_arguments)]
-async fn resolve_via_recursor(
+pub(crate) async fn resolve_via_recursor(
     recursor: &Arc<RwLock<Option<TokioRecursor>>>,
     resolver: &Arc<RwLock<TokioResolver>>,
     socket: &Arc<dyn DnsSocket>,
@@ -1830,7 +1830,7 @@ const ROOT_HINTS: &[IpAddr] = &[
 /// `dnssec_enabled` selects validating (built-in IANA root trust anchor)
 /// vs security-unaware. Returns `None` (logged) on construction failure so
 /// the caller can fall back to forwarding.
-fn build_recursor(dnssec_enabled: bool) -> Option<TokioRecursor> {
+pub(crate) fn build_recursor(dnssec_enabled: bool) -> Option<TokioRecursor> {
     let dnssec_policy = if dnssec_enabled {
         DnssecPolicy::ValidateWithStaticKey(DnssecConfig::default())
     } else {
