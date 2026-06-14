@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 /// Upper bound on tracked client buckets. A source-IP-spoofing flood would
@@ -19,23 +20,32 @@ struct Bucket {
     last: Instant,
 }
 
-/// Per-source-IP token-bucket rate limiter.
+/// Per-source-IP token-bucket rate limiter. The active rate is held in an
+/// atomic so the hot path (`check`) needs no config lock; it's refreshed
+/// via [`set_rate`](Self::set_rate) on config change.
 pub(crate) struct RateLimiter {
+    rate: AtomicU32,
     buckets: Mutex<HashMap<IpAddr, Bucket>>,
 }
 
 impl RateLimiter {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(rate: u32) -> Self {
         Self {
+            rate: AtomicU32::new(rate),
             buckets: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Returns `true` if a query from `ip` is allowed under `rate`
-    /// queries/sec/client (`0` disables limiting). Consumes one token on
-    /// allow. Uses a monotonic clock for refill.
-    pub(crate) fn check(&self, ip: IpAddr, rate: u32) -> bool {
-        self.check_at(ip, rate, Instant::now())
+    /// Update the active rate (queries/sec/client; `0` disables).
+    pub(crate) fn set_rate(&self, rate: u32) {
+        self.rate.store(rate, Ordering::Relaxed);
+    }
+
+    /// Returns `true` if a query from `ip` is allowed under the current
+    /// rate (`0` disables limiting). Consumes one token on allow. Reads
+    /// the rate lock-free; uses a monotonic clock for refill.
+    pub(crate) fn check(&self, ip: IpAddr) -> bool {
+        self.check_at(ip, self.rate.load(Ordering::Relaxed), Instant::now())
     }
 
     /// Testable core: same as [`check`](Self::check) with an injected clock.
@@ -82,7 +92,7 @@ mod tests {
 
     #[test]
     fn rate_zero_always_allows() {
-        let rl = RateLimiter::new();
+        let rl = RateLimiter::new(0);
         let t = Instant::now();
         for _ in 0..1000 {
             assert!(rl.check_at(IP, 0, t));
@@ -91,7 +101,7 @@ mod tests {
 
     #[test]
     fn burst_then_denied_within_same_instant() {
-        let rl = RateLimiter::new();
+        let rl = RateLimiter::new(0);
         let t = Instant::now();
         // Capacity = 3: first three allowed, fourth denied (no refill).
         assert!(rl.check_at(IP, 3, t));
@@ -101,8 +111,22 @@ mod tests {
     }
 
     #[test]
+    fn check_uses_atomic_rate_and_set_rate_updates_it() {
+        let rl = RateLimiter::new(0);
+        // rate 0 → unlimited.
+        for _ in 0..100 {
+            assert!(rl.check(IP));
+        }
+        // Tighten to 1 q/s/client: one allowed, the immediate next denied
+        // (negligible refill between back-to-back calls).
+        rl.set_rate(1);
+        assert!(rl.check(IP));
+        assert!(!rl.check(IP));
+    }
+
+    #[test]
     fn refills_over_time() {
-        let rl = RateLimiter::new();
+        let rl = RateLimiter::new(0);
         let t = Instant::now();
         for _ in 0..3 {
             assert!(rl.check_at(IP, 3, t));

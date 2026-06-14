@@ -199,19 +199,23 @@ impl DnsService for DnsServiceImpl {
                 .map_err(AppError::Internal)?;
         }
         if let Some(ref servers) = req.upstream_servers {
-            // DoT/DoH need an SNI server name for certificate validation;
-            // reject encrypted upstreams that omit it rather than silently
-            // dropping them at resolver-build time.
+            // DoT/DoH need a hostname SNI for certificate validation;
+            // reject encrypted upstreams that omit it or give a value that
+            // can't be a cert hostname (URL, IP literal, whitespace) —
+            // those would only surface as opaque per-query handshake
+            // failures, not a clear config error.
             for s in servers {
-                if matches!(s.protocol, DnsProtocol::Tls | DnsProtocol::Https)
-                    && s.tls_server_name
-                        .as_deref()
-                        .is_none_or(|n| n.trim().is_empty())
-                {
-                    return Err(AppError::BadRequest(format!(
-                        "upstream '{}' uses {:?} and requires a tls_server_name",
-                        s.name, s.protocol
-                    )));
+                if matches!(s.protocol, DnsProtocol::Tls | DnsProtocol::Https) {
+                    let sni = s.tls_server_name.as_deref().map_or("", str::trim);
+                    let is_hostname = !sni.is_empty()
+                        && !sni.contains(|c: char| c.is_whitespace() || c == '/')
+                        && sni.parse::<std::net::IpAddr>().is_err();
+                    if !is_hostname {
+                        return Err(AppError::BadRequest(format!(
+                            "upstream '{}' uses {:?} and requires a valid TLS server name (a hostname)",
+                            s.name, s.protocol
+                        )));
+                    }
                 }
             }
             let upstream: Vec<UpstreamDns> = servers

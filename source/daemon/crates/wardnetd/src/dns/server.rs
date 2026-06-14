@@ -203,7 +203,7 @@ impl UdpDnsServer {
             &config.upstream_servers,
             config.dnssec_enabled,
         )));
-        let rate_limiter = Arc::new(RateLimiter::new());
+        let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit_per_second));
         let cache_invalidator_cancel = CancellationToken::new();
         // Subscribe BEFORE spawning so any event published between
         // construction and the task running is buffered into this
@@ -372,11 +372,35 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn update_config(&self, config: DnsConfig) {
-        // Rebuild the upstream resolver so changed upstream servers, the
-        // DNSSEC toggle, and per-upstream protocol take effect live, without
-        // restarting the listener (the cache + bound socket survive).
-        let new_resolver = build_resolver(&config.upstream_servers, config.dnssec_enabled);
-        *self.resolver.write().await = new_resolver;
+        let (upstream_changed, dnssec_changed, rebinding_changed) = {
+            let prev = self.config.read().await;
+            (
+                prev.upstream_servers != config.upstream_servers,
+                prev.dnssec_enabled != config.dnssec_enabled,
+                prev.rebinding_protection != config.rebinding_protection,
+            )
+        };
+
+        // Rebuild the upstream resolver only when something it depends on
+        // changed, so unrelated edits (rebinding, rate limit) don't tear
+        // down warm DoT/DoH connections. Applied live — the cache and
+        // bound socket survive.
+        if upstream_changed || dnssec_changed {
+            let new_resolver = build_resolver(&config.upstream_servers, config.dnssec_enabled);
+            *self.resolver.write().await = new_resolver;
+        }
+
+        // Flush cached answers whose validity depends on the changed
+        // policy so a toggle takes effect at once rather than after TTL
+        // (e.g. enabling rebinding must not keep serving cached private
+        // IPs; changing upstreams/DNSSEC must not serve stale answers).
+        if upstream_changed || dnssec_changed || rebinding_changed {
+            self.cache.write().await.flush();
+        }
+
+        // Rate is read lock-free on the hot path; refresh it here.
+        self.rate_limiter.set_rate(config.rate_limit_per_second);
+
         *self.config.write().await = config;
     }
 
@@ -501,9 +525,9 @@ async fn handle_query(
     let start = std::time::Instant::now();
 
     // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
-    // clients before any resolution work, returning REFUSED.
-    let rate_limit = config.read().await.rate_limit_per_second;
-    if !rate_limiter.check(src.ip(), rate_limit) {
+    // clients before any resolution work, returning REFUSED. The rate is
+    // read lock-free from the limiter (no config lock on the hot path).
+    if !rate_limiter.check(src.ip()) {
         send_refused(socket, src, id, &request).await?;
         record_query(
             log_sink,
@@ -941,10 +965,12 @@ async fn forward_via_default_resolver(
                     _ => false,
                 })
             {
+                // Empty NOERROR (NODATA), not NXDOMAIN: the name exists, we
+                // just refuse the private answer. NXDOMAIN would poison
+                // stub negative caches for every record type on the name.
                 let mut response = Message::response(id, OpCode::Query);
                 response.metadata.recursion_desired = true;
                 response.metadata.recursion_available = true;
-                response.metadata.response_code = ResponseCode::NXDomain;
                 response.add_queries(request.queries.clone());
                 let bytes = response.to_bytes()?;
                 socket.send_to(&bytes, src).await?;
@@ -964,11 +990,6 @@ async fn forward_via_default_resolver(
             let mut response = Message::response(id, OpCode::Query);
             response.metadata.recursion_desired = true;
             response.metadata.recursion_available = true;
-            // DNSSEC: with ResolverOpts.validate enabled hickory only returns
-            // records it validated, so surface the authentic-data flag.
-            if cfg.dnssec_enabled {
-                response.metadata.authentic_data = true;
-            }
             response.add_queries(request.queries.clone());
 
             let mut min_ttl = u32::MAX;
