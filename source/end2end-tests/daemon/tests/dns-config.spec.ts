@@ -37,6 +37,13 @@ describe("dns config", () => {
       if (!cfg.enabled) {
         await dns.toggle({ enabled: true });
       }
+      // Reset to forwarding unconditionally: the resolution_mode
+      // round-trip below flips to recursive, and if its assertions throw
+      // before the inline restore runs, the shared daemon would be left
+      // recursing from the root for every downstream spec.
+      if (cfg.resolution_mode !== "forwarding") {
+        await dns.updateConfig({ resolution_mode: "forwarding" });
+      }
     } catch {
       // ignore — best-effort, real failure surfaces from the spec body
     }
