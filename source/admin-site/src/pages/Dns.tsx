@@ -20,6 +20,13 @@ import { SecuritySettingsCard } from "@/components/features/SecuritySettingsCard
 import { DnsStatsSection } from "@/components/features/DnsStatsSection";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/web";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@wardnet/web";
+import {
   useDnsStatus,
   useDnsConfig,
   useToggleDns,
@@ -106,9 +113,23 @@ export default function Dns() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="stat__label">Resolution mode</div>
-                    <div className="text-lg font-semibold capitalize">
-                      {config.resolution_mode}
-                    </div>
+                    <Select
+                      value={config.resolution_mode}
+                      onValueChange={(value) =>
+                        updateConfig.mutate({ resolution_mode: value })
+                      }
+                    >
+                      <SelectTrigger
+                        className="mt-1"
+                        aria-label="Resolution mode"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="forwarding">Forwarding</SelectItem>
+                        <SelectItem value="recursive">Recursive</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <div className="stat__label">DNSSEC</div>
@@ -266,6 +287,7 @@ export default function Dns() {
           <UpstreamServersCard
             servers={config.upstream_servers}
             isSaving={updateConfig.isPending}
+            fallbackOnly={config.resolution_mode === "recursive"}
             onUpdate={(servers) =>
               updateConfig.mutate({ upstream_servers: servers })
             }
