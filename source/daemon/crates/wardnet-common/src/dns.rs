@@ -29,6 +29,18 @@ pub enum DnsResolutionMode {
     Recursive,
 }
 
+impl DnsResolutionMode {
+    /// The `snake_case` wire string, matching the serde representation.
+    /// Used to persist the mode in the `system_config` KV store.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Forwarding => "forwarding",
+            Self::Recursive => "recursive",
+        }
+    }
+}
+
 /// Transport protocol for upstream DNS communication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]

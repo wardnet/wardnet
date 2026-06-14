@@ -21911,9 +21911,13 @@
             ]
           },
           "resolution_mode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DnsResolutionMode"
+              }
             ]
           },
           "upstream_servers": {

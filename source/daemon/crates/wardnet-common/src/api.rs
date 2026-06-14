@@ -7,7 +7,7 @@ use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
     DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
-    DnsZone, UpstreamDns,
+    DnsResolutionMode, DnsZone, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::routing::RoutingTarget;
@@ -851,7 +851,7 @@ pub struct DnsConfigResponse {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDnsConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolution_mode: Option<String>,
+    pub resolution_mode: Option<DnsResolutionMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_servers: Option<Vec<UpstreamDnsRequest>>,
     #[serde(skip_serializing_if = "Option::is_none")]

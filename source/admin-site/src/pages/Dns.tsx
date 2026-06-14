@@ -34,6 +34,7 @@ import {
   useUpdateDnsConfig,
 } from "@wardnet/web";
 import { RANGES, type StatsRange } from "@wardnet/web";
+import type { DnsResolutionMode } from "@wardnet/js";
 
 /** DNS server configuration page (admin only). */
 export default function Dns() {
@@ -116,7 +117,9 @@ export default function Dns() {
                     <Select
                       value={config.resolution_mode}
                       onValueChange={(value) =>
-                        updateConfig.mutate({ resolution_mode: value })
+                        updateConfig.mutate({
+                          resolution_mode: value as DnsResolutionMode,
+                        })
                       }
                     >
                       <SelectTrigger

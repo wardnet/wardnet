@@ -197,12 +197,29 @@ fn update_dns_config_request_full_deserialization() {
         "query_log_retention_days": 14
     }"#;
     let req: UpdateDnsConfigRequest = serde_json::from_str(json).unwrap();
-    assert_eq!(req.resolution_mode.as_deref(), Some("recursive"));
+    assert_eq!(req.resolution_mode, Some(DnsResolutionMode::Recursive));
     assert_eq!(req.cache_size, Some(20_000));
     assert_eq!(req.dnssec_enabled, Some(true));
     assert_eq!(req.rate_limit_per_second, Some(100));
     assert!(req.upstream_servers.is_some());
     assert_eq!(req.upstream_servers.as_ref().unwrap().len(), 1);
+}
+
+#[test]
+fn update_dns_config_request_rejects_invalid_resolution_mode() {
+    // Now that the field is typed as the enum, an unknown mode is a hard
+    // deserialization error (HTTP 422) instead of silently defaulting to
+    // forwarding.
+    let json = r#"{ "resolution_mode": "sideways" }"#;
+    assert!(serde_json::from_str::<UpdateDnsConfigRequest>(json).is_err());
+}
+
+#[test]
+fn dns_resolution_mode_as_str_matches_serde() {
+    for mode in [DnsResolutionMode::Forwarding, DnsResolutionMode::Recursive] {
+        let serde_repr = serde_json::to_string(&mode).unwrap();
+        assert_eq!(serde_repr, format!("\"{}\"", mode.as_str()));
+    }
 }
 
 #[test]

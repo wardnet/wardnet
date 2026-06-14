@@ -42,7 +42,7 @@ export interface DnsConfigResponse {
 }
 
 export interface UpdateDnsConfigRequest {
-  resolution_mode?: string;
+  resolution_mode?: DnsResolutionMode;
   upstream_servers?: UpstreamDns[];
   cache_size?: number;
   cache_ttl_min_secs?: number;
