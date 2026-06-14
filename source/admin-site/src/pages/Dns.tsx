@@ -16,6 +16,7 @@ import { Button } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
+import { SecuritySettingsCard } from "@/components/features/SecuritySettingsCard";
 import { DnsStatsSection } from "@/components/features/DnsStatsSection";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/web";
 import {
@@ -161,6 +162,10 @@ export default function Dns() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Security settings — DNSSEC, rebinding protection, rate limit
+              (Stage 4). */}
+          <SecuritySettingsCard />
 
           {/* Query log card — Pill + Toggle in header (matches DHCP
               status card); retention follows the Edit/Save pattern

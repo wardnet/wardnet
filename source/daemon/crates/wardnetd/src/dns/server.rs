@@ -33,6 +33,10 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::EventPublisher;
 
+use wardnet_common::net::is_private_ip;
+
+use crate::dns::rate_limit::RateLimiter;
+
 // ---------------------------------------------------------------------------
 // UdpDnsSocket — production socket impl
 // ---------------------------------------------------------------------------
@@ -74,6 +78,15 @@ impl DnsSocket for UdpDnsSocket {
 /// (issue #342).
 pub struct UdpDnsServer {
     config: Arc<RwLock<DnsConfig>>,
+    /// Shared upstream resolver. Hoisted onto the struct (rather than being
+    /// loop-local) so `update_config` can rebuild and swap it when
+    /// upstream servers / DNSSEC / protocol change, without restarting the
+    /// listener. Built from the current config; rebuilt on every
+    /// `update_config`.
+    resolver: Arc<RwLock<TokioResolver>>,
+    /// Per-client-IP token-bucket rate limiter (Stage 4). Enforced at the
+    /// top of `handle_query`; disabled when `rate_limit_per_second == 0`.
+    rate_limiter: Arc<RateLimiter>,
     cache: Arc<RwLock<DnsCache>>,
     dns_filter: Arc<dyn DnsFilterService>,
     bind_addr: SocketAddr,
@@ -187,6 +200,11 @@ impl UdpDnsServer {
     ) -> Self {
         let cache_capacity = config.cache_size as usize;
         let cache = Arc::new(RwLock::new(DnsCache::new(cache_capacity)));
+        let resolver = Arc::new(RwLock::new(build_resolver(
+            &config.upstream_servers,
+            config.dnssec_enabled,
+        )));
+        let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit_per_second));
         let cache_invalidator_cancel = CancellationToken::new();
         // Subscribe BEFORE spawning so any event published between
         // construction and the task running is buffered into this
@@ -201,6 +219,8 @@ impl UdpDnsServer {
         );
         Self {
             config: Arc::new(RwLock::new(config)),
+            resolver,
+            rate_limiter,
             cache,
             dns_filter,
             bind_addr,
@@ -265,6 +285,8 @@ impl DnsServer for UdpDnsServer {
         };
 
         let config = Arc::clone(&self.config);
+        let resolver = Arc::clone(&self.resolver);
+        let rate_limiter = Arc::clone(&self.rate_limiter);
         let cache = Arc::clone(&self.cache);
         let dns_filter = Arc::clone(&self.dns_filter);
         let running = Arc::clone(&self.running);
@@ -291,6 +313,8 @@ impl DnsServer for UdpDnsServer {
             server_loop(
                 socket,
                 config,
+                resolver,
+                rate_limiter,
                 cache,
                 dns_filter,
                 log_sink,
@@ -349,6 +373,35 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn update_config(&self, config: DnsConfig) {
+        let (upstream_changed, dnssec_changed, rebinding_changed) = {
+            let prev = self.config.read().await;
+            (
+                prev.upstream_servers != config.upstream_servers,
+                prev.dnssec_enabled != config.dnssec_enabled,
+                prev.rebinding_protection != config.rebinding_protection,
+            )
+        };
+
+        // Rebuild the upstream resolver only when something it depends on
+        // changed, so unrelated edits (rebinding, rate limit) don't tear
+        // down warm DoT/DoH connections. Applied live — the cache and
+        // bound socket survive.
+        if upstream_changed || dnssec_changed {
+            let new_resolver = build_resolver(&config.upstream_servers, config.dnssec_enabled);
+            *self.resolver.write().await = new_resolver;
+        }
+
+        // Flush cached answers whose validity depends on the changed
+        // policy so a toggle takes effect at once rather than after TTL
+        // (e.g. enabling rebinding must not keep serving cached private
+        // IPs; changing upstreams/DNSSEC must not serve stale answers).
+        if upstream_changed || dnssec_changed || rebinding_changed {
+            self.cache.write().await.flush();
+        }
+
+        // Rate is read lock-free on the hot path; refresh it here.
+        self.rate_limiter.set_rate(config.rate_limit_per_second);
+
         *self.config.write().await = config;
     }
 
@@ -368,6 +421,8 @@ impl DnsServer for UdpDnsServer {
 async fn server_loop(
     socket: Arc<dyn DnsSocket>,
     config: Arc<RwLock<DnsConfig>>,
+    resolver: Arc<RwLock<TokioResolver>>,
+    rate_limiter: Arc<RateLimiter>,
     cache: Arc<RwLock<DnsCache>>,
     dns_filter: Arc<dyn DnsFilterService>,
     log_sink: Option<Arc<DnsLogSink>>,
@@ -381,12 +436,6 @@ async fn server_loop(
 ) {
     let mut buf = vec![0u8; 4096];
 
-    let resolver = {
-        let cfg = config.read().await;
-        build_resolver(&cfg.upstream_servers)
-    };
-    let resolver = Arc::new(RwLock::new(resolver));
-
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
@@ -399,6 +448,7 @@ async fn server_loop(
                         let packet = buf[..len].to_vec();
                         let socket = Arc::clone(&socket);
                         let config = Arc::clone(&config);
+                        let rate_limiter = Arc::clone(&rate_limiter);
                         let cache = Arc::clone(&cache);
                         let dns_filter = Arc::clone(&dns_filter);
                         let resolver = Arc::clone(&resolver);
@@ -418,6 +468,7 @@ async fn server_loop(
                                 src,
                                 &socket,
                                 &config,
+                                &rate_limiter,
                                 &cache,
                                 dns_filter.as_ref(),
                                 &resolver,
@@ -450,6 +501,7 @@ async fn handle_query(
     src: SocketAddr,
     socket: &Arc<dyn DnsSocket>,
     config: &Arc<RwLock<DnsConfig>>,
+    rate_limiter: &Arc<RateLimiter>,
     cache: &Arc<RwLock<DnsCache>>,
     dns_filter: &dyn DnsFilterService,
     resolver: &Arc<RwLock<TokioResolver>>,
@@ -472,6 +524,24 @@ async fn handle_query(
     let domain = question.name().to_string();
     let rtype = question.query_type();
     let start = std::time::Instant::now();
+
+    // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
+    // clients before any resolution work, returning REFUSED. The rate is
+    // read lock-free from the limiter (no config lock on the hot path).
+    if !rate_limiter.check(src.ip()) {
+        send_refused(socket, src, id, &request).await?;
+        record_query(
+            log_sink,
+            &domain,
+            rtype,
+            src,
+            "rate_limited",
+            None,
+            start.elapsed(),
+        );
+        tracing::debug!(%domain, %src, "rate-limited DNS query");
+        return Ok(());
+    }
 
     // 0. Resolve upstream pool for this client.
     let upstream_id = routing_snapshot
@@ -874,6 +944,8 @@ async fn forward_via_default_resolver(
     pass_result: &str,
     upstream_id: UpstreamId,
 ) -> anyhow::Result<()> {
+    use hickory_proto::rr::RData;
+
     let resolver_guard = resolver.read().await;
     let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
 
@@ -882,6 +954,40 @@ async fn forward_via_default_resolver(
 
     match lookup {
         Ok(lookup) => {
+            // DNS rebinding protection (Stage 4): reject answers for an
+            // external domain that resolve to a private/internal IP. Only
+            // the default/recursive upstream path reaches here —
+            // authoritative records, `.lan`, and conditional forwarding
+            // (which legitimately return private IPs) short-circuit earlier.
+            if cfg.rebinding_protection
+                && lookup.answers().iter().any(|r| match &r.data {
+                    RData::A(a) => is_private_ip(IpAddr::V4(a.0)),
+                    RData::AAAA(a) => is_private_ip(IpAddr::V6(a.0)),
+                    _ => false,
+                })
+            {
+                // Empty NOERROR (NODATA), not NXDOMAIN: the name exists, we
+                // just refuse the private answer. NXDOMAIN would poison
+                // stub negative caches for every record type on the name.
+                let mut response = Message::response(id, OpCode::Query);
+                response.metadata.recursion_desired = true;
+                response.metadata.recursion_available = true;
+                response.add_queries(request.queries.clone());
+                let bytes = response.to_bytes()?;
+                socket.send_to(&bytes, src).await?;
+                record_query(
+                    log_sink,
+                    domain,
+                    rtype,
+                    src,
+                    "rebinding_blocked",
+                    upstream,
+                    start.elapsed(),
+                );
+                tracing::debug!(%domain, "blocked DNS rebinding: private IP for external domain");
+                return Ok(());
+            }
+
             let mut response = Message::response(id, OpCode::Query);
             response.metadata.recursion_desired = true;
             response.metadata.recursion_available = true;
@@ -1039,6 +1145,23 @@ async fn send_servfail(
     response.metadata.recursion_desired = true;
     response.metadata.recursion_available = true;
     response.metadata.response_code = ResponseCode::ServFail;
+    response.add_queries(request.queries.clone());
+    let bytes = response.to_bytes()?;
+    socket.send_to(&bytes, src).await?;
+    Ok(())
+}
+
+/// Send a REFUSED response — used when a client exceeds its rate limit.
+async fn send_refused(
+    socket: &Arc<dyn DnsSocket>,
+    src: SocketAddr,
+    id: u16,
+    request: &Message,
+) -> anyhow::Result<()> {
+    let mut response = Message::response(id, OpCode::Query);
+    response.metadata.recursion_desired = true;
+    response.metadata.recursion_available = true;
+    response.metadata.response_code = ResponseCode::Refused;
     response.add_queries(request.queries.clone());
     let bytes = response.to_bytes()?;
     socket.send_to(&bytes, src).await?;
@@ -1412,7 +1535,7 @@ async fn return_socket_to_pool(pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>, s
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;
 
-pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
+pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) -> TokioResolver {
     let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {
@@ -1420,12 +1543,23 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
             DnsProtocol::Udp => ConnectionConfig::udp(),
             DnsProtocol::Tcp => ConnectionConfig::tcp(),
             DnsProtocol::Tls | DnsProtocol::Https => {
-                tracing::warn!(
-                    address = %upstream.address,
-                    protocol = ?upstream.protocol,
-                    "encrypted DNS not yet enabled, falling back to TCP",
-                );
-                ConnectionConfig::tcp()
+                // DoT/DoH need an SNI server name for cert validation. The
+                // API rejects encrypted upstreams without one; if a bad
+                // config slips through, skip the upstream rather than
+                // silently downgrade to plaintext.
+                let Some(sni) = upstream.tls_server_name.clone() else {
+                    tracing::error!(
+                        address = %upstream.address,
+                        protocol = ?upstream.protocol,
+                        "skipping encrypted upstream: tls_server_name is required for DoT/DoH",
+                    );
+                    continue;
+                };
+                let sni: Arc<str> = Arc::from(sni);
+                match upstream.protocol {
+                    DnsProtocol::Https => ConnectionConfig::https(sni, None),
+                    _ => ConnectionConfig::tls(sni),
+                }
             }
         };
 
@@ -1451,6 +1585,10 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns]) -> TokioResolver {
     let mut opts = ResolverOpts::default();
     opts.cache_size = 0;
     opts.use_hosts_file = ResolveHosts::Never;
+    // DNS Stage 4 — local DNSSEC validation (opt-in; default off). hickory
+    // validates signatures via the upstream as forwarder and surfaces bogus
+    // responses as resolution errors (→ SERVFAIL on the forward path).
+    opts.validate = dnssec_enabled;
 
     TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default())
         .with_options(opts)

@@ -166,14 +166,25 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
   const [address, setAddress] = useState("");
   const [port, setPort] = useState("");
   const [protocol, setProtocol] = useState<DnsProtocol>("udp");
+  const [tlsServerName, setTlsServerName] = useState("");
 
-  function handleSave(values: { name: string; address: string; port: string }) {
+  // DoT/DoH require a TLS server name (SNI) for certificate validation.
+  const isEncrypted = protocol === "tls" || protocol === "https";
+
+  function handleSave(values: {
+    name: string;
+    address: string;
+    port: string;
+    tls_server_name?: string;
+  }) {
     const portNum = values.port ? Number(values.port) : undefined;
+    const sni = values.tls_server_name?.trim();
     onSubmit({
       name: values.name.trim(),
       address: values.address.trim(),
       protocol,
       port: portNum && portNum > 0 ? portNum : undefined,
+      tls_server_name: isEncrypted && sni ? sni : undefined,
     });
   }
 
@@ -182,7 +193,10 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
       <CardHeader>
         <CardTitle>Add upstream server</CardTitle>
       </CardHeader>
-      <Form values={{ name, address, port }} onSubmit={handleSave}>
+      <Form
+        values={{ name, address, port, tls_server_name: tlsServerName }}
+        onSubmit={handleSave}
+      >
         <CardContent className="flex flex-col gap-5">
           <div className="flex gap-3">
             <Field
@@ -258,6 +272,29 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
               />
             </Field>
           </div>
+
+          {isEncrypted && (
+            <>
+              <Field
+                label="TLS server name"
+                htmlFor="ups-sni"
+                name="tls_server_name"
+                help="Hostname the upstream's certificate must match (e.g. cloudflare-dns.com)."
+              >
+                <Input
+                  id="ups-sni"
+                  value={tlsServerName}
+                  onChange={(e) => setTlsServerName(e.target.value)}
+                  placeholder="cloudflare-dns.com"
+                />
+              </Field>
+              <Validator
+                name="tls_server_name"
+                rule="required"
+                message="TLS server name is required for DoT/DoH."
+              />
+            </>
+          )}
         </CardContent>
         <CardFooter className="justify-end gap-2">
           <Button

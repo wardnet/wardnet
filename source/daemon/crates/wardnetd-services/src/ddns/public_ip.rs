@@ -16,6 +16,8 @@
 
 use std::net::Ipv4Addr;
 
+use wardnet_common::net::is_reserved_ipv4;
+
 /// IP-echo endpoints, tried in order. Each returns the caller's IP as plain text.
 pub(crate) const ECHO_ENDPOINTS: &[&str] = &["https://api.ipify.org", "https://icanhazip.com"];
 
@@ -61,22 +63,4 @@ async fn fetch_ip(client: &reqwest::Client, endpoint: &str) -> anyhow::Result<Ip
         anyhow::bail!("echo endpoint returned a non-global address: {ip}");
     }
     Ok(ip)
-}
-
-/// Returns `true` when `addr` is private, loopback, link-local, or otherwise
-/// not a globally routable unicast address. Mirrors the bridge's SSRF guard so
-/// the daemon never publishes a non-public IP.
-#[must_use]
-pub(crate) fn is_reserved_ipv4(addr: Ipv4Addr) -> bool {
-    addr.is_private()
-        || addr.is_loopback()
-        || addr.is_link_local()
-        || addr.is_broadcast()
-        || addr.is_documentation()
-        || addr.is_unspecified()
-        || {
-            // Shared address space (RFC 6598): 100.64.0.0/10
-            let octets = addr.octets();
-            octets[0] == 100 && (octets[1] & 0b1100_0000) == 64
-        }
 }

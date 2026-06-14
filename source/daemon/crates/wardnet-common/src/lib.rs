@@ -8,6 +8,7 @@ pub mod dns;
 pub mod dns_filter;
 pub mod event;
 pub mod jobs;
+pub mod net;
 pub mod routing;
 pub mod rule_request;
 pub mod serde_util;

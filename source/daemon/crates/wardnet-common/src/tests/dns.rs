@@ -22,6 +22,7 @@ fn upstream_dns_request_converts_to_upstream_dns() {
         name: "Cloudflare".to_owned(),
         protocol: DnsProtocol::Udp,
         port: Some(5353),
+        tls_server_name: None,
     };
     let upstream: UpstreamDns = req.into();
     assert_eq!(upstream.address, "1.1.1.1");
@@ -37,6 +38,7 @@ fn upstream_dns_request_with_no_port() {
         name: "Google".to_owned(),
         protocol: DnsProtocol::Tcp,
         port: None,
+        tls_server_name: None,
     };
     let upstream: UpstreamDns = req.into();
     assert!(upstream.port.is_none());
@@ -210,6 +212,7 @@ fn upstream_dns_round_trip() {
         name: "Cloudflare".to_owned(),
         protocol: DnsProtocol::Tls,
         port: Some(853),
+        tls_server_name: None,
     };
     let json = serde_json::to_string(&upstream).unwrap();
     let back: UpstreamDns = serde_json::from_str(&json).unwrap();
@@ -223,6 +226,7 @@ fn upstream_dns_no_port_omitted_from_serialization() {
         name: "Cloudflare".to_owned(),
         protocol: DnsProtocol::Udp,
         port: None,
+        tls_server_name: None,
     };
     let json = serde_json::to_string(&upstream).unwrap();
     // skip_serializing_if on port=None means it's omitted.

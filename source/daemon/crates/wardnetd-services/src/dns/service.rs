@@ -19,7 +19,7 @@ use wardnet_common::api::{
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
-    DnsConfig, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
 };
 use wardnet_common::event::WardnetEvent;
 
@@ -177,6 +177,7 @@ impl DnsService for DnsServiceImpl {
         Ok(DnsConfigResponse { config })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn update_config(
         &self,
         req: UpdateDnsConfigRequest,
@@ -198,6 +199,25 @@ impl DnsService for DnsServiceImpl {
                 .map_err(AppError::Internal)?;
         }
         if let Some(ref servers) = req.upstream_servers {
+            // DoT/DoH need a hostname SNI for certificate validation;
+            // reject encrypted upstreams that omit it or give a value that
+            // can't be a cert hostname (URL, IP literal, whitespace) —
+            // those would only surface as opaque per-query handshake
+            // failures, not a clear config error.
+            for s in servers {
+                if matches!(s.protocol, DnsProtocol::Tls | DnsProtocol::Https) {
+                    let sni = s.tls_server_name.as_deref().map_or("", str::trim);
+                    let is_hostname = !sni.is_empty()
+                        && !sni.contains(|c: char| c.is_whitespace() || c == '/')
+                        && sni.parse::<std::net::IpAddr>().is_err();
+                    if !is_hostname {
+                        return Err(AppError::BadRequest(format!(
+                            "upstream '{}' uses {:?} and requires a valid TLS server name (a hostname)",
+                            s.name, s.protocol
+                        )));
+                    }
+                }
+            }
             let upstream: Vec<UpstreamDns> = servers
                 .iter()
                 .map(|s| UpstreamDns {
@@ -205,6 +225,7 @@ impl DnsService for DnsServiceImpl {
                     name: s.name.clone(),
                     protocol: s.protocol,
                     port: s.port,
+                    tls_server_name: s.tls_server_name.clone(),
                 })
                 .collect();
             let json = serde_json::to_string(&upstream)

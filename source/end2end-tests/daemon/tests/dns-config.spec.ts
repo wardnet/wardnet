@@ -112,6 +112,59 @@ describe("dns config", () => {
     await dns.updateConfig({ cache_size: before.cache_size });
   });
 
+  it("round-trips Stage 4 security settings (DNSSEC, rebinding, rate limit, DoT)", async () => {
+    const before = (await dns.getConfig()).config;
+
+    const updated = await dns.updateConfig({
+      dnssec_enabled: true,
+      rebinding_protection: false,
+      rate_limit_per_second: 50,
+      upstream_servers: [
+        {
+          address: UPSTREAM_ADDRESS,
+          name: "cloudflare-dot",
+          protocol: "tls",
+          tls_server_name: "cloudflare-dns.com",
+        },
+      ],
+    });
+    expect(updated.config.dnssec_enabled).toBe(true);
+    expect(updated.config.rebinding_protection).toBe(false);
+    expect(updated.config.rate_limit_per_second).toBe(50);
+    expect(updated.config.upstream_servers[0]?.tls_server_name).toBe(
+      "cloudflare-dns.com",
+    );
+
+    const refetched = (await dns.getConfig()).config;
+    expect(refetched.dnssec_enabled).toBe(true);
+    expect(refetched.upstream_servers[0]?.protocol).toBe("tls");
+
+    // Restore safe defaults + UDP upstream so downstream DNS specs
+    // (dns-resolve, blocklists, ...) see plain, unthrottled resolution.
+    await dns.updateConfig({
+      dnssec_enabled: false,
+      rebinding_protection: before.rebinding_protection,
+      rate_limit_per_second: 0,
+      upstream_servers: [
+        { address: UPSTREAM_ADDRESS, name: "cloudflare-1", protocol: "udp" },
+      ],
+    });
+  });
+
+  it("rejects a DoT/DoH upstream without a TLS server name", async () => {
+    let status: number | undefined;
+    try {
+      await dns.updateConfig({
+        upstream_servers: [
+          { address: UPSTREAM_ADDRESS, name: "bad-dot", protocol: "tls" },
+        ],
+      });
+    } catch (e) {
+      status = (e as { status?: number }).status;
+    }
+    expect(status).toBe(400);
+  });
+
   it("flushCache returns a count and a message", async () => {
     // Turn DNS on so the server-side cache exists; flushing while
     // disabled is also legal but the call exercises a less interesting

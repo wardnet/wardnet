@@ -578,12 +578,14 @@ fn upstream_label_uses_first_entry() {
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Udp,
             port: None,
+            tls_server_name: None,
         },
         UpstreamDns {
             name: "secondary".into(),
             address: "8.8.8.8".into(),
             protocol: DnsProtocol::Udp,
             port: None,
+            tls_server_name: None,
         },
     ];
     let label = upstream_label(&upstreams).expect("non-empty list returns a label");
@@ -1017,6 +1019,7 @@ async fn handle_query_upstream_error_records_upstream_error() {
             // waiting for hickory's UDP retry budget to elapse.
             protocol: DnsProtocol::Tcp,
             port: Some(1),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };
@@ -1108,8 +1111,9 @@ fn build_resolver_with_udp_upstream_succeeds() {
         address: "1.1.1.1".into(),
         protocol: DnsProtocol::Udp,
         port: None,
+        tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 #[test]
@@ -1119,30 +1123,61 @@ fn build_resolver_with_tcp_upstream_succeeds() {
         address: "1.1.1.1".into(),
         protocol: DnsProtocol::Tcp,
         port: Some(53),
+        tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 #[test]
-fn build_resolver_falls_back_to_tcp_for_tls_and_https_protocols() {
-    // Encrypted DNS is not yet wired — both DoT (853) and DoH (443) fall
-    // back to plain TCP with an explicit warn log. Hits the Tls + Https
-    // branches in build_resolver and exercises the port-default arm too.
+fn build_resolver_builds_dot_and_doh_with_sni() {
+    // Encrypted upstreams with a TLS server name exercise the Tls + Https
+    // branches (ConnectionConfig::tls/https) and the port-default arm.
     let upstreams = vec![
         UpstreamDns {
             name: "tls".into(),
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Tls,
             port: None,
+            tls_server_name: Some("cloudflare-dns.com".into()),
         },
         UpstreamDns {
             name: "https".into(),
             address: "1.1.1.1".into(),
             protocol: DnsProtocol::Https,
             port: None,
+            tls_server_name: Some("cloudflare-dns.com".into()),
         },
     ];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
+}
+
+#[test]
+fn build_resolver_skips_encrypted_upstream_without_sni() {
+    // An encrypted upstream missing its SNI is skipped (not downgraded to
+    // plaintext); with no other servers the builder falls back to
+    // Cloudflare rather than returning an empty config.
+    let upstreams = vec![UpstreamDns {
+        name: "tls-no-sni".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Tls,
+        port: None,
+        tls_server_name: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
+}
+
+#[test]
+fn build_resolver_enables_dnssec_validation() {
+    // Smoke: the dnssec_enabled flag flows into ResolverOpts.validate
+    // without panicking the builder.
+    let upstreams = vec![UpstreamDns {
+        name: "primary".into(),
+        address: "1.1.1.1".into(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }];
+    let _ = crate::dns::server::build_resolver(&upstreams, true);
 }
 
 #[test]
@@ -1155,8 +1190,9 @@ fn build_resolver_skips_invalid_ip_addresses() {
         address: "not-an-ip".into(),
         protocol: DnsProtocol::Udp,
         port: None,
+        tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams);
+    let _ = crate::dns::server::build_resolver(&upstreams, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1486,6 +1522,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
             address: upstream_addr.ip().to_string(),
             protocol: DnsProtocol::Udp,
             port: Some(upstream_addr.port()),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };
@@ -1734,6 +1771,7 @@ async fn authoritative_zone_unknown_name_returns_nxdomain_not_forwarded() {
             address: upstream_addr.ip().to_string(),
             protocol: DnsProtocol::Udp,
             port: Some(upstream_addr.port()),
+            tls_server_name: None,
         }],
         ..DnsConfig::default()
     };
@@ -1922,4 +1960,140 @@ async fn drop_cancels_cache_invalidator() {
     // would surface here.
     let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
     drop(server);
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4 — rate limiting + rebinding protection (integration)
+// ---------------------------------------------------------------------------
+
+/// Stub upstream that answers every A query with a PRIVATE address
+/// (192.168.0.1), to drive DNS rebinding protection.
+async fn spawn_private_upstream() -> SocketAddr {
+    use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::rr::{Name, RData, Record, rdata::A};
+    use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("private upstream bind");
+    let addr = socket.local_addr().expect("private upstream local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, src)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let id = request.metadata.id;
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.add_queries(request.queries.clone());
+            for q in &request.queries {
+                if q.query_type() == RecordType::A {
+                    let name = Name::from_str_relaxed(q.name().to_string())
+                        .unwrap_or_else(|_| q.name().clone());
+                    let record =
+                        Record::from_rdata(name, 60, RData::A(A(Ipv4Addr::new(192, 168, 0, 1))));
+                    response.add_answer(record);
+                }
+            }
+            if let Ok(bytes) = response.to_bytes() {
+                let _ = socket.send_to(&bytes, src).await;
+            }
+        }
+    });
+    addr
+}
+
+fn udp_upstream(addr: SocketAddr) -> UpstreamDns {
+    UpstreamDns {
+        name: "stub".into(),
+        address: addr.ip().to_string(),
+        protocol: DnsProtocol::Udp,
+        port: Some(addr.port()),
+        tls_server_name: None,
+    }
+}
+
+#[tokio::test]
+async fn rate_limit_refuses_queries_over_the_per_client_budget() {
+    use hickory_proto::op::ResponseCode;
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        rate_limit_per_second: 1, // capacity = burst = 1
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // First query consumes the single token → forwarded NoError.
+    let first = query_foo_com(bound).await;
+    assert_eq!(first.metadata.response_code, ResponseCode::NoError);
+
+    // Second query from the same client IP within the same second → no
+    // token left → REFUSED, before any cache/forward work.
+    let second = query_foo_com(bound).await;
+    assert_eq!(second.metadata.response_code, ResponseCode::Refused);
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn rebinding_toggle_via_update_config_flushes_cache_and_blocks_private_ip() {
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::RData;
+
+    let upstream_addr = spawn_private_upstream().await;
+    // Start with rebinding OFF: the private answer is forwarded + cached.
+    let cfg = DnsConfig {
+        rebinding_protection: false,
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let before = query_foo_com(bound).await;
+    assert_eq!(before.metadata.response_code, ResponseCode::NoError);
+    assert!(
+        before.answers.iter().any(|r| matches!(
+            &r.data,
+            RData::A(a) if a.0 == Ipv4Addr::new(192, 168, 0, 1)
+        )),
+        "with rebinding off the private answer is returned"
+    );
+    assert!(server.cache_size().await > 0, "answer should be cached");
+
+    // Toggle rebinding ON via update_config — same upstreams, so no
+    // resolver rebuild, but the policy changed → the cache must flush.
+    server
+        .update_config(DnsConfig {
+            rebinding_protection: true,
+            upstream_servers: vec![udp_upstream(upstream_addr)],
+            ..DnsConfig::default()
+        })
+        .await;
+    assert_eq!(
+        server.cache_size().await,
+        0,
+        "update_config must flush the cache when rebinding toggles"
+    );
+
+    // Re-query: cache is empty + rebinding ON → re-forward, private IP
+    // rejected as empty NOERROR (NODATA), not NXDOMAIN.
+    let after = query_foo_com(bound).await;
+    assert_eq!(after.metadata.response_code, ResponseCode::NoError);
+    assert!(
+        after.answers.is_empty(),
+        "rebinding must strip the private answer (NODATA)"
+    );
+
+    server.stop().await.unwrap();
 }
