@@ -1961,3 +1961,139 @@ async fn drop_cancels_cache_invalidator() {
     let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
     drop(server);
 }
+
+// ---------------------------------------------------------------------------
+// Stage 4 — rate limiting + rebinding protection (integration)
+// ---------------------------------------------------------------------------
+
+/// Stub upstream that answers every A query with a PRIVATE address
+/// (192.168.0.1), to drive DNS rebinding protection.
+async fn spawn_private_upstream() -> SocketAddr {
+    use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::rr::{Name, RData, Record, rdata::A};
+    use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("private upstream bind");
+    let addr = socket.local_addr().expect("private upstream local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, src)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let id = request.metadata.id;
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.add_queries(request.queries.clone());
+            for q in &request.queries {
+                if q.query_type() == RecordType::A {
+                    let name = Name::from_str_relaxed(q.name().to_string())
+                        .unwrap_or_else(|_| q.name().clone());
+                    let record =
+                        Record::from_rdata(name, 60, RData::A(A(Ipv4Addr::new(192, 168, 0, 1))));
+                    response.add_answer(record);
+                }
+            }
+            if let Ok(bytes) = response.to_bytes() {
+                let _ = socket.send_to(&bytes, src).await;
+            }
+        }
+    });
+    addr
+}
+
+fn udp_upstream(addr: SocketAddr) -> UpstreamDns {
+    UpstreamDns {
+        name: "stub".into(),
+        address: addr.ip().to_string(),
+        protocol: DnsProtocol::Udp,
+        port: Some(addr.port()),
+        tls_server_name: None,
+    }
+}
+
+#[tokio::test]
+async fn rate_limit_refuses_queries_over_the_per_client_budget() {
+    use hickory_proto::op::ResponseCode;
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        rate_limit_per_second: 1, // capacity = burst = 1
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // First query consumes the single token → forwarded NoError.
+    let first = query_foo_com(bound).await;
+    assert_eq!(first.metadata.response_code, ResponseCode::NoError);
+
+    // Second query from the same client IP within the same second → no
+    // token left → REFUSED, before any cache/forward work.
+    let second = query_foo_com(bound).await;
+    assert_eq!(second.metadata.response_code, ResponseCode::Refused);
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn rebinding_toggle_via_update_config_flushes_cache_and_blocks_private_ip() {
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::RData;
+
+    let upstream_addr = spawn_private_upstream().await;
+    // Start with rebinding OFF: the private answer is forwarded + cached.
+    let cfg = DnsConfig {
+        rebinding_protection: false,
+        upstream_servers: vec![udp_upstream(upstream_addr)],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let before = query_foo_com(bound).await;
+    assert_eq!(before.metadata.response_code, ResponseCode::NoError);
+    assert!(
+        before.answers.iter().any(|r| matches!(
+            &r.data,
+            RData::A(a) if a.0 == Ipv4Addr::new(192, 168, 0, 1)
+        )),
+        "with rebinding off the private answer is returned"
+    );
+    assert!(server.cache_size().await > 0, "answer should be cached");
+
+    // Toggle rebinding ON via update_config — same upstreams, so no
+    // resolver rebuild, but the policy changed → the cache must flush.
+    server
+        .update_config(DnsConfig {
+            rebinding_protection: true,
+            upstream_servers: vec![udp_upstream(upstream_addr)],
+            ..DnsConfig::default()
+        })
+        .await;
+    assert_eq!(
+        server.cache_size().await,
+        0,
+        "update_config must flush the cache when rebinding toggles"
+    );
+
+    // Re-query: cache is empty + rebinding ON → re-forward, private IP
+    // rejected as empty NOERROR (NODATA), not NXDOMAIN.
+    let after = query_foo_com(bound).await;
+    assert_eq!(after.metadata.response_code, ResponseCode::NoError);
+    assert!(
+        after.answers.is_empty(),
+        "rebinding must strip the private answer (NODATA)"
+    );
+
+    server.stop().await.unwrap();
+}
