@@ -178,7 +178,7 @@ surge-ping = "0.8"
 # https://crates.io/crates/rtnetlink
 rtnetlink = "0.21"
 # https://crates.io/crates/netlink-packet-route
-netlink-packet-route = "0.30"
+netlink-packet-route = "0.31"
 # https://crates.io/crates/netlink-sys
 netlink-sys = "0.8"
 
