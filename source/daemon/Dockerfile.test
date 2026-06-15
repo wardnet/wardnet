@@ -31,7 +31,7 @@
 # build never reads the real dist/ paths and works on a bare checkout.
 ARG WEB_DIST=placeholder
 
-FROM busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 AS web-placeholder
+FROM busybox:1.38@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d AS web-placeholder
 RUN mkdir -p \
         /web/admin-site/dist \
         /web/user-app/dist \
