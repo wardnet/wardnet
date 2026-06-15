@@ -41,7 +41,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       daemon: ${{ steps.detect.outputs.daemon }}
-      bridge: ${{ steps.detect.outputs.bridge }}
       site: ${{ steps.detect.outputs.site }}
       admin-web: ${{ steps.detect.outputs.admin-web }}
       admin-app: ${{ steps.detect.outputs.admin-app }}
@@ -73,26 +72,6 @@ jobs:
       actions: read
       security-events: write
     uses: ./.github/workflows/build-daemon.yml
-    secrets: inherit
-
-  build-bridge:
-    name: Build Bridge
-    needs: preflight
-    if: >
-      needs.preflight.outputs.bridge == 'true' ||
-      needs.preflight.outputs.ci == 'true' ||
-      github.event_name == 'pull_request'
-    # check-bridge uploads clippy SARIF to Code Scanning — it needs
-    # `security-events: write` granted by the caller. Scoped here so the
-    # rest of the run stays read-only.
-    # Always runs on pull_request events so Code Scanning always has a
-    # rust-clippy-bridge analysis to compare against main, preventing the
-    # "configuration not found" warning even when bridge code is unchanged.
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    uses: ./.github/workflows/build-bridge.yml
     secrets: inherit
 
   build-site:
@@ -136,7 +115,6 @@ jobs:
     # from an upload hiccup.
     if: >
       needs.preflight.outputs.daemon == 'true' ||
-      needs.preflight.outputs.bridge == 'true' ||
       needs.preflight.outputs.site == 'true' ||
       needs.preflight.outputs.ci == 'true'
     uses: ./.github/workflows/coverage.yml

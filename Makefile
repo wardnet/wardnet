@@ -8,7 +8,6 @@ SHELL := /bin/bash
 # ---------- Configuration ----------
 
 DAEMON_DIR   := source/daemon
-BRIDGE_DIR   := source/bridge
 SDK_DIR      := source/sdk/wardnet-js
 ADMIN_DIR    := source/admin-site
 WEBUI_DIR    := source/admin-site
@@ -47,11 +46,9 @@ COV_RUNNER ?=
 
 # ---------- Phony targets ----------
 
-.PHONY: all init build build-daemon build-bridge build-sdk build-web build-site \
+.PHONY: all init build build-daemon build-sdk build-web build-site \
         check check-sdk check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
-        check-bridge \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
-        coverage-bridge coverage-bridge-ci \
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
@@ -289,40 +286,6 @@ coverage-daemon-container:
 		$(RUST_IMAGE) \
 		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
 
-# ---------- Bridge service ----------
-
-build-bridge:
-	cd $(BRIDGE_DIR) && cargo build --release
-
-# check-bridge: fmt + clippy + tests.
-# The bridge has no Linux-specific dependencies and compiles natively on
-# macOS (unlike the daemon).
-check-bridge:
-	cd $(BRIDGE_DIR) && cargo fmt --check
-	@set -o pipefail; \
-	if [ -n "$(SARIF_OUT)" ]; then \
-		echo "Emitting clippy SARIF -> $(SARIF_OUT)"; \
-		cd $(BRIDGE_DIR) && cargo clippy --all-targets --message-format=json -- -D warnings \
-			| clippy-sarif | tee "$(abspath $(SARIF_OUT))" | sarif-fmt; \
-	else \
-		cd $(BRIDGE_DIR) && cargo clippy --all-targets -- -D warnings; \
-	fi
-	cd $(BRIDGE_DIR) && cargo test
-
-# coverage-bridge: generate line coverage for the bridge (local dev).
-# Requires cargo-llvm-cov and a running Postgres (docker compose up -d).
-# CI uses coverage-bridge-ci which drives nextest with --run-ignored all.
-COV_IGNORE_BRIDGE := (main\.rs|db/mod\.rs)
-coverage-bridge:
-	cd $(BRIDGE_DIR) && cargo llvm-cov $(COV_FMT) \
-		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)' -- --include-ignored
-
-# coverage-bridge-ci: nextest variant used by CI (produces JUnit + LCOV).
-# Requires BRIDGE_TEST_DATABASE_URL to be set (GitHub Actions service container).
-coverage-bridge-ci:
-	cd $(BRIDGE_DIR) && cargo llvm-cov nextest --run-ignored all --profile ci $(COV_FMT) \
-		--ignore-filename-regex '$(COV_IGNORE_BRIDGE)'
-
 # ---------- OpenAPI spec ----------
 #
 # The `dump_openapi` binary lives inside the `wardnetd-api` crate (at
@@ -362,7 +325,7 @@ check-openapi: openapi
 
 build: build-web build-daemon
 
-check: check-web check-site check-daemon check-bridge
+check: check-web check-site check-daemon
 
 # ---------- Dev loop ----------
 
@@ -572,9 +535,7 @@ help:
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
 	@echo "  check-site     Typecheck + format check + tests for public site"
 	@echo "  check-daemon   Format + clippy + tests for daemon (auto: native on Linux, container on macOS)"
-	@echo "  check-bridge   Format + clippy + tests for bridge (native on all platforms)"
 	@echo "  coverage-daemon Line-coverage summary for daemon (auto: native on Linux, container on macOS)"
-	@echo "  coverage-bridge Line-coverage summary for bridge (native on all platforms)"
 	@echo ""
 	@echo "  openapi        Regenerate $(OPENAPI_FILE) from the daemon's #[utoipa::path] annotations"
 	@echo "  check-openapi  Drift gate: fail if $(OPENAPI_FILE) is stale (run 'make openapi' to fix)"

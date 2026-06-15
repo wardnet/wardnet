@@ -39,7 +39,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       daemon: ${{ steps.detect.outputs.daemon }}
-      bridge: ${{ steps.detect.outputs.bridge }}
       site: ${{ steps.detect.outputs.site }}
       admin-web: ${{ steps.detect.outputs.admin-web }}
       admin-app: ${{ steps.detect.outputs.admin-app }}
@@ -69,20 +68,6 @@ jobs:
       actions: read
       security-events: write
     uses: ./.github/workflows/build-daemon.yml
-    secrets: inherit
-
-  build-bridge:
-    name: Build Bridge
-    needs: preflight
-    if: needs.preflight.outputs.bridge == 'true' || needs.preflight.outputs.ci == 'true'
-    # check-bridge uploads clippy SARIF to Code Scanning — it needs
-    # `security-events: write` granted by the caller. Scoped here so the
-    # rest of the run stays read-only.
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    uses: ./.github/workflows/build-bridge.yml
     secrets: inherit
 
   build-site:
@@ -131,7 +116,6 @@ jobs:
     if: |
       github.event.pull_request.user.type != 'Bot' && (
         needs.preflight.outputs.daemon == 'true' ||
-        needs.preflight.outputs.bridge == 'true' ||
         needs.preflight.outputs.site == 'true' ||
         needs.preflight.outputs.ci == 'true'
       )
@@ -162,7 +146,7 @@ jobs:
   # PR forever.
   all-checks-passed:
     name: All checks passed
-    needs: [preflight, build-daemon, build-bridge, build-site, build-admin-web, build-admin-app, build-user-app, coverage, tests-e2e]
+    needs: [preflight, build-daemon, build-site, build-admin-web, build-admin-app, build-user-app, coverage, tests-e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
