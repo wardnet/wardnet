@@ -192,9 +192,9 @@ impl DnsService for DnsServiceImpl {
             )));
         }
 
-        if let Some(ref mode) = req.resolution_mode {
+        if let Some(mode) = req.resolution_mode {
             self.system_config
-                .set("dns_resolution_mode", mode)
+                .set("dns_resolution_mode", mode.as_str())
                 .await
                 .map_err(AppError::Internal)?;
         }
