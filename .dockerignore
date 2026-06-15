@@ -1,7 +1,6 @@
 # Exclude large Rust build artifact trees — not needed in the Dockerfile.test
 # build context and would make context transfer very slow.
 source/daemon/target/
-source/bridge/target/
 
 # Yarn/npm caches and install state — not needed and can be large.
 **/node_modules/

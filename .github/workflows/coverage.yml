@@ -1,9 +1,9 @@
 name: Coverage
 
-# Reusable leaf for daemon + bridge + site coverage.
+# Reusable leaf for daemon + site coverage.
 #
 # Called only from pr.yml (coverage doesn't run on push-to-main —
-# Codecov's patch-coverage feature keys off PRs). Daemon, bridge, and
+# Codecov's patch-coverage feature keys off PRs). Daemon and
 # site coverage run in parallel jobs, and a single `upload` job combines
 # all LCOV/JUnit files into ONE Codecov invocation per PR so we get a
 # single PR comment with a coherent base comparison rather than
@@ -82,81 +82,6 @@ jobs:
           path: coverage/
           retention-days: 1
 
-  bridge-coverage:
-    name: Bridge coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
-      pebble:
-        image: ghcr.io/letsencrypt/pebble
-        env:
-          PEBBLE_VA_ALWAYS_VALID: "1"
-          PEBBLE_VA_NOSLEEP: "1"
-        ports:
-          - 14000:14000
-          - 15000:15000
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
-        with:
-          toolchain: "1.96"
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: source/bridge
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@56545b37b57562edd73171cb6c62cc509db4c34e # v2.75.21
-        with:
-          tool: cargo-llvm-cov
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@56545b37b57562edd73171cb6c62cc509db4c34e # v2.75.21
-        with:
-          tool: cargo-nextest
-
-      - name: Extract pebble WFE CA cert
-        # The WFE's HTTPS listener cert is signed by the static minica CA
-        # baked into the image, NOT by the issuance root served at
-        # /roots/0. docker cp works on the scratch-based image (no shell).
-        run: docker cp ${{ job.services.pebble.id }}:/test/certs/pebble.minica.pem /tmp/pebble-wfe-ca.pem
-
-      - name: Generate bridge coverage + test results
-        env:
-          BRIDGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432
-          BRIDGE_TEST_PEBBLE_URL: https://localhost:14000/dir
-          BRIDGE_TEST_PEBBLE_CA: /tmp/pebble-wfe-ca.pem
-        run: |
-          mkdir -p coverage
-          make coverage-bridge-ci \
-            COV_FMT="--lcov --output-path ../../coverage/bridge-lcov.info"
-          cp source/bridge/target/nextest/ci/junit.xml coverage/bridge-junit.xml
-
-      - name: Upload bridge coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: coverage-bridge
-          path: coverage/
-          retention-days: 1
-
   site-coverage:
     name: Site coverage
     runs-on: ubuntu-latest
@@ -196,15 +121,14 @@ jobs:
 
   upload:
     name: Upload to Codecov
-    needs: [daemon-coverage, bridge-coverage, site-coverage]
+    needs: [daemon-coverage, site-coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Run even if one side failed so partial coverage still uploads —
-    # a failing daemon test shouldn't hide a bridge or site coverage regression.
+    # a failing daemon test shouldn't hide a site coverage regression.
     if: |
       always() && (
         needs.daemon-coverage.result == 'success' ||
-        needs.bridge-coverage.result == 'success' ||
         needs.site-coverage.result == 'success'
       )
     steps:
@@ -222,13 +146,6 @@ jobs:
           name: coverage-daemon
           path: coverage/
 
-      - name: Download bridge coverage
-        if: needs.bridge-coverage.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: coverage-bridge
-          path: coverage/
-
       - name: Download site coverage
         if: needs.site-coverage.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -243,10 +160,8 @@ jobs:
           LCOV=""
           JUNIT=""
           [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
-          [[ -f coverage/bridge-lcov.info ]] && LCOV="${LCOV}coverage/bridge-lcov.info,"
           [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
           [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
-          [[ -f coverage/bridge-junit.xml ]] && JUNIT="${JUNIT}coverage/bridge-junit.xml,"
           [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
           echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
           echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
