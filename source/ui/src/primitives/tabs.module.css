@@ -15,7 +15,7 @@
   appearance: none; border: none;
   background: transparent;
   padding: 5px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-3);
   border-radius: 6px;
@@ -36,7 +36,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.06);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--ink-3);
 }

@@ -24,15 +24,10 @@
   flex-wrap: wrap;
   padding: var(--pad) var(--pad) 12px;
 }
-/* Card title voice matches the dashboard convention (stat label, table head):
-   small uppercase, tracked, ink-3. */
-.head h3 {
+/* Card title wears the shared `t-label` role (applied by CardTitle); this only
+   resets the element's margin so any heading level / div reads flush. */
+.head [data-slot="card-title"] {
   margin: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .card:has(.head) [data-slot="card-content"] {
   padding: 0 var(--pad) var(--pad);
@@ -41,7 +36,7 @@
   padding: 0;
 }
 .head .sub {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--ink-3);
   margin-left: 6px;
 }
@@ -49,7 +44,7 @@
 .head .subtitle {
   width: 100%;
   margin: 2px 0 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 400;
   color: var(--ink-3);
   text-transform: none;

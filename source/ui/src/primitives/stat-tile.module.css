@@ -18,18 +18,15 @@
 .stat > .bar {
   margin-top: auto;
 }
+/* Label voice comes from the shared `t-label` role (applied in stat-tile.tsx);
+   this keeps only the tile-specific layout. */
 .label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--ink-3);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .value {
-  font-size: 32px;
+  font-size: var(--text-4xl);
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--ink);
@@ -37,12 +34,12 @@
 }
 .value .unit {
   color: var(--ink-3);
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 500;
   margin-left: 2px;
 }
 .sub {
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--ink-3);
 }
 .spark {

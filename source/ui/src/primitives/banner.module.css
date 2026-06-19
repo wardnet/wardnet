@@ -3,7 +3,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   border-bottom: 1px solid transparent;
 }
 .icon {

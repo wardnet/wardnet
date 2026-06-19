@@ -4,7 +4,7 @@
   justify-content: center;
   gap: 6px;
   height: 34px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   padding: 0 12px;
   border-radius: 8px;
@@ -62,7 +62,7 @@
 .sm {
   height: 28px;
   padding: 0 9px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .sm > svg {
   width: 14px;

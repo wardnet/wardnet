@@ -71,8 +71,22 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"h3">) {
-  return <h3 data-slot="card-title" className={className} {...props} />;
+type CardTitleProps = React.ComponentProps<"h3"> & {
+  /** The rendered element. Defaults to <h3>, but the title voice (the shared
+   *  `t-label` role) is decoupled from the element — pass `as` to fit the
+   *  surrounding heading outline (e.g. `as="h2"`) or drop the heading entirely
+   *  (`as="div"`). */
+  as?: React.ElementType;
+};
+
+function CardTitle({ className, as: Comp = "h3", ...props }: CardTitleProps) {
+  return (
+    <Comp
+      data-slot="card-title"
+      className={clsx("t-label", className)}
+      {...props}
+    />
+  );
 }
 
 function CardSubtitle({

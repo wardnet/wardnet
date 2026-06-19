@@ -44,7 +44,7 @@
   border-bottom: 1px solid var(--line);
   display: flex; align-items: center; gap: 10px;
 }
-.modalHead h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.modalHead h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; color: var(--ink); }
 .modalBody { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .modalFoot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
 @keyframes scrim-in {
@@ -162,7 +162,7 @@
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--ink);
   cursor: default;
   user-select: none;
@@ -256,7 +256,7 @@
   border: none;
   outline: none;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--ink);
   padding: 0;
 }
@@ -272,7 +272,7 @@
 .comboboxEmpty {
   padding: 24px 8px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--ink-3);
 }
 
@@ -282,7 +282,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: var(--text-sm);
   padding: 8px 10px;
   background: var(--bg-elev);
   border: 1px solid var(--line);
@@ -302,12 +302,12 @@
 .selectTriggerMd {
   height: 34px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .selectTriggerSm {
   height: 28px;
   padding: 0 9px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .selectTriggerSm::after { width: 12px; height: 12px; }
 .selectTrigger[data-disabled] { opacity: 0.5; cursor: not-allowed; }
