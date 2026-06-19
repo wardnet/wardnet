@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Dialog } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type DrawerProps = React.ComponentProps<typeof Dialog.Root>;
 
@@ -28,9 +29,9 @@ function DrawerContent({
 }: DrawerContentProps) {
   return (
     <Dialog.Portal container={container}>
-      <Dialog.Overlay className="scrim" />
+      <Dialog.Overlay className={s.scrim} />
       <Dialog.Content
-        className={clsx("drawer", className)}
+        className={clsx(s.drawer, className)}
         data-side={side}
         {...props}
       >

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Popover as RadixPopover } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type PopoverProps = React.ComponentProps<typeof RadixPopover.Root>;
 
@@ -30,7 +31,7 @@ function PopoverContent({
       <RadixPopover.Content
         align={align}
         sideOffset={sideOffset}
-        className={clsx("popover", className)}
+        className={clsx(s.popover, className)}
         {...props}
       />
     </RadixPopover.Portal>

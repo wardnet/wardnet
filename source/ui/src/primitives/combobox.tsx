@@ -4,6 +4,7 @@ import { ChevronsUpDownIcon, SearchIcon } from "lucide-react";
 
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+import s from "./overlay.module.css";
 
 type ComboboxContextValue = {
   value: string;
@@ -58,21 +59,21 @@ function Combobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="combobox-trigger"
+          className={s.comboboxTrigger}
         >
           {trigger}
-          <ChevronsUpDownIcon className="combobox-chevron" />
+          <ChevronsUpDownIcon className={s.comboboxChevron} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="combobox-content" align="start">
+      <PopoverContent className={s.comboboxContent} align="start">
         <ComboboxContext.Provider value={ctx}>
           <CommandPrimitive>
-            <div className="combobox-input">
+            <div className={s.comboboxInput}>
               <SearchIcon />
               <CommandPrimitive.Input placeholder={searchPlaceholder} />
             </div>
-            <CommandPrimitive.List className="combobox-list">
-              <CommandPrimitive.Empty className="combobox-empty">
+            <CommandPrimitive.List className={s.comboboxList}>
+              <CommandPrimitive.Empty className={s.comboboxEmpty}>
                 {empty}
               </CommandPrimitive.Empty>
               {children}
@@ -106,7 +107,7 @@ function ComboboxItem({
       disabled={disabled}
       data-state={isSelected ? "checked" : "unchecked"}
       onSelect={() => onChange(value)}
-      className="menu-item"
+      className={s.menuItem}
     >
       {children}
     </CommandPrimitive.Item>

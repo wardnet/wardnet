@@ -1,6 +1,7 @@
 import * as React from "react";
 import { AlertDialog } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type AlertModalProps = React.ComponentProps<typeof AlertDialog.Root>;
 
@@ -29,8 +30,8 @@ function AlertModalContent({
 }: AlertModalContentProps) {
   return (
     <AlertDialog.Portal container={container}>
-      <AlertDialog.Overlay className="scrim" />
-      <AlertDialog.Content className={clsx("modal", className)} {...props}>
+      <AlertDialog.Overlay className={s.scrim} />
+      <AlertDialog.Content className={clsx(s.modal, className)} {...props}>
         {children}
       </AlertDialog.Content>
     </AlertDialog.Portal>
@@ -41,7 +42,7 @@ function AlertModalHeader({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__head", className)} {...props} />;
+  return <div className={clsx(s.modalHead, className)} {...props} />;
 }
 
 type AlertModalTitleProps = Omit<
@@ -67,14 +68,14 @@ function AlertModalDescription(props: AlertModalDescriptionProps) {
 }
 
 function AlertModalBody({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__body", className)} {...props} />;
+  return <div className={clsx(s.modalBody, className)} {...props} />;
 }
 
 function AlertModalFooter({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__foot", className)} {...props} />;
+  return <div className={clsx(s.modalFoot, className)} {...props} />;
 }
 
 type AlertModalActionProps = React.ComponentProps<typeof AlertDialog.Action>;

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Dialog } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type ModalProps = React.ComponentProps<typeof Dialog.Root>;
 
@@ -27,8 +28,8 @@ function ModalContent({
 }: ModalContentProps) {
   return (
     <Dialog.Portal container={container}>
-      <Dialog.Overlay className="scrim" />
-      <Dialog.Content className={clsx("modal", className)} {...props}>
+      <Dialog.Overlay className={s.scrim} />
+      <Dialog.Content className={clsx(s.modal, className)} {...props}>
         {children}
       </Dialog.Content>
     </Dialog.Portal>
@@ -36,7 +37,7 @@ function ModalContent({
 }
 
 function ModalHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__head", className)} {...props} />;
+  return <div className={clsx(s.modalHead, className)} {...props} />;
 }
 
 type ModalTitleProps = Omit<
@@ -60,11 +61,11 @@ function ModalDescription(props: ModalDescriptionProps) {
 }
 
 function ModalBody({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__body", className)} {...props} />;
+  return <div className={clsx(s.modalBody, className)} {...props} />;
 }
 
 function ModalFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={clsx("modal__foot", className)} {...props} />;
+  return <div className={clsx(s.modalFoot, className)} {...props} />;
 }
 
 type ModalCloseProps = React.ComponentProps<typeof Dialog.Close>;

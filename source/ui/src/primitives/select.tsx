@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Select as RadixSelect } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type SelectProps = React.ComponentProps<typeof RadixSelect.Root>;
 
@@ -13,7 +14,7 @@ type SelectTriggerProps = React.ComponentProps<typeof RadixSelect.Trigger>;
 function SelectTrigger({ className, children, ...props }: SelectTriggerProps) {
   return (
     <RadixSelect.Trigger
-      className={clsx("select-trigger", className)}
+      className={clsx(s.selectTrigger, className)}
       {...props}
     >
       {children}
@@ -43,7 +44,7 @@ function SelectContent({
   return (
     <RadixSelect.Portal container={container}>
       <RadixSelect.Content
-        className={clsx("popover", "select-content", className)}
+        className={clsx(s.popover, s.selectContent, className)}
         position={position}
         align={align}
         sideOffset={sideOffset}
@@ -59,7 +60,7 @@ type SelectItemProps = React.ComponentProps<typeof RadixSelect.Item>;
 
 function SelectItem({ className, children, ...props }: SelectItemProps) {
   return (
-    <RadixSelect.Item className={clsx("menu-item", className)} {...props}>
+    <RadixSelect.Item className={clsx(s.menuItem, className)} {...props}>
       <RadixSelect.ItemText>{children}</RadixSelect.ItemText>
     </RadixSelect.Item>
   );

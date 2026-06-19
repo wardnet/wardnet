@@ -1,6 +1,7 @@
 import * as React from "react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./overlay.module.css";
 
 type DropdownMenuProps = React.ComponentProps<typeof RadixDropdownMenu.Root>;
 
@@ -36,7 +37,7 @@ function DropdownMenuContent({
       <RadixDropdownMenu.Content
         align={align}
         sideOffset={sideOffset}
-        className={clsx("popover", className)}
+        className={clsx(s.popover, className)}
         {...props}
       />
     </RadixDropdownMenu.Portal>
@@ -59,7 +60,7 @@ function DropdownMenuItem({
   return (
     <RadixDropdownMenu.Item
       data-variant={variant}
-      className={clsx("menu-item", className)}
+      className={clsx(s.menuItem, className)}
       {...props}
     />
   );
@@ -75,7 +76,7 @@ function DropdownMenuSeparator({
 }: DropdownMenuSeparatorProps) {
   return (
     <RadixDropdownMenu.Separator
-      className={clsx("menu-separator", className)}
+      className={clsx(s.menuSeparator, className)}
       {...props}
     />
   );
