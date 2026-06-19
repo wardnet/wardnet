@@ -8,6 +8,7 @@ import {
   type DataTableGroup,
 } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
 import { HostCell, buildDeviceIndex } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
@@ -100,7 +101,9 @@ function buildColumns(
       header: "IP",
       meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
-        <span className="font-mono text-xs">{row.original.ip}</span>
+        <Text as="span" size="xs" className="font-mono">
+          {row.original.ip}
+        </Text>
       ),
     },
     {

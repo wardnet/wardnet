@@ -1,6 +1,6 @@
 import { CircleAlertIcon } from "lucide-react";
 import { Link } from "react-router";
-import { StatTile } from "@wardnet/web";
+import { StatTile, Text } from "@wardnet/web";
 
 interface DashboardStatCardProps {
   title: string;
@@ -30,7 +30,9 @@ export function DashboardStatCard({
         style={{ background: "var(--danger-soft)" }}
       >
         <CircleAlertIcon className="size-4 shrink-0 mt-0.5" />
-        <p className="text-[0.8125rem] font-medium leading-snug m-0">{error}</p>
+        <Text as="p" size="sm" weight="medium" className="leading-snug m-0">
+          {error}
+        </Text>
       </div>
     );
   }

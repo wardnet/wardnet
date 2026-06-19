@@ -1,4 +1,5 @@
 import { Pill } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import type { DnsFilterProfile } from "@wardnet/js";
 
@@ -40,7 +41,11 @@ export function ProfileToggleList({
   }
 
   if (profiles.length === 0) {
-    return <p className="text-sm text-ink-3">{emptyMessage}</p>;
+    return (
+      <Text as="p" size="sm" className="text-ink-3">
+        {emptyMessage}
+      </Text>
+    );
   }
 
   return (
@@ -78,7 +83,9 @@ function ProfileToggleRow({
   return (
     <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className="text-sm">{profile.name}</span>
+        <Text as="span" size="sm">
+          {profile.name}
+        </Text>
         {profile.builtin && (
           <Pill variant="ghost" className="text-xs">
             Builtin

@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { formatDateTime } from "@wardnet/web";
 import {
@@ -162,63 +163,95 @@ export function UpdateCard({
 
       <CardContent className="flex flex-col gap-4">
         {isLoading || !status ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            Loading…
+          </Text>
         ) : (
           <>
-            <p className="text-sm text-ink-3">
+            <Text as="p" size="sm" className="text-ink-3">
               When enabled, Wardnet checks for updates hourly and installs them
               automatically as they land on the selected channel.
-            </p>
+            </Text>
 
-            <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
+            <Text
+              as="dl"
+              size="sm"
+              className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3"
+            >
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Current version
-                </dt>
-                <dd className="font-medium">{status.current_version}</dd>
+                </Text>
+                <Text as="dd" weight="medium">
+                  {status.current_version}
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Latest
-                </dt>
-                <dd className="font-medium">
+                </Text>
+                <Text as="dd" weight="medium">
                   {status.latest_version ?? "unknown"}
-                </dd>
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Last checked
-                </dt>
-                <dd className="font-medium">
+                </Text>
+                <Text as="dd" weight="medium">
                   {status.last_check_at
                     ? formatDateTime(status.last_check_at)
                     : "never"}
-                </dd>
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Current phase
-                </dt>
-                <dd className="font-medium">
+                </Text>
+                <Text as="dd" weight="medium">
                   {describePhase(status.install_phase)}
-                </dd>
+                </Text>
               </div>
               {status.pending_version && (
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-ink-3">
+                  <Text
+                    as="dt"
+                    size="xs"
+                    className="uppercase tracking-wide text-ink-3"
+                  >
                     Pending
-                  </dt>
-                  <dd className="font-medium">{status.pending_version}</dd>
+                  </Text>
+                  <Text as="dd" weight="medium">
+                    {status.pending_version}
+                  </Text>
                 </div>
               )}
-            </dl>
+            </Text>
 
             {status.install_phase.phase === "failed" && (
               <div
                 role="alert"
                 className="rounded-md border border-danger/50 bg-danger/10 p-3 text-sm text-danger"
               >
-                <div className="font-medium">Last install failed</div>
+                <Text as="div" weight="medium">
+                  Last install failed
+                </Text>
                 <div className="mt-0.5 break-words">
                   {status.install_phase.reason}
                 </div>

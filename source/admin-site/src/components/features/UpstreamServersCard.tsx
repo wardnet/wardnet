@@ -14,6 +14,7 @@ import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Select,
   SelectContent,
@@ -69,17 +70,19 @@ export function UpstreamServersCard({
         id: "name",
         header: "Name",
         cell: ({ row }) => (
-          <span className="text-sm font-medium">{row.original.name}</span>
+          <Text as="span" size="sm" weight="medium">
+            {row.original.name}
+          </Text>
         ),
       },
       {
         id: "address",
         header: "Address",
         cell: ({ row }) => (
-          <span className="font-mono text-xs">
+          <Text as="span" size="xs" className="font-mono">
             {row.original.address}
             {row.original.port ? `:${row.original.port}` : ""}
-          </span>
+          </Text>
         ),
       },
       {
@@ -120,11 +123,11 @@ export function UpstreamServersCard({
 
       <CardContent className="flex flex-col gap-4">
         {fallbackOnly && (
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Recursive resolution is active — these upstreams are used only as a
             fallback if recursion fails. Leave empty to resolve purely from the
             root servers (failures return SERVFAIL instead of forwarding).
-          </p>
+          </Text>
         )}
         {adding && (
           <AddServerForm

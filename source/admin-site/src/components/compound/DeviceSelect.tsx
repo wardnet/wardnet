@@ -6,6 +6,7 @@ import {
   SelectValue,
 } from "@wardnet/web";
 import { DeviceIcon } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 interface DeviceSelectProps {
@@ -49,9 +50,9 @@ export function DeviceSelect({
   const triggerLabel = selected ? (
     <span className="flex min-w-0 items-center gap-2">
       <DeviceIcon type={selected.device_type} size={16} />
-      <span className="truncate font-medium">
+      <Text as="span" weight="medium" className="truncate">
         {selected.name || selected.hostname || selected.last_ip}
-      </span>
+      </Text>
     </span>
   ) : (
     <span className="text-ink-3">{anyLabel}</span>
@@ -85,9 +86,13 @@ export function DeviceSelect({
               <div className="flex items-center gap-2">
                 <DeviceIcon type={d.device_type} size={16} />
                 <div className="flex flex-col">
-                  <span className="font-medium">{primary}</span>
+                  <Text as="span" weight="medium">
+                    {primary}
+                  </Text>
                   {secondary && (
-                    <span className="text-xs text-ink-3">{secondary}</span>
+                    <Text as="span" size="xs" className="text-ink-3">
+                      {secondary}
+                    </Text>
                   )}
                 </div>
               </div>

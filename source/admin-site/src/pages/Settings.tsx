@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { UpdateCard } from "@/components/features/UpdateCard";
 import { useSystemStatus } from "@wardnet/web";
@@ -38,48 +39,84 @@ export default function Settings() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-ink-3">Loading…</p>
+            <Text as="p" size="sm" className="text-ink-3">
+              Loading…
+            </Text>
           ) : status ? (
-            <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
+            <Text
+              as="dl"
+              size="sm"
+              className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3"
+            >
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Version
-                </dt>
-                <dd className="font-medium" title={`build: ${status.version}`}>
+                </Text>
+                <Text
+                  as="dd"
+                  weight="medium"
+                  title={`build: ${status.version}`}
+                >
                   {status.release_version}
-                </dd>
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Uptime
-                </dt>
-                <dd className="font-medium">
+                </Text>
+                <Text as="dd" weight="medium">
                   {formatUptime(status.uptime_seconds)}
-                </dd>
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Devices
-                </dt>
-                <dd className="font-medium">{status.device_count}</dd>
+                </Text>
+                <Text as="dd" weight="medium">
+                  {status.device_count}
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Tunnels
-                </dt>
-                <dd className="font-medium">{status.tunnel_count}</dd>
+                </Text>
+                <Text as="dd" weight="medium">
+                  {status.tunnel_count}
+                </Text>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-3">
+                <Text
+                  as="dt"
+                  size="xs"
+                  className="uppercase tracking-wide text-ink-3"
+                >
                   Database size
-                </dt>
-                <dd className="font-medium">
+                </Text>
+                <Text as="dd" weight="medium">
                   {formatBytes(status.db_size_bytes)}
-                </dd>
+                </Text>
               </div>
-            </dl>
+            </Text>
           ) : (
-            <p className="text-sm text-ink-3">Unable to connect to daemon.</p>
+            <Text as="p" size="sm" className="text-ink-3">
+              Unable to connect to daemon.
+            </Text>
           )}
         </CardContent>
       </Card>
@@ -104,9 +141,9 @@ export default function Settings() {
           <CardTitle>Account</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Account management will be available in a future release.
-          </p>
+          </Text>
         </CardContent>
       </Card>
     </div>

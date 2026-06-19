@@ -14,6 +14,7 @@ import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Select,
   SelectContent,
@@ -91,7 +92,9 @@ export function LocalRecordsCard() {
         id: "domain",
         header: "Domain",
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.domain}</span>
+          <Text as="span" size="xs" className="font-mono">
+            {row.original.domain}
+          </Text>
         ),
       },
       {
@@ -106,21 +109,29 @@ export function LocalRecordsCard() {
         id: "value",
         header: "Value",
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.value}</span>
+          <Text as="span" size="xs" className="font-mono">
+            {row.original.value}
+          </Text>
         ),
       },
       {
         id: "ttl",
         header: "TTL",
         meta: { className: "hidden md:table-cell w-20" },
-        cell: ({ row }) => <span className="text-sm">{row.original.ttl}</span>,
+        cell: ({ row }) => (
+          <Text as="span" size="sm">
+            {row.original.ttl}
+          </Text>
+        ),
       },
       {
         id: "zone",
         header: "Zone",
         meta: { className: "hidden sm:table-cell" },
         cell: ({ row }) => (
-          <span className="text-sm">{zoneName(row.original.zone_id)}</span>
+          <Text as="span" size="sm">
+            {zoneName(row.original.zone_id)}
+          </Text>
         ),
       },
       {

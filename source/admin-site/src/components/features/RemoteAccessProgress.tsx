@@ -1,5 +1,5 @@
 import type { TlsStatusResponse } from "@wardnet/js";
-import { formatDate } from "@wardnet/web";
+import { formatDate, Text } from "@wardnet/web";
 
 /**
  * Presentational view of the daemon's coarse TLS provisioning phase. Shared by
@@ -16,8 +16,10 @@ export function RemoteAccessProgress({
 
   if (phase === "issuing") {
     return (
-      <div className="rounded-md border border-line bg-sunken p-4 text-sm">
-        <p className="font-medium text-ink">Issuing certificate…</p>
+      <Text as="div" size="sm" className="rounded-md border border-line bg-sunken p-4">
+        <Text as="p" weight="medium" className="text-ink">
+          Issuing certificate…
+        </Text>
         <p className="mt-1 text-ink-3">
           {domain ? (
             <>
@@ -29,16 +31,16 @@ export function RemoteAccessProgress({
             "Provisioning HTTPS. This can take a minute."
           )}
         </p>
-      </div>
+      </Text>
     );
   }
 
   if (phase === "issued") {
     return (
-      <div className="rounded-md border border-line bg-accent-soft p-4 text-sm">
-        <p className="font-medium text-accent-soft-ink">
+      <Text as="div" size="sm" className="rounded-md border border-line bg-accent-soft p-4">
+        <Text as="p" weight="medium" className="text-accent-soft-ink">
           Remote access is live
-        </p>
+        </Text>
         <p className="mt-1 text-ink-2">
           {domain && (
             <>
@@ -48,21 +50,21 @@ export function RemoteAccessProgress({
             </>
           )}
         </p>
-      </div>
+      </Text>
     );
   }
 
   if (phase === "failed") {
     return (
-      <div className="rounded-md border border-line bg-danger-soft p-4 text-sm">
-        <p className="font-medium text-danger-soft-ink">
+      <Text as="div" size="sm" className="rounded-md border border-line bg-danger-soft p-4">
+        <Text as="p" weight="medium" className="text-danger-soft-ink">
           Certificate issuance failed
-        </p>
+        </Text>
         <p className="mt-1 text-ink-2">
           {error ?? "The daemon could not issue a certificate."} You can retry
           later from Settings — the daemon also retries automatically.
         </p>
-      </div>
+      </Text>
     );
   }
 

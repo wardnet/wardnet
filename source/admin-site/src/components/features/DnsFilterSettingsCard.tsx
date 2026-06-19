@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { useDnsFilterConfig, useUpdateDnsFilterConfig } from "@wardnet/web";
@@ -41,10 +42,10 @@ export function DnsFilterSettingsCard() {
         </CardAction>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-ink-3">
+        <Text as="p" size="sm" className="text-ink-3">
           Emergency stop. When off, every DNS query bypasses filtering
           regardless of per-device or per-profile settings.
-        </p>
+        </Text>
       </CardContent>
     </Card>
   );

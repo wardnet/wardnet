@@ -13,6 +13,7 @@ import { Toggle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
@@ -136,9 +137,9 @@ export default function Dns() {
                   </div>
                   <div>
                     <div className="stat__label">DNSSEC</div>
-                    <div className="text-lg font-semibold">
+                    <Text as="div" size="lg" weight="semibold">
                       {config.dnssec_enabled ? "Enabled" : "Disabled"}
-                    </div>
+                    </Text>
                   </div>
                 </div>
               </CardContent>
@@ -161,25 +162,25 @@ export default function Dns() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <Text as="div" size="sm" className="grid grid-cols-2 gap-4">
                     <div>
                       <div className="stat__label">Entries</div>
-                      <div className="text-2xl font-bold">
+                      <Text as="div" size="2xl" weight="bold">
                         {status.cache_size}
-                      </div>
+                      </Text>
                     </div>
                     <div>
                       <div className="stat__label">Hit rate</div>
-                      <div className="text-2xl font-bold">
+                      <Text as="div" size="2xl" weight="bold">
                         {status.cache_hit_rate.toFixed(1)}%
-                      </div>
+                      </Text>
                     </div>
-                  </div>
+                  </Text>
                   <div>
-                    <p className="mb-1 text-xs text-ink-3">
+                    <Text as="p" size="xs" className="mb-1 text-ink-3">
                       Cache usage ({status.cache_size} / {status.cache_capacity}
                       )
-                    </p>
+                    </Text>
                     <DashboardUsageBar value={cacheUsagePercent} />
                   </div>
                 </div>
@@ -275,11 +276,11 @@ export default function Dns() {
               <CardContent>
                 <div>
                   <div className="stat__label">Retention</div>
-                  <div className="text-lg font-semibold">
+                  <Text as="div" size="lg" weight="semibold">
                     {config.query_log_enabled
                       ? `${config.query_log_retention_days} days`
                       : "—"}
-                  </div>
+                  </Text>
                 </div>
               </CardContent>
             )}

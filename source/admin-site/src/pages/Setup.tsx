@@ -1,4 +1,5 @@
 import { useSetupStatus } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import Step1Admin from "@/pages/setup/Step1Admin";
 import Step2Network from "@/pages/setup/Step2Network";
 import Step3DhcpOnboarding from "@/pages/setup/Step3DhcpOnboarding";
@@ -33,7 +34,9 @@ export default function Setup() {
   return (
     <div className="min-h-[36rem]">
       {isLoading || !data ? (
-        <p className="text-sm text-ink-3">Loading…</p>
+        <Text as="p" size="sm" className="text-ink-3">
+          Loading…
+        </Text>
       ) : (
         <>
           <WizardStepper current={data.wizard_step} />

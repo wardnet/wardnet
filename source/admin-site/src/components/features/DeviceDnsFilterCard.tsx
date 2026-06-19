@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
@@ -84,7 +85,9 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
           <CardTitle>DNS filtering</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">Loading…</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            Loading…
+          </Text>
         </CardContent>
       </Card>
     );
@@ -165,17 +168,29 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
         </>
       ) : (
         <CardContent>
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+          <Text
+            as="dl"
+            size="sm"
+            className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2"
+          >
             <div>
-              <dt className="text-xs uppercase tracking-wide text-ink-3">
+              <Text
+                as="dt"
+                size="xs"
+                className="uppercase tracking-wide text-ink-3"
+              >
                 Status
-              </dt>
+              </Text>
               <dd>{settings.enabled ? "Filtering on" : "Filtering off"}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-ink-3">
+              <Text
+                as="dt"
+                size="xs"
+                className="uppercase tracking-wide text-ink-3"
+              >
                 Profiles
-              </dt>
+              </Text>
               <dd>
                 {!settings.enabled
                   ? "—"
@@ -186,7 +201,7 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
                     : assignedProfiles.map((p) => p.name).join(", ")}
               </dd>
             </div>
-          </dl>
+          </Text>
         </CardContent>
       )}
     </Card>
@@ -214,35 +229,35 @@ function DefaultProfileHint({
 }: DefaultProfileHintProps) {
   if (!enabled) {
     return (
-      <p className="text-xs text-ink-3">
+      <Text as="p" size="xs" className="text-ink-3">
         Filtering off — DNS queries from this device skip every profile.
-      </p>
+      </Text>
     );
   }
   if (hasExplicit) {
     return (
-      <p className="text-xs text-ink-3">
+      <Text as="p" size="xs" className="text-ink-3">
         Selected profiles are stacked — a domain blocked in any one of them is
         blocked.
-      </p>
+      </Text>
     );
   }
   if (defaultProfiles.length > 0) {
     const noun = defaultProfiles.length === 1 ? "profile" : "profiles";
     return (
-      <p className="text-xs text-ink-3">
+      <Text as="p" size="xs" className="text-ink-3">
         No profile selected — this device follows the global default {noun}{" "}
-        <span className="font-medium text-ink">
+        <Text weight="medium" className="text-ink">
           {defaultProfiles.map((p) => p.name).join(", ")}
-        </span>
+        </Text>
         .
-      </p>
+      </Text>
     );
   }
   return (
-    <p className="text-xs text-ink-3">
+    <Text as="p" size="xs" className="text-ink-3">
       No profile selected and no global default is set — this device's traffic
       isn't filtered.
-    </p>
+    </Text>
   );
 }

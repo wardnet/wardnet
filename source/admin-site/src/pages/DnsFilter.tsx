@@ -6,6 +6,7 @@ import { Button } from "@wardnet/web";
 import { Card, CardContent } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { DataTable } from "@/components/core/ui/data-table";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
@@ -107,12 +108,13 @@ export default function DnsFilter() {
                   label. The Builtin pill is `shrink-0` so it stays
                   intact even when the name needs to be clipped. */}
               <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className="truncate font-medium"
+                <Text
+                  weight="medium"
+                  className="truncate"
                   title={row.original.name}
                 >
                   {row.original.name}
-                </span>
+                </Text>
                 {row.original.builtin && (
                   <Pill variant="ghost" className="shrink-0">
                     Builtin
@@ -120,9 +122,9 @@ export default function DnsFilter() {
                 )}
               </div>
               {row.original.description && (
-                <span className="truncate text-xs text-ink-3">
+                <Text size="xs" className="truncate text-ink-3">
                   {row.original.description}
-                </span>
+                </Text>
               )}
             </div>
           </div>

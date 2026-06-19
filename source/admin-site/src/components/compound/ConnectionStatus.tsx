@@ -1,4 +1,4 @@
-import { useDaemonStatus } from "@wardnet/web";
+import { useDaemonStatus, Text } from "@wardnet/web";
 
 /** Traffic-light status indicator shown in the sidebar footer. The
  *  daemon version is rendered separately under the brand mark (see
@@ -17,7 +17,9 @@ export function ConnectionStatus() {
   return (
     <div className="flex items-center gap-2">
       <span className={`inline-block size-2 rounded-full ${color}`} />
-      <span className="text-xs text-side-ink/70">{label}</span>
+      <Text as="span" size="xs" className="text-side-ink/70">
+        {label}
+      </Text>
     </div>
   );
 }

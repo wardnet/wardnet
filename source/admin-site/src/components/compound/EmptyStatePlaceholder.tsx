@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { brand } from "@wardnet/styles/tokens";
 import { FileText, PlusCircle } from "lucide-react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 
 interface EmptyStatePlaceholderProps {
   /** Primary message. */
@@ -113,13 +114,18 @@ export function EmptyStatePlaceholder({
 
       {/* Text + action */}
       <div className="mt-8 flex flex-col items-center gap-3 px-4 text-center">
-        <p className="text-sm font-medium" style={{ color: "var(--ink-3)" }}>
+        <Text
+          as="p"
+          size="sm"
+          weight="medium"
+          style={{ color: "var(--ink-3)" }}
+        >
           {message}
-        </p>
+        </Text>
         {hint && (
-          <p className="max-w-sm text-xs" style={{ color: hintColor }}>
+          <Text as="p" size="xs" className="max-w-sm" style={{ color: hintColor }}>
             {hint}
-          </p>
+          </Text>
         )}
         {actionLabel && onAction && (
           <Button onClick={onAction} className="mt-2">

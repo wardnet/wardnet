@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
@@ -54,16 +55,22 @@ export default function Step4RouterMac() {
       </div>
 
       {probe.isPending && !probedMac && (
-        <p className="text-sm text-ink-3">Probing the gateway via ARP…</p>
+        <Text as="p" size="sm" className="text-ink-3">
+          Probing the gateway via ARP…
+        </Text>
       )}
 
       {probedMac && (
-        <div className="rounded-md border border-line bg-sunken p-4 text-sm">
-          <p className="font-medium text-ink">
+        <Text
+          as="div"
+          size="sm"
+          className="rounded-md border border-line bg-sunken p-4"
+        >
+          <Text as="p" weight="medium" className="text-ink">
             {probedSource === "arp" ? "Discovered via ARP" : "Recorded"}
-          </p>
+          </Text>
           <p className="mono mt-1">{probedMac}</p>
-        </div>
+        </Text>
       )}
 
       {!probe.isPending && !probedMac && probeFailed && (

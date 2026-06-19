@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/web";
 import { ManualTunnelTab } from "./ManualTunnelTab";
 import { ProviderTunnelTab } from "./ProviderTunnelTab";
@@ -54,9 +55,9 @@ export function CreateTunnelInline({
   if (embedded) {
     return (
       <div className="flex flex-col gap-4">
-        <h3 className="text-base font-semibold text-ink">
+        <Text as="h3" size="base" weight="semibold" className="text-ink">
           Add WireGuard tunnel
-        </h3>
+        </Text>
         {body}
         <div className="flex justify-end">
           <Button variant="ghost" onClick={onClose}>

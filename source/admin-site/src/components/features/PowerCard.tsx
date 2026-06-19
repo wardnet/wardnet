@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PowerIcon, RotateCcwIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
@@ -72,11 +73,11 @@ export function PowerCard({
           </CardAction>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Reboot the system. Wardnet will be unavailable for ~30–60 seconds
             while it comes back up; managed devices fall back to the upstream
             router during that gap.
-          </p>
+          </Text>
         </CardContent>
       </Card>
 
@@ -97,10 +98,10 @@ export function PowerCard({
           </CardAction>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Restart only the wardnetd process. The host keeps running. Use this
             if support has asked you to.
-          </p>
+          </Text>
         </CardContent>
       </Card>
 
@@ -125,10 +126,10 @@ export function PowerCard({
           </CardAction>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-danger-soft-ink">
+          <Text as="p" size="sm" className="text-danger-soft-ink">
             Power Wardnet off. Internet for managed devices will go through your
             upstream router until you turn the system back on manually.
-          </p>
+          </Text>
         </CardContent>
       </Card>
 

@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
@@ -58,9 +59,9 @@ export function DhcpStatusCard({
         <div>
           <div className="flex items-center justify-between">
             <div className="stat__label">Pool usage</div>
-            <div className="font-mono text-[11px] text-ink-3">
+            <Text as="div" size="2xs" className="font-mono text-ink-3">
               {status.pool_used} / {status.pool_total}
-            </div>
+            </Text>
           </div>
           <div className="bar mt-1.5">
             <span

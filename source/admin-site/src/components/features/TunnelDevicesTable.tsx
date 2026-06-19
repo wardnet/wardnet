@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   deviceDisplayName,
+  Text,
 } from "@wardnet/web";
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@wardnet/web";
@@ -58,18 +59,20 @@ export function TunnelDevicesTable({ tunnelId }: Props) {
       <CardHeader>
         <CardTitle>
           Devices using this tunnel{" "}
-          <span className="text-sm font-normal text-ink-3">
+          <Text as="span" size="sm" weight="normal" className="text-ink-3">
             ({devices.length})
-          </span>
+          </Text>
         </CardTitle>
       </CardHeader>
       <CardContent>
         {isError ? (
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Failed to load devices for this tunnel.
-          </p>
+          </Text>
         ) : isLoading ? (
-          <p className="text-sm text-ink-3">Loading…</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            Loading…
+          </Text>
         ) : (
           <DataTable
             columns={columns}

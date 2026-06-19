@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import type { RecentError } from "@wardnet/web";
 
 function formatTimestamp(ts: string): string {
@@ -28,9 +29,9 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
       </CardHeader>
       <CardContent>
         {errors.length === 0 ? (
-          <p className="py-4 text-center text-sm text-ink-3">
+          <Text as="p" size="sm" className="py-4 text-center text-ink-3">
             No recent errors
-          </p>
+          </Text>
         ) : (
           <div className="logs">
             {[...errors].reverse().map((err, i) => (

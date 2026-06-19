@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
@@ -73,7 +74,9 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           <CardTitle>DNS capture</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">Loading…</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            Loading…
+          </Text>
         </CardContent>
       </Card>
     );
@@ -88,10 +91,12 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
         <CardContent className="flex flex-col gap-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-medium text-ink-3">Capture enabled</p>
-              <p className="mt-0.5 text-xs text-ink-3">
+              <Text as="p" size="xs" weight="medium" className="text-ink-3">
+                Capture enabled
+              </Text>
+              <Text as="p" size="xs" className="mt-0.5 text-ink-3">
                 Store DNS queries made by this device for review and analysis.
-              </p>
+              </Text>
             </div>
             <Toggle
               checked={enabled}
@@ -101,10 +106,12 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <div>
-              <p className="text-xs font-medium text-ink-3">Max records</p>
-              <p className="mt-0.5 text-xs text-ink-3">
+              <Text as="p" size="xs" weight="medium" className="text-ink-3">
+                Max records
+              </Text>
+              <Text as="p" size="xs" className="mt-0.5 text-ink-3">
                 Maximum events to retain.
-              </p>
+              </Text>
               <Input
                 type="number"
                 min={1}
@@ -114,10 +121,12 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
               />
             </div>
             <div>
-              <p className="text-xs font-medium text-ink-3">Retain days</p>
-              <p className="mt-0.5 text-xs text-ink-3">
+              <Text as="p" size="xs" weight="medium" className="text-ink-3">
+                Retain days
+              </Text>
+              <Text as="p" size="xs" className="mt-0.5 text-ink-3">
                 Delete events older than this.
-              </p>
+              </Text>
               <Input
                 type="number"
                 min={1}
@@ -157,32 +166,48 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
         </CardAction>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+        <Text
+          as="dl"
+          size="sm"
+          className="grid grid-cols-2 gap-x-6 gap-y-4"
+        >
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Status
-            </dt>
+            </Text>
             <dd>{data.enabled ? "Enabled" : "Disabled"}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Retention
-            </dt>
+            </Text>
             <dd>
               {data.cap_count.toLocaleString()} records · {data.cap_days} days
             </dd>
           </div>
           <div className="col-span-2">
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Storage
-            </dt>
+            </Text>
             <dd>
               {data.row_count.toLocaleString()} records ·{" "}
               {formatBytes(data.size_bytes)}
             </dd>
             <StorageBar value={data.row_count} max={data.cap_count} />
           </div>
-        </dl>
+        </Text>
       </CardContent>
     </Card>
   );

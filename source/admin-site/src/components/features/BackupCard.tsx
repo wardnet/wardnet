@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { WardnetApiError, type RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
@@ -179,18 +180,22 @@ export function BackupCard({
 
         {!exporting ? (
           <CardContent>
-            <p className="text-sm text-ink-3">
+            <Text as="p" size="sm" className="text-ink-3">
               Export an encrypted bundle of the database, operator config, and
               WireGuard keys. Use it to restore a fresh install, recover from
               disk failure, or roll back a risky configuration change.
-            </p>
-            <div className="mt-3 flex gap-2 rounded-md bg-warn p-3 text-sm text-warn-soft-ink">
+            </Text>
+            <Text
+              as="div"
+              size="sm"
+              className="mt-3 flex gap-2 rounded-md bg-warn p-3 text-warn-soft-ink"
+            >
               <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
               <span>
                 Keep the passphrase somewhere safe. We can&apos;t recover it for
                 you.
               </span>
-            </div>
+            </Text>
           </CardContent>
         ) : (
           <Form
@@ -198,11 +203,11 @@ export function BackupCard({
             onSubmit={handleExportSubmit}
           >
             <CardContent className="flex flex-col gap-4">
-              <p className="text-sm text-ink-3">
+              <Text as="p" size="sm" className="text-ink-3">
                 Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters.
                 The passphrase is required to restore this bundle — we
                 can&apos;t recover it if you lose it.
-              </p>
+              </Text>
 
               <Field
                 label="Passphrase"
@@ -317,11 +322,11 @@ export function BackupCard({
 
         {!restoring ? (
           <CardContent>
-            <p className="text-sm text-danger-soft-ink">
+            <Text as="p" size="sm" className="text-danger-soft-ink">
               Overwrite the current database, config, and WireGuard keys from a
               previously exported bundle. The daemon restarts at the end of a
               restore and the action cannot be undone.
-            </p>
+            </Text>
           </CardContent>
         ) : !preview ? (
           <Form
@@ -329,9 +334,9 @@ export function BackupCard({
             onSubmit={handleRestoreSubmit}
           >
             <CardContent className="flex flex-col gap-4">
-              <p className="text-sm text-ink-3">
+              <Text as="p" size="sm" className="text-ink-3">
                 Pick a .wardnet.age file and enter its passphrase.
-              </p>
+              </Text>
 
               <Field label="Bundle file" htmlFor="backup-bundle" name="bundle">
                 <input
@@ -419,9 +424,9 @@ export function BackupCard({
         ) : (
           <>
             <CardContent className="space-y-4">
-              <p className="text-sm text-ink-3">
+              <Text as="p" size="sm" className="text-ink-3">
                 Review what will be replaced, then confirm the restore.
-              </p>
+              </Text>
               <RestorePreviewDetails preview={preview} />
               {applyError != null && (
                 <ApiErrorAlert
@@ -466,49 +471,69 @@ function RestorePreviewDetails({
   preview: RestorePreviewResponse;
 }) {
   return (
-    <div className="space-y-3 text-sm">
+    <Text as="div" size="sm" className="space-y-3">
       {!preview.compatible && (
         <div className="flex gap-2 rounded-md bg-danger-soft p-3 text-danger-soft-ink">
           <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0">
-            <div className="font-medium">Bundle incompatible</div>
-            <div className="break-words text-xs">
+            <Text as="div" weight="medium">
+              Bundle incompatible
+            </Text>
+            <Text as="div" size="xs" className="break-words">
               {preview.incompatibility_reason ?? "Unknown reason"}
-            </div>
+            </Text>
           </div>
         </div>
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        <dt className="text-ink-3">From version</dt>
-        <dd className="break-all font-mono">
+        <Text as="dt" className="text-ink-3">
+          From version
+        </Text>
+        <Text as="dd" className="break-all font-mono">
           {preview.manifest.wardnet_version}
-        </dd>
-        <dt className="text-ink-3">Host ID</dt>
-        <dd className="break-all font-mono">{preview.manifest.host_id}</dd>
-        <dt className="text-ink-3">Created</dt>
+        </Text>
+        <Text as="dt" className="text-ink-3">
+          Host ID
+        </Text>
+        <Text as="dd" className="break-all font-mono">
+          {preview.manifest.host_id}
+        </Text>
+        <Text as="dt" className="text-ink-3">
+          Created
+        </Text>
         <dd>{formatDateTime(preview.manifest.created_at)}</dd>
-        <dt className="text-ink-3">Schema version</dt>
+        <Text as="dt" className="text-ink-3">
+          Schema version
+        </Text>
         <dd>{preview.manifest.schema_version}</dd>
-        <dt className="text-ink-3">WireGuard keys</dt>
+        <Text as="dt" className="text-ink-3">
+          WireGuard keys
+        </Text>
         <dd>{preview.manifest.key_count}</dd>
       </dl>
       <div>
-        <div className="mb-1 text-ink-3">Will replace:</div>
-        <ul className="list-inside list-disc space-y-0.5 font-mono text-xs">
+        <Text as="div" className="mb-1 text-ink-3">
+          Will replace:
+        </Text>
+        <Text
+          as="ul"
+          size="xs"
+          className="list-inside list-disc space-y-0.5 font-mono"
+        >
           {preview.files_to_replace.map((f) => (
             <li key={f} className="break-all">
               {f}
             </li>
           ))}
-        </ul>
+        </Text>
       </div>
-      <p className="text-xs text-ink-3">
+      <Text as="p" size="xs" className="text-ink-3">
         A{" "}
         <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[0.7rem]">
           .bak-&lt;timestamp&gt;
         </code>{" "}
         sibling is kept for every replaced file and retained for 24&nbsp;hours.
-      </p>
-    </div>
+      </Text>
+    </Text>
   );
 }

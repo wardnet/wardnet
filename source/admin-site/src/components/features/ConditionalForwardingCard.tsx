@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Card,
   CardContent,
@@ -62,14 +63,18 @@ export function ConditionalForwardingCard() {
         id: "domain",
         header: "Domain",
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.domain}</span>
+          <Text size="xs" className="font-mono">
+            {row.original.domain}
+          </Text>
         ),
       },
       {
         id: "upstream",
         header: "Upstream",
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.upstream}</span>
+          <Text size="xs" className="font-mono">
+            {row.original.upstream}
+          </Text>
         ),
       },
       {

@@ -5,6 +5,7 @@ import { Button } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
@@ -63,7 +64,11 @@ export default function TunnelDetail() {
   } = useTunnelStats(id, range);
 
   if (isLoading) {
-    return <p className="text-sm text-ink-3">Loading…</p>;
+    return (
+      <Text as="p" size="sm" className="text-ink-3">
+        Loading…
+      </Text>
+    );
   }
 
   if (isError || !data) {

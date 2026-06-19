@@ -8,6 +8,7 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { StatusBadge } from "./StatusBadge";
 import { countryFlag, formatBytes, timeAgo } from "@wardnet/web";
 import { useTestTunnel, useRebuildTunnel } from "@wardnet/web";
@@ -127,12 +128,15 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
               </div>
             )}
             {tunnel.server_selector && (
-              <span
-                className="rounded-sm bg-sunken px-1.5 py-0.5 text-[10px] font-medium text-ink-3"
+              <Text
+                as="span"
+                size="2xs"
+                weight="medium"
+                className="rounded-sm bg-sunken px-1.5 py-0.5 text-ink-3"
                 aria-label={`Auto-selected best server in ${tunnel.server_selector.country.toUpperCase()}`}
               >
                 Best {tunnel.server_selector.country.toUpperCase()}
-              </span>
+              </Text>
             )}
             <div className="spacer" />
             <StatusBadge
@@ -182,11 +186,15 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
       </Link>
 
       {testResult && (
-        <div className="row gap-8 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2 text-xs">
+        <Text
+          as="div"
+          size="xs"
+          className="row gap-8 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2"
+        >
           <span aria-hidden>{countryFlag(testResult.country_code)}</span>
-          <span className="font-medium">
+          <Text as="span" weight="medium">
             {testResult.country_code.toUpperCase()}
-          </span>
+          </Text>
           <span className="text-ink-3">·</span>
           <span className="mono">{testResult.exit_ip}</span>
           <span className="text-ink-3">·</span>
@@ -196,7 +204,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
               tested {timeAgo(testedAt)}
             </span>
           )}
-        </div>
+        </Text>
       )}
       {testError && !testResult && (
         <div

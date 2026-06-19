@@ -3,6 +3,7 @@ import { CalendarClock, ChevronDown } from "lucide-react";
 import { cronToHuman } from "@wardnet/web";
 import { Button } from "@wardnet/web";
 import { Field } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Popover, PopoverContent, PopoverTrigger } from "@wardnet/web";
 import {
   Select,
@@ -298,9 +299,9 @@ export function CronSchedulePicker({
 
             {/* Human-readable summary */}
             <div className="rounded-md bg-sunken/50 px-3 py-2">
-              <p className="text-xs text-ink-3">
+              <Text as="p" size="xs" className="text-ink-3">
                 {cronToHuman(buildCron(state))}
-              </p>
+              </Text>
             </div>
 
             <Button size="sm" className="w-full" onClick={() => setOpen(false)}>

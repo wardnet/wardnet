@@ -1,5 +1,6 @@
 import { AlertTriangleIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useNetworkStatus } from "@wardnet/web";
 
@@ -58,8 +59,8 @@ export default function Step2Network() {
           className="flex items-start gap-2 rounded-md border border-warn-soft bg-warn-soft px-3 py-2.5 text-warn-soft-ink"
         >
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-          <div className="flex flex-col gap-1 text-sm">
-            <p className="font-medium">Your IP isn't pinned</p>
+          <Text as="div" size="sm" className="flex flex-col gap-1">
+            <Text as="p" weight="medium">Your IP isn't pinned</Text>
             <p>
               The router is currently leasing this address — it may change on
               the next reboot. Re-run <code>install.sh</code> with{" "}
@@ -68,7 +69,7 @@ export default function Step2Network() {
               <code>/etc/dhcpcd.conf.d/wardnet.conf</code> and pin it. You can
               continue without this, but devices may need reconfiguring later.
             </p>
-          </div>
+          </Text>
         </div>
       )}
 

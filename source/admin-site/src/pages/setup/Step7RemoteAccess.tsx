@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { WardnetApiError } from "@wardnet/js";
@@ -157,12 +158,20 @@ export default function Step7RemoteAccess() {
         {tlsStatus ? (
           <RemoteAccessProgress status={tlsStatus} />
         ) : (
-          <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="rounded-md border border-line bg-sunken p-4 text-ink-3"
+          >
             Starting certificate issuance…
-          </div>
+          </Text>
         )}
 
-        {formError && <p className="text-sm text-danger">{formError}</p>}
+        {formError && (
+          <Text as="p" size="sm" className="text-danger">
+            {formError}
+          </Text>
+        )}
 
         <Button
           onClick={finish}
@@ -192,11 +201,15 @@ export default function Step7RemoteAccess() {
           </p>
         </div>
 
-        <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
+        <Text
+          as="div"
+          size="sm"
+          className="rounded-md border border-line bg-sunken p-4 text-ink-3"
+        >
           This is usually temporary. You can finish setup now and enable remote
           access later from Settings — the rest of your configuration is
           unaffected.
-        </div>
+        </Text>
 
         <div className="flex flex-col gap-2">
           <Button
@@ -263,7 +276,11 @@ export default function Step7RemoteAccess() {
               autoComplete="off"
             />
           </Field>
-          <div className="flex items-center justify-between text-xs">
+          <Text
+            as="div"
+            size="xs"
+            className="flex items-center justify-between"
+          >
             <AvailabilityHint availability={availability} name={name} />
             <button
               type="button"
@@ -272,7 +289,7 @@ export default function Step7RemoteAccess() {
             >
               Suggest another
             </button>
-          </div>
+          </Text>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -302,7 +319,11 @@ export default function Step7RemoteAccess() {
         </div>
       )}
 
-      {formError && <p className="text-sm text-danger">{formError}</p>}
+      {formError && (
+        <Text as="p" size="sm" className="text-danger">
+          {formError}
+        </Text>
+      )}
 
       <div className="flex flex-col gap-2">
         {provider === "bridge" ? (
@@ -356,8 +377,12 @@ function ProviderOption({
         className="mt-1"
       />
       <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-ink">{label}</span>
-        <span className="text-xs text-ink-3">{description}</span>
+        <Text as="span" size="sm" weight="medium" className="text-ink">
+          {label}
+        </Text>
+        <Text as="span" size="xs" className="text-ink-3">
+          {description}
+        </Text>
       </span>
     </label>
   );

@@ -13,6 +13,7 @@ import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import {
@@ -79,7 +80,9 @@ export function DnsZonesCard() {
         id: "name",
         header: "Name",
         cell: ({ row }) => (
-          <span className="font-mono text-sm">{row.original.name}</span>
+          <Text as="span" size="sm" className="font-mono">
+            {row.original.name}
+          </Text>
         ),
       },
       {
@@ -87,9 +90,9 @@ export function DnsZonesCard() {
         header: "Records",
         meta: { className: "hidden sm:table-cell w-24" },
         cell: ({ row }) => (
-          <span className="text-sm">
+          <Text as="span" size="sm">
             {recordCount.get(row.original.id) ?? 0}
-          </span>
+          </Text>
         ),
       },
       {
@@ -234,11 +237,11 @@ function ZoneForm({
             message="Zone name is required."
           />
           {looksPublic && (
-            <p className="text-xs text-warn">
+            <Text as="p" size="xs" className="text-warn">
               “{name.trim()}” looks like a public domain. An enabled zone makes
               the gateway authoritative for the whole namespace, which would
               blackhole the real domain.
-            </p>
+            </Text>
           )}
         </CardContent>
         <CardFooter className="justify-end gap-2">

@@ -2,6 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
+import { Text } from "@wardnet/web";
 import type { CustomFilterRule } from "@wardnet/js";
 
 function createColumns(): ColumnDef<CustomFilterRule>[] {
@@ -13,19 +14,23 @@ function createColumns(): ColumnDef<CustomFilterRule>[] {
       // via the inner spans (see fixedLayout note on DataTable below).
       cell: ({ row }) => (
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span
-            className="truncate font-mono text-sm"
+          <Text
+            as="span"
+            size="sm"
+            className="truncate font-mono"
             title={row.original.rule_text}
           >
             {row.original.rule_text}
-          </span>
+          </Text>
           {row.original.comment && (
-            <span
-              className="truncate text-xs text-ink-3"
+            <Text
+              as="span"
+              size="xs"
+              className="truncate text-ink-3"
               title={row.original.comment}
             >
               {row.original.comment}
-            </span>
+            </Text>
           )}
         </div>
       ),
