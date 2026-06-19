@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
   RuleRequestStatusPill,
+  Text,
   Toggle,
   useMyDevice,
   useMyRuleRequests,
@@ -29,12 +30,16 @@ function MyRequests() {
           {data.map((r) => (
             <li key={r.id} className="flex items-center justify-between gap-3">
               <span className="min-w-0">
-                <span className="truncate font-mono text-[13px] text-ink">
+                <Text
+                  as="span"
+                  size="sm"
+                  className="truncate font-mono text-ink"
+                >
                   {r.domain}
-                </span>
-                <span className="block text-xs text-ink-3">
+                </Text>
+                <Text as="span" size="xs" className="block text-ink-3">
                   {r.kind === "block" ? "Block request" : "Allow request"}
-                </span>
+                </Text>
               </span>
               <RuleRequestStatusPill status={r.status} />
             </li>
@@ -59,18 +64,24 @@ export default function Settings() {
   const device = data?.device;
 
   if (isLoading) {
-    return <p className="p-5 text-sm text-ink-3">Loading…</p>;
+    return (
+      <Text as="p" size="sm" className="p-5 text-ink-3">
+        Loading…
+      </Text>
+    );
   }
 
   if (!device) {
     return (
       <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
         <WifiOffIcon className="size-12 text-ink-3/50" />
-        <h1 className="text-lg font-semibold text-ink">Device not detected</h1>
-        <p className="max-w-md text-sm text-ink-3">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
+          Device not detected
+        </Text>
+        <Text as="p" size="sm" className="max-w-md text-ink-3">
           Your device has not been detected on the network yet. Make sure you are
           accessing Wardnet directly from the local network.
-        </p>
+        </Text>
       </div>
     );
   }
@@ -79,7 +90,9 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col gap-6 p-5">
-      <h1 className="text-lg font-semibold text-ink">Settings</h1>
+      <Text as="h1" size="lg" weight="semibold" className="text-ink">
+        Settings
+      </Text>
 
       <Card>
         <CardHeader>
@@ -94,24 +107,28 @@ export default function Settings() {
           </span>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Wardnet will capture your device's DNS activity and sync it to this
             device so you can see your own stats. Data stays on this device — it
             is not sent anywhere else.
-          </p>
+          </Text>
 
-          <div className="rounded-lg bg-sunken px-3 py-2 text-xs text-ink-3">
+          <Text
+            as="div"
+            size="xs"
+            className="rounded-lg bg-sunken px-3 py-2 text-ink-3"
+          >
             Your administrator keeps up to{" "}
-            <span className="font-medium text-ink">
+            <Text as="span" weight="medium" className="text-ink">
               {device.dns_capture_cap_count.toLocaleString()}
-            </span>{" "}
+            </Text>{" "}
             events for{" "}
-            <span className="font-medium text-ink">
+            <Text as="span" weight="medium" className="text-ink">
               {device.dns_capture_cap_days}
-            </span>{" "}
+            </Text>{" "}
             {device.dns_capture_cap_days === 1 ? "day" : "days"} on the gateway
             before syncing. This retention limit is set by your administrator.
-          </div>
+          </Text>
 
           {setCapture.isError && (
             <ApiErrorAlert
@@ -132,9 +149,9 @@ export default function Settings() {
           </span>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             Push notifications about your device are coming soon.
-          </p>
+          </Text>
         </CardContent>
       </Card>
     </div>
