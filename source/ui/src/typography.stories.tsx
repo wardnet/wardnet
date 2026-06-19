@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Text, Heading, type Role, type Size } from "./primitives/text";
+import { Text, Heading, type Variant, type Size } from "./primitives/text";
 
 /**
- * Typography foundation — the numeric scale, the semantic roles, and the
- * <Text> / <Heading> primitive that surface them. Roles load transitively
+ * Typography foundation — the numeric scale, the semantic variants, and the
+ * <Text> / <Heading> primitive that surface them. Variants load transitively
  * through `@wardnet/styles` (preview.css → theme.css → styles.css →
  * typography.css), the same chain every app uses.
  */
@@ -34,7 +34,7 @@ export const ScaleRamp: Story = {
     <div className="flex flex-col gap-3">
       {SIZES.map(({ size, px }) => (
         <div key={size} className="flex items-baseline gap-4">
-          <Text role="micro" as="span" className="w-24 shrink-0 tabular-nums">
+          <Text variant="micro" as="span" className="w-24 shrink-0 tabular-nums">
             {size} · {px}
           </Text>
           <Text size={size} as="span">
@@ -46,27 +46,27 @@ export const ScaleRamp: Story = {
   ),
 };
 
-const ROLE_SPECIMENS: { role: Role; sample: string }[] = [
-  { role: "label", sample: "Section label" },
-  { role: "body", sample: "Body copy — the default UI and prose voice." },
-  { role: "body-strong", sample: "Body strong — inline emphasis." },
-  { role: "caption", sample: "Caption — field help and secondary text." },
-  { role: "micro", sample: "Micro — tiny meta" },
-  { role: "metric", sample: "1,284" },
-  { role: "metric-unit", sample: "ms" },
-  { role: "mono", sample: "AA:BB:CC:DD:EE:FF" },
+const VARIANT_SPECIMENS: { variant: Variant; sample: string }[] = [
+  { variant: "label", sample: "Section label" },
+  { variant: "body", sample: "Body copy — the default UI and prose voice." },
+  { variant: "body-strong", sample: "Body strong — inline emphasis." },
+  { variant: "caption", sample: "Caption — field help and secondary text." },
+  { variant: "micro", sample: "Micro — tiny meta" },
+  { variant: "metric", sample: "1,284" },
+  { variant: "metric-unit", sample: "ms" },
+  { variant: "mono", sample: "AA:BB:CC:DD:EE:FF" },
 ];
 
-/** Each named voice rendered through its role. */
-export const Roles: Story = {
+/** Each named voice rendered through its variant. */
+export const Variants: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
-      {ROLE_SPECIMENS.map(({ role, sample }) => (
-        <div key={role} className="flex items-baseline gap-4">
-          <Text role="micro" as="span" className="w-28 shrink-0">
-            {role}
+      {VARIANT_SPECIMENS.map(({ variant, sample }) => (
+        <div key={variant} className="flex items-baseline gap-4">
+          <Text variant="micro" as="span" className="w-28 shrink-0">
+            {variant}
           </Text>
-          <Text role={role}>{sample}</Text>
+          <Text variant={variant}>{sample}</Text>
         </div>
       ))}
     </div>
@@ -84,39 +84,39 @@ export const Headings: Story = {
   ),
 };
 
-/** Override props in action: role defaults, refined per call. */
+/** Override props in action: variant defaults, refined per call. */
 export const PrimitiveUsage: Story = {
   render: () => (
     <div className="flex flex-col gap-3">
-      <Text role="body">role="body" — plain body line</Text>
-      <Text role="body" weight="semibold">
-        role="body" weight="semibold" — 600 without a body-strong call-site
+      <Text variant="body">variant="body" — plain body line</Text>
+      <Text variant="body" weight="semibold">
+        variant="body" weight="semibold" — 600 without a body-strong call-site
       </Text>
-      <Text role="h2" as="div">
-        role="h2" as="div" — section voice, non-heading element
+      <Text variant="h2" as="div">
+        variant="h2" as="div" — section voice, non-heading element
       </Text>
       <Text size="lg" weight="medium">
-        size="lg" weight="medium" — off-role one-off, no Tailwind utilities
+        size="lg" weight="medium" — off-variant one-off, no Tailwind utilities
       </Text>
-      <Text role="metric">
-        42<Text role="metric-unit" as="span"> ms</Text>
+      <Text variant="metric">
+        42<Text variant="metric-unit" as="span"> ms</Text>
       </Text>
     </div>
   ),
 };
 
-/** Recolour: a colour utility / the `color` prop beats the role's baked ink. */
+/** Recolour: a colour utility / the `color` prop beats the variant's baked ink. */
 export const Recolour: Story = {
   render: () => (
     <div className="flex flex-col gap-3">
-      <Text role="label">label — baked ink-3</Text>
-      <Text role="label" color="danger">
+      <Text variant="label">label — baked ink-3</Text>
+      <Text variant="label" color="danger">
         label color="danger" — utility wins (decision 4)
       </Text>
-      <Text role="label" className="text-accent">
+      <Text variant="label" className="text-accent">
         label className="text-accent" — raw utility wins too
       </Text>
-      <Text role="h2" color="accent">
+      <Text variant="h2" color="accent">
         Heading recoloured via color prop
       </Text>
     </div>

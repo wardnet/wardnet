@@ -4,19 +4,23 @@ import { clsx } from "clsx";
 /**
  * <Text> — the single typography primitive for the design system.
  *
- * A `role` is the common case: it bakes a default for every typographic
+ * A `variant` is the common case: it bakes a default for every typographic
  * property (size + weight + colour + the rendered element). Each default is
  * individually overridable via `size` / `weight` / `color` / `as`. Omitting
- * `role` yields plain text driven entirely by the override props.
+ * `variant` yields plain text driven entirely by the override props.
  *
- * This component ships NO CSS — it references the @wardnet/styles role and
+ * The prop is named `variant` (not `role`) deliberately: `role` is reserved for
+ * the native ARIA attribute, which now passes straight through to the DOM — so
+ * `<Text variant="body" role="alert">` is both a body voice and an ARIA alert.
+ *
+ * This component ships NO CSS — it references the @wardnet/styles variant and
  * helper classes by string (`t-label`, `t-size-sm`, `t-weight-semibold`) and
  * mirrors the colour utilities for `color` (`text-danger`), keeping the
- * decision-4 cascade (utilities beat the `@layer components` role colour).
+ * decision-4 cascade (utilities beat the `@layer components` variant colour).
  * See docs/adr-typography-scale-and-roles.md.
  */
 
-type Role =
+type Variant =
   | "label"
   | "body"
   | "body-strong"
@@ -60,14 +64,14 @@ type Color =
 
 interface TextOwnProps {
   /** Named voice — a default bundle of size + weight + colour + element. */
-  role?: Role;
-  /** Override the role's size (also the knob for off-role one-offs). */
+  variant?: Variant;
+  /** Override the variant's size (also the knob for off-variant one-offs). */
   size?: Size;
-  /** Override the role's weight. */
+  /** Override the variant's weight. */
   weight?: Weight;
-  /** Override the role's colour; emits the matching `text-*` utility. */
+  /** Override the variant's colour; emits the matching `text-*` utility. */
   color?: Color;
-  /** Override the role's default element. */
+  /** Override the variant's default element. */
   as?: React.ElementType;
   className?: string;
   children?: React.ReactNode;
@@ -76,8 +80,8 @@ interface TextOwnProps {
 type TextProps = TextOwnProps &
   Omit<React.HTMLAttributes<HTMLElement>, keyof TextOwnProps | "color">;
 
-/** The element a role renders as unless `as` overrides it. */
-const ROLE_ELEMENT: Record<Role, React.ElementType> = {
+/** The element a variant renders as unless `as` overrides it. */
+const VARIANT_ELEMENT: Record<Variant, React.ElementType> = {
   label: "span",
   body: "p",
   "body-strong": "span",
@@ -92,7 +96,7 @@ const ROLE_ELEMENT: Record<Role, React.ElementType> = {
 };
 
 function Text({
-  role,
+  variant,
   size,
   weight,
   color,
@@ -100,11 +104,11 @@ function Text({
   className,
   ...props
 }: TextProps) {
-  const Comp = as ?? (role ? ROLE_ELEMENT[role] : "span");
+  const Comp = as ?? (variant ? VARIANT_ELEMENT[variant] : "span");
   return (
     <Comp
       className={clsx(
-        role && `t-${role}`,
+        variant && `t-${variant}`,
         size && `t-size-${size}`,
         weight && `t-weight-${weight}`,
         color && `text-${color}`,
@@ -115,14 +119,14 @@ function Text({
   );
 }
 
-/** <Heading level={n}> ≡ <Text role={`h${n}`}>. */
-interface HeadingProps extends Omit<TextProps, "role"> {
+/** <Heading level={n}> ≡ <Text variant={`h${n}`}>. */
+interface HeadingProps extends Omit<TextProps, "variant"> {
   level: 1 | 2 | 3;
 }
 
 function Heading({ level, ...props }: HeadingProps) {
-  return <Text role={`h${level}`} {...props} />;
+  return <Text variant={`h${level}`} {...props} />;
 }
 
 export { Text, Heading };
-export type { TextProps, HeadingProps, Role, Size, Weight, Color };
+export type { TextProps, HeadingProps, Variant, Size, Weight, Color };

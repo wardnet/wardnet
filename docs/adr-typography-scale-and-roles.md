@@ -167,39 +167,45 @@ are roles too — `<Heading level={2}>` is sugar for `<Text role="h2">`.
 
 ### Primitive API
 
-One primitive, `<Text>`, plus a thin `<Heading>` alias. `role` is the only
+One primitive, `<Text>`, plus a thin `<Heading>` alias. `variant` is the only
 required input for the common case; it bakes a default for **every** property,
-and each is individually overridable for exceptions:
+and each is individually overridable for exceptions. The prop is named
+**`variant`, not `role`** — `role` is reserved for the native ARIA attribute,
+which passes straight through to the DOM (so `<Text variant="body" role="alert">`
+is both a body voice *and* an ARIA alert):
 
 ```tsx
-type Role =                            // every named voice, headings included
+type Variant =                         // every named voice, headings included
   | "label" | "body" | "body-strong" | "caption" | "micro"
   | "metric" | "metric-unit" | "mono" | "h1" | "h2" | "h3";
 
 interface TextProps {
-  role?: Role;                         // default bundle: size + weight + colour + element
+  variant?: Variant;                   // default bundle: size + weight + colour + element
   size?: "2xs" | "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
   weight?: "normal" | "medium" | "semibold" | "bold";
   color?: Ink | Status;               // ink | ink-2…ink-5 | accent | danger | warn | info | …
-  as?: React.ElementType;             // override the role's default element
+  as?: React.ElementType;             // override the variant's default element
   className?: string;                 // genuine one-offs (e.g. truncate); colour utilities still valid
+  // …plus all native HTMLAttributes, incl. `role` (ARIA) and aria-* / data-*.
 }
 
-// <Heading level={n}> ≡ <Text role={`h${n}`}>
+// <Heading level={n}> ≡ <Text variant={`h${n}`}>
 ```
 
 Semantics:
 
-- **`role` sets defaults for `size`, `weight`, `color`, and `as`.** Omitting
-  `role` yields plain body-ish text driven entirely by the override props.
-- **Override props win over the role.** `<Text role="body" weight="semibold">`
-  is a 600-weight body line without inventing a `body-strong` call-site.
-- **`as` is the element, decoupled from the voice.** The role supplies a
+- **`variant` sets defaults for `size`, `weight`, `color`, and `as`.** Omitting
+  `variant` yields plain body-ish text driven entirely by the override props.
+- **Override props win over the variant.** `<Text variant="body" weight="semibold">`
+  is a 600-weight body line without inventing a `body-strong` call-site. (The
+  `.t-*` variant classes carry zero specificity via `:where()`, so the
+  `t-size-*`/`t-weight-*` helpers win structurally, not by source order.)
+- **`as` is the element, decoupled from the voice.** The variant supplies a
   sensible default element (`h2`→`<h2>`, `body`/`caption`→`<p>`, inline voices
   like `label`/`micro`/`mono`/`metric-unit`→`<span>`); `as` overrides it.
 - **`size` / `weight` replace the retired markup utilities.** They map to the
   scale / weight tokens (mechanism lives in `@wardnet/styles`, so `@wardnet/ui`
-  still ships no CSS of its own). Off-role one-offs use these instead of
+  still ships no CSS of its own). Off-variant one-offs use these instead of
   `text-sm` / `font-medium` in markup.
 - **`color` mirrors the colour utilities** rather than replacing them: it emits
   the same `text-*` colour class the utility would, so the `@layer components`

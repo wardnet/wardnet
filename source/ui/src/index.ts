@@ -131,7 +131,7 @@ export { Text, Heading } from "./primitives/text";
 export type {
   TextProps,
   HeadingProps,
-  Role,
+  Variant,
   Size,
   Weight,
   Color,
