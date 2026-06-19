@@ -1,5 +1,6 @@
 import * as React from "react";
 import { clsx } from "clsx";
+import s from "./card.module.css";
 
 type CardProps = React.ComponentProps<"div"> & {
   /** When set, replaces children with a danger-toned error message. */
@@ -8,7 +9,7 @@ type CardProps = React.ComponentProps<"div"> & {
 
 function Card({ className, error, children, ...props }: CardProps) {
   return (
-    <div data-slot="card" className={clsx("card", className)} {...props}>
+    <div data-slot="card" className={clsx(s.card, className)} {...props}>
       {error ? (
         <div
           data-slot="card-error"
@@ -64,7 +65,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-header"
-      className={clsx("card__head", className)}
+      className={clsx(s.head, className)}
       {...props}
     />
   );
@@ -81,7 +82,7 @@ function CardSubtitle({
   return (
     <p
       data-slot="card-subtitle"
-      className={clsx("card__subtitle", className)}
+      className={clsx(s.subtitle, className)}
       {...props}
     />
   );
@@ -91,7 +92,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-action"
-      className={clsx("right", className)}
+      className={clsx(s.right, className)}
       {...props}
     />
   );
@@ -105,7 +106,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-footer"
-      className={clsx("card__foot", className)}
+      className={clsx(s.foot, className)}
       {...props}
     />
   );

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { clsx } from "clsx";
+import s from "./stat-tile.module.css";
 
 type StatTileProps = Omit<React.ComponentProps<"div">, "children"> & {
   /** Uppercase 12px label rendered in the `.stat__label` slot. */
@@ -34,20 +35,20 @@ function StatTile({
   ...props
 }: StatTileProps) {
   return (
-    <div data-slot="stat-tile" className={clsx("stat", className)} {...props}>
-      {pill !== undefined && <div className="stat__pill">{pill}</div>}
-      <div className="stat__label">{label}</div>
-      <div className="stat__value">
+    <div data-slot="stat-tile" className={clsx(s.stat, className)} {...props}>
+      {pill !== undefined && <div className={s.pill}>{pill}</div>}
+      <div className={s.label}>{label}</div>
+      <div className={s.value}>
         {value}
-        {unit !== undefined && <span className="unit">{unit}</span>}
+        {unit !== undefined && <span className={s.unit}>{unit}</span>}
       </div>
-      {sub !== undefined && <div className="stat__sub">{sub}</div>}
+      {sub !== undefined && <div className={s.sub}>{sub}</div>}
       {bar !== undefined && (
-        <div className="bar">
+        <div className={s.bar}>
           <span style={{ width: `${bar}%` }} />
         </div>
       )}
-      {spark !== undefined && <div className="stat__spark">{spark}</div>}
+      {spark !== undefined && <div className={s.spark}>{spark}</div>}
     </div>
   );
 }

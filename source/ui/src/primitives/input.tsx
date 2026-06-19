@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { clsx } from "clsx";
+import s from "./field.module.css";
 
 type InputProps = React.ComponentProps<"input">;
 
@@ -20,15 +21,15 @@ function Input({ className, type, ...props }: InputProps) {
 
   if (type === "password") {
     return (
-      <div className="input-wrap">
+      <div className={s.inputWrap}>
         <input
           {...props}
           type={revealed ? "text" : "password"}
-          className={clsx("input input--with-reveal", className)}
+          className={clsx(s.input, s.withReveal, className)}
         />
         <button
           type="button"
-          className="input-reveal"
+          className={s.inputReveal}
           onClick={() => setRevealed((v) => !v)}
           aria-label={revealed ? "Hide password" : "Show password"}
           aria-pressed={revealed}
@@ -40,7 +41,7 @@ function Input({ className, type, ...props }: InputProps) {
     );
   }
 
-  return <input className={clsx("input", className)} type={type} {...props} />;
+  return <input className={clsx(s.input, className)} type={type} {...props} />;
 }
 
 export { Input };

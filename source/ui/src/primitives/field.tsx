@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 
 import { Label } from "./label";
 import { useFormContext } from "./form";
+import s from "./field.module.css";
 
 type FieldProps = {
   label?: React.ReactNode;
@@ -71,7 +72,7 @@ function Field({
     errorMessages.length > 0 ? (
       <>
         {errorMessages.map((msg, i) => (
-          <p key={i} className="field-error">
+          <p key={i} className={s.fieldError}>
             {msg}
           </p>
         ))}
@@ -81,10 +82,10 @@ function Field({
   // replaces it so we don't stack two helper lines under the control.
   const helpEl =
     !errorEl && help !== undefined && help !== false ? (
-      <p className="field-help">{help}</p>
+      <p className={s.fieldHelp}>{help}</p>
     ) : null;
   const controlEl = showRead ? (
-    <span className="field-value">{value}</span>
+    <span className={s.fieldValue}>{value}</span>
   ) : (
     children
   );
@@ -93,11 +94,11 @@ function Field({
   if (direction === "row") {
     return (
       <div
-        className={clsx("field", className)}
+        className={clsx(s.field, className)}
         data-direction="row"
         {...invalidProps}
       >
-        <div className="field-text">
+        <div className={s.fieldText}>
           {labelEl}
           {helpEl}
           {errorEl}
@@ -108,7 +109,7 @@ function Field({
   }
 
   return (
-    <div className={clsx("field", className)} {...invalidProps}>
+    <div className={clsx(s.field, className)} {...invalidProps}>
       {labelEl}
       {controlEl}
       {helpEl}
