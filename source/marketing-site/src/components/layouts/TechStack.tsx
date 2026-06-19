@@ -17,7 +17,7 @@ export function TechStack() {
   return (
     <section className="px-6 py-20">
       <div className="mx-auto max-w-6xl text-center">
-        <h2 className="mb-10 text-3xl font-bold tracking-tight text-ink">
+        <h2 className="mb-10 t-size-3xl t-weight-bold tracking-tight text-ink">
           Built with modern tools
         </h2>
         <div className="flex flex-wrap justify-center gap-3">

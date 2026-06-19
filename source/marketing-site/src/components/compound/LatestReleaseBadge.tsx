@@ -40,7 +40,7 @@ export function LatestReleaseBadge({ className }: LatestReleaseBadgeProps) {
         .join(" ")}
     >
       <span>Latest release</span>
-      <span className="mono font-semibold">v{release.version}</span>
+      <span className="mono t-weight-semibold">v{release.version}</span>
     </a>
   );
 }

@@ -32,14 +32,14 @@ export function Docs() {
 
       <main className="px-6 py-16">
         <div className="mx-auto max-w-4xl">
-          <h1 className="mb-3 text-4xl font-bold tracking-tight text-ink">Documentation</h1>
-          <p className="mb-12 text-lg text-ink-3">
+          <h1 className="mb-3 t-size-4xl t-weight-bold tracking-tight text-ink">Documentation</h1>
+          <p className="mb-12 t-size-lg text-ink-3">
             Guides and references for setting up and managing your Wardnet gateway. Documentation is
             being written — check back soon.
           </p>
 
           <div className="mb-12">
-            <div className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-accent">
+            <div className="mb-4 flex items-center gap-2 t-size-sm t-weight-semibold uppercase tracking-wider text-accent">
               <Star size={14} />
               Recommended
             </div>
@@ -58,9 +58,9 @@ export function Docs() {
                           <Icon size={20} />
                         </span>
                       )}
-                      <h3 className="font-semibold text-ink">{entry.title}</h3>
+                      <h3 className="t-weight-semibold text-ink">{entry.title}</h3>
                     </div>
-                    <p className="text-sm leading-relaxed text-ink-3">{entry.excerpt}</p>
+                    <p className="t-size-sm leading-relaxed text-ink-3">{entry.excerpt}</p>
                   </Link>
                 );
               })}
@@ -68,7 +68,7 @@ export function Docs() {
           </div>
 
           <div>
-            <h2 className="mb-6 text-2xl font-bold tracking-tight text-ink">All topics</h2>
+            <h2 className="mb-6 t-size-2xl t-weight-bold tracking-tight text-ink">All topics</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {topics.map((topic) => {
                 const Icon = resolveIcon(topic.icon);
@@ -84,9 +84,9 @@ export function Docs() {
                           <Icon size={20} />
                         </span>
                       )}
-                      <h3 className="font-semibold text-ink">{topic.title}</h3>
+                      <h3 className="t-weight-semibold text-ink">{topic.title}</h3>
                     </div>
-                    <p className="text-sm leading-relaxed text-ink-3">{topic.description}</p>
+                    <p className="t-size-sm leading-relaxed text-ink-3">{topic.description}</p>
                   </Link>
                 );
               })}

@@ -22,20 +22,20 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6">
         <Logo height={32} variant="light" />
         <nav className="flex gap-6">
-          <Link to="/docs" className="text-sm text-ink-3 transition-colors hover:text-ink">
+          <Link to="/docs" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
             Documentation
           </Link>
           {EXTERNAL_LINKS.map((link) => (
             <a
               key={link.label}
               href={link.href}
-              className="text-sm text-ink-3 transition-colors hover:text-ink"
+              className="t-size-sm text-ink-3 transition-colors hover:text-ink"
             >
               {link.label}
             </a>
           ))}
         </nav>
-        <p className="text-xs text-ink-4">MIT License. Built with Rust and React.</p>
+        <p className="t-size-xs text-ink-4">MIT License. Built with Rust and React.</p>
       </div>
     </footer>
   );

@@ -24,11 +24,11 @@ export function ErrorView({ message, onRetry }: ErrorViewProps) {
     <section className="empty col min-h-screen items-center justify-center gap-4">
       <Logo height={72} variant="light" />
 
-      <div className="row gap-8 text-xs font-semibold uppercase tracking-[0.3em]">
+      <div className="row gap-8 t-size-xs t-weight-semibold uppercase tracking-[0.3em]">
         <AlertTriangle size={14} aria-hidden="true" />
         Unexpected error
       </div>
-      <h1 className="h-title text-4xl">Something broke on our end</h1>
+      <h1 className="h-title t-size-4xl">Something broke on our end</h1>
       <p className="h-sub max-w-md">
         The page hit an error while rendering. Try reloading — if it keeps happening, file an issue
         and include what you were doing.

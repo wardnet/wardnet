@@ -28,7 +28,7 @@ export function HowItWorks() {
     <section className="bg-sunken px-6 py-20">
       <div className="mx-auto max-w-6xl">
         <h2
-          className="mb-12 text-center text-3xl font-bold tracking-tight"
+          className="mb-12 text-center t-size-3xl t-weight-bold tracking-tight"
           style={{ color: brand.accent }}
         >
           Up and running in minutes

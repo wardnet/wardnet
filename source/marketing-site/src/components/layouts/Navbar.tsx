@@ -46,7 +46,7 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
       <div className="flex items-center gap-6">
         <Link
           to="/docs"
-          className="text-side-ink hover:text-side-ink-active text-sm font-medium transition-colors"
+          className="text-side-ink hover:text-side-ink-active t-size-sm t-weight-medium transition-colors"
         >
           Documentation
         </Link>
