@@ -1,0 +1,160 @@
+/*
+ * @wardnet/styles/typography.css — semantic text roles + size/weight helpers.
+ *
+ * The second tier of the typography model (the first is the numeric scale in
+ * styles.css `:root` / theme.css `@theme`). Roles are named voices that bundle
+ * size + line-height + weight + tracking + transform + a default colour; the
+ * `t-size-*` / `t-weight-*` helpers expose the raw scale/weight knobs for the
+ * off-role one-offs the <Text> primitive's `size` / `weight` props drive.
+ *
+ * Everything here is in `@layer components` ON PURPOSE (decision 4): role
+ * classes bake a default colour (e.g. `.t-label` → ink-3), and the layer puts
+ * them *below* Tailwind's `utilities` layer so a colour utility (`text-danger`,
+ * `text-ink-2`, …) — or the <Text> `color` prop, which emits the same utility —
+ * always wins the cascade without a specificity fight.
+ *
+ * Imported from styles.css so it reaches every consumer through the single
+ * `@wardnet/styles` entry the apps load (theme.css and Storybook pull it in
+ * transitively via styles.css). @wardnet/ui references these classes by string
+ * and ships no CSS of its own. See docs/adr-typography-scale-and-roles.md.
+ *
+ * Source order matters: the `t-size-*` / `t-weight-*` helpers are declared
+ * AFTER the roles so that, at equal specificity within this layer, an override
+ * helper wins over the role's baked size/weight (that is the whole point of the
+ * `size` / `weight` props).
+ */
+
+@layer components {
+  /* ---------- Roles (named voices; baked default colour) ---------- */
+
+  .t-label {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
+  .t-body {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 400;
+    color: var(--ink);
+  }
+  .t-body-strong {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .t-caption {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  .t-micro {
+    font-size: var(--text-2xs);
+    line-height: var(--text-2xs--line-height);
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  .t-metric {
+    font-size: var(--text-4xl);
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+  .t-metric-unit {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  .t-mono {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 400;
+    font-family: var(--font-mono);
+    color: var(--ink);
+  }
+
+  /* Heading levels — roles too; <Heading level={n}> ≡ <Text role="h{n}">. */
+  .t-h1 {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .t-h2 {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .t-h3 {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  /* ---------- Size helpers (drive the `size` prop; scale + paired leading) ----------
+     Declared after the roles so an explicit size override wins at equal
+     specificity. These also cover `2xs` (11px), which is NOT a Tailwind size,
+     so a `text-2xs` utility never generates in the apps — the helper is the
+     mechanism that lets `size="2xs"` / the `micro` role work everywhere. */
+  .t-size-2xs {
+    font-size: var(--text-2xs);
+    line-height: var(--text-2xs--line-height);
+  }
+  .t-size-xs {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+  }
+  .t-size-sm {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+  .t-size-base {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
+  .t-size-lg {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+  }
+  .t-size-xl {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+  }
+  .t-size-2xl {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+  }
+  .t-size-3xl {
+    font-size: var(--text-3xl);
+    line-height: var(--text-3xl--line-height);
+  }
+  .t-size-4xl {
+    font-size: var(--text-4xl);
+    line-height: var(--text-4xl--line-height);
+  }
+
+  /* ---------- Weight helpers (drive the `weight` prop) ---------- */
+  .t-weight-normal {
+    font-weight: 400;
+  }
+  .t-weight-medium {
+    font-weight: 500;
+  }
+  .t-weight-semibold {
+    font-weight: 600;
+  }
+  .t-weight-bold {
+    font-weight: 700;
+  }
+}

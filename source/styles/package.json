@@ -16,7 +16,8 @@
   "files": [
     "src",
     "styles.css",
-    "theme.css"
+    "theme.css",
+    "typography.css"
   ],
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.2.7",
