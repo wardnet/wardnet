@@ -1,6 +1,6 @@
 # ADR: Typography scale and semantic text roles
 
-**Status**: Accepted — implementation in progress (branch `chore/storybook-web`, single PR)
+**Status**: Accepted — implemented on branch `chore/storybook-web` (single PR)
 **Date**: 2026-06-19
 **Issue**: n/a — design-system hardening alongside the CSS-Modules migration
 
@@ -227,35 +227,46 @@ This is the API the Stage-5 sweep migrates every app text element onto.
   alternative — staging the sweep behind the foundation — was considered and
   rejected in favour of landing the end state at once).
 
-## Implementation checklist (status: in progress)
+## Implementation checklist (status: complete)
 
-1. [ ] **Scale tokens** — `tokens.ts` (text scale + line-heights);
+1. [x] **Scale tokens** — `tokens.ts` (text scale + line-heights);
    `styles/styles.css` `:root` (`--text-*` + line-height vars, after
    `--font-mono`); `styles/theme.css` `@theme` (`--text-*` +
    `--text-*--line-height`, overriding Tailwind defaults).
-2. [ ] **Roles + primitive** — new `styles/typography.css` with `.t-*` /
-   `.t-h*` role classes **and** `size`/`weight` helper classes in
-   `@layer components`, imported from `theme.css` (add to package `files`); a
-   single `ui/src/primitives/text` `<Text>` (`role` + `size`/`weight`/`color`/
-   `as` overrides) plus a thin `<Heading level>` alias; export from
-   `ui/src/index.ts`. `@wardnet/ui` emits no CSS — it references the
-   `@wardnet/styles` classes by string.
-3. [ ] **Storybook** — `Typography` story (scale ramp + role specimens +
-   primitive usage + recolour example). Manager/preview already load
-   `theme.css`, so roles render once `typography.css` is imported there.
-4. [ ] **Design-system CSS** — replace literals in `styles.css` component
-   blocks + the `*.module.css` files with `var(--text-*)` / roles; dedupe the
-   `label` voice (card title, stat label, table head) onto the role.
-5. [ ] **App sweep (full adoption)** — per app (admin-site, admin-app,
-   user-app, marketing-site): convert text-bearing markup to `<Text>` /
-   `<Heading>` — roles for named voices, `size`/`weight` props for off-role
-   one-offs — retiring the ~318 `text-*` size + `font-*` weight utilities and
-   ~112 raw `text-[Npx]` literals from markup. Colour utilities stay. Each app
-   gets its own visual-QA pass (admin-site is the bulk, ~200 sites).
-6. [ ] **This ADR** — flip status to Accepted when the PR lands.
-7. [ ] **Validate** — `type-check` + build each app + `@wardnet/ui`; Storybook
-   build; Playwright spot-checks; screenshot key screens per app for visual
-   review.
+2. [x] **Roles + primitive** — new `styles/typography.css` with `.t-*` /
+   `.t-h*` role classes **and** `t-size-*`/`t-weight-*` helper classes in
+   `@layer components`; a single `ui/src/primitives/text` `<Text>` (`role` +
+   `size`/`weight`/`color`/`as` overrides) plus a thin `<Heading level>` alias;
+   exported from `ui/src/index.ts`. `@wardnet/ui` emits no CSS — it references
+   the `@wardnet/styles` classes by string.
+   **Implementation note:** `typography.css` is imported from **`styles.css`**,
+   not `theme.css`. The apps load `@wardnet/styles` (= `styles.css`) directly,
+   so the roles must ride that single entry to reach app markup; `theme.css`
+   and Storybook then pick them up transitively. (Importing only from
+   `theme.css` would have left the four apps without the role classes.)
+3. [x] **Storybook** — `Foundations/Typography` story (scale ramp + role
+   specimens + `<Heading>` levels + primitive override-prop usage + recolour
+   example). Roles load via the existing preview chain (`preview.css` →
+   `theme.css` → `styles.css` → `typography.css`); no extra import needed.
+4. [x] **Design-system CSS** — replaced every font-size literal in `styles.css`
+   component blocks + the `*.module.css` files with `var(--text-*)`; deduped the
+   `label` voice (card title, stat label, table head) onto a single shared rule
+   mirroring `.t-label`; decoupled `CardTitle` from `<h3>` (now wears `t-label`
+   + takes an `as` prop).
+5. [x] **App sweep (full adoption)** — admin-site, admin-app, user-app adopt
+   `<Text>` / `<Heading>` from `@wardnet/web`; size/weight utilities and raw
+   `text-[Npx]` literals moved onto `size`/`weight` props, colour utilities
+   kept. **marketing-site** has no `@wardnet/ui`/`@wardnet/web` dependency, so
+   it adopts the same system via the `@wardnet/styles` helper classes it already
+   loads (`text-sm` → `t-size-sm`, `font-medium` → `t-weight-medium`, …). Sites
+   on interactive elements, custom components, and dynamic (clsx-conditional)
+   classNames were intentionally left in place. **API note:** `<Text>`'s `role`
+   prop shadows the ARIA `role` attribute; elements needing a native ARIA role
+   (e.g. `role="alert"`) stay native, driven by `size`/`weight` utilities.
+6. [x] **This ADR** — status flipped to Accepted.
+7. [x] **Validate** — `type-check` + build green for each app + `@wardnet/ui`;
+   Storybook build green; Playwright spot-checks / screenshots for the per-app
+   visual-QA pass.
 
 ### Notes for the resuming session
 
