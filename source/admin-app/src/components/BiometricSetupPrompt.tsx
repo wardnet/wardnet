@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card } from "@wardnet/web";
+import { Card, Text } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 
 interface Props {
@@ -36,14 +36,14 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
       <Card className="w-full max-w-sm flex flex-col gap-4">
         <div>
-          <h2 className="text-base font-semibold text-ink">Enable biometric unlock?</h2>
-          <p className="mt-1 text-sm text-ink-3">
+          <Text as="h2" size="base" weight="semibold" className="text-ink">Enable biometric unlock?</Text>
+          <Text as="p" size="sm" className="mt-1 text-ink-3">
             Use FaceID, Touch ID, or your device fingerprint to unlock the app on future opens
             without typing your password.
-          </p>
+          </Text>
         </div>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <Text as="p" size="sm" className="text-danger">{error}</Text>}
 
         <div className="flex gap-3">
           <button

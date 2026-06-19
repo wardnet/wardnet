@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import { Text } from "@wardnet/web";
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+    <Text as="p" size="2xs" weight="semibold" className="mb-2 px-1 uppercase tracking-wider text-ink-3">
       {children}
-    </p>
+    </Text>
   );
 }

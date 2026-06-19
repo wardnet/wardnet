@@ -1,4 +1,4 @@
-import { Drawer, DrawerContent, DrawerClose } from "@wardnet/web";
+import { Drawer, DrawerContent, DrawerClose, Text } from "@wardnet/web";
 
 interface Props {
   open: boolean;
@@ -33,8 +33,8 @@ export function ConfirmDialog({
 
         {/* Copy */}
         <div className="px-6 pb-6 text-center">
-          <h2 className="text-[19px] font-bold tracking-tight text-ink">{title}</h2>
-          <p className="mt-2 text-[14px] leading-relaxed text-ink-3">{description}</p>
+          <Text as="h2" size="xl" weight="bold" className="tracking-tight text-ink">{title}</Text>
+          <Text as="p" size="base" className="mt-2 leading-relaxed text-ink-3">{description}</Text>
         </div>
 
         {/* Buttons */}

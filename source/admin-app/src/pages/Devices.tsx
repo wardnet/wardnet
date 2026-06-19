@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline } from "@wardnet/web";
+import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline, Text, Heading } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { ChevronRightIcon } from "lucide-react";
@@ -59,12 +59,12 @@ const DeviceRow = memo(function DeviceRow({
         online ? "bg-accent" : "bg-line-strong",
       ].join(" ")} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[14px] font-medium text-ink">
+        <Text as="span" size="base" weight="medium" className="truncate text-ink">
           {device.name ?? device.hostname ?? device.mac}
-        </span>
-        <span className="truncate text-[12px] text-ink-3">
+        </Text>
+        <Text as="span" size="xs" className="truncate text-ink-3">
           {device.last_ip} · {routeLabel(device, tunnels)}
-        </span>
+        </Text>
       </div>
       <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
     </button>
@@ -128,8 +128,8 @@ export default function Devices() {
     return (
       <div className="flex flex-col gap-0 p-4">
         <div className="mb-4">
-          <h1 className="text-[28px] font-bold text-ink">Devices</h1>
-          <p className="text-[14px] text-ink-3">Manage devices and routing overrides.</p>
+          <Heading level={1} size="3xl" weight="bold" className="text-ink">Devices</Heading>
+          <Text as="p" size="base" className="text-ink-3">Manage devices and routing overrides.</Text>
         </div>
         <div className="mb-3 flex gap-2">
           {[80, 100, 90].map((w, i) => (
@@ -152,8 +152,8 @@ export default function Devices() {
   return (
     <div className="flex flex-col p-4">
       <div className="mb-4">
-        <h1 className="text-[28px] font-bold text-ink">Devices</h1>
-        <p className="text-[14px] text-ink-3">Manage devices and routing overrides.</p>
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">Devices</Heading>
+        <Text as="p" size="base" className="text-ink-3">Manage devices and routing overrides.</Text>
       </div>
 
       <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
@@ -176,7 +176,7 @@ export default function Devices() {
 
         {/* Device list */}
         {visible.length === 0
-          ? <p className="py-16 text-center text-sm text-ink-3">No devices match this filter.</p>
+          ? <Text as="p" size="sm" className="py-16 text-center text-ink-3">No devices match this filter.</Text>
           : (
             <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
               {visible.map(({ device, online }) => (

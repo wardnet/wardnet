@@ -1,4 +1,4 @@
-import { formatUptime } from "@wardnet/web";
+import { formatUptime, Text } from "@wardnet/web";
 
 interface Props {
   reachable: boolean;
@@ -16,8 +16,11 @@ export function StatusCard({ reachable, uptimeSeconds }: Props) {
       }}
     >
       {/* Status badge */}
-      <div
-        className="self-start flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest"
+      <Text
+        as="div"
+        size="2xs"
+        weight="semibold"
+        className="self-start flex items-center gap-2 rounded-full px-3 py-1.5 uppercase tracking-widest"
         style={{
           background: `color-mix(in srgb, ${statusColor} 14%, var(--color-side))`,
           color: statusColor,
@@ -28,17 +31,17 @@ export function StatusCard({ reachable, uptimeSeconds }: Props) {
           style={{ background: statusColor }}
         />
         {reachable ? "All Systems Healthy" : "Daemon Unreachable"}
-      </div>
+      </Text>
 
       {/* Health indicators */}
       <div className="flex gap-6">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-side-ink-2">
+          <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-side-ink-2">
             Uptime
-          </div>
-          <div className="mt-0.5 text-sm font-medium text-side-ink">
+          </Text>
+          <Text as="div" size="sm" weight="medium" className="mt-0.5 text-side-ink">
             {uptimeSeconds != null ? formatUptime(uptimeSeconds) : "—"}
-          </div>
+          </Text>
         </div>
       </div>
     </div>

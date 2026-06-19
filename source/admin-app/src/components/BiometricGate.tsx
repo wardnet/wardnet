@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Text } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 
 interface Props {
@@ -37,13 +38,13 @@ export function BiometricGate({ onSuccess, onUsePassword }: Props) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-bg px-4 text-ink">
       <div className="flex flex-col items-center gap-2 text-center">
-        <p className="text-lg font-semibold">Verify it's you</p>
-        <p className="text-sm text-ink-3">Use your device biometrics to unlock Wardnet Admin</p>
+        <Text as="p" size="lg" weight="semibold">Verify it's you</Text>
+        <Text as="p" size="sm" className="text-ink-3">Use your device biometrics to unlock Wardnet Admin</Text>
       </div>
 
       {error && (
         <div className="flex flex-col items-center gap-3">
-          <p className="text-sm text-danger">Biometric verification failed. Try again.</p>
+          <Text as="p" size="sm" className="text-danger">Biometric verification failed. Try again.</Text>
           <button
             onClick={attempt}
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
-import { useAuth, useSetupStatus } from "@wardnet/web";
+import { Text, useAuth, useSetupStatus } from "@wardnet/web";
 import { useBiometric } from "@/hooks/useBiometric";
 import { OnlineStatusProvider } from "@/context/OnlineStatusContext";
 import { BiometricGate } from "@/components/BiometricGate";
@@ -37,10 +37,10 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     const adminSiteUrl = `${window.location.origin}/admin/?returnTo=/admin-app/`;
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-bg px-4 text-ink">
-        <p className="text-lg font-semibold">Initial setup required</p>
-        <p className="text-sm text-ink-3 text-center max-w-xs">
+        <Text as="p" size="lg" weight="semibold">Initial setup required</Text>
+        <Text as="p" size="sm" className="text-ink-3 text-center max-w-xs">
           Complete the Wardnet setup wizard before using the admin app.
-        </p>
+        </Text>
         <a
           href={adminSiteUrl}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"
