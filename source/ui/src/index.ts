@@ -127,6 +127,15 @@ export type {
   TabsTriggerProps,
   TabsContentProps,
 } from "./primitives/tabs";
+export { Text, Heading } from "./primitives/text";
+export type {
+  TextProps,
+  HeadingProps,
+  Role,
+  Size,
+  Weight,
+  Color,
+} from "./primitives/text";
 export { Textarea } from "./primitives/textarea";
 export type { TextareaProps } from "./primitives/textarea";
 export { Toggle } from "./primitives/toggle";
