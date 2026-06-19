@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.0",
-    "@wardnet/js": "portal:../sdk/wardnet-js::locator=%40wardnet%2Fadmin-app%40workspace%3A.",
-    "@wardnet/web": "portal:../web::locator=%40wardnet%2Fadmin-app%40workspace%3A.",
+    "@wardnet/js": "workspace:*",
+    "@wardnet/web": "workspace:*",
     "lucide-react": "1.17.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -35,5 +35,5 @@
     "workbox-precaching": "7.4.1",
     "workbox-routing": "7.4.1"
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.17.0"
 }

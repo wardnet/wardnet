@@ -1,5 +1,5 @@
 import type { TunnelStatus } from "@wardnet/js";
-import type { PillProps } from "../primitives/pill";
+import type { PillProps } from "@wardnet/ui";
 
 export function tunnelStatusVariant(status: TunnelStatus): PillProps["variant"] {
   switch (status) {

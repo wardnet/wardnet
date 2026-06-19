@@ -1,7 +1,7 @@
 {
   "name": "@wardnet/web",
   "version": "0.1.0",
-  "description": "Shared React hooks, components, and UI primitives for Wardnet web apps",
+  "description": "Shared React feature components, hooks, and SDK wiring for Wardnet web apps (composes @wardnet/ui)",
   "private": true,
   "type": "module",
   "exports": {
@@ -18,17 +18,15 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@wardnet/styles": "portal:../styles::locator=%40wardnet%2Fweb%40workspace%3A.",
-    "class-variance-authority": "0.7.1",
+    "@wardnet/ui": "workspace:*",
     "clsx": "2.1.1",
-    "cmdk": "1.1.1",
     "cronstrue": "3.14.0",
-    "radix-ui": "1.5.0",
     "tailwind-merge": "3.6.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": ">=5.0.0",
     "@wardnet/js": "*",
+    "lucide-react": ">=1.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sonner": ">=2.0.0",
@@ -38,5 +36,5 @@
     "prettier": "3.8.4",
     "typescript": "6.0.3"
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.17.0"
 }

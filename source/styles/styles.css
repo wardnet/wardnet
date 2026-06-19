@@ -1717,3 +1717,194 @@ svg.lucide[stroke-width="2"] { stroke-width: 1.7; }
   border-radius: 999px;
 }
 .scroll::-webkit-scrollbar-track, .logs::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================
+ * Feature components (shipped from @wardnet/web)
+ *
+ * Class-based styling for the shared feature components so that
+ * @wardnet/web ships no Tailwind utility classes and consuming apps
+ * never need a Tailwind `@source` pointing at the package. Keep this
+ * section in sync with the components under web/src/components.
+ * ============================================================ */
+
+/* ApiErrorAlert */
+.api-error-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border: 1px solid var(--danger-soft);
+  background: var(--danger-soft);
+  border-radius: var(--radius);
+  padding: 0.625rem 0.75rem;
+  color: var(--danger-soft-ink);
+}
+.api-error-alert__icon {
+  margin-top: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.api-error-alert__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.api-error-alert__message {
+  font-size: 0.875rem;
+}
+.api-error-alert__request-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* TunnelStatusPill */
+.tunnel-status-pill__dot {
+  margin-right: 0.25rem;
+}
+
+/* AppHeader */
+.app-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--side-bg);
+  padding: 0.75rem 1rem;
+}
+.app-header__brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+.app-header__version {
+  margin-top: -0.125rem;
+  padding-left: 34px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgb(255 255 255 / 0.4);
+}
+.app-header__status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.7);
+}
+.app-header__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+}
+.app-header__dot--online {
+  background: var(--accent);
+  animation: pulse-dot 2.4s infinite;
+}
+.app-header__dot--offline {
+  background: var(--warn);
+}
+.app-header__spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* JobProgressDescription */
+.job-progress {
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.job-progress__track {
+  height: 0.375rem;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+}
+.job-progress__bar {
+  height: 100%;
+  background: var(--accent);
+  transition: all 300ms;
+}
+.job-progress__pct {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+/* LoginForm */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.login-form__remember {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+.login-form__checkbox {
+  accent-color: var(--accent);
+}
+.login-form__error {
+  font-size: 0.875rem;
+  color: var(--danger);
+}
+.login-form__submit {
+  width: 100%;
+}
+.login-form__hint {
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
+/* RoutingSelector */
+.routing-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.routing-selector__trigger {
+  width: 100%;
+}
+.routing-selector__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.routing-selector__icon {
+  width: 1rem;
+  height: 1rem;
+  color: var(--ink-3);
+}
+.routing-selector__empty {
+  font-size: 0.875rem;
+  color: var(--ink-3);
+}
+.routing-selector__link {
+  color: var(--accent);
+  text-decoration: underline;
+}

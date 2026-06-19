@@ -2,15 +2,16 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./pill.module.css";
 
-const pillVariants = cva("pill", {
+const pillVariants = cva(s.pill, {
   variants: {
     variant: {
-      ok: "pill--ok",
-      warn: "pill--warn",
-      down: "pill--down",
-      info: "pill--info",
-      ghost: "pill--ghost",
+      ok: s.ok,
+      warn: s.warn,
+      down: s.down,
+      info: s.info,
+      ghost: s.ghost,
     },
   },
 });

@@ -4,7 +4,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../primitives/select";
+} from "@wardnet/ui";
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
 import { countryFlag } from "../lib/country";

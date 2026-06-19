@@ -2,22 +2,23 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./button.module.css";
 
-const buttonVariants = cva("btn", {
+const buttonVariants = cva(s.btn, {
   variants: {
     variant: {
-      default: "btn--primary",
+      default: s.primary,
       outline: "",
       secondary: "",
-      ghost: "btn--ghost",
-      destructive: "btn--danger",
-      tertiary: "btn--ghost",
+      ghost: s.ghost,
+      destructive: s.danger,
+      tertiary: s.ghost,
     },
     size: {
       default: "",
-      sm: "btn--sm",
-      icon: "btn--icon",
-      "icon-sm": "btn--icon btn--sm",
+      sm: s.sm,
+      icon: s.icon,
+      "icon-sm": clsx(s.icon, s.sm),
     },
   },
   defaultVariants: {

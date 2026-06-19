@@ -1,0 +1,14 @@
+/*
+ * Storybook preview stylesheet — mirrors a Wardnet app entry exactly:
+ * Tailwind, then the shared design-system theme. Because this is the same
+ * `@wardnet/styles/theme.css` every app imports, Storybook renders through
+ * the identical token → CSS-var → utility chain the real apps use.
+ */
+@import "tailwindcss";
+@import "@wardnet/styles/theme.css";
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}

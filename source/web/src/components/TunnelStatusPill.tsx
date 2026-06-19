@@ -1,5 +1,5 @@
 import type { TunnelStatus } from "@wardnet/js";
-import { Pill } from "../primitives/pill";
+import { Pill } from "@wardnet/ui";
 import { tunnelStatusVariant, tunnelStatusLabel } from "../lib/tunnel";
 
 interface TunnelStatusPillProps {
@@ -9,7 +9,7 @@ interface TunnelStatusPillProps {
 export function TunnelStatusPill({ status }: TunnelStatusPillProps) {
   return (
     <Pill variant={tunnelStatusVariant(status)}>
-      <span className="mr-1" aria-hidden>
+      <span className="tunnel-status-pill__dot" aria-hidden>
         ●
       </span>
       {tunnelStatusLabel(status)}

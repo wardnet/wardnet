@@ -1,0 +1,27 @@
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 160ms;
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: left 160ms;
+}
+.toggle[data-state="checked"] {
+  background: var(--accent);
+}
+.toggle[data-state="checked"]::after {
+  left: 18px;
+}

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { WardnetApiError } from "@wardnet/js";
-import { Button } from "../primitives/button";
-import { Field } from "../primitives/field";
-import { Form, Validator } from "../primitives/form";
-import { Input } from "../primitives/input";
+import { Button } from "@wardnet/ui";
+import { Field } from "@wardnet/ui";
+import { Form, Validator } from "@wardnet/ui";
+import { Input } from "@wardnet/ui";
 
 interface LoginFormProps {
   /** Injected login action — callers supply this from their auth store or hook. */
@@ -64,7 +64,7 @@ export function LoginForm({
     <Form
       values={{ username, password }}
       onSubmit={handleSubmit}
-      className="flex flex-col gap-5"
+      className="login-form"
     >
       <Field label="Username" htmlFor="username" name="username">
         <Input
@@ -98,26 +98,26 @@ export function LoginForm({
       />
 
       {rememberMe === "checkbox" && (
-        <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer select-none">
+        <label className="login-form__remember">
           <input
             type="checkbox"
             checked={rememberMeChecked}
             onChange={(e) => setRememberMeChecked(e.target.checked)}
-            className="accent-accent"
+            className="login-form__checkbox"
           />
           Remember me for 30 days
         </label>
       )}
 
       {formError && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="login-form__error">
           {formError}
         </p>
       )}
-      <Button type="submit" disabled={loading} className="w-full">
+      <Button type="submit" disabled={loading} className="login-form__submit">
         {loading ? "Signing in…" : "Log in"}
       </Button>
-      <p className="text-xs text-ink-3">
+      <p className="login-form__hint">
         Credentials are set during initial daemon setup.
       </p>
     </Form>

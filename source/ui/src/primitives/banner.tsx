@@ -1,7 +1,14 @@
 import * as React from "react";
 import { clsx } from "clsx";
+import s from "./banner.module.css";
 
 type BannerTone = "down" | "warn" | "info";
+
+const toneClass: Record<BannerTone, string> = {
+  down: s.down,
+  warn: s.warn,
+  info: s.info,
+};
 
 type BannerProps = Omit<React.ComponentProps<"div">, "children" | "role"> & {
   /**
@@ -52,14 +59,12 @@ function Banner({
     <div
       data-slot="banner"
       role={role}
-      className={clsx("banner", `banner--${tone}`, className)}
+      className={clsx(s.banner, toneClass[tone], className)}
       {...props}
     >
-      {icon !== undefined && <span className="banner__icon">{icon}</span>}
-      <span className="banner__msg">{children}</span>
-      {actions !== undefined && (
-        <span className="banner__actions">{actions}</span>
-      )}
+      {icon !== undefined && <span className={s.icon}>{icon}</span>}
+      <span className={s.msg}>{children}</span>
+      {actions !== undefined && <span className={s.actions}>{actions}</span>}
     </div>
   );
 }
