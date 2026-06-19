@@ -1,5 +1,6 @@
 import * as React from "react";
 import { clsx } from "clsx";
+import s from "./sparkline.module.css";
 
 type SparklineProps = Omit<
   React.ComponentProps<"svg">,
@@ -56,7 +57,7 @@ function Sparkline({
         data-slot="sparkline"
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
-        className={clsx("sparkline", className)}
+        className={clsx(s.sparkline, className)}
         style={
           color !== undefined
             ? ({ ...style, "--spark-color": color } as React.CSSProperties)
@@ -89,7 +90,7 @@ function Sparkline({
       data-slot="sparkline"
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      className={clsx("sparkline", className)}
+      className={clsx(s.sparkline, className)}
       style={
         color !== undefined
           ? ({ ...style, "--spark-color": color } as React.CSSProperties)
@@ -97,8 +98,8 @@ function Sparkline({
       }
       {...props}
     >
-      {area && <path d={areaD} className="sparkline__area" />}
-      <path d={lineD} className="sparkline__line" />
+      {area && <path d={areaD} className={s.area} />}
+      <path d={lineD} className={s.line} />
     </svg>
   );
 }

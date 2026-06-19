@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { clsx } from "clsx";
+import s from "../primitives/tabs.module.css";
 
 export interface SegmentedTab {
   id: string;
@@ -28,7 +29,7 @@ export function SegmentedTabs({
   className,
 }: SegmentedTabsProps) {
   return (
-    <div className={clsx("tabs", className)} role="tablist">
+    <div className={clsx(s.tabs, className)} role="tablist">
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -39,7 +40,7 @@ export function SegmentedTabs({
           onClick={() => onChange(t.id)}
         >
           {t.label}
-          {t.count !== undefined && <span className="count">{t.count}</span>}
+          {t.count !== undefined && <span className={s.count}>{t.count}</span>}
         </button>
       ))}
     </div>

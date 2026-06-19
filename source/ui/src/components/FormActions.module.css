@@ -1,0 +1,9 @@
+/* FormActions composes CardFooter (which already supplies the sunken bar,
+   top border, flex row and 8px gap). It only needs to right-align its
+   buttons — previously the Tailwind utilities `justify-end gap-2`. Keeping a
+   scoped class here removes the library's reliance on the consuming app's
+   Tailwind generating those utilities. */
+.actions {
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

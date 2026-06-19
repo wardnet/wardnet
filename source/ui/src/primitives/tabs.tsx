@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Tabs as RadixTabs } from "radix-ui";
 import { clsx } from "clsx";
+import s from "./tabs.module.css";
 
 type TabsProps = React.ComponentProps<typeof RadixTabs.Root>;
 
@@ -11,7 +12,7 @@ function Tabs(props: TabsProps) {
 type TabsListProps = React.ComponentProps<typeof RadixTabs.List>;
 
 function TabsList({ className, ...props }: TabsListProps) {
-  return <RadixTabs.List className={clsx("tabs", className)} {...props} />;
+  return <RadixTabs.List className={clsx(s.tabs, className)} {...props} />;
 }
 
 type TabsTriggerProps = React.ComponentProps<typeof RadixTabs.Trigger>;

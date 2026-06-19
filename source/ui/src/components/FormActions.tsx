@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { clsx } from "clsx";
 import { Button } from "../primitives/button";
 import { CardFooter } from "../primitives/card";
+import s from "./FormActions.module.css";
 
 interface FormActionsProps {
   /** Primary action — rendered rightmost in the accent (or danger) colour. */
@@ -37,7 +38,7 @@ export function FormActions({
   className,
 }: FormActionsProps) {
   return (
-    <CardFooter className={clsx("justify-end gap-2", className)}>
+    <CardFooter className={clsx(s.actions, className)}>
       {secondaryLabel != null && (
         <Button variant="ghost" onClick={onSecondary} disabled={disabled}>
           {secondaryLabel}
