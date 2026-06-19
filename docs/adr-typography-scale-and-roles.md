@@ -4,6 +4,16 @@
 **Date**: 2026-06-19
 **Issue**: n/a — design-system hardening alongside the CSS-Modules migration
 
+> **Revision (2026-06-19, mid-implementation).** A second challenge session
+> widened the app-facing scope from "kill raw-px only; leave `text-*` to
+> inherit" to **full component adoption** — app markup adopts the `<Text>` /
+> `<Heading>` primitive and the size/weight `text-*`/`font-*` utilities are
+> retired from markup (colour utilities are kept, per decision 4). This flips
+> **decision 5**, refines **decision 2** (one `<Text>` primitive; role now
+> supplies a *default* element), and adds the **primitive API** section below.
+> The original narrow-scope wording is preserved struck-through inline so the
+> change of mind is legible.
+
 ---
 
 ## Context
@@ -53,13 +63,22 @@ The decisions, in order, were resolved through a challenge interview:
    semantic *roles* composed on top. Raw sizes stay available for one-offs;
    roles capture the recurring voices.
 
-2. **Roles are element-agnostic; delivered as CSS classes + thin primitives.**
+2. **Roles are a default bundle; delivered as CSS classes + one primitive.**
    Roles ship as `.t-*` CSS classes (the source of truth, usable from both
-   markup and component CSS) **and** as `<Text as>` / `<Heading as>` React
-   primitives in `@wardnet/ui` that apply those classes. **A role never
-   dictates the HTML element** — the element is a separate accessibility /
-   document-outline decision, chosen per use via `as`. (This explicitly
-   un-couples the current `CardTitle`-always-renders-`<h3>` assumption.)
+   markup and component CSS) **and** as a single `<Text role>` React primitive
+   in `@wardnet/ui` (with a thin `<Heading level={n}>` alias that forwards to
+   `role="h{n}"`). A role sets a **default for every typographic property** —
+   size, weight, colour, **and** the rendered element — and each default is
+   overridable per call via the `size` / `weight` / `color` / `as` props (see
+   the *Primitive API* section). The element stays a separate decision: the
+   role only supplies a *sensible default* `as`, always overridable
+   (`<Text role="h2" as="div">`), which is what un-couples the old
+   `CardTitle`-always-`<h3>` assumption.
+   *(Originally: "Roles are element-agnostic … a role never dictates the HTML
+   element", delivered as separate `<Text>` + `<Heading>` primitives. The
+   refinement makes the element a role-supplied default rather than something
+   the role must stay silent about, and collapses the two primitives into one
+   since the original split existed only because roles carried no element.)*
 
 3. **Override Tailwind's `text-*` with the Forge scale, in `rem`.** Rather than
    add a parallel namespace (which would leave two competing scales and not fix
@@ -76,11 +95,23 @@ The decisions, in order, were resolved through a challenge interview:
    fragility that bit the combobox trigger; the layer placement structurally
    avoids it.)
 
-5. **Scope: one pass.** Foundation (scale + roles + primitives + Storybook) +
-   migrate the design-system's own CSS off the literals + sweep the apps'
-   raw-px / inline sizes + a 4-app visual-QA pass — all in this single PR.
-   `text-*` utility usages are **not** rewritten; they inherit the new scale
-   automatically.
+5. **Scope: one pass, full component adoption.** Foundation (scale + roles +
+   the `<Text>` / `<Heading>` primitive + Storybook) + migrate the
+   design-system's own CSS off the literals + **convert app markup to the
+   primitive** + a 4-app visual-QA pass — all in this single (mega-)PR. App
+   markup adopts `<Text>` / `<Heading>`: the ~318 `text-*` **size** utilities
+   and ~112 raw `text-[Npx]` literals are replaced either by a *role* (a named
+   voice) or by the `size` / `weight` props (off-role one-offs), and the
+   size/weight utilities are **retired from markup**. **Colour utilities are
+   retained** as the recolour escape (decision 4) and mirrored by the `color`
+   prop. Empirically the feared long tail is small: **zero** responsive size
+   utilities exist across the apps, and nothing exceeds `4xl` (32px), so no
+   `display` role and no responsive-size API are needed.
+   *(Originally: "text-* utility usages are **not** rewritten; they inherit the
+   new scale automatically" — the sweep touched only raw-px / inline sizes. The
+   2026-06-19 revision widened this to full adoption; the override in decision 3
+   still applies to any `text-*` that survives, e.g. inside `@wardnet/web`'s
+   shipped CSS.)*
 
 6. **DS extraction is a separate initiative.** A future "My Account" SPA in
    another repo will also consume the design system, and the DS will eventually
@@ -131,7 +162,51 @@ one notch. That set is the focus of the visual-QA pass.
 | `h3`  | lg (16)  | 600    | —        | ink    | modal title (15→16)  |
 
 No `display` role — 26px folds into `h1`/`metric`. `mono` is kept as a role
-(not just the `font-mono` utility) for ergonomics.
+(not just the `font-mono` utility) for ergonomics. The `h1`/`h2`/`h3` "levels"
+are roles too — `<Heading level={2}>` is sugar for `<Text role="h2">`.
+
+### Primitive API
+
+One primitive, `<Text>`, plus a thin `<Heading>` alias. `role` is the only
+required input for the common case; it bakes a default for **every** property,
+and each is individually overridable for exceptions:
+
+```tsx
+type Role =                            // every named voice, headings included
+  | "label" | "body" | "body-strong" | "caption" | "micro"
+  | "metric" | "metric-unit" | "mono" | "h1" | "h2" | "h3";
+
+interface TextProps {
+  role?: Role;                         // default bundle: size + weight + colour + element
+  size?: "2xs" | "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
+  weight?: "normal" | "medium" | "semibold" | "bold";
+  color?: Ink | Status;               // ink | ink-2…ink-5 | accent | danger | warn | info | …
+  as?: React.ElementType;             // override the role's default element
+  className?: string;                 // genuine one-offs (e.g. truncate); colour utilities still valid
+}
+
+// <Heading level={n}> ≡ <Text role={`h${n}`}>
+```
+
+Semantics:
+
+- **`role` sets defaults for `size`, `weight`, `color`, and `as`.** Omitting
+  `role` yields plain body-ish text driven entirely by the override props.
+- **Override props win over the role.** `<Text role="body" weight="semibold">`
+  is a 600-weight body line without inventing a `body-strong` call-site.
+- **`as` is the element, decoupled from the voice.** The role supplies a
+  sensible default element (`h2`→`<h2>`, `body`/`caption`→`<p>`, inline voices
+  like `label`/`micro`/`mono`/`metric-unit`→`<span>`); `as` overrides it.
+- **`size` / `weight` replace the retired markup utilities.** They map to the
+  scale / weight tokens (mechanism lives in `@wardnet/styles`, so `@wardnet/ui`
+  still ships no CSS of its own). Off-role one-offs use these instead of
+  `text-sm` / `font-medium` in markup.
+- **`color` mirrors the colour utilities** rather than replacing them: it emits
+  the same `text-*` colour class the utility would, so the `@layer components`
+  vs `utilities` cascade from decision 4 keeps working whether a caller reaches
+  for the prop or a raw `className="text-danger"`.
+
+This is the API the Stage-5 sweep migrates every app text element onto.
 
 ## Consequences
 
@@ -144,6 +219,13 @@ No `display` role — 26px folds into `h1`/`metric`. `mono` is kept as a role
 - **`@layer components` placement** makes role colours overridable by utilities
   by construction — no per-call specificity hacks.
 - **Extraction-ready**: everything lands in `@wardnet/styles` + `@wardnet/ui`.
+- **App markup becomes role-driven.** After the sweep, app `.tsx` expresses
+  typography through `<Text>` / `<Heading>` rather than `text-*` / `font-*`
+  size utilities, so the scale and the named voices are the only knobs a new
+  screen reaches for. Cost: a large (~430-site), mostly-mechanical diff
+  concentrated in admin-site, carried in this one PR by explicit choice (the
+  alternative — staging the sweep behind the foundation — was considered and
+  rejected in favour of landing the end state at once).
 
 ## Implementation checklist (status: in progress)
 
@@ -151,19 +233,25 @@ No `display` role — 26px folds into `h1`/`metric`. `mono` is kept as a role
    `styles/styles.css` `:root` (`--text-*` + line-height vars, after
    `--font-mono`); `styles/theme.css` `@theme` (`--text-*` +
    `--text-*--line-height`, overriding Tailwind defaults).
-2. [ ] **Roles + primitives** — new `styles/typography.css` with `.t-*` /
-   `.t-h*` in `@layer components`, imported from `theme.css` (add to package
-   `files`); `ui/src/primitives` `Text` + `Heading` (role/level + `as`,
-   colour-override-friendly); export from `ui/src/index.ts`.
+2. [ ] **Roles + primitive** — new `styles/typography.css` with `.t-*` /
+   `.t-h*` role classes **and** `size`/`weight` helper classes in
+   `@layer components`, imported from `theme.css` (add to package `files`); a
+   single `ui/src/primitives/text` `<Text>` (`role` + `size`/`weight`/`color`/
+   `as` overrides) plus a thin `<Heading level>` alias; export from
+   `ui/src/index.ts`. `@wardnet/ui` emits no CSS — it references the
+   `@wardnet/styles` classes by string.
 3. [ ] **Storybook** — `Typography` story (scale ramp + role specimens +
    primitive usage + recolour example). Manager/preview already load
    `theme.css`, so roles render once `typography.css` is imported there.
 4. [ ] **Design-system CSS** — replace literals in `styles.css` component
    blocks + the `*.module.css` files with `var(--text-*)` / roles; dedupe the
    `label` voice (card title, stat label, table head) onto the role.
-5. [ ] **App sweep** — per app (admin-site, admin-app, user-app,
-   marketing-site): kill raw-px / inline sizes, apply roles where they fit;
-   leave `text-*` utilities to inherit the new scale.
+5. [ ] **App sweep (full adoption)** — per app (admin-site, admin-app,
+   user-app, marketing-site): convert text-bearing markup to `<Text>` /
+   `<Heading>` — roles for named voices, `size`/`weight` props for off-role
+   one-offs — retiring the ~318 `text-*` size + `font-*` weight utilities and
+   ~112 raw `text-[Npx]` literals from markup. Colour utilities stay. Each app
+   gets its own visual-QA pass (admin-site is the bulk, ~200 sites).
 6. [ ] **This ADR** — flip status to Accepted when the PR lands.
 7. [ ] **Validate** — `type-check` + build each app + `@wardnet/ui`; Storybook
    build; Playwright spot-checks; screenshot key screens per app for visual
@@ -174,6 +262,26 @@ No `display` role — 26px folds into `h1`/`metric`. `mono` is kept as a role
 - Source of truth for tokens is mirrored in three places that must stay in
   sync: `tokens.ts` (TS, also consumed by charts at runtime) → `styles.css`
   (CSS vars) → `theme.css` (Tailwind `@theme`).
+- **Why the apps don't need per-`@theme` edits (verified empirically).** The
+  apps `@import "@wardnet/styles"` (= `styles.css`) and each declares its own
+  `@theme inline` block; only Storybook imports `theme.css`. Tailwind v4 emits
+  `.text-sm { font-size: var(--text-sm); line-height: var(--tw-leading,
+  var(--text-sm--line-height)); }` — the utilities **reference** the vars, and
+  Tailwind's defaults live in `@layer theme`. `styles.css`'s `--text-*` vars
+  sit in an **unlayered** `:root` imported after `tailwindcss`, so they beat
+  the layered defaults and the override lands app-wide **through `styles.css`
+  alone**. `theme.css`'s `@theme` copy is only what makes Storybook match. So
+  Stage 1 needed no edits to the four app `index.css` `@theme` blocks.
+- **`text-2xs` caveat.** `2xs` (11px) is not a Tailwind size, and the apps
+  don't add it to `@theme`, so a `text-2xs` *utility* won't generate in apps.
+  The `size="2xs"` prop / `micro` role therefore must drive font-size via a
+  `@wardnet/styles` class (the `size`/`weight` helpers in `typography.css`),
+  **not** by emitting a `text-2xs` Tailwind class. Same reasoning keeps
+  `@wardnet/ui` CSS-free.
+- The new API (one `<Text role>` + `<Heading level>` alias; `role` is a default
+  bundle; `size`/`weight`/`color`/`as` override) and the full-adoption scope
+  are recorded in the **Primitive API** section and the 2026-06-19 revision
+  note — read those, not the original decisions 2/5 wording.
 - `styles.css` component classes are **unlayered** (they win over utilities).
   Role classes must be **explicitly** wrapped in `@layer components` or the
   baked colour won't be overridable.
