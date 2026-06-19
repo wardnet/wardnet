@@ -25,17 +25,9 @@
   align-items: center;
   gap: 8px;
 }
-.value {
-  font-size: var(--text-4xl);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: var(--ink);
-  line-height: 1.05;
-}
+/* The metric voice comes from the `t-metric` / `t-metric-unit` variants
+   (applied in stat-tile.tsx); only the unit's spacing is layout. */
 .value .unit {
-  color: var(--ink-3);
-  font-size: var(--text-xl);
-  font-weight: 500;
   margin-left: 2px;
 }
 .sub {

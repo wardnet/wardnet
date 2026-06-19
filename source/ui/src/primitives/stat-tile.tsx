@@ -38,9 +38,11 @@ function StatTile({
     <div data-slot="stat-tile" className={clsx(s.stat, className)} {...props}>
       {pill !== undefined && <div className={s.pill}>{pill}</div>}
       <div className={clsx("t-label", s.label)}>{label}</div>
-      <div className={s.value}>
+      <div className={clsx("t-metric", s.value)}>
         {value}
-        {unit !== undefined && <span className={s.unit}>{unit}</span>}
+        {unit !== undefined && (
+          <span className={clsx("t-metric-unit", s.unit)}>{unit}</span>
+        )}
       </div>
       {sub !== undefined && <div className={s.sub}>{sub}</div>}
       {bar !== undefined && (
