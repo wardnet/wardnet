@@ -30,6 +30,7 @@
 ## Design tokens (`@wardnet/styles`)
 - Lives at `source/styles/`; linked via `"@wardnet/styles": "portal:../styles"`
 - CSS tokens + Tailwind base layer in `styles.css`; typed design token constants (brand, status, radius, density, font) in `src/tokens.ts`
+- `typography.css` — semantic text variant classes (`.t-label`, `.t-body`, `.t-metric`, `.t-h1`…) plus `t-size-*` / `t-weight-*` helpers, all in `@layer components`; variant selectors are wrapped in `:where()` (zero specificity) so helper and colour utilities override structurally. Imported from `styles.css`, so consumers reach it via the single `@wardnet/styles` CSS entry. Backs the `<Text>` primitive in `@wardnet/ui` (see `docs/adr-typography-scale-and-roles.md`).
 - Import CSS: `@import "@wardnet/styles"` (the `"."` export resolves to `styles.css`)
 - Import tokens: `import { brand, status } from "@wardnet/styles/tokens"`
 
