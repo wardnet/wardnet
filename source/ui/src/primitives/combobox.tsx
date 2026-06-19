@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
-import { ChevronsUpDownIcon, SearchIcon } from "lucide-react";
+import { ChevronDownIcon, SearchIcon } from "lucide-react";
 
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
@@ -62,7 +62,7 @@ function Combobox({
           className={s.comboboxTrigger}
         >
           {trigger}
-          <ChevronsUpDownIcon className={s.comboboxChevron} />
+          <ChevronDownIcon className={s.comboboxChevron} />
         </Button>
       </PopoverTrigger>
       <PopoverContent className={s.comboboxContent} align="start">

@@ -173,7 +173,12 @@
   background: var(--bg-sunken);
   color: var(--ink);
 }
-.menuItem[data-disabled] {
+/* Match a *truly* disabled item. Radix omits the attribute when enabled, but
+   cmdk always renders data-disabled="true|false" — so a bare [data-disabled]
+   selector would also match cmdk's enabled items and kill their pointer events
+   (clicks then fall through to the cmdk-list-sizer and selection silently
+   breaks). Excluding the "false" value keeps both Radix and cmdk correct. */
+.menuItem[data-disabled]:not([data-disabled="false"]) {
   opacity: 0.5;
   pointer-events: none;
 }
@@ -209,7 +214,12 @@
 }
 
 /* ---------- Combobox (cmdk inside .popover; items reuse .menuItem) ---------- */
-.comboboxTrigger {
+/* The trigger is a Button with these overrides layered on top. The class is
+   doubled to raise specificity to (0,2,0) so the overrides beat Button's base
+   `.btn` (0,1,0) regardless of which module's CSS the bundler emits first —
+   source order between the two modules is not guaranteed (and differs between
+   the dev server and the production bundle). */
+.comboboxTrigger.comboboxTrigger {
   width: 100%;
   justify-content: space-between;
   font-weight: 400;
@@ -219,6 +229,12 @@
   margin-left: 8px;
   flex-shrink: 0;
   opacity: 0.5;
+  /* Mirrors the Select chevron: a single down caret that flips to point up
+     while the popover is open. */
+  transition: transform 120ms ease;
+}
+.comboboxTrigger[aria-expanded="true"] > svg.comboboxChevron {
+  transform: rotate(180deg);
 }
 .comboboxContent {
   padding: 0;
