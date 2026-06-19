@@ -358,18 +358,9 @@ button { font-family: inherit; }
   flex-wrap: wrap;
   padding: var(--pad) var(--pad) 12px;
 }
-/* Shared label voice — a card title, a KPI stat label, and a table header all
-   read as the same small uppercase tracked ink-3 voice. Defined once here
-   (mirrors the `.t-label` role in typography.css) so the three never drift. */
-.card__head h3,
-.stat__label,
-.tbl th {
-  font-size: var(--text-xs);
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
+/* Card title margin reset only — the label voice (shared with `.stat__label`
+   and `.tbl th`) is defined once in typography.css as the `.t-label` variant
+   rule, which lists these legacy selectors so they never drift. */
 .card__head h3 {
   margin: 0;
 }
@@ -436,14 +427,10 @@ button { font-family: inherit; }
      rule above; this keeps only the tile-specific layout. */
   display: flex; align-items: center; gap: 8px;
 }
-.stat__value {
-  font-size: var(--text-4xl);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: var(--ink);
-  line-height: 1.05;
-}
-.stat__value .unit { color: var(--ink-3); font-size: var(--text-xl); font-weight: 500; margin-left: 2px; }
+/* The metric voice for `.stat__value` and its `.unit` lives once in
+   typography.css (`.t-metric` / `.t-metric-unit` variant rules, which list
+   these legacy selectors); only the unit's spacing is layout, so it stays. */
+.stat__value .unit { margin-left: 2px; }
 .stat__sub { font-size: var(--text-xs); color: var(--ink-3); }
 .stat__spark { position: absolute; right: 0; bottom: 0; left: 0; height: 36px; pointer-events: none; }
 .stat__spark svg { width: 100%; height: 100%; display: block; }

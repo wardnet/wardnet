@@ -1,33 +1,41 @@
 /*
- * @wardnet/styles/typography.css — semantic text roles + size/weight helpers.
+ * @wardnet/styles/typography.css — semantic text variants + size/weight helpers.
  *
  * The second tier of the typography model (the first is the numeric scale in
- * styles.css `:root` / theme.css `@theme`). Roles are named voices that bundle
- * size + line-height + weight + tracking + transform + a default colour; the
- * `t-size-*` / `t-weight-*` helpers expose the raw scale/weight knobs for the
- * off-role one-offs the <Text> primitive's `size` / `weight` props drive.
+ * styles.css `:root` / theme.css `@theme`). Variants are named voices that
+ * bundle size + line-height + weight + tracking + transform + a default colour;
+ * the `t-size-*` / `t-weight-*` helpers expose the raw scale/weight knobs for
+ * the off-variant one-offs the <Text> primitive's `size` / `weight` props drive.
  *
- * Everything here is in `@layer components` ON PURPOSE (decision 4): role
+ * Everything here is in `@layer components` ON PURPOSE (decision 4): variant
  * classes bake a default colour (e.g. `.t-label` → ink-3), and the layer puts
  * them *below* Tailwind's `utilities` layer so a colour utility (`text-danger`,
  * `text-ink-2`, …) — or the <Text> `color` prop, which emits the same utility —
  * always wins the cascade without a specificity fight.
  *
+ * Variant selectors are additionally wrapped in `:where()` so they carry ZERO
+ * specificity. That makes the override precedence STRUCTURAL rather than
+ * source-order-dependent: the `t-size-*` / `t-weight-*` helpers (specificity
+ * 0,1,0) always beat a variant's baked size/weight (0,0,0), so reordering this
+ * file or splitting it can't silently break `<Text variant="label" size="lg">`.
+ *
+ * Single source of truth: the legacy global voice classes (`.card__head h3`,
+ * `.stat__label`, `.tbl th`, `.stat__value`) are folded into the matching
+ * variant rule here rather than re-stated in styles.css — so the label and
+ * metric voices have exactly one definition. (The :where placement also makes
+ * those legacy surfaces colour-overridable by utilities, per decision 4.)
+ *
  * Imported from styles.css so it reaches every consumer through the single
  * `@wardnet/styles` entry the apps load (theme.css and Storybook pull it in
  * transitively via styles.css). @wardnet/ui references these classes by string
  * and ships no CSS of its own. See docs/adr-typography-scale-and-roles.md.
- *
- * Source order matters: the `t-size-*` / `t-weight-*` helpers are declared
- * AFTER the roles so that, at equal specificity within this layer, an override
- * helper wins over the role's baked size/weight (that is the whole point of the
- * `size` / `weight` props).
  */
 
 @layer components {
-  /* ---------- Roles (named voices; baked default colour) ---------- */
+  /* ---------- Variants (named voices; baked default colour, zero specificity) ---------- */
 
-  .t-label {
+  /* Label voice — also the legacy card title / stat label / table header. */
+  :where(.t-label, .card__head h3, .stat__label, .tbl th) {
     font-size: var(--text-xs);
     line-height: var(--text-xs--line-height);
     font-weight: 500;
@@ -35,44 +43,45 @@
     letter-spacing: 0.06em;
     color: var(--ink-3);
   }
-  .t-body {
+  :where(.t-body) {
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
     font-weight: 400;
     color: var(--ink);
   }
-  .t-body-strong {
+  :where(.t-body-strong) {
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
     font-weight: 600;
     color: var(--ink);
   }
-  .t-caption {
+  :where(.t-caption) {
     font-size: var(--text-xs);
     line-height: var(--text-xs--line-height);
     font-weight: 400;
     color: var(--ink-3);
   }
-  .t-micro {
+  :where(.t-micro) {
     font-size: var(--text-2xs);
     line-height: var(--text-2xs--line-height);
     font-weight: 500;
     color: var(--ink-3);
   }
-  .t-metric {
+  /* Metric voice — also the legacy KPI value `.stat__value`. */
+  :where(.t-metric, .stat__value) {
     font-size: var(--text-4xl);
-    line-height: 1.05;
+    line-height: var(--text-4xl--line-height);
     font-weight: 600;
     letter-spacing: -0.03em;
     color: var(--ink);
   }
-  .t-metric-unit {
+  :where(.t-metric-unit, .stat__value .unit) {
     font-size: var(--text-xl);
     line-height: var(--text-xl--line-height);
     font-weight: 500;
     color: var(--ink-3);
   }
-  .t-mono {
+  :where(.t-mono) {
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
     font-weight: 400;
@@ -80,22 +89,22 @@
     color: var(--ink);
   }
 
-  /* Heading levels — roles too; <Heading level={n}> ≡ <Text role="h{n}">. */
-  .t-h1 {
+  /* Heading levels — variants too; <Heading level={n}> ≡ <Text variant="h{n}">. */
+  :where(.t-h1) {
     font-size: var(--text-2xl);
     line-height: var(--text-2xl--line-height);
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--ink);
   }
-  .t-h2 {
+  :where(.t-h2) {
     font-size: var(--text-xl);
     line-height: var(--text-xl--line-height);
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--ink);
   }
-  .t-h3 {
+  :where(.t-h3) {
     font-size: var(--text-lg);
     line-height: var(--text-lg--line-height);
     font-weight: 600;
@@ -103,10 +112,11 @@
   }
 
   /* ---------- Size helpers (drive the `size` prop; scale + paired leading) ----------
-     Declared after the roles so an explicit size override wins at equal
-     specificity. These also cover `2xs` (11px), which is NOT a Tailwind size,
-     so a `text-2xs` utility never generates in the apps — the helper is the
-     mechanism that lets `size="2xs"` / the `micro` role work everywhere. */
+     NOT wrapped in :where — they keep their 0,1,0 specificity so they reliably
+     beat the zero-specificity variants above. These also cover `2xs` (11px),
+     which is NOT a Tailwind size, so a `text-2xs` utility never generates in the
+     apps — the helper is the mechanism that lets `size="2xs"` / the `micro`
+     variant work everywhere. */
   .t-size-2xs {
     font-size: var(--text-2xs);
     line-height: var(--text-2xs--line-height);
