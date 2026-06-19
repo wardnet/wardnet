@@ -32,7 +32,7 @@ const MD_COMPONENTS: Components = {
     return <code className={className}>{children}</code>;
   },
   pre: (props) => (
-    <pre className="logs mb-4 overflow-x-auto rounded-lg p-4 t-size-sm leading-relaxed" {...props} />
+    <pre className="logs mb-4 overflow-x-auto rounded-lg p-4 leading-relaxed" {...props} />
   ),
   blockquote: (props) => (
     <blockquote className="mb-4 border-l-4 border-accent/40 pl-4 italic text-ink-3" {...props} />

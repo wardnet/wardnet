@@ -20,7 +20,7 @@ export function NotFound() {
         <SearchX size={14} aria-hidden="true" />
         Page not found
       </div>
-      <h1 className="h-title t-size-4xl">Off the map</h1>
+      <h1 className="h-title">Off the map</h1>
       <p className="h-sub max-w-md">
         This URL doesn't route anywhere. If you followed a link from somewhere, it's probably out of
         date.
