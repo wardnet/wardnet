@@ -45,3 +45,9 @@ source/web/dist/
 .claude/scheduled_tasks.lock
 .wardnet-local/
 .target-linux/
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.ds-sync/
+ds-bundle/
