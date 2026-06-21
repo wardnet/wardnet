@@ -110,9 +110,13 @@ source/
 │                                    #   useCombinedTunnelStats and useRebuildTunnel from @wardnet/web.
 │                                    #   Devices page: showingLastKnownState offline overlay; loading skeleton
 │                                    #   gated on both devices + policy loaded.
-├── web/                             # @wardnet/web — shared React hooks, utilities, and UI primitives for all app surfaces
+├── ui/                              # @wardnet/ui — design system: UI primitives + components (CSS Modules + @wardnet/styles tokens)
+│   ├── src/
+│   │   ├── primitives/              # Button, Card, Modal, Combobox, Drawer, Select, Toggle, Sparkline, Text, Heading, etc. (each with a *.stories.tsx)
+│   │   └── components/              # Higher-level compositions (SegmentedTabs, FormActions, StatTile, …)
+│   └── .storybook/                  # Storybook config; preview.css imports the compiled @wardnet/ui/styles.css (see technical-stack.md)
+├── web/                             # @wardnet/web — shared React hooks, utilities, stores; re-exports @wardnet/ui primitives
 │   └── src/
-│       ├── primitives/              # UI primitives (Button, Card, Modal, Combobox, Drawer, Select, Toggle, Sparkline, etc.)
 │       ├── hooks/                   # All shared TanStack Query hooks: useAuth, useDevices, useTunnels, useStats,
 │       │                            #   useTunnelStats, useCombinedTunnelStats, useProviders, useSystemStatus,
 │       │                            #   useDns, useDhcp, useBackup, useUpdate, useSetup, useDaemonStatus, etc.
