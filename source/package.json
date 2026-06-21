@@ -10,9 +10,7 @@
     "admin-site",
     "admin-app",
     "user-app",
-    "marketing-site",
-    "end2end-tests/web-ui",
-    "end2end-tests/daemon"
+    "marketing-site"
   ],
   "devDependencies": {
     "turbo": "2.9.18"

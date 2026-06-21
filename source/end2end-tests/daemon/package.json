@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@wardnet/js": "workspace:*"
+    "@wardnet/js": "portal:../../sdk/wardnet-js"
   },
   "devDependencies": {
     "@types/node": "25.9.3",
