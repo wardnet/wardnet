@@ -166,11 +166,7 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
         </CardAction>
       </CardHeader>
       <CardContent>
-        <Text
-          as="dl"
-          size="sm"
-          className="grid grid-cols-2 gap-x-6 gap-y-4"
-        >
+        <Text as="dl" size="sm" className="grid grid-cols-2 gap-x-6 gap-y-4">
           <div>
             <Text
               as="dt"

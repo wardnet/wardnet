@@ -10,7 +10,9 @@ import docsContent from "../../content/docs.yml";
 // the @theme block in `index.css`. Inline code uses Forge's `.kbd` style;
 // fenced blocks lean on the `.logs` family (--bg-sunken + --font-mono).
 const MD_COMPONENTS: Components = {
-  h1: (props) => <h1 className="mb-6 mt-0 t-size-4xl t-weight-bold tracking-tight text-ink" {...props} />,
+  h1: (props) => (
+    <h1 className="mb-6 mt-0 t-size-4xl t-weight-bold tracking-tight text-ink" {...props} />
+  ),
   h2: (props) => (
     <h2 className="mb-4 mt-10 t-size-2xl t-weight-bold tracking-tight text-ink" {...props} />
   ),

@@ -246,11 +246,7 @@ export default function DnsLogs() {
   // Live tail moves to the PageHeader: it's a viewing-mode choice
   // ("what shows up?"), not a query filter applied to results.
   const liveTailAction = (
-    <Text
-      as="label"
-      size="sm"
-      className="flex items-center gap-2 text-ink-3"
-    >
+    <Text as="label" size="sm" className="flex items-center gap-2 text-ink-3">
       <span>Live tail{liveConnected ? "" : " (offline)"}</span>
       <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
     </Text>

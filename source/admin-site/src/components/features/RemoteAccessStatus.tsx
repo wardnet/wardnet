@@ -102,11 +102,7 @@ export function RemoteAccessStatus({
           <dd className={verdict?.tone ?? "font-medium"}>
             {verdict ? verdict.label : "—"}
             {resolution && resolution.resolved_ips.length > 0 && (
-              <Text
-                as="span"
-                size="xs"
-                className="block font-mono text-ink-3"
-              >
+              <Text as="span" size="xs" className="block font-mono text-ink-3">
                 {resolution.resolved_ips.join(", ")}
               </Text>
             )}

@@ -219,9 +219,7 @@ export function DeviceSettingsCard({
             <Text size="xs" className="uppercase tracking-wide text-ink-3">
               Admin lock
             </Text>
-            <Text size="sm">
-              {device.admin_locked ? "Locked" : "Unlocked"}
-            </Text>
+            <Text size="sm">{device.admin_locked ? "Locked" : "Unlocked"}</Text>
           </div>
         </CardContent>
       )}

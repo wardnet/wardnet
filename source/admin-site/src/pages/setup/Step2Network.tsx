@@ -60,7 +60,9 @@ export default function Step2Network() {
         >
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
           <Text as="div" size="sm" className="flex flex-col gap-1">
-            <Text as="p" weight="medium">Your IP isn't pinned</Text>
+            <Text as="p" weight="medium">
+              Your IP isn't pinned
+            </Text>
             <p>
               The router is currently leasing this address — it may change on
               the next reboot. Re-run <code>install.sh</code> with{" "}

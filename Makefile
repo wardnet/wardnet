@@ -165,12 +165,10 @@ check-sdk:
 # ---------- Web UI ----------
 
 build-web: check-sdk
-	cd $(ADMIN_DIR) && yarn install --immutable
-	cd $(WEBUI_DIR) && yarn build
-	cd $(USER_APP_DIR) && yarn install --immutable
-	cd $(USER_APP_DIR) && yarn build
-	cd $(ADMIN_APP_DIR) && yarn install --immutable
-	cd $(ADMIN_APP_DIR) && yarn build
+	cd source && yarn install --immutable
+	# turbo builds each app's workspace deps first (notably @wardnet/ui, which
+	# the apps consume as built dist) before the apps themselves.
+	cd source && yarn turbo run build --filter=@wardnet/admin-site --filter=@wardnet/user-app --filter=@wardnet/admin-app
 	# Vite empties each dist/ on build, deleting the tracked .info sentinel that
 	# keeps the directory present for rust-embed. Restore it so the working tree
 	# stays clean. (.info is embedded but never served — static_handler in web.rs
@@ -179,14 +177,10 @@ build-web: check-sdk
 	-git checkout -- $(WEBUI_DIR)/dist/.info $(USER_APP_DIR)/dist/.info $(ADMIN_APP_DIR)/dist/.info
 
 check-web: check-sdk
-	cd $(ADMIN_DIR) && yarn install --immutable
-	cd $(WEBUI_DIR) && yarn type-check
+	cd source && yarn install --immutable
+	cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/user-app --filter=@wardnet/admin-app
 	cd $(WEBUI_DIR) && yarn lint
 	cd $(WEBUI_DIR) && yarn format:check
-	cd $(USER_APP_DIR) && yarn install --immutable
-	cd $(USER_APP_DIR) && yarn type-check
-	cd $(ADMIN_APP_DIR) && yarn install --immutable
-	cd $(ADMIN_APP_DIR) && yarn type-check
 
 # ---------- Public Site ----------
 

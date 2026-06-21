@@ -123,7 +123,12 @@ export function EmptyStatePlaceholder({
           {message}
         </Text>
         {hint && (
-          <Text as="p" size="xs" className="max-w-sm" style={{ color: hintColor }}>
+          <Text
+            as="p"
+            size="xs"
+            className="max-w-sm"
+            style={{ color: hintColor }}
+          >
             {hint}
           </Text>
         )}

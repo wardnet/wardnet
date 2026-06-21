@@ -36,10 +36,10 @@ jobs:
           cache-dependency-path: source/yarn.lock
 
       - name: Install deps
-        run: cd source/admin-app && yarn install --immutable
+        run: cd source && yarn install --immutable
 
       - name: Type check
-        run: cd source/admin-app && yarn type-check
+        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-app
 
   build:
     name: Build admin-app bundle
@@ -56,4 +56,4 @@ jobs:
       - uses: ./.github/actions/build-vite-app
         with:
           cache-dependency-path: source/yarn.lock
-          build-command: cd source/admin-app && yarn install --immutable && yarn build
+          build-command: cd source && yarn install --immutable && yarn turbo run build --filter=@wardnet/admin-app

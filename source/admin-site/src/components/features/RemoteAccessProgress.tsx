@@ -16,7 +16,11 @@ export function RemoteAccessProgress({
 
   if (phase === "issuing") {
     return (
-      <Text as="div" size="sm" className="rounded-md border border-line bg-sunken p-4">
+      <Text
+        as="div"
+        size="sm"
+        className="rounded-md border border-line bg-sunken p-4"
+      >
         <Text as="p" weight="medium" className="text-ink">
           Issuing certificate…
         </Text>
@@ -37,7 +41,11 @@ export function RemoteAccessProgress({
 
   if (phase === "issued") {
     return (
-      <Text as="div" size="sm" className="rounded-md border border-line bg-accent-soft p-4">
+      <Text
+        as="div"
+        size="sm"
+        className="rounded-md border border-line bg-accent-soft p-4"
+      >
         <Text as="p" weight="medium" className="text-accent-soft-ink">
           Remote access is live
         </Text>
@@ -56,7 +64,11 @@ export function RemoteAccessProgress({
 
   if (phase === "failed") {
     return (
-      <Text as="div" size="sm" className="rounded-md border border-line bg-danger-soft p-4">
+      <Text
+        as="div"
+        size="sm"
+        className="rounded-md border border-line bg-danger-soft p-4"
+      >
         <Text as="p" weight="medium" className="text-danger-soft-ink">
           Certificate issuance failed
         </Text>
