@@ -101,7 +101,7 @@ jobs:
         with:
           node-version: "25"
           cache: yarn
-          cache-dependency-path: source/marketing-site/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - name: Generate site coverage + test results
         run: cd source/marketing-site && yarn install --immutable && yarn test:coverage

@@ -33,7 +33,7 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/admin-app/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - name: Install deps
         run: cd source/admin-app && yarn install --immutable
@@ -55,5 +55,5 @@ jobs:
 
       - uses: ./.github/actions/build-vite-app
         with:
-          cache-dependency-path: source/admin-app/yarn.lock
+          cache-dependency-path: source/yarn.lock
           build-command: cd source/admin-app && yarn install --immutable && yarn build

@@ -154,7 +154,7 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/marketing-site/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - name: Install site dependencies
         run: cd source/marketing-site && yarn install --immutable

@@ -40,7 +40,7 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/marketing-site/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       # Run type-check + format:check only. The site unit tests run in
       # coverage.yml with instrumentation; running them here too would
@@ -68,7 +68,7 @@ jobs:
 
       - uses: ./.github/actions/build-vite-app
         with:
-          cache-dependency-path: source/marketing-site/yarn.lock
+          cache-dependency-path: source/yarn.lock
           # Authenticated token lifts the manifest generator's GitHub
           # API rate-limit from 60/hr (anonymous) to 5000/hr.
           github-token: ${{ secrets.GITHUB_TOKEN }}
