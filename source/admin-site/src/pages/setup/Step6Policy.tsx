@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { RoutingSelector } from "@wardnet/web";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@wardnet/web";
@@ -63,10 +64,10 @@ export default function Step6Policy() {
           isAdmin
         />
         {tunnelList.length === 0 && (
-          <p className="text-xs text-ink-3">
+          <Text as="p" size="xs" className="text-ink-3">
             No tunnels configured — defaulting to direct routing. You can change
             this from Settings whenever you add a tunnel.
-          </p>
+          </Text>
         )}
       </div>
 

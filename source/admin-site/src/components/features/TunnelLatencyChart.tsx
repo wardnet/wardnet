@@ -12,7 +12,7 @@ import {
 
 import { ZoomableChartContainer } from "@/components/compound/ZoomableChartContainer";
 import { type ChartConfig } from "@/components/core/ui/chart";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle, Text } from "@wardnet/web";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
 import type { TunnelStatsData, StatsRange } from "@wardnet/web";
 
@@ -74,18 +74,30 @@ export function TunnelLatencyChart({
       </CardHeader>
       <CardContent>
         {isError ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             Failed to load latency history.
-          </div>
+          </Text>
         ) : isLoading ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             Loading…
-          </div>
+          </Text>
         ) : points.length === 0 ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             No latency samples yet — bring this tunnel up to start collecting
             probes.
-          </div>
+          </Text>
         ) : (
           <ZoomableChartContainer
             config={chartConfig}

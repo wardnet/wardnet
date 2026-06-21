@@ -21,6 +21,7 @@ on:
   pull_request:
     branches: [main]
   workflow_call:
+  workflow_dispatch:
 
 # Workflow-level permissions stay read-only. Each job/leaf elevates
 # to the writes it actually needs via its own `permissions:` block —

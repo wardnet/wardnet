@@ -1,6 +1,6 @@
 import { MonitorIcon } from "lucide-react";
 import { Link } from "react-router";
-import { Card } from "@wardnet/web";
+import { Card, Text } from "@wardnet/web";
 import { isDeviceOnline } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
@@ -33,19 +33,19 @@ export function DevicesCard({ deviceCount, devices, defaultPolicy }: Props) {
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Devices Online
-            </div>
+            </Text>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold text-ink">
+              <Text as="span" size="2xl" weight="bold" className="text-ink">
                 {onlineCount !== null ? onlineCount : "—"}
-              </span>
-              <span className="text-sm text-ink-3">/ {deviceCount}</span>
+              </Text>
+              <Text as="span" size="sm" className="text-ink-3">/ {deviceCount}</Text>
             </div>
             {tunnelledCount !== null && (
-              <div className="mt-0.5 text-xs text-ink-3">
+              <Text as="div" size="xs" className="mt-0.5 text-ink-3">
                 {tunnelledCount} routed through a tunnel
-              </div>
+              </Text>
             )}
           </div>
         </div>

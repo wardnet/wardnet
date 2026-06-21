@@ -1,0 +1,21 @@
+/*
+ * Storybook preview stylesheet — mirrors a Wardnet app entry exactly:
+ * Tailwind, then the shared design-system theme. Because this is the same
+ * `@wardnet/styles/theme.css` every app imports, Storybook renders through
+ * the identical token → CSS-var → utility chain the real apps use.
+ */
+@import "tailwindcss";
+@import "@wardnet/styles/theme.css";
+/* The package's own compiled component styles (dist/ui.css). Storybook renders
+   from the source modules, so this is redundant for its own render — but it
+   makes the built CSS (the exact hashed module classes @wardnet/ui ships)
+   present in the page, which the /design-sync converter scrapes so every
+   component — including ones composing styles across files (SegmentedTabs,
+   FormActions) — is styled in Claude Design. */
+@import "@wardnet/ui/styles.css";
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}

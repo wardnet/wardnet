@@ -1,0 +1,42 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: var(--text-sm);
+  border-bottom: 1px solid transparent;
+}
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.icon > svg {
+  width: 16px;
+  height: 16px;
+}
+.msg {
+  flex: 1;
+  min-width: 0;
+}
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.down {
+  background: var(--danger-soft);
+  color: var(--danger-soft-ink);
+  border-bottom-color: color-mix(in oklab, var(--danger) 40%, var(--line));
+}
+.warn {
+  background: var(--warn-soft);
+  color: var(--warn-soft-ink);
+  border-bottom-color: color-mix(in oklab, var(--warn) 40%, var(--line));
+}
+.info {
+  background: var(--info-soft);
+  color: var(--info);
+  border-bottom-color: color-mix(in oklab, var(--info) 40%, var(--line));
+}

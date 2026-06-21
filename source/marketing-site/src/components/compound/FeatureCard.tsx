@@ -20,8 +20,8 @@ export function FeatureCard({ icon, title, description, className }: FeatureCard
   return (
     <div className={cn("card", className)}>
       <div className="mb-4 text-accent">{icon}</div>
-      <h3 className="mb-2 text-lg font-semibold text-ink">{title}</h3>
-      <p className="text-sm leading-relaxed text-ink-3">{description}</p>
+      <h3 className="mb-2 t-size-lg t-weight-semibold text-ink">{title}</h3>
+      <p className="t-size-sm leading-relaxed text-ink-3">{description}</p>
     </div>
   );
 }

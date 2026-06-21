@@ -1,4 +1,5 @@
 import { CheckIcon } from "lucide-react";
+import { Text } from "@wardnet/web";
 
 export type BusyPhase = "working" | "done";
 export type BusyAction = "reboot" | "restart";
@@ -32,8 +33,8 @@ export function BusyOverlay({ phase, action }: Props) {
         </div>
       )}
       <div className="flex flex-col items-center gap-2 text-center">
-        <p className="text-[17px] font-semibold tracking-tight">{title}</p>
-        <p className="font-mono text-[12px] text-white/50">{subtitle}</p>
+        <Text as="p" size="lg" weight="semibold" className="tracking-tight">{title}</Text>
+        <Text as="p" size="xs" className="font-mono text-white/50">{subtitle}</Text>
       </div>
     </div>
   );

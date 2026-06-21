@@ -24,12 +24,20 @@
 
 ## Shared React library (`@wardnet/web`)
 - Lives at `source/web/`; linked via `"@wardnet/web": "portal:../web"`
-- Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, utility functions, and all UI primitives (Button, Card, Modal, Combobox, etc.)
+- Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, and utility functions
+- **UI primitives/components now live in `@wardnet/ui`** (see below); `@wardnet/web` re-exports them (`export * from "@wardnet/ui"`) so existing consumers can keep importing primitives from `@wardnet/web`. New surfaces should import design-system components directly from `@wardnet/ui`.
 - All app surfaces (admin-site, user-app, admin-app) import hooks, utilities, and primitives from here — **do not duplicate hook or component logic in app-local files**
+
+## Design system (`@wardnet/ui`)
+- Lives at `source/ui/`; the home of all UI primitives and components (Button, Card, Modal, Combobox, Drawer, Select, Toggle, Sparkline, SegmentedTabs, FormActions, StatTile, the `<Text>`/`<Heading>` typography primitives, …). Built with Vite to `dist/index.js`; exports `"."` (components) and `"./styles.css"` (compiled `dist/ui.css`).
+- Components are styled with **CSS Modules** (`*.module.css`) plus `@wardnet/styles` tokens — no Tailwind runtime in the component package.
+- **Storybook** is the development + visual-spec surface (`yarn workspace @wardnet/ui storybook`). Every primitive/component has a `*.stories.tsx`; `Foundations/Typography` is a scale/role *showcase* (not a component export). `.storybook/preview.css` `@import`s `@wardnet/ui/styles.css` (the package's own compiled CSS) so the built, hashed module classes are present in the preview — required for components that compose styles across files (SegmentedTabs, FormActions) to render styled. Do not drop that import.
+- **Design-sync**: `@wardnet/ui` is mirrored to Claude Design (claude.ai/design) via the `/design-sync` skill. Committed sync state + re-sync caveats live in `.design-sync/` at the worktree root (`config.json`, `NOTES.md`, `conventions.md`, font aliases) — read `NOTES.md` before re-syncing.
 
 ## Design tokens (`@wardnet/styles`)
 - Lives at `source/styles/`; linked via `"@wardnet/styles": "portal:../styles"`
 - CSS tokens + Tailwind base layer in `styles.css`; typed design token constants (brand, status, radius, density, font) in `src/tokens.ts`
+- `typography.css` — semantic text variant classes (`.t-label`, `.t-body`, `.t-metric`, `.t-h1`…) plus `t-size-*` / `t-weight-*` helpers, all in `@layer components`; variant selectors are wrapped in `:where()` (zero specificity) so helper and colour utilities override structurally. Imported from `styles.css`, so consumers reach it via the single `@wardnet/styles` CSS entry. Backs the `<Text>` primitive in `@wardnet/ui` (see `docs/adr-typography-scale-and-roles.md`).
 - Import CSS: `@import "@wardnet/styles"` (the `"."` export resolves to `styles.css`)
 - Import tokens: `import { brand, status } from "@wardnet/styles/tokens"`
 

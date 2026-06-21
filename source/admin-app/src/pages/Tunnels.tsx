@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { RotateCcwIcon } from "lucide-react";
-import { Card } from "@wardnet/web";
+import { Card, Text, Heading } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import {
   useTunnels,
@@ -66,14 +66,14 @@ const TunnelCard = memo(function TunnelCard({
       <div className="flex flex-col gap-3 p-4">
         {/* Header row */}
         <div className="flex items-start gap-2">
-          <span className="text-2xl leading-none" aria-hidden>
+          <Text as="span" size="2xl" className="leading-none" aria-hidden>
             {countryFlag(tunnel.country_code)}
-          </span>
+          </Text>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold text-ink">
+            <Text as="p" weight="semibold" className="truncate text-ink">
               {tunnel.resolved_server_name ?? tunnel.label}
-            </p>
-            <p className="truncate text-xs text-ink-3">{subtitle}</p>
+            </Text>
+            <Text as="p" size="xs" className="truncate text-ink-3">{subtitle}</Text>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <TunnelStatusPill status={tunnel.status} />
@@ -94,40 +94,40 @@ const TunnelCard = memo(function TunnelCard({
         {/* 2×2 data grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Endpoint
-            </p>
-            <p className="mt-0.5 break-all font-mono text-[13px] text-ink">{tunnel.endpoint}</p>
+            </Text>
+            <Text as="p" size="sm" className="mt-0.5 break-all font-mono text-ink">{tunnel.endpoint}</Text>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Last Handshake
-            </p>
-            <p className="mt-0.5 text-[13px] text-ink">
+            </Text>
+            <Text as="p" size="sm" className="mt-0.5 text-ink">
               {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "—"}
-            </p>
+            </Text>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Data ↓ / ↑
-            </p>
-            <p className="mt-0.5 text-[13px] text-ink">
+            </Text>
+            <Text as="p" size="sm" className="mt-0.5 text-ink">
               {formatBytes(tunnel.bytes_rx)} · {formatBytes(tunnel.bytes_tx)}
-            </p>
+            </Text>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Devices
-            </p>
-            <p className="mt-0.5 text-[13px] text-ink">{devCount} routed</p>
+            </Text>
+            <Text as="p" size="sm" className="mt-0.5 text-ink">{devCount} routed</Text>
           </div>
         </div>
 
         {/* Live throughput — up tunnels only */}
         {tunnel.status === "up" && (
           <div className="flex items-center gap-3 border-t border-line pt-3">
-            <span className="text-xs text-ink-3">↓ {formatBytes(rxRate)}/s</span>
-            <span className="text-xs text-ink-3">↑ {formatBytes(txRate)}/s</span>
+            <Text as="span" size="xs" className="text-ink-3">↓ {formatBytes(rxRate)}/s</Text>
+            <Text as="span" size="xs" className="text-ink-3">↑ {formatBytes(txRate)}/s</Text>
           </div>
         )}
       </div>
@@ -156,8 +156,8 @@ export default function Tunnels() {
     return (
       <div className="flex flex-col gap-4 p-4">
         <div>
-          <h1 className="text-[28px] font-bold text-ink">Tunnels</h1>
-          <p className="text-[14px] text-ink-3">VPN tunnel status and throughput.</p>
+          <Heading level={1} size="3xl" weight="bold" className="text-ink">Tunnels</Heading>
+          <Text as="p" size="base" className="text-ink-3">VPN tunnel status and throughput.</Text>
         </div>
         <div className="h-24 animate-pulse rounded-xl bg-sunken" />
         {Array.from({ length: 3 }).map((_, i) => (
@@ -170,8 +170,8 @@ export default function Tunnels() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        <h1 className="text-[28px] font-bold text-ink">Tunnels</h1>
-        <p className="text-[14px] text-ink-3">VPN tunnel status and throughput.</p>
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">Tunnels</Heading>
+        <Text as="p" size="base" className="text-ink-3">VPN tunnel status and throughput.</Text>
       </div>
 
       <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
@@ -181,16 +181,16 @@ export default function Tunnels() {
       <Card className="card--flush">
         <div className="flex items-center gap-3 p-4">
           <div className="min-w-0 shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Tunnels Up
-            </div>
+            </Text>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold text-ink tabular-nums">{upCount}</span>
-              <span className="text-sm text-ink-3">/ {tunnels.length}</span>
+              <Text as="span" size="2xl" weight="bold" className="text-ink tabular-nums">{upCount}</Text>
+              <Text as="span" size="sm" className="text-ink-3">/ {tunnels.length}</Text>
             </div>
-            <div className="mt-0.5 text-xs text-ink-3">
+            <Text as="div" size="xs" className="mt-0.5 text-ink-3">
               ↓ {formatBytes(combinedRxRate)}/s · ↑ {formatBytes(combinedTxRate)}/s
-            </div>
+            </Text>
           </div>
 
           <div className="h-12 flex-1 opacity-70">
@@ -203,7 +203,7 @@ export default function Tunnels() {
 
       {/* Per-tunnel cards */}
       {tunnels.length === 0 ? (
-        <p className="py-16 text-center text-sm text-ink-3">No tunnels configured.</p>
+        <Text as="p" size="sm" className="py-16 text-center text-ink-3">No tunnels configured.</Text>
       ) : (
         <div className="flex flex-col gap-3">
           {tunnels.map((tunnel) => (

@@ -1,5 +1,5 @@
 import { ActivityIcon } from "lucide-react";
-import { formatUptime } from "@wardnet/web";
+import { formatUptime, Text } from "@wardnet/web";
 
 interface Props {
   reachable: boolean;
@@ -9,7 +9,7 @@ interface Props {
 
 export function DaemonStrip({ reachable, version, uptimeSeconds }: Props) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-side px-4 py-3 text-xs text-white/70">
+    <Text as="div" size="xs" className="flex items-center gap-2 rounded-lg bg-side px-4 py-3 text-white/70">
       <ActivityIcon size={13} strokeWidth={1.9} className={reachable ? "text-accent" : "text-warn"} />
       <span className={reachable ? "text-accent font-medium" : "text-warn font-medium"}>
         {reachable ? "Running" : "Unreachable"}
@@ -26,6 +26,6 @@ export function DaemonStrip({ reachable, version, uptimeSeconds }: Props) {
           <span>up {formatUptime(uptimeSeconds)}</span>
         </>
       )}
-    </div>
+    </Text>
   );
 }

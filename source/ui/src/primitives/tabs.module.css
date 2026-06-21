@@ -1,0 +1,46 @@
+/* Tabs subsystem — shared by the Tabs primitive (Radix TabsList) and the
+   SegmentedTabs composition (native buttons). Both emit `data-state="active"`
+   on the selected segment, so the active styling keys off the attribute, not a
+   class. Only `.tabs` and `.count` are scoped; the `button` element selector
+   and `data-state` attribute stay literal. The legacy `.is-active` mock alias
+   from styles.css is intentionally dropped — components never emit it. */
+.tabs {
+  display: inline-flex; gap: 2px;
+  background: var(--bg-sunken);
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+}
+.tabs button {
+  appearance: none; border: none;
+  background: transparent;
+  padding: 5px 12px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-3);
+  border-radius: 6px;
+  cursor: pointer;
+  /* Segment labels never wrap to a second line — a long label
+     stays on one row even if the control has to grow. Truncation or
+     a shorter label is the right answer at the consumer level. */
+  white-space: nowrap;
+}
+.tabs button[data-state="active"] {
+  background: var(--bg-card);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+/* Optional count badge inside a `.tabs` segmented button. */
+.tabs button .count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.tabs button[data-state="active"] .count {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  color: var(--accent);
+}

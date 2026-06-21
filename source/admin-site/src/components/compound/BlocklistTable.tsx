@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { timeAgo } from "@wardnet/web";
+import { timeAgo, Text } from "@wardnet/web";
 import type { Blocklist } from "@wardnet/js";
 
 function createColumns(): ColumnDef<Blocklist>[] {
@@ -15,20 +15,26 @@ function createColumns(): ColumnDef<Blocklist>[] {
       // note on the DataTable below).
       cell: ({ row }) => (
         <div className="col min-w-0 gap-0.5">
-          <span className="truncate font-medium">{row.original.name}</span>
-          <span
-            className="mono truncate text-xs text-ink-3"
+          <Text as="span" weight="medium" className="truncate">
+            {row.original.name}
+          </Text>
+          <Text
+            as="span"
+            size="xs"
+            className="mono truncate text-ink-3"
             title={row.original.url}
           >
             {row.original.url}
-          </span>
+          </Text>
           {row.original.last_error && (
-            <span
-              className="truncate text-xs text-danger"
+            <Text
+              as="span"
+              size="xs"
+              className="truncate text-danger"
               title={row.original.last_error}
             >
               {row.original.last_error}
-            </span>
+            </Text>
           )}
         </div>
       ),

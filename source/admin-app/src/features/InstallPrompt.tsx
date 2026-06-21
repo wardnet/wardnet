@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DownloadIcon } from "lucide-react";
-import { useInstallPrompt } from "@wardnet/web";
+import { Text, useInstallPrompt } from "@wardnet/web";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 
@@ -30,8 +30,8 @@ export function InstallPrompt() {
     <div className="absolute inset-x-3 bottom-3 z-30 flex animate-slide-up items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop">
       <img src={appIcon} alt="" className="h-9 w-9 shrink-0 rounded-[10px]" />
       <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-semibold leading-tight text-ink">Install Wardnet</p>
-        <p className="mt-0.5 text-[12px] text-ink-3">Add to home screen for one-tap access</p>
+        <Text as="p" size="base" weight="semibold" className="leading-tight text-ink">Install Wardnet</Text>
+        <Text as="p" size="xs" className="mt-0.5 text-ink-3">Add to home screen for one-tap access</Text>
       </div>
       <button
         onClick={() => setDismissed(true)}

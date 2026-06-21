@@ -16,11 +16,11 @@ export function NotFound() {
     <section className="empty col min-h-screen items-center justify-center gap-4">
       <Logo height={72} variant="light" />
 
-      <div className="row gap-8 text-xs font-semibold uppercase tracking-[0.3em]">
+      <div className="row gap-8 t-size-xs t-weight-semibold uppercase tracking-[0.3em]">
         <SearchX size={14} aria-hidden="true" />
         Page not found
       </div>
-      <h1 className="h-title text-4xl">Off the map</h1>
+      <h1 className="h-title">Off the map</h1>
       <p className="h-sub max-w-md">
         This URL doesn't route anywhere. If you followed a link from somewhere, it's probably out of
         date.

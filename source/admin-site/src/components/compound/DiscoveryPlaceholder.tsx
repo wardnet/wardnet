@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Radar } from "lucide-react";
+import { Text } from "@wardnet/web";
 
 interface DiscoveryPlaceholderProps {
   /** Number of skeleton columns to show. */
@@ -125,11 +126,13 @@ export function DiscoveryPlaceholder({
           <Radar className="size-12 text-accent/25 animate-pulse" />
           <div className="absolute size-12 animate-ping rounded-full bg-accent/5" />
         </div>
-        <p className="text-sm font-medium text-ink-3">
+        <Text as="p" size="sm" weight="medium" className="text-ink-3">
           {message}
           <span className="inline-block w-4">{dots}</span>
-        </p>
-        <p className="text-xs text-ink-3/60">{hint}</p>
+        </Text>
+        <Text as="p" size="xs" className="text-ink-3/60">
+          {hint}
+        </Text>
       </div>
     </div>
   );

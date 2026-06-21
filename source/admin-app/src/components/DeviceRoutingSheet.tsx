@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Drawer, DrawerContent, DrawerTitle } from "@wardnet/web";
+import { Drawer, DrawerContent, DrawerTitle, Text } from "@wardnet/web";
 import { useUpdateDevice, countryFlag } from "@wardnet/web";
 import type { Device, Tunnel, RoutingTarget } from "@wardnet/js";
 import { CheckIcon } from "lucide-react";
@@ -52,9 +52,9 @@ function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect }
         ? <CheckIcon size={16} className="shrink-0 text-accent" />
         : <span className="size-4 shrink-0" />}
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="text-[15px] font-medium text-ink">{label}</span>
+        <Text as="span" size="lg" weight="medium" className="text-ink">{label}</Text>
         {sublabel && (
-          <span className={`text-[12px] ${sublabelClass}`}>{sublabel}</span>
+          <Text as="span" size="xs" className={sublabelClass}>{sublabel}</Text>
         )}
       </div>
     </button>

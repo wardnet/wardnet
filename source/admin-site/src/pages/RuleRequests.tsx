@@ -10,6 +10,7 @@ import {
   FormActions,
   RuleRequestStatusPill,
   SegmentedTabs,
+  Text,
   deviceDisplayName,
   useDecideRuleRequest,
   useDevices,
@@ -46,15 +47,21 @@ function RequestRow({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-1">
-        <span className="font-mono text-sm text-ink">{req.domain}</span>
-        <span className="text-xs text-ink-3">
+        <Text size="sm" className="font-mono text-ink">
+          {req.domain}
+        </Text>
+        <Text size="xs" className="text-ink-3">
           {deviceName} · {new Date(req.created_at).toLocaleString()}
-        </span>
+        </Text>
 
         {req.reason && (
-          <p className="mt-2 rounded-lg bg-sunken px-3 py-2 text-sm text-ink-2">
+          <Text
+            as="p"
+            size="sm"
+            className="mt-2 rounded-lg bg-sunken px-3 py-2 text-ink-2"
+          >
             “{req.reason}”
-          </p>
+          </Text>
         )}
 
         {decide.isError && (
@@ -122,7 +129,11 @@ export default function RuleRequests() {
           }
         />
 
-        {isLoading && <p className="text-sm text-ink-3">Loading…</p>}
+        {isLoading && (
+          <Text as="p" size="sm" className="text-ink-3">
+            Loading…
+          </Text>
+        )}
         {isError && (
           <ApiErrorAlert
             error={error}
@@ -130,7 +141,9 @@ export default function RuleRequests() {
           />
         )}
         {!isLoading && visible.length === 0 && (
-          <p className="text-sm text-ink-3">No requests.</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            No requests.
+          </Text>
         )}
 
         {visible.map((req) => (

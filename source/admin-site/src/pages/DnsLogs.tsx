@@ -6,6 +6,7 @@ import { DataTable } from "@/components/core/ui/data-table";
 import { Toggle } from "@wardnet/web";
 import { Button } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   Select,
   SelectContent,
@@ -133,9 +134,9 @@ export default function DnsLogs() {
         header: "Time",
         meta: { className: "w-24" },
         cell: ({ row }) => (
-          <span className="font-mono text-xs">
+          <Text size="xs" className="font-mono">
             {fmtTime(row.original.timestamp)}
-          </span>
+          </Text>
         ),
       },
       {
@@ -153,11 +154,13 @@ export default function DnsLogs() {
             <div className="flex items-center gap-2">
               {dev && <DeviceIcon type={dev.device_type} size={16} />}
               <div className="flex min-w-0 flex-col">
-                <span className="truncate font-medium">{primary}</span>
+                <Text weight="medium" className="truncate">
+                  {primary}
+                </Text>
                 {secondary && (
-                  <span className="truncate text-xs text-ink-3">
+                  <Text size="xs" className="truncate text-ink-3">
                     {secondary}
-                  </span>
+                  </Text>
                 )}
               </div>
             </div>
@@ -168,9 +171,9 @@ export default function DnsLogs() {
         accessorKey: "domain",
         header: "Domain",
         cell: ({ row }) => (
-          <span className="block truncate font-mono text-xs">
+          <Text size="xs" className="block truncate font-mono">
             {row.original.domain}
-          </span>
+          </Text>
         ),
       },
       {
@@ -243,10 +246,10 @@ export default function DnsLogs() {
   // Live tail moves to the PageHeader: it's a viewing-mode choice
   // ("what shows up?"), not a query filter applied to results.
   const liveTailAction = (
-    <label className="flex items-center gap-2 text-sm text-ink-3">
+    <Text as="label" size="sm" className="flex items-center gap-2 text-ink-3">
       <span>Live tail{liveConnected ? "" : " (offline)"}</span>
       <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
-    </label>
+    </Text>
   );
 
   return (
@@ -275,7 +278,11 @@ export default function DnsLogs() {
       />
 
       {!showLive && (
-        <div className="flex shrink-0 items-center justify-between text-xs text-ink-3">
+        <Text
+          as="div"
+          size="xs"
+          className="flex shrink-0 items-center justify-between text-ink-3"
+        >
           <span>
             {totalRows.toLocaleString()} entries · page {page + 1}
           </span>
@@ -297,7 +304,7 @@ export default function DnsLogs() {
               Next
             </Button>
           </div>
-        </div>
+        </Text>
       )}
     </div>
   );

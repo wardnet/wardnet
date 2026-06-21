@@ -13,8 +13,8 @@
     "@fontsource-variable/inter-tight": "^5.2.7",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tanstack/react-query": "5.101.0",
-    "@wardnet/js": "portal:../sdk/wardnet-js::locator=%40wardnet%2Fuser-app%40workspace%3A.",
-    "@wardnet/web": "portal:../web::locator=%40wardnet%2Fuser-app%40workspace%3A.",
+    "@wardnet/js": "workspace:*",
+    "@wardnet/web": "workspace:*",
     "leaflet": "^1.9.4",
     "lucide-react": "1.17.0",
     "react": "19.2.7",
@@ -38,5 +38,5 @@
     "workbox-precaching": "7.4.1",
     "workbox-routing": "7.4.1"
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.17.0"
 }

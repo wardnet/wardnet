@@ -12,17 +12,12 @@ export function ApiErrorAlert({ error, fallback }: ApiErrorAlertProps) {
   const requestId = apiRequestId(error);
 
   return (
-    <div
-      role="alert"
-      className="flex items-start gap-2 rounded-md border border-danger-soft bg-danger-soft px-3 py-2.5 text-danger-soft-ink"
-    >
-      <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
-      <div className="flex flex-col gap-0.5">
-        <p className="text-sm">{message}</p>
+    <div role="alert" className="api-error-alert">
+      <CircleAlertIcon className="api-error-alert__icon" />
+      <div className="api-error-alert__body">
+        <p className="api-error-alert__message">{message}</p>
         {requestId && (
-          <p className="font-mono text-[11px] text-ink-3">
-            Request ID: {requestId}
-          </p>
+          <p className="api-error-alert__request-id">Request ID: {requestId}</p>
         )}
       </div>
     </div>

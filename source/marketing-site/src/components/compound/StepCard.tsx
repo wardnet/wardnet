@@ -19,8 +19,8 @@ export function StepCard({ step, title, description, className }: StepCardProps)
   return (
     <div className={cn("card text-center", className)}>
       <div className="h-title mb-3 text-accent">{step}</div>
-      <h3 className="mb-2 text-lg font-semibold text-ink">{title}</h3>
-      <p className="text-sm leading-relaxed text-ink-3">{description}</p>
+      <h3 className="mb-2 t-size-lg t-weight-semibold text-ink">{title}</h3>
+      <p className="t-size-sm leading-relaxed text-ink-3">{description}</p>
     </div>
   );
 }

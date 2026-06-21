@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import { Text } from "@wardnet/web";
 import type { WizardStep } from "@wardnet/js";
 
 const STEPS: { id: WizardStep; label: string }[] = [
@@ -38,11 +39,13 @@ export function WizardStepper({ current }: { current: WizardStep }) {
               key={step.id}
               className="flex flex-1 items-center last:flex-none"
             >
-              <span
+              <Text
+                size="2xs"
+                weight="semibold"
                 aria-label={step.label}
                 aria-current={isCurrent ? "step" : undefined}
                 className={clsx(
-                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold",
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
                   isCurrent && "border-accent bg-accent text-accent-ink",
                   !isCurrent &&
                     isPast &&
@@ -51,7 +54,7 @@ export function WizardStepper({ current }: { current: WizardStep }) {
                 )}
               >
                 {i + 1}
-              </span>
+              </Text>
               {i < STEPS.length - 1 && (
                 <span
                   className={clsx(
@@ -64,9 +67,9 @@ export function WizardStepper({ current }: { current: WizardStep }) {
           );
         })}
       </ol>
-      <p className="text-xs text-ink-3">
+      <Text as="p" size="xs" className="text-ink-3">
         Step {currentIndex + 1} of {STEPS.length} — {currentStep?.label}
-      </p>
+      </Text>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
 import { Button } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   AlertModal,
   AlertModalAction,
@@ -211,7 +212,11 @@ export default function RemoteAccess() {
               autoComplete="off"
             />
           </Field>
-          <div className="flex items-center justify-between text-xs">
+          <Text
+            as="div"
+            size="xs"
+            className="flex items-center justify-between"
+          >
             <AvailabilityHint availability={availability} name={name} />
             <button
               type="button"
@@ -220,7 +225,7 @@ export default function RemoteAccess() {
             >
               Suggest another
             </button>
-          </div>
+          </Text>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -250,7 +255,11 @@ export default function RemoteAccess() {
         </div>
       )}
 
-      {formError && <p className="text-sm text-danger">{formError}</p>}
+      {formError && (
+        <Text as="p" size="sm" className="text-danger">
+          {formError}
+        </Text>
+      )}
     </div>
   );
 
@@ -354,10 +363,10 @@ export default function RemoteAccess() {
             </CardAction>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-danger-soft-ink">
+            <Text as="p" size="sm" className="text-danger-soft-ink">
               Releases the public hostname, deletes the certificate, and reverts
               to plain HTTP. You can set it up again at any time.
-            </p>
+            </Text>
           </CardContent>
         </Card>
       )}
@@ -415,8 +424,12 @@ function ProviderOption({
         className="mt-1"
       />
       <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-ink">{label}</span>
-        <span className="text-xs text-ink-3">{description}</span>
+        <Text size="sm" weight="medium" className="text-ink">
+          {label}
+        </Text>
+        <Text size="xs" className="text-ink-3">
+          {description}
+        </Text>
       </span>
     </label>
   );

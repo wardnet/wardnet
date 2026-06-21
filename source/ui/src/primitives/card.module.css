@@ -1,0 +1,74 @@
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--pad);
+  box-shadow: var(--shadow-card);
+}
+.flush {
+  padding: 0;
+  overflow: hidden;
+}
+/* A card with a head or foot is flush by construction — those parts own their
+   padding. Descendant (not direct-child) so it still matches when a consumer
+   wraps body slots in a <form> (the Form primitive does this). */
+.card:has(.head),
+.card:has(.foot) {
+  padding: 0;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Wrap so dense headers drop onto a second line instead of overflowing. */
+  flex-wrap: wrap;
+  padding: var(--pad) var(--pad) 12px;
+}
+/* Card title wears the shared `t-label` role (applied by CardTitle); this only
+   resets the element's margin so any heading level / div reads flush. */
+.head [data-slot="card-title"] {
+  margin: 0;
+}
+.card:has(.head) [data-slot="card-content"] {
+  padding: 0 var(--pad) var(--pad);
+}
+.card:has(.head) [data-slot="card-content"]:has(> :global(.logs)) {
+  padding: 0;
+}
+.head .sub {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  margin-left: 6px;
+}
+/* Subtitle drops onto its own line beneath the title (head is flex-wrap). */
+.head .subtitle {
+  width: 100%;
+  margin: 2px 0 4px;
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+.head .right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px var(--pad);
+  border-top: 1px solid var(--line);
+  background: var(--bg-sunken);
+}
+.foot .right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

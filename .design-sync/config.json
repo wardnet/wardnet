@@ -1,0 +1,15 @@
+{
+  "projectId": "f1bae332-fde1-48e9-9d9d-f7f2a072b351",
+  "shape": "storybook",
+  "pkg": "@wardnet/ui",
+  "storybookConfigDir": "source/ui/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "NODE_OPTIONS=--preserve-symlinks yarn workspace @wardnet/ui build",
+  "extraFonts": [
+    "../../.design-sync/fonts/aliases.css"
+  ],
+  "titleMap": {
+    "Typography": null
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

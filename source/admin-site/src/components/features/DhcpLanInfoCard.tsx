@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { useDnsRecords } from "@wardnet/web";
 
@@ -34,14 +35,20 @@ export function DhcpLanInfoCard() {
         </CardAction>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-ink-2">
+        <Text as="p" size="sm" className="text-ink-2">
           Devices that take a DHCP lease with a hostname are automatically
           resolvable as{" "}
-          <span className="font-mono text-xs">&#123;hostname&#125;.lan</span> in
-          the <span className="font-mono text-xs">lan</span> zone. These records
-          are managed for you and aren&apos;t listed under Records — revoke a
-          lease or remove the device on the DHCP page to clear one.
-        </p>
+          <Text size="xs" className="font-mono">
+            &#123;hostname&#125;.lan
+          </Text>{" "}
+          in the{" "}
+          <Text size="xs" className="font-mono">
+            lan
+          </Text>{" "}
+          zone. These records are managed for you and aren&apos;t listed under
+          Records — revoke a lease or remove the device on the DHCP page to
+          clear one.
+        </Text>
       </CardContent>
     </Card>
   );

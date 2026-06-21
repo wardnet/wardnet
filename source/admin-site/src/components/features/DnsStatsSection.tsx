@@ -13,6 +13,7 @@ import {
 import { ZoomableChartContainer } from "@/components/compound/ZoomableChartContainer";
 import { type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
 import {
@@ -165,21 +166,29 @@ export function DnsStatsSection({ range }: Props) {
         <CardHeader>
           <div>
             <CardTitle>Queries over time</CardTitle>
-            <p className="mt-1 text-[10px] text-ink-3">
+            <Text as="p" size="2xs" className="mt-1 text-ink-3">
               Window total: {windowTotals.total.toLocaleString()} queries ·{" "}
               {windowTotals.blocked.toLocaleString()} blocked
-            </p>
+            </Text>
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+            <Text
+              as="div"
+              size="sm"
+              className="flex h-64 items-center justify-center text-ink-3"
+            >
               Loading…
-            </div>
+            </Text>
           ) : chartSeries.length === 0 ? (
-            <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+            <Text
+              as="div"
+              size="sm"
+              className="flex h-64 items-center justify-center text-ink-3"
+            >
               No data yet.
-            </div>
+            </Text>
           ) : (
             <ZoomableChartContainer
               config={chartConfig}
@@ -304,21 +313,25 @@ function TopList({
       </CardHeader>
       <CardContent>
         {entries && entries.length > 0 ? (
-          <ul className="flex flex-col gap-2 text-sm">
+          <Text as="ul" size="sm" className="flex flex-col gap-2">
             {entries.map((entry, i) => {
               const label = parseLabels(entry.labels)[labelKey] ?? entry.labels;
               return (
                 <li key={i} className="flex items-center justify-between gap-2">
-                  <span className="truncate font-mono text-xs">{label}</span>
+                  <Text size="xs" className="truncate font-mono">
+                    {label}
+                  </Text>
                   <span className="tabular-nums text-ink-3">
                     {Math.round(entry.total).toLocaleString()} {valueLabel}
                   </span>
                 </li>
               );
             })}
-          </ul>
+          </Text>
         ) : (
-          <p className="text-sm text-ink-3">No data yet.</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            No data yet.
+          </Text>
         )}
       </CardContent>
     </Card>

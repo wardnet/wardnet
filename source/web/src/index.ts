@@ -1,129 +1,7 @@
-// UI Primitives (merged from @wardnet/forge-web)
-export {
-  AlertModal,
-  AlertModalTrigger,
-  AlertModalContent,
-  AlertModalHeader,
-  AlertModalTitle,
-  AlertModalDescription,
-  AlertModalBody,
-  AlertModalFooter,
-  AlertModalAction,
-  AlertModalCancel,
-} from "./primitives/alert-modal";
-export type {
-  AlertModalProps,
-  AlertModalTriggerProps,
-  AlertModalContentProps,
-  AlertModalTitleProps,
-  AlertModalDescriptionProps,
-  AlertModalActionProps,
-  AlertModalCancelProps,
-} from "./primitives/alert-modal";
-export { Banner } from "./primitives/banner";
-export type { BannerProps, BannerTone } from "./primitives/banner";
-export { Button } from "./primitives/button";
-export type { ButtonProps } from "./primitives/button";
-export {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardSubtitle,
-  CardAction,
-  CardContent,
-  CardFooter,
-} from "./primitives/card";
-export { Combobox, ComboboxItem } from "./primitives/combobox";
-export type { ComboboxProps, ComboboxItemProps } from "./primitives/combobox";
-export {
-  Drawer,
-  DrawerTrigger,
-  DrawerContent,
-  DrawerTitle,
-  DrawerDescription,
-  DrawerClose,
-} from "./primitives/drawer";
-export type {
-  DrawerProps,
-  DrawerTriggerProps,
-  DrawerContentProps,
-  DrawerTitleProps,
-  DrawerDescriptionProps,
-  DrawerCloseProps,
-} from "./primitives/drawer";
-export {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "./primitives/dropdown-menu";
-export type {
-  DropdownMenuProps,
-  DropdownMenuTriggerProps,
-  DropdownMenuContentProps,
-  DropdownMenuItemProps,
-  DropdownMenuSeparatorProps,
-} from "./primitives/dropdown-menu";
-export { Field } from "./primitives/field";
-export type { FieldProps } from "./primitives/field";
-export {
-  Form,
-  Validator,
-  FormContext,
-  useFormContext,
-} from "./primitives/form";
-export type { Validate } from "./primitives/form";
-export { Input } from "./primitives/input";
-export type { InputProps } from "./primitives/input";
-export { Label } from "./primitives/label";
-export type { LabelProps } from "./primitives/label";
-export {
-  Modal,
-  ModalTrigger,
-  ModalContent,
-  ModalHeader,
-  ModalTitle,
-  ModalDescription,
-  ModalBody,
-  ModalFooter,
-  ModalClose,
-} from "./primitives/modal";
-export type {
-  ModalProps,
-  ModalTriggerProps,
-  ModalContentProps,
-} from "./primitives/modal";
-export { Pill } from "./primitives/pill";
-export type { PillProps } from "./primitives/pill";
-export { Popover, PopoverTrigger, PopoverContent } from "./primitives/popover";
-export type {
-  PopoverProps,
-  PopoverTriggerProps,
-  PopoverContentProps,
-} from "./primitives/popover";
-export {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "./primitives/select";
-export { Sparkline } from "./primitives/sparkline";
-export type { SparklineProps } from "./primitives/sparkline";
-export { StatTile } from "./primitives/stat-tile";
-export type { StatTileProps } from "./primitives/stat-tile";
-export { Tabs, TabsList, TabsTrigger, TabsContent } from "./primitives/tabs";
-export type {
-  TabsProps,
-  TabsListProps,
-  TabsTriggerProps,
-  TabsContentProps,
-} from "./primitives/tabs";
-export { Textarea } from "./primitives/textarea";
-export type { TextareaProps } from "./primitives/textarea";
-export { Toggle } from "./primitives/toggle";
-export type { ToggleProps } from "./primitives/toggle";
+// Design system — re-exported from @wardnet/ui so existing consumers can keep
+// importing primitives from @wardnet/web. New surfaces should import design-
+// system components directly from @wardnet/ui.
+export * from "@wardnet/ui";
 
 // SDK singletons
 export {
@@ -183,11 +61,7 @@ export { useAuthStore } from "./stores/authStore";
 export { ApiErrorAlert } from "./components/ApiErrorAlert";
 export { AppHeader } from "./components/AppHeader";
 export type { ConnState } from "./components/AppHeader";
-export { Logo } from "./components/Logo";
-export { FormActions } from "./components/FormActions";
 export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
-export { SegmentedTabs } from "./components/SegmentedTabs";
-export type { SegmentedTab } from "./components/SegmentedTabs";
 export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";

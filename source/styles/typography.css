@@ -1,0 +1,170 @@
+/*
+ * @wardnet/styles/typography.css — semantic text variants + size/weight helpers.
+ *
+ * The second tier of the typography model (the first is the numeric scale in
+ * styles.css `:root` / theme.css `@theme`). Variants are named voices that
+ * bundle size + line-height + weight + tracking + transform + a default colour;
+ * the `t-size-*` / `t-weight-*` helpers expose the raw scale/weight knobs for
+ * the off-variant one-offs the <Text> primitive's `size` / `weight` props drive.
+ *
+ * Everything here is in `@layer components` ON PURPOSE (decision 4): variant
+ * classes bake a default colour (e.g. `.t-label` → ink-3), and the layer puts
+ * them *below* Tailwind's `utilities` layer so a colour utility (`text-danger`,
+ * `text-ink-2`, …) — or the <Text> `color` prop, which emits the same utility —
+ * always wins the cascade without a specificity fight.
+ *
+ * Variant selectors are additionally wrapped in `:where()` so they carry ZERO
+ * specificity. That makes the override precedence STRUCTURAL rather than
+ * source-order-dependent: the `t-size-*` / `t-weight-*` helpers (specificity
+ * 0,1,0) always beat a variant's baked size/weight (0,0,0), so reordering this
+ * file or splitting it can't silently break `<Text variant="label" size="lg">`.
+ *
+ * Single source of truth: the legacy global voice classes (`.card__head h3`,
+ * `.stat__label`, `.tbl th`, `.stat__value`) are folded into the matching
+ * variant rule here rather than re-stated in styles.css — so the label and
+ * metric voices have exactly one definition. (The :where placement also makes
+ * those legacy surfaces colour-overridable by utilities, per decision 4.)
+ *
+ * Imported from styles.css so it reaches every consumer through the single
+ * `@wardnet/styles` entry the apps load (theme.css and Storybook pull it in
+ * transitively via styles.css). @wardnet/ui references these classes by string
+ * and ships no CSS of its own. See docs/adr-typography-scale-and-roles.md.
+ */
+
+@layer components {
+  /* ---------- Variants (named voices; baked default colour, zero specificity) ---------- */
+
+  /* Label voice — also the legacy card title / stat label / table header. */
+  :where(.t-label, .card__head h3, .stat__label, .tbl th) {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
+  :where(.t-body) {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 400;
+    color: var(--ink);
+  }
+  :where(.t-body-strong) {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  :where(.t-caption) {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  :where(.t-micro) {
+    font-size: var(--text-2xs);
+    line-height: var(--text-2xs--line-height);
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  /* Metric voice — also the legacy KPI value `.stat__value`. */
+  :where(.t-metric, .stat__value) {
+    font-size: var(--text-4xl);
+    line-height: var(--text-4xl--line-height);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+  :where(.t-metric-unit, .stat__value .unit) {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  :where(.t-mono) {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 400;
+    font-family: var(--font-mono);
+    color: var(--ink);
+  }
+
+  /* Heading levels — variants too; <Heading level={n}> ≡ <Text variant="h{n}">. */
+  :where(.t-h1) {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  :where(.t-h2) {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  :where(.t-h3) {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  /* ---------- Size helpers (drive the `size` prop; scale + paired leading) ----------
+     NOT wrapped in :where — they keep their 0,1,0 specificity so they reliably
+     beat the zero-specificity variants above. These also cover `2xs` (11px),
+     which is NOT a Tailwind size, so a `text-2xs` utility never generates in the
+     apps — the helper is the mechanism that lets `size="2xs"` / the `micro`
+     variant work everywhere. */
+  .t-size-2xs {
+    font-size: var(--text-2xs);
+    line-height: var(--text-2xs--line-height);
+  }
+  .t-size-xs {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+  }
+  .t-size-sm {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+  .t-size-base {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
+  .t-size-lg {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+  }
+  .t-size-xl {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+  }
+  .t-size-2xl {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+  }
+  .t-size-3xl {
+    font-size: var(--text-3xl);
+    line-height: var(--text-3xl--line-height);
+  }
+  .t-size-4xl {
+    font-size: var(--text-4xl);
+    line-height: var(--text-4xl--line-height);
+  }
+
+  /* ---------- Weight helpers (drive the `weight` prop) ---------- */
+  .t-weight-normal {
+    font-weight: 400;
+  }
+  .t-weight-medium {
+    font-weight: 500;
+  }
+  .t-weight-semibold {
+    font-weight: 600;
+  }
+  .t-weight-bold {
+    font-weight: 700;
+  }
+}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { GlobeIcon, ShieldIcon, Trash2Icon, Loader2Icon } from "lucide-react";
-import { Pill } from "@wardnet/web";
+import { Pill, Text, Heading } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import {
@@ -59,8 +59,8 @@ export default function Dns() {
     <div className="flex flex-col gap-5 p-4">
       {/* Page header */}
       <div>
-        <h1 className="text-[28px] font-bold text-ink">DNS</h1>
-        <p className="text-[14px] text-ink-3">Server status, stats, and filtering.</p>
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">DNS</Heading>
+        <Text as="p" size="base" className="text-ink-3">Server status, stats, and filtering.</Text>
       </div>
 
       <div
@@ -81,7 +81,7 @@ export default function Dns() {
                 <span
                   className={`size-2 shrink-0 rounded-full ${isRunning ? "bg-accent" : "bg-warn"}`}
                 />
-                <span className="text-[15px] font-semibold text-ink">DNS Server</span>
+                <Text as="span" size="lg" weight="semibold" className="text-ink">DNS Server</Text>
                 <div className="ml-auto">
                   <Pill variant={isRunning ? "ok" : "down"}>
                     <span className="mr-1" aria-hidden>●</span>
@@ -93,12 +93,12 @@ export default function Dns() {
               {/* Stats + cache metric grid */}
               <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Queries · 24h
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink tabular-nums">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink tabular-nums">
                     {dnsStats?.total.toLocaleString() ?? "—"}
-                  </p>
+                  </Text>
                   {dnsStats && dnsStats.totalSeries.length > 0 && (
                     <div className="mt-1.5 h-6">
                       <Sparkline
@@ -110,12 +110,12 @@ export default function Dns() {
                   )}
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Blocked · 24h
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink tabular-nums">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink tabular-nums">
                     {dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "—"}
-                  </p>
+                  </Text>
                   {dnsStats && dnsStats.blockedSeries.length > 0 && (
                     <div className="mt-1.5 h-6">
                       <Sparkline
@@ -127,20 +127,20 @@ export default function Dns() {
                   )}
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Cache
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink tabular-nums">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink tabular-nums">
                     {cacheSize.toLocaleString()} / {cacheCapacity.toLocaleString()}
-                  </p>
+                  </Text>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Hit Rate
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink tabular-nums">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink tabular-nums">
                     {(cacheHitRate * 100).toFixed(1)}%
-                  </p>
+                  </Text>
                   <Bar percent={cacheHitRate * 100} variant="rate" />
                 </div>
               </div>
@@ -172,8 +172,8 @@ export default function Dns() {
                   <GlobeIcon size={18} className="text-ink-2" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold text-ink">DNS Server</p>
-                  <p className="text-[12px] text-ink-3">Enable or disable the DNS resolver</p>
+                  <Text as="p" size="base" weight="semibold" className="text-ink">DNS Server</Text>
+                  <Text as="p" size="xs" className="text-ink-3">Enable or disable the DNS resolver</Text>
                 </div>
                 <Toggle
                   checked={dnsEnabled}
@@ -188,8 +188,8 @@ export default function Dns() {
                   <ShieldIcon size={18} className="text-ink-2" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold text-ink">DNS Filtering</p>
-                  <p className="text-[12px] text-ink-3">Global emergency stop for all filtering</p>
+                  <Text as="p" size="base" weight="semibold" className="text-ink">DNS Filtering</Text>
+                  <Text as="p" size="xs" className="text-ink-3">Global emergency stop for all filtering</Text>
                 </div>
                 <Toggle
                   checked={filteringEnabled}
@@ -206,9 +206,9 @@ export default function Dns() {
             <SectionLabel>Top Blocked Domains · 24h</SectionLabel>
             <div className="rounded-xl border border-line bg-card">
               {topEntries.length === 0 ? (
-                <p className="py-8 text-center text-[13px] text-ink-3">
+                <Text as="p" size="sm" className="py-8 text-center text-ink-3">
                   No blocked queries in the last 24 hours.
-                </p>
+                </Text>
               ) : (
                 <ol className="divide-y divide-line">
                   {topEntries.map((entry, i) => {
@@ -216,15 +216,15 @@ export default function Dns() {
                       parseLabels(entry.labels).domain ?? entry.labels;
                     return (
                       <li key={domain ?? String(i)} className="flex items-center gap-3 px-4 py-3">
-                        <span className="w-5 shrink-0 text-right text-[12px] text-ink-4 tabular-nums">
+                        <Text as="span" size="xs" className="w-5 shrink-0 text-right text-ink-4 tabular-nums">
                           {i + 1}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
+                        </Text>
+                        <Text as="span" size="sm" className="min-w-0 flex-1 truncate font-mono text-ink">
                           {domain}
-                        </span>
-                        <span className="shrink-0 text-[13px] text-ink-3 tabular-nums">
+                        </Text>
+                        <Text as="span" size="sm" className="shrink-0 text-ink-3 tabular-nums">
                           {entry.total.toLocaleString()}
-                        </span>
+                        </Text>
                       </li>
                     );
                   })}

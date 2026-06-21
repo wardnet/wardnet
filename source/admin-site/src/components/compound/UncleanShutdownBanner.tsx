@@ -1,6 +1,7 @@
 import { CircleAlertIcon, X } from "lucide-react";
 import { Banner } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { useAcknowledgeShutdown, useSystemStatus } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
 
@@ -53,7 +54,9 @@ export function UncleanShutdownBanner() {
         </Button>
       }
     >
-      <span className="font-medium">Wardnet did not shut down cleanly</span>
+      <Text as="span" weight="medium">
+        Wardnet did not shut down cleanly
+      </Text>
       <span className="ml-2 opacity-80">
         Last seen {timeAgo(shutdown.at)} — likely a crash or power loss.
       </span>

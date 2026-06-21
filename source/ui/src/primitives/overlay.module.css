@@ -1,0 +1,334 @@
+/* Overlay subsystem — one shared module because these primitives are tightly
+   coupled: Modal/AlertModal/Drawer all render the `.scrim`; DropdownMenu,
+   Combobox (cmdk) and Select options all reuse `.menuItem` inside a `.popover`;
+   and `.selectContent` is an additive modifier on `.popover`. Keeping them in a
+   single module keeps those cross-references on consistently-scoped names.
+
+   Only class names are scoped — Radix's data-state/data-side/data-* attributes
+   and element/`:has` selectors stay literal. Keyframes declared here are scoped
+   in lockstep with the `animation` references that use them. */
+
+/* ---------- Modal (centered dialog) ---------- */
+.scrim {
+  position: fixed; inset: 0;
+  background: color-mix(in oklab, #000 35%, transparent);
+  display: grid; place-items: center;
+  z-index: 40;
+  animation: scrim-in 160ms ease;
+}
+.scrim[data-state="open"] { animation: scrim-in 160ms ease; }
+.scrim[data-state="closed"] { animation: scrim-out 120ms ease forwards; }
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  width: min(560px, calc(100vw - 40px));
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  /* Sibling-of-overlay positioning for Radix (Overlay & Content are siblings,
+     not nested). The .scrim's grid centering still applies when .modal is
+     used as a child of .scrim in CSS-only mocks. */
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 41;
+  animation: modal-in 160ms ease;
+}
+.modal[data-state="open"] { animation: modal-in 160ms ease; }
+.modal[data-state="closed"] { animation: modal-out 120ms ease forwards; }
+/* Scrim contains modal directly in CSS-only mocks; reset modal's fixed
+   positioning so the grid centering on .scrim takes over there. */
+.scrim > .modal { position: static; transform: none; }
+.modalHead {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px;
+}
+.modalHead h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; color: var(--ink); }
+.modalBody { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.modalFoot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.97); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes modal-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.97); }
+}
+
+/* ---------- Drawer (edge-pinned slide-in panel) ---------- */
+.drawer {
+  position: fixed;
+  top: 0; bottom: 0;
+  width: 280px;
+  max-width: 80vw;
+  background: var(--side-bg);
+  color: var(--side-ink);
+  box-shadow: var(--shadow-pop);
+  z-index: 41;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.drawer[data-side="left"]  { left: 0;  border-right: 1px solid var(--side-line); }
+.drawer[data-side="right"] { right: 0; border-left:  1px solid var(--side-line); }
+.drawer[data-state="open"][data-side="left"]   { animation: drawer-in-left  200ms ease; }
+.drawer[data-state="open"][data-side="right"]  { animation: drawer-in-right 200ms ease; }
+.drawer[data-state="closed"][data-side="left"]  { animation: drawer-out-left  160ms ease forwards; }
+.drawer[data-state="closed"][data-side="right"] { animation: drawer-out-right 160ms ease forwards; }
+@keyframes drawer-in-left {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes drawer-out-left {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+@keyframes drawer-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes drawer-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+/* Bottom sheet variant — full width, pinned to viewport bottom, card surface. */
+.drawer[data-side="bottom"] {
+  top: auto; left: 0; right: 0; bottom: 0;
+  width: 100%; max-width: 100%; max-height: 85vh;
+  background: var(--bg-card); color: var(--ink);
+  border-top: 1px solid var(--line); border-right: none; border-left: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+.drawer[data-state="open"][data-side="bottom"]  { animation: drawer-in-bottom  200ms ease; }
+.drawer[data-state="closed"][data-side="bottom"] { animation: drawer-out-bottom 160ms ease forwards; }
+@keyframes drawer-in-bottom  { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes drawer-out-bottom { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+/* ---------- Popover ---------- */
+.popover {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  padding: 10px;
+  z-index: 41;
+  /* Honors Radix's content transform-origin so scale animates from the
+     anchor edge. Falls back to center for CSS-only consumers. */
+  transform-origin: var(--radix-popover-content-transform-origin, center);
+}
+.popover[data-state="open"] { animation: popover-in 140ms ease; }
+.popover[data-state="closed"] { animation: popover-out 120ms ease forwards; }
+.popover[data-state="open"][data-side="bottom"] { animation-name: popover-in-bottom; }
+.popover[data-state="open"][data-side="top"]    { animation-name: popover-in-top; }
+.popover[data-state="open"][data-side="left"]   { animation-name: popover-in-left; }
+.popover[data-state="open"][data-side="right"]  { animation-name: popover-in-right; }
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes popover-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+@keyframes popover-in-bottom {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes popover-in-top {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes popover-in-left {
+  from { opacity: 0; transform: translateX(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0)   scale(1); }
+}
+@keyframes popover-in-right {
+  from { opacity: 0; transform: translateX(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+/* ---------- Menu (DropdownMenu items inside .popover) ---------- */
+.menuItem {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: default;
+  user-select: none;
+  outline: none;
+}
+.menuItem[data-highlighted],
+.menuItem[data-selected="true"] {
+  background: var(--bg-sunken);
+  color: var(--ink);
+}
+/* Match a *truly* disabled item. Radix omits the attribute when enabled, but
+   cmdk always renders data-disabled="true|false" — so a bare [data-disabled]
+   selector would also match cmdk's enabled items and kill their pointer events
+   (clicks then fall through to the cmdk-list-sizer and selection silently
+   breaks). Excluding the "false" value keeps both Radix and cmdk correct. */
+.menuItem[data-disabled]:not([data-disabled="false"]) {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.menuItem[data-variant="destructive"] { color: var(--danger); }
+.menuItem[data-variant="destructive"][data-highlighted] {
+  background: var(--danger-soft);
+  color: var(--danger-soft-ink);
+}
+.menuItem svg {
+  pointer-events: none;
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+}
+/* Selected-item indicator (Select.Item emits data-state="checked|unchecked";
+   DropdownMenu.Item does not — so [data-state] selectors target only Select
+   options and reserve a constant right-gutter so checked/unchecked widths
+   stay aligned). */
+.menuItem[data-state] { padding-right: 26px; }
+.menuItem[data-state="checked"]::after {
+  content: "";
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  width: 14px; height: 14px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center / contain no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center / contain no-repeat;
+}
+.menuSeparator {
+  height: 1px;
+  background: var(--line);
+  margin: 4px -6px;
+}
+
+/* ---------- Combobox (cmdk inside .popover; items reuse .menuItem) ---------- */
+/* The trigger is a Button with these overrides layered on top. The class is
+   doubled to raise specificity to (0,2,0) so the overrides beat Button's base
+   `.btn` (0,1,0) regardless of which module's CSS the bundler emits first —
+   source order between the two modules is not guaranteed (and differs between
+   the dev server and the production bundle). */
+.comboboxTrigger.comboboxTrigger {
+  width: 100%;
+  justify-content: space-between;
+  font-weight: 400;
+}
+.comboboxTrigger > svg.comboboxChevron {
+  width: 14px; height: 14px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  opacity: 0.5;
+  /* Mirrors the Select chevron: a single down caret that flips to point up
+     while the popover is open. */
+  transition: transform 120ms ease;
+}
+.comboboxTrigger[aria-expanded="true"] > svg.comboboxChevron {
+  transform: rotate(180deg);
+}
+.comboboxContent {
+  padding: 0;
+  width: var(--radix-popover-trigger-width);
+}
+.comboboxInput {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.comboboxInput svg {
+  width: 14px; height: 14px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.comboboxInput input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  padding: 0;
+}
+.comboboxInput input::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+.comboboxList {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.comboboxEmpty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+/* ---------- Select (.selectTrigger + .selectContent; options reuse .menuItem) ---------- */
+.selectTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: inherit; font-size: var(--text-sm);
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+.selectTrigger:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+/* Toolbar-sized variants matching the button heights:
+   - `Md` (34px) pairs with the default Button and search input.
+   - `Sm` (28px) pairs with `.btn--sm`. */
+.selectTriggerMd {
+  height: 34px;
+  padding: 0 10px;
+  font-size: var(--text-sm);
+}
+.selectTriggerSm {
+  height: 28px;
+  padding: 0 9px;
+  font-size: var(--text-xs);
+}
+.selectTriggerSm::after { width: 12px; height: 12px; }
+.selectTrigger[data-disabled] { opacity: 0.5; cursor: not-allowed; }
+.selectTrigger[data-placeholder] { color: var(--ink-3); }
+.selectTrigger::after {
+  content: "";
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+  background-color: var(--ink-3);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") center / contain no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") center / contain no-repeat;
+  transition: transform 120ms ease;
+}
+.selectTrigger[data-state="open"]::after { transform: rotate(180deg); }
+/* Additive modifier on .popover. Wires Select-specific behavior: trigger-width
+   sizing, max-height with scroll, and transform-origin anchored to Radix
+   Select's content origin (overrides .popover's Popover-var default — last
+   declaration wins at equal specificity). */
+.selectContent {
+  min-width: var(--radix-select-trigger-width);
+  max-height: min(var(--radix-select-content-available-height, 320px), 320px);
+  overflow-y: auto;
+  transform-origin: var(--radix-select-content-transform-origin, center);
+}

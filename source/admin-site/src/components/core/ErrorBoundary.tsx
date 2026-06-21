@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { logger } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 
 interface Props {
   children: ReactNode;
@@ -64,13 +65,17 @@ function DefaultErrorCard({
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <p className="text-sm text-ink-3">
+          <Text as="p" size="sm" className="text-ink-3">
             An unexpected error occurred. You can try recovering, or reload the
             page.
-          </p>
-          <p className="rounded bg-muted px-3 py-2 font-mono text-xs text-ink-2 break-all">
+          </Text>
+          <Text
+            as="p"
+            size="xs"
+            className="rounded bg-muted px-3 py-2 font-mono text-ink-2 break-all"
+          >
             {error.message}
-          </p>
+          </Text>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onReset}>
               Try again

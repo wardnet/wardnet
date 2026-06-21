@@ -11,6 +11,7 @@ import {
 } from "@wardnet/web";
 import { CountryCombobox } from "@/components/compound/CountryCombobox";
 import { ApiErrorAlert } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import {
   useProviders,
   useProviderCountries,
@@ -34,10 +35,10 @@ function LoadIndicator({ load }: { load: number }) {
         ? "text-warn-soft-ink"
         : "text-danger";
   return (
-    <span className={`flex items-center gap-1 text-xs ${color}`}>
+    <Text as="span" size="xs" className={`flex items-center gap-1 ${color}`}>
       <span className="inline-block size-2 rounded-full bg-current" />
       {load}%
-    </span>
+    </Text>
   );
 }
 
@@ -54,9 +55,14 @@ function ProviderLogo({ provider }: { provider: ProviderInfo | undefined }) {
     );
   }
   return (
-    <span className="flex size-4 items-center justify-center rounded-sm bg-sunken text-[10px] font-bold uppercase text-ink-3">
+    <Text
+      as="span"
+      size="2xs"
+      weight="bold"
+      className="flex size-4 items-center justify-center rounded-sm bg-sunken uppercase text-ink-3"
+    >
       {provider.name[0]}
-    </span>
+    </Text>
   );
 }
 
@@ -164,7 +170,9 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
       {/* Step 1: Select provider */}
       <Field label="Provider">
         {providers.length === 0 ? (
-          <p className="text-sm text-ink-3">No providers available.</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            No providers available.
+          </Text>
         ) : (
           <Select
             value={providerId}
@@ -266,9 +274,9 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           )}
           <div className="flex items-center justify-end gap-3">
             {validateCreds.data && !validateCreds.data.valid && (
-              <p className="flex-1 text-sm text-danger">
+              <Text as="p" size="sm" className="flex-1 text-danger">
                 {validateCreds.data.message}
-              </p>
+              </Text>
             )}
             <Button
               variant="secondary"

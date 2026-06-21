@@ -1,0 +1,30 @@
+{
+  "name": "@wardnet/monorepo",
+  "private": true,
+  "packageManager": "yarn@4.17.0",
+  "workspaces": [
+    "sdk/wardnet-js",
+    "styles",
+    "ui",
+    "web",
+    "admin-site",
+    "admin-app",
+    "user-app",
+    "marketing-site"
+  ],
+  "devDependencies": {
+    "turbo": "2.9.18"
+  },
+  "resolutions": {
+    "path-to-regexp": "8.4.0",
+    "ip-address": "10.1.1",
+    "js-yaml": "4.2.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "type-check": "turbo run type-check",
+    "lint": "turbo run lint",
+    "format:check": "turbo run format:check",
+    "test": "turbo run test"
+  }
+}

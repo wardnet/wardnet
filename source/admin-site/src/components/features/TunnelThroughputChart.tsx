@@ -13,7 +13,7 @@ import {
 
 import { ZoomableChartContainer } from "@/components/compound/ZoomableChartContainer";
 import { type ChartConfig } from "@/components/core/ui/chart";
-import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle, Text } from "@wardnet/web";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
 import type { TunnelStatsData, StatsRange } from "@wardnet/web";
 import { formatBytes } from "@wardnet/web";
@@ -143,26 +143,38 @@ export function TunnelThroughputChart({
       <CardHeader>
         <div>
           <CardTitle>Throughput</CardTitle>
-          <p className="mt-1 text-[10px] text-ink-3">
+          <Text as="p" size="2xs" className="mt-1 text-ink-3">
             Window total: ↓ {formatBytes(totals.rx)} · ↑{" "}
             {formatBytes(totals.tx)}
-          </p>
+          </Text>
         </div>
       </CardHeader>
       <CardContent>
         {isError ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             Failed to load throughput history.
-          </div>
+          </Text>
         ) : isLoading ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             Loading…
-          </div>
+          </Text>
         ) : points.length === 0 ? (
-          <div className="flex h-64 items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-64 items-center justify-center text-ink-3"
+          >
             No throughput history yet — bring this tunnel up to start collecting
             samples.
-          </div>
+          </Text>
         ) : (
           <ZoomableChartContainer
             config={chartConfig}

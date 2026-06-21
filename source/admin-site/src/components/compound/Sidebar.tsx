@@ -18,6 +18,7 @@ import { useAuth } from "@wardnet/web";
 import { useDaemonStatus } from "@wardnet/web";
 import { useUpdateStatus } from "@wardnet/web";
 import { Logo } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { UpdateBanner } from "./UpdateBanner";
 
@@ -108,9 +109,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         // -mt absorbs the version into `.side__brand`'s bottom padding so it
         // sits as a tight caption right under the logo lockup. pl-[50px] lines
         // the "v" up under the start of the "WARDNET" wordmark at this height.
-        <div className="-mt-6 pb-2 pl-[50px] text-[10px] font-normal text-side-ink/40">
+        <Text
+          as="div"
+          size="2xs"
+          weight="normal"
+          className="-mt-6 pb-2 pl-[50px] text-side-ink/40"
+        >
           v{daemonStatus.version}
-        </div>
+        </Text>
       )}
 
       <nav className="flex-1 overflow-y-auto">

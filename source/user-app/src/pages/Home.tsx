@@ -18,6 +18,7 @@ import {
   DeviceIcon,
   Pill,
   RoutingSelector,
+  Text,
   TunnelStatusPill,
   countryFlag,
   deviceDisplayName,
@@ -160,16 +161,20 @@ function VerifyCard({
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
-          <div className="flex h-[180px] items-center justify-center text-sm text-ink-3">
+          <Text
+            as="div"
+            size="sm"
+            className="flex h-[180px] items-center justify-center text-ink-3"
+          >
             Checking…
-          </div>
+          </Text>
         ) : isError ? (
           <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
             <ShieldXIcon className="size-8 text-ink-3/50" />
-            <p className="text-sm text-ink-3">
+            <Text as="p" size="sm" className="text-ink-3">
               Could not reach the geolocation service. Check your connection and
               try again.
-            </p>
+            </Text>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               Retry
             </Button>
@@ -191,32 +196,60 @@ function VerifyCard({
             </MapContainer>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line p-4 pt-3">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                <Text
+                  as="p"
+                  size="2xs"
+                  weight="semibold"
+                  className="uppercase tracking-wider text-ink-3"
+                >
                   IP
-                </p>
-                <p className="mt-0.5 break-all font-mono text-[13px] text-ink">
+                </Text>
+                <Text
+                  as="p"
+                  size="sm"
+                  className="mt-0.5 break-all font-mono text-ink"
+                >
                   {geo.ip}
-                </p>
+                </Text>
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                <Text
+                  as="p"
+                  size="2xs"
+                  weight="semibold"
+                  className="uppercase tracking-wider text-ink-3"
+                >
                   Country
-                </p>
-                <p className="mt-0.5 text-[13px] text-ink">
+                </Text>
+                <Text as="p" size="sm" className="mt-0.5 text-ink">
                   {`${geo.country_code ? countryFlag(geo.country_code) : ""} ${geo.country_name}`.trim()}
-                </p>
+                </Text>
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                <Text
+                  as="p"
+                  size="2xs"
+                  weight="semibold"
+                  className="uppercase tracking-wider text-ink-3"
+                >
                   City
-                </p>
-                <p className="mt-0.5 text-[13px] text-ink">{geo.city}</p>
+                </Text>
+                <Text as="p" size="sm" className="mt-0.5 text-ink">
+                  {geo.city}
+                </Text>
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                <Text
+                  as="p"
+                  size="2xs"
+                  weight="semibold"
+                  className="uppercase tracking-wider text-ink-3"
+                >
                   ISP
-                </p>
-                <p className="mt-0.5 text-[13px] text-ink">{geo.org}</p>
+                </Text>
+                <Text as="p" size="sm" className="mt-0.5 text-ink">
+                  {geo.org}
+                </Text>
               </div>
             </div>
           </>
@@ -266,19 +299,25 @@ export default function Home() {
   }
 
   if (isLoading) {
-    return <p className="p-5 text-sm text-ink-3">Loading…</p>;
+    return (
+      <Text as="p" size="sm" className="p-5 text-ink-3">
+        Loading…
+      </Text>
+    );
   }
 
   if (!device) {
     return (
       <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
         <WifiOffIcon className="size-12 text-ink-3/50" />
-        <h1 className="text-lg font-semibold text-ink">Device not detected</h1>
-        <p className="max-w-md text-sm text-ink-3">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
+          Device not detected
+        </Text>
+        <Text as="p" size="sm" className="max-w-md text-ink-3">
           Your device has not been detected on the network yet. Make sure you are
           accessing Wardnet directly from the local network. Connections through
           SSH tunnels or proxies cannot be matched to your device.
-        </p>
+        </Text>
       </div>
     );
   }
@@ -291,9 +330,9 @@ export default function Home() {
           size={28}
           className="text-ink/60"
         />
-        <h1 className="text-lg font-semibold text-ink">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
           {deviceDisplayName(device)}
-        </h1>
+        </Text>
       </div>
 
       <Card>
@@ -308,15 +347,15 @@ export default function Home() {
         <CardContent>
           {adminLocked ? (
             <div className="flex flex-col gap-3">
-              <p className="text-sm text-ink">
+              <Text as="p" size="sm" className="text-ink">
                 {routingLabel(currentRule, tunnels)}
-              </p>
+              </Text>
               <div className="flex items-start gap-2 text-ink-3">
                 <LockIcon className="mt-0.5 size-4 shrink-0" />
-                <p className="text-sm">
+                <Text as="p" size="sm">
                   Your network administrator has locked this setting, so you
                   can't change how your device connects to the internet.
-                </p>
+                </Text>
               </div>
             </div>
           ) : (

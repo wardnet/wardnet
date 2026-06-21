@@ -1,0 +1,74 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    transform 80ms;
+  /* Button labels never wrap to a second line — a CTA in a narrow header keeps
+     its single-row shape and the surrounding row layout adapts to its width. */
+  white-space: nowrap;
+}
+.btn > svg {
+  width: 16px;
+  height: 16px;
+}
+.btn:hover {
+  background: var(--bg-sunken);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: color-mix(in oklab, var(--accent) 70%, #000);
+  font-weight: 600;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 6px 14px -8px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.primary:hover {
+  background: color-mix(in oklab, var(--accent) 92%, white);
+}
+
+.ghost {
+  background: transparent;
+}
+
+.danger {
+  color: var(--danger);
+  border-color: var(--line);
+  background: transparent;
+}
+.danger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+  color: var(--danger-soft-ink);
+}
+
+.sm {
+  height: 28px;
+  padding: 0 9px;
+  font-size: var(--text-xs);
+}
+.sm > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.icon {
+  padding: 0 7px;
+}

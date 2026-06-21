@@ -29,13 +29,13 @@ jobs:
 
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: source/admin-site/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - name: Install deps
-        run: cd source/admin-site && yarn install --immutable
+        run: cd source && yarn install --immutable
 
       - name: Type check
-        run: cd source/admin-site && yarn type-check
+        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-site
 
       - name: Format check
         run: cd source/admin-site && yarn format:check
@@ -54,5 +54,5 @@ jobs:
 
       - uses: ./.github/actions/build-vite-app
         with:
-          cache-dependency-path: source/admin-site/yarn.lock
-          build-command: cd source/admin-site && yarn install --immutable && yarn build
+          cache-dependency-path: source/yarn.lock
+          build-command: cd source && yarn install --immutable && yarn turbo run build --filter=@wardnet/admin-site

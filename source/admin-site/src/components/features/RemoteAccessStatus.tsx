@@ -4,7 +4,7 @@ import type {
   DdnsStatusResponse,
   TlsStatusResponse,
 } from "@wardnet/js";
-import { formatDate, timeAgo } from "@wardnet/web";
+import { formatDate, timeAgo, Text } from "@wardnet/web";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
 
 /**
@@ -72,40 +72,53 @@ export function RemoteAccessStatus({
     <div className="space-y-4">
       <RemoteAccessProgress status={tls} />
 
-      <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <Text
+        as="dl"
+        size="sm"
+        className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
         <div>
           <dt className="text-ink-3">Public hostname</dt>
-          <dd className="font-mono text-xs">{ddns?.fqdn ?? "—"}</dd>
+          <Text as="dd" size="xs" className="font-mono">
+            {ddns?.fqdn ?? "—"}
+          </Text>
         </div>
         <div>
           <dt className="text-ink-3">Provider</dt>
-          <dd className="font-medium">{providerLabel(ddns?.provider)}</dd>
+          <Text as="dd" weight="medium">
+            {providerLabel(ddns?.provider)}
+          </Text>
         </div>
         <div>
           <dt className="text-ink-3">Certificate</dt>
-          <dd className="font-medium">
+          <Text as="dd" weight="medium">
             {tls.not_after
               ? `Valid until ${formatDate(tls.not_after)}`
               : "Not issued yet"}
-          </dd>
+          </Text>
         </div>
         <div>
           <dt className="text-ink-3">Public DNS</dt>
           <dd className={verdict?.tone ?? "font-medium"}>
             {verdict ? verdict.label : "—"}
             {resolution && resolution.resolved_ips.length > 0 && (
-              <span className="block font-mono text-xs text-ink-3">
+              <Text as="span" size="xs" className="block font-mono text-ink-3">
                 {resolution.resolved_ips.join(", ")}
-              </span>
+              </Text>
             )}
             {lastCheckedAt ? (
-              <span className="block text-xs font-normal text-ink-3">
+              <Text
+                as="span"
+                size="xs"
+                weight="normal"
+                className="block text-ink-3"
+              >
                 Checked {timeAgo(new Date(lastCheckedAt).toISOString())}
-              </span>
+              </Text>
             ) : null}
           </dd>
         </div>
-      </dl>
+      </Text>
     </div>
   );
 }

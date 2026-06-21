@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
@@ -14,36 +15,62 @@ export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
         <CardTitle>Identity</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm md:grid-cols-3">
+        <Text
+          as="dl"
+          size="sm"
+          className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3"
+        >
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">MAC</dt>
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
+              MAC
+            </Text>
             <dd className="font-mono">{device.mac}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Hostname
-            </dt>
+            </Text>
             <dd>{device.hostname ?? "—"}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Manufacturer
-            </dt>
+            </Text>
             <dd>{device.manufacturer ?? "—"}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               First seen
-            </dt>
+            </Text>
             <dd>{timeAgo(device.first_seen)}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-ink-3">
+            <Text
+              as="dt"
+              size="xs"
+              className="uppercase tracking-wide text-ink-3"
+            >
               Last seen
-            </dt>
+            </Text>
             <dd>{timeAgo(device.last_seen)}</dd>
           </div>
-        </dl>
+        </Text>
       </CardContent>
     </Card>
   );

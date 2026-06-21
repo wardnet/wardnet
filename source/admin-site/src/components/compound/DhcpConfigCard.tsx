@@ -10,6 +10,7 @@ import {
 } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { ApiErrorAlert } from "@wardnet/web";
 import { useUpdateDhcpConfig } from "@wardnet/web";
@@ -203,27 +204,33 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <dt className="text-ink-3">Gateway IP</dt>
-              <dd className="font-mono text-xs">{config.gateway_ip}</dd>
+              <Text as="dd" size="xs" className="font-mono">
+                {config.gateway_ip}
+              </Text>
             </div>
             <div>
               <dt className="text-ink-3">Pool range</dt>
-              <dd className="font-mono text-xs">
+              <Text as="dd" size="xs" className="font-mono">
                 {config.pool_start} &ndash; {config.pool_end}
-              </dd>
+              </Text>
             </div>
             <div>
               <dt className="text-ink-3">Subnet</dt>
-              <dd className="font-mono text-xs">{config.subnet_mask}</dd>
+              <Text as="dd" size="xs" className="font-mono">
+                {config.subnet_mask}
+              </Text>
             </div>
             <div>
               <dt className="text-ink-3">Lease duration</dt>
-              <dd className="font-medium">
+              <Text as="dd" weight="medium">
                 {formatDuration(config.lease_duration_secs)}
-              </dd>
+              </Text>
             </div>
             <div>
               <dt className="text-ink-3">Fallback router</dt>
-              <dd className="font-mono text-xs">{config.router_ip ?? "—"}</dd>
+              <Text as="dd" size="xs" className="font-mono">
+                {config.router_ip ?? "—"}
+              </Text>
             </div>
             <div>
               <dt className="text-ink-3">Upstream DNS</dt>

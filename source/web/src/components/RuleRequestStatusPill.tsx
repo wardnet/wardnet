@@ -1,5 +1,5 @@
 import type { RuleRequestStatus } from "@wardnet/js";
-import { Pill } from "../primitives/pill";
+import { Pill } from "@wardnet/ui";
 
 interface RuleRequestStatusPillProps {
   status: RuleRequestStatus;

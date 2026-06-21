@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { RefreshCcwIcon, PowerIcon, LogOutIcon, MonitorIcon, ChevronRightIcon } from "lucide-react";
-import { Pill } from "@wardnet/web";
+import { Pill, Text, Heading } from "@wardnet/web";
 import {
   useSystemStatus,
   useDaemonStatus,
@@ -97,8 +97,8 @@ export default function System() {
     <div className="flex flex-col gap-5 p-4">
       {/* Page header */}
       <div>
-        <h1 className="text-[28px] font-bold text-ink">System</h1>
-        <p className="text-[14px] text-ink-3">Daemon health, power and alerts.</p>
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">System</Heading>
+        <Text as="p" size="base" className="text-ink-3">Daemon health, power and alerts.</Text>
       </div>
 
       <div
@@ -118,7 +118,7 @@ export default function System() {
                 <span
                   className={`size-2 shrink-0 rounded-full ${daemonStatus?.reachable ? "bg-accent" : "bg-warn"}`}
                 />
-                <span className="text-[15px] font-semibold text-ink">Wardnet</span>
+                <Text as="span" size="lg" weight="semibold" className="text-ink">Wardnet</Text>
                 <div className="ml-auto">
                   <Pill variant={daemonStatus?.reachable ? "ok" : "warn"}>
                     <span className="mr-1" aria-hidden>●</span>
@@ -130,39 +130,39 @@ export default function System() {
               {/* 2×2 metric grid */}
               <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Version
-                  </p>
-                  <p className="mt-1 font-mono text-[14px] text-ink">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 font-mono text-ink">
                     {daemonStatus?.version ? `v${daemonStatus.version}` : "—"}
-                  </p>
+                  </Text>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Uptime
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink">
                     {status ? formatUptime(status.uptime_seconds) : "—"}
-                  </p>
+                  </Text>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     CPU
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink">
                     {status ? `${status.cpu_usage_percent.toFixed(1)}%` : "—"}
-                  </p>
+                  </Text>
                   {status && <Bar percent={status.cpu_usage_percent} />}
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Memory
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink">
                     {status
                       ? `${formatBytes(status.memory_used_bytes)} / ${formatBytes(status.memory_total_bytes)}`
                       : "—"}
-                  </p>
+                  </Text>
                   {status && status.memory_total_bytes > 0 && <Bar percent={memoryPercent} />}
                 </div>
               </div>
@@ -171,13 +171,13 @@ export default function System() {
                   stack as the CPU/Memory tiles above. */}
               {status && status.disk_total_bytes > 0 && (
                 <div className="mt-4 border-t border-line pt-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Disk
-                  </p>
-                  <p className="mt-1 text-[14px] text-ink">
+                  </Text>
+                  <Text as="p" size="base" className="mt-1 text-ink">
                     {formatBytes(status.disk_free_bytes)} free of{" "}
                     {formatBytes(status.disk_total_bytes)}
-                  </p>
+                  </Text>
                   <Bar percent={diskPercent} />
                 </div>
               )}
@@ -190,38 +190,38 @@ export default function System() {
               <SectionLabel>Remote access</SectionLabel>
               <div className="rounded-xl border border-line bg-card p-4">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                     Domain
-                  </p>
-                  <p className="mt-1 break-all font-mono text-[13px] text-ink">
+                  </Text>
+                  <Text as="p" size="sm" className="mt-1 break-all font-mono text-ink">
                     {ddns?.fqdn ?? "—"}
-                  </p>
+                  </Text>
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                    <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                       Public DNS
-                    </p>
+                    </Text>
                     <div className="mt-1">
                       {pill ? (
                         <Pill variant={pill.variant}>{pill.label}</Pill>
                       ) : (
-                        <span className="text-[14px] text-ink">—</span>
+                        <Text as="span" size="base" className="text-ink">—</Text>
                       )}
                     </div>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                    <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
                       Certificate
-                    </p>
-                    <p className="mt-1 text-[14px] text-ink">
+                    </Text>
+                    <Text as="p" size="base" className="mt-1 text-ink">
                       {tls?.not_after
                         ? `Until ${formatDate(tls.not_after)}`
                         : tls?.phase === "issuing"
                           ? "Issuing…"
                           : "—"}
-                    </p>
+                    </Text>
                   </div>
                 </div>
               </div>
@@ -240,8 +240,8 @@ export default function System() {
                   <RefreshCcwIcon size={18} className="text-ink-2" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold text-ink">Restart daemon</p>
-                  <p className="text-[12px] text-ink-3">Reloads Wardnet · ~5s downtime</p>
+                  <Text as="p" size="base" weight="semibold" className="text-ink">Restart daemon</Text>
+                  <Text as="p" size="xs" className="text-ink-3">Reloads Wardnet · ~5s downtime</Text>
                 </div>
                 <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
               </button>
@@ -254,8 +254,8 @@ export default function System() {
                   <PowerIcon size={18} className="text-danger" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold text-danger">Reboot device</p>
-                  <p className="text-[12px] text-danger opacity-60">Full restart · ~60s offline</p>
+                  <Text as="p" size="base" weight="semibold" className="text-danger">Reboot device</Text>
+                  <Text as="p" size="xs" className="text-danger opacity-60">Full restart · ~60s offline</Text>
                 </div>
                 <ChevronRightIcon size={16} className="shrink-0 text-danger opacity-40" />
               </button>
@@ -276,8 +276,8 @@ export default function System() {
               <MonitorIcon size={18} className="text-ink-2" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-ink">Open desktop admin</p>
-              <p className="text-[12px] text-ink-3">Full management interface</p>
+              <Text as="p" size="base" weight="semibold" className="text-ink">Open desktop admin</Text>
+              <Text as="p" size="xs" className="text-ink-3">Full management interface</Text>
             </div>
             <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
           </a>
@@ -293,8 +293,8 @@ export default function System() {
               <LogOutIcon size={18} className="text-ink-2" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-ink">Log out</p>
-              <p className="text-[12px] text-ink-3">Sign out of this device</p>
+              <Text as="p" size="base" weight="semibold" className="text-ink">Log out</Text>
+              <Text as="p" size="xs" className="text-ink-3">Sign out of this device</Text>
             </div>
             <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
           </button>

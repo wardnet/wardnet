@@ -33,6 +33,10 @@
 - **All business logic in `@wardnet/js`** — components are pure presentation.
 - **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error.
 - **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`.
+- **Typography** — render text through the `<Text>` / `<Heading level>` primitive (from `@wardnet/ui`, re-exported by `@wardnet/web`); see `docs/adr-typography-scale-and-roles.md`.
+  - Pick a **`variant`** (`label`, `body`, `body-strong`, `caption`, `micro`, `metric`, `metric-unit`, `mono`, `h1`/`h2`/`h3`) — it bakes a size + weight + colour + element bundle. Override individual axes with `size` / `weight` / `color` / `as`. The prop is `variant`, NOT `role`: `role` passes straight through as the native ARIA attribute.
+  - Do NOT write raw `text-*` / `font-*` size or weight utilities for new markup — they are tokenized into the variant/`t-size-*`/`t-weight-*` classes. Colour utilities (`text-ink-3`, `text-danger`, …) are still allowed and intentionally override the variant colour.
+  - **marketing-site** has no `@wardnet/ui` dependency: apply the `@wardnet/styles` helper classes directly (`t-body`, `t-h2`, `t-size-sm`, …) instead of the primitive.
 - **Detail views are routed pages, not sheets.**
   - One detail concept per resource: `/<resource>/:id` (e.g. `/tunnels/:id`,
     `/devices/:id`). The list page links into the detail page; sheets are

@@ -14,6 +14,7 @@ import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CronSchedulePicker } from "@/components/compound/CronSchedulePicker";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
@@ -52,7 +53,9 @@ export default function DnsFilterProfile() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p className="text-sm text-ink-3">Loading…</p>
+        <Text as="p" size="sm" className="text-ink-3">
+          Loading…
+        </Text>
       </div>
     );
   }
@@ -60,7 +63,9 @@ export default function DnsFilterProfile() {
   if (isError || !profile) {
     return (
       <div className="flex flex-col gap-2 p-6">
-        <h1 className="text-xl font-semibold">Profile not found</h1>
+        <Text as="h1" size="xl" weight="semibold">
+          Profile not found
+        </Text>
         <Link to="/dns/filter" className="text-sm text-accent underline">
           Back to DNS Filtering
         </Link>
@@ -216,23 +221,25 @@ function ProfileIdentityCard({
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-ink-3">
+            <Text size="xs" className="uppercase tracking-wide text-ink-3">
               Name
-            </span>
-            <span className="text-sm">{name}</span>
+            </Text>
+            <Text size="sm">{name}</Text>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs uppercase tracking-wide text-ink-3">
+            <Text size="xs" className="uppercase tracking-wide text-ink-3">
               Type
-            </span>
-            <span className="text-sm">{builtin ? "Builtin" : "Custom"}</span>
+            </Text>
+            <Text size="sm">{builtin ? "Builtin" : "Custom"}</Text>
           </div>
           {(description !== null || builtin) && (
             <div className="flex flex-col gap-0.5 lg:col-span-2">
-              <span className="text-xs uppercase tracking-wide text-ink-3">
+              <Text size="xs" className="uppercase tracking-wide text-ink-3">
                 Description
-              </span>
-              <span className="text-sm text-ink-2">{description ?? "—"}</span>
+              </Text>
+              <Text size="sm" className="text-ink-2">
+                {description ?? "—"}
+              </Text>
             </div>
           )}
         </CardContent>
@@ -410,9 +417,9 @@ function BlocklistForm({
           htmlFor="bl-enabled"
         >
           <div className="flex h-9 items-center justify-between">
-            <span className="text-sm text-ink-3">
+            <Text size="sm" className="text-ink-3">
               {enabled ? "Active in this profile" : "Saved but not applied"}
-            </span>
+            </Text>
             <Toggle
               id="bl-enabled"
               checked={enabled}
@@ -640,9 +647,9 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
               </Field>
               <Field label="Enable immediately" htmlFor="fr-enabled">
                 <div className="flex h-9 items-center justify-between">
-                  <span className="text-sm text-ink-3">
+                  <Text size="sm" className="text-ink-3">
                     {enabled ? "Applied to traffic" : "Saved but inactive"}
-                  </span>
+                  </Text>
                   <Toggle
                     id="fr-enabled"
                     checked={enabled}

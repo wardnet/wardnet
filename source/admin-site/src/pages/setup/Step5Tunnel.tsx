@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
@@ -39,15 +40,23 @@ export default function Step5Tunnel() {
       </div>
 
       {hasTunnel ? (
-        <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
+        <Text
+          as="div"
+          size="sm"
+          className="rounded-md border border-line bg-sunken p-4 text-ink-3"
+        >
           {tunnelCount} tunnel{tunnelCount === 1 ? "" : "s"} configured.
           Continue to pick a default routing policy.
-        </div>
+        </Text>
       ) : (
-        <div className="rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
+        <Text
+          as="div"
+          size="sm"
+          className="rounded-md border border-line bg-sunken p-4 text-ink-3"
+        >
           No tunnels yet. Add one now or skip — you can change the default
           routing policy from Settings later.
-        </div>
+        </Text>
       )}
 
       <div className="flex flex-col gap-2">

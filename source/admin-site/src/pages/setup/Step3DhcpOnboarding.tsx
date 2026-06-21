@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { WizardMode } from "@wardnet/js";
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import {
   Select,
@@ -73,13 +74,13 @@ export default function Step3DhcpOnboarding({
             className="mt-1 accent-accent"
           />
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-ink">
+            <Text as="span" size="sm" weight="medium" className="text-ink">
               Primary (recommended)
-            </span>
-            <span className="text-sm text-ink-3">
+            </Text>
+            <Text as="span" size="sm" className="text-ink-3">
               Wardnet runs DHCP. You'll disable DHCP on your existing router
               using the steps below.
-            </span>
+            </Text>
           </div>
         </label>
         <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
@@ -92,11 +93,13 @@ export default function Step3DhcpOnboarding({
             className="mt-1 accent-accent"
           />
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-ink">Locked router</span>
-            <span className="text-sm text-ink-3">
+            <Text as="span" size="sm" weight="medium" className="text-ink">
+              Locked router
+            </Text>
+            <Text as="span" size="sm" className="text-ink-3">
               Your ISP router can't disable DHCP. You'll manually point each
               opted-in device at Wardnet as its gateway and DNS.
-            </span>
+            </Text>
           </div>
         </label>
       </div>
@@ -138,23 +141,23 @@ export default function Step3DhcpOnboarding({
           )}
           <div className="flex items-center justify-end gap-3">
             {probe.isError && (
-              <p className="flex-1 text-sm text-danger">
+              <Text as="p" size="sm" className="flex-1 text-danger">
                 Probe failed — try again.
-              </p>
+              </Text>
             )}
             {probeBlocked && (
-              <p className="flex-1 text-sm text-danger">
+              <Text as="p" size="sm" className="flex-1 text-danger">
                 A foreign DHCP server responded
                 {probeResult?.foreign_server_ip
                   ? ` (${probeResult.foreign_server_ip})`
                   : ""}
                 . Re-check the disable-DHCP steps.
-              </p>
+              </Text>
             )}
             {probeClean && (
-              <p className="flex-1 text-sm text-ink">
+              <Text as="p" size="sm" className="flex-1 text-ink">
                 Only Wardnet responded — good.
-              </p>
+              </Text>
             )}
             <Button
               variant="outline"
@@ -172,7 +175,11 @@ export default function Step3DhcpOnboarding({
       )}
 
       {mode === "locked_router" && (
-        <div className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-sm text-ink-3">
+        <Text
+          as="div"
+          size="sm"
+          className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-ink-3"
+        >
           <p>
             Configure each opted-in device's network settings to use Wardnet as
             its gateway and DNS server. Other devices on the LAN keep their
@@ -182,7 +189,7 @@ export default function Step3DhcpOnboarding({
             On the next page Wardnet will show a live counter of devices it sees
             using it as a gateway.
           </p>
-        </div>
+        </Text>
       )}
 
       <Button

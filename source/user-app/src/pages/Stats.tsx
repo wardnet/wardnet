@@ -14,6 +14,7 @@ import {
   Pill,
   Sparkline,
   StatTile,
+  Text,
   useMyDevice,
 } from "@wardnet/web";
 
@@ -70,7 +71,9 @@ function DomainList({
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <p className="text-sm text-ink-3">{emptyText}</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            {emptyText}
+          </Text>
         ) : (
           <ul className="flex flex-col gap-2">
             {rows.map((r) => (
@@ -78,9 +81,9 @@ function DomainList({
                 key={r.domain}
                 className="flex items-center justify-between gap-3"
               >
-                <span className="truncate font-mono text-[13px] text-ink">
+                <Text as="span" size="sm" className="truncate font-mono text-ink">
                   {r.domain}
-                </span>
+                </Text>
                 <span className="flex shrink-0 items-center gap-2">
                   <Pill variant={variant}>{r.count.toLocaleString()}</Pill>
                   <button
@@ -116,7 +119,9 @@ function ActivityFeed({
       </CardHeader>
       <CardContent>
         {events.length === 0 ? (
-          <p className="text-sm text-ink-3">No recent activity.</p>
+          <Text as="p" size="sm" className="text-ink-3">
+            No recent activity.
+          </Text>
         ) : (
           <ul className="flex flex-col gap-2">
             {events.map((e) => {
@@ -126,18 +131,18 @@ function ActivityFeed({
                   key={e.id}
                   className="flex items-center justify-between gap-3"
                 >
-                  <span className="truncate font-mono text-[13px] text-ink">
+                  <Text as="span" size="sm" className="truncate font-mono text-ink">
                     {e.domain}
-                  </span>
+                  </Text>
                   <span className="flex shrink-0 items-center gap-2">
                     {blocked ? (
                       <Pill variant="warn">Blocked</Pill>
                     ) : (
                       <Pill variant="ok">Allowed</Pill>
                     )}
-                    <span className="text-xs text-ink-3">
+                    <Text as="span" size="xs" className="text-ink-3">
                       {relativeTime(e.captured_at)}
-                    </span>
+                    </Text>
                     <button
                       type="button"
                       onClick={() =>
@@ -175,17 +180,23 @@ export default function Stats() {
   const device = me?.device;
 
   if (meLoading) {
-    return <p className="p-5 text-sm text-ink-3">Loading…</p>;
+    return (
+      <Text as="p" size="sm" className="p-5 text-ink-3">
+        Loading…
+      </Text>
+    );
   }
 
   if (!device) {
     return (
       <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
         <WifiOffIcon className="size-12 text-ink-3/50" />
-        <h1 className="text-lg font-semibold text-ink">Device not detected</h1>
-        <p className="max-w-md text-sm text-ink-3">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
+          Device not detected
+        </Text>
+        <Text as="p" size="sm" className="max-w-md text-ink-3">
           Your device has not been detected on the network yet.
-        </p>
+        </Text>
       </div>
     );
   }
@@ -194,11 +205,13 @@ export default function Stats() {
     return (
       <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
         <ShieldOffIcon className="size-12 text-ink-3/50" strokeWidth={1.5} />
-        <h1 className="text-lg font-semibold text-ink">DNS capture is off</h1>
-        <p className="max-w-md text-sm text-ink-3">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
+          DNS capture is off
+        </Text>
+        <Text as="p" size="sm" className="max-w-md text-ink-3">
           Turn on DNS capture to start collecting stats for your device. Your
           data stays on this device.
-        </p>
+        </Text>
         <Link
           to="/settings"
           className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink"
@@ -213,13 +226,13 @@ export default function Stats() {
     return (
       <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
         <ChartColumnIcon className="size-12 text-ink-3/50" strokeWidth={1.5} />
-        <h1 className="text-lg font-semibold text-ink">
+        <Text as="h1" size="lg" weight="semibold" className="text-ink">
           Waiting for DNS activity…
-        </h1>
-        <p className="max-w-md text-sm text-ink-3">
+        </Text>
+        <Text as="p" size="sm" className="max-w-md text-ink-3">
           DNS capture is on. As soon as your device makes DNS queries they will
           show up here.
-        </p>
+        </Text>
       </div>
     );
   }
@@ -229,7 +242,9 @@ export default function Stats() {
 
   return (
     <div className="flex flex-col gap-6 p-5">
-      <h1 className="text-lg font-semibold text-ink">DNS stats</h1>
+      <Text as="h1" size="lg" weight="semibold" className="text-ink">
+        DNS stats
+      </Text>
 
       {/* 7-day trend with a clickable day scope strip. */}
       <Card>

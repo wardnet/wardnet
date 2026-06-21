@@ -1,0 +1,180 @@
+/*
+ * Shared form-control styles for the coupled Field / Input / Label / Textarea
+ * subsystem. These primitives are imported from a single module so the
+ * cross-component selectors (`.field input`, `.field[data-invalid] .input`)
+ * resolve against consistent scoped class names.
+ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Allow the field to shrink below its content width as a grid item, so a
+     long mono value can truncate instead of overflowing the next column. */
+  min-width: 0;
+}
+.field[data-direction="row"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fieldText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label,
+.field label {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.input,
+.textarea,
+.field input,
+.field select,
+.field textarea {
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  outline: none;
+  width: 100%;
+}
+.input:focus,
+.input:focus-within,
+.textarea:focus,
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+/* Segmented input — wrapper carries .input + data-segmented; nested <input>s
+   sit transparent inline (e.g. IPv4 octets, MAC hex pairs). */
+.input[data-segmented] {
+  display: flex;
+  align-items: center;
+  padding: 8px 4px;
+  font-family: var(--font-mono);
+  width: fit-content;
+}
+.input[data-segmented] input,
+.input[data-segmented] input:focus {
+  font: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: center;
+  color: inherit;
+  outline: none;
+  box-shadow: none;
+}
+.input[data-segmented] input::placeholder {
+  color: color-mix(in oklab, var(--ink-3) 40%, transparent);
+}
+
+.input:disabled,
+.textarea:disabled,
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.input::placeholder,
+.textarea::placeholder,
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+.textarea,
+.field textarea {
+  min-height: 64px;
+  field-sizing: content;
+  resize: vertical;
+}
+
+.fieldHelp {
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* Password reveal — wraps a password .input and exposes an eye toggle. */
+.inputWrap {
+  position: relative;
+  display: block;
+}
+.withReveal {
+  padding-right: 36px;
+}
+.inputReveal {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.inputReveal:hover {
+  color: var(--ink);
+}
+.inputReveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.inputReveal svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Inline validation — Field adds data-invalid="true" and renders .fieldError. */
+.fieldError {
+  font-size: var(--text-xs);
+  color: var(--danger);
+  line-height: 1.4;
+  margin: 0;
+}
+.field[data-invalid="true"] input,
+.field[data-invalid="true"] select,
+.field[data-invalid="true"] textarea,
+.field[data-invalid="true"] .input {
+  border-color: var(--danger);
+}
+.field[data-invalid="true"] input:focus,
+.field[data-invalid="true"] select:focus,
+.field[data-invalid="true"] textarea:focus,
+.field[data-invalid="true"] .input:focus,
+.field[data-invalid="true"] .input:focus-within {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+}
+
+.fieldValue {
+  /* Block so a truncating child inherits a constrained width. */
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  padding: 8px 0;
+  line-height: 1.5;
+}

@@ -7,6 +7,7 @@
   "exports": {
     ".": "./styles.css",
     "./styles.css": "./styles.css",
+    "./theme.css": "./theme.css",
     "./tokens": {
       "import": "./src/tokens.ts",
       "types": "./src/tokens.ts"
@@ -14,8 +15,14 @@
   },
   "files": [
     "src",
-    "styles.css"
+    "styles.css",
+    "theme.css",
+    "typography.css"
   ],
+  "dependencies": {
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8"
+  },
   "scripts": {
     "type-check": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -25,5 +32,5 @@
     "prettier": "3.8.4",
     "typescript": "6.0.3"
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.17.0"
 }

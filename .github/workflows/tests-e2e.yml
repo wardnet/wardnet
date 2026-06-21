@@ -62,10 +62,7 @@ jobs:
       # cached by the Docker layer cache instead.
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: |
-            source/admin-site/yarn.lock
-            source/user-app/yarn.lock
-            source/admin-app/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - uses: ./.github/actions/setup-rust
 
@@ -151,10 +148,7 @@ jobs:
       # inside Docker and are served by the Docker layer cache.
       - uses: ./.github/actions/setup-node-yarn
         with:
-          cache-dependency-path: |
-            source/admin-site/yarn.lock
-            source/user-app/yarn.lock
-            source/admin-app/yarn.lock
+          cache-dependency-path: source/yarn.lock
 
       - uses: ./.github/actions/setup-rust
 

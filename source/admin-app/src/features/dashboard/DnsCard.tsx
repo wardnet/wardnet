@@ -1,6 +1,6 @@
 import { GlobeIcon, ShieldOffIcon } from "lucide-react";
 import { Link } from "react-router";
-import { Card } from "@wardnet/web";
+import { Card, Text } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import type { DashboardDnsStats } from "@wardnet/web";
 
@@ -25,12 +25,12 @@ export function DnsQueriesCard({ data, isLoading }: Props) {
           </div>
 
           <div className="min-w-0 shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               DNS Queries · 24h
-            </div>
-            <div className="mt-0.5 text-2xl font-bold text-ink tabular-nums">
+            </Text>
+            <Text as="div" size="2xl" weight="bold" className="mt-0.5 text-ink tabular-nums">
               {isLoading && !data ? "…" : (data?.total.toLocaleString() ?? "0")}
-            </div>
+            </Text>
           </div>
 
           <div className="h-12 flex-1 opacity-70">
@@ -62,16 +62,16 @@ export function BlockedCard({ data, isLoading }: Props) {
           </div>
 
           <div className="min-w-0 shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Blocked · 24h
-            </div>
+            </Text>
             <div className="mt-0.5 flex items-baseline gap-0.5">
-              <span className="text-2xl font-bold text-ink tabular-nums">
+              <Text as="span" size="2xl" weight="bold" className="text-ink tabular-nums">
                 {isLoading && !data ? "…" : `${(data?.blockedPercent ?? 0).toFixed(1)}`}
-              </span>
-              <span className="text-sm text-ink-3">%</span>
+              </Text>
+              <Text as="span" size="sm" className="text-ink-3">%</Text>
             </div>
-            {sub && <div className="mt-0.5 text-xs text-ink-3">{sub}</div>}
+            {sub && <Text as="div" size="xs" className="mt-0.5 text-ink-3">{sub}</Text>}
           </div>
 
           <div className="h-12 flex-1 opacity-80">

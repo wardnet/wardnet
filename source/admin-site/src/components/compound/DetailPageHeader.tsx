@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { Text } from "@wardnet/web";
 
 interface DetailPageHeaderProps {
   /** The resource list label (e.g. "Tunnels"). */
@@ -44,7 +45,9 @@ export function DetailPageHeader({
           {parentLabel}
         </Link>
         <ChevronRight aria-hidden className="size-4 text-ink-4" />
-        <span className="truncate font-semibold text-ink">{itemLabel}</span>
+        <Text as="span" weight="semibold" className="truncate text-ink">
+          {itemLabel}
+        </Text>
       </nav>
       <div className="row wrap gap-12">
         {icon ? (
