@@ -6,8 +6,10 @@
 # Contains the apt + systemd setup that is identical across both
 # downstream images:
 #   - debian:bookworm-slim (pinned by digest, watched by Dependabot)
-#   - apt: systemd, systemd-sysv, iproute2, nftables, wireguard-tools,
+#   - apt: systemd, systemd-sysv, iproute2, wireguard-tools,
 #          ca-certificates, wget, curl, minisign
+#     (no `nftables`: wardnetd manages nftables via netlink, not the nft CLI —
+#      issue #307. The in-kernel nf_tables module is provided by the host.)
 #   - cleanup of default-enabled systemd units that don't run inside a
 #     container (hardware enumeration, real-disk remounts, ...)
 #   - container drop-in for wardnetd.service that disables
@@ -39,7 +41,6 @@ RUN apt-get update \
         systemd \
         systemd-sysv \
         iproute2 \
-        nftables \
         wireguard-tools \
         ca-certificates \
         wget \

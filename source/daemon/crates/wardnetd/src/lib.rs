@@ -3,7 +3,7 @@ pub mod pidfile;
 
 // Real backend implementations (Linux-specific).
 pub mod command;
-pub mod firewall_nftables;
+pub mod firewall_netlink;
 pub mod garp_pnet;
 pub mod hostname_resolver;
 pub mod packet_capture_pnet;

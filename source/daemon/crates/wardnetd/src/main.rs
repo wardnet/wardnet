@@ -22,7 +22,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
-use wardnetd::firewall_nftables::NftablesFirewallManager;
+use wardnetd::firewall_netlink::NetlinkFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
@@ -295,7 +295,7 @@ async fn run(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),
         ),
-        firewall: Arc::new(NftablesFirewallManager::new(executor.clone())),
+        firewall: Arc::new(NetlinkFirewallManager::new()),
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
         secret_store: secret_store.clone(),

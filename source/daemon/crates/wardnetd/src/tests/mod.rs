@@ -1,5 +1,5 @@
 mod device_detector;
-mod firewall_nftables;
+mod firewall_netlink;
 mod garp_learning;
 mod heartbeat;
 mod hostname_resolver;

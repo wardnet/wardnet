@@ -25,7 +25,7 @@ StartLimitIntervalSec=120
 StartLimitBurst=3
 StartLimitAction=none
 
-# Capabilities — inherited by all child processes (ip, nft, sysctl)
+# Capabilities — CAP_NET_ADMIN covers nftables/route netlink and child tools (ip, sysctl)
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 

@@ -20,6 +20,12 @@ CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/de
 CONTAINER_RT_NAME := $(notdir $(CONTAINER_RT))
 RUST_IMAGE   := docker.io/library/rust:1.96
 
+# rustables' build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
+# in-container daemon build needs clang/libclang (issue #307). The kernel uapi
+# headers come from libc6-dev, already present in the rust image. Prefixed to
+# the container `sh -c` steps below.
+BINDGEN_APT := apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null 2>&1
+
 # Docker image build settings.
 # Override IMAGE_TAG on the CLI to name the local image differently, e.g.:
 #   make image IMAGE_TAG=wardnetd:v0.2.0
@@ -35,7 +41,7 @@ LINUX_TARGET := $(CURDIR)/.target-linux
 
 # Coverage: files excluded from cargo-llvm-cov.  Single source of truth —
 # CI calls `make coverage-daemon` with COV_FMT overridden for LCOV output.
-COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
+COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|firewall_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
 # Default: human-readable summary.  CI overrides:
 #   make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
 COV_FMT    ?= --summary-only
@@ -253,7 +259,7 @@ check-daemon-container:
 		-w /workspace/$(DAEMON_DIR) \
 		-e CARGO_TARGET_DIR=/workspace/.target-linux \
 		$(RUST_IMAGE) \
-		sh -c 'rustup component add clippy rustfmt 2>/dev/null; cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
+		sh -c '$(BINDGEN_APT) && rustup component add clippy rustfmt 2>/dev/null; cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
 
 # coverage-daemon: generate a line-coverage summary for the daemon workspace.
 # Requires cargo-llvm-cov (installed automatically in the container path).
@@ -278,7 +284,7 @@ coverage-daemon-container:
 		-w /workspace/$(DAEMON_DIR) \
 		-e CARGO_TARGET_DIR=/workspace/.target-linux \
 		$(RUST_IMAGE) \
-		sh -c 'rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
+		sh -c '$(BINDGEN_APT) && rustup component add llvm-tools-preview 2>/dev/null; cargo install cargo-llvm-cov --quiet 2>/dev/null; cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) --ignore-filename-regex '"'"'$(COV_IGNORE)'"'"''
 
 # ---------- OpenAPI spec ----------
 #
