@@ -308,3 +308,53 @@ async fn dhcp_config_read_error_reports_down_without_leaking_detail() {
     let outcome = dhcp_check(true, true, true).check().await;
     assert_eq!(outcome, CheckOutcome::down("dhcp status unavailable"));
 }
+
+// ── Liveness ────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn liveness_always_reports_up() {
+    let check = crate::health::checks::LivenessHealthCheck;
+    assert_eq!(check.name(), "liveness");
+    assert_eq!(check.check().await, CheckOutcome::Up);
+}
+
+// ── Database ────────────────────────────────────────────────────────────────
+
+/// Mock `MaintenanceRepository` whose `ping` succeeds or fails on demand. Only
+/// `ping` is exercised by the health check; the rest is unreachable.
+struct MockMaintenanceRepo {
+    fail: bool,
+}
+
+#[async_trait]
+impl wardnetd_data::repository::MaintenanceRepository for MockMaintenanceRepo {
+    async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
+        unimplemented!()
+    }
+    async fn ping(&self) -> anyhow::Result<()> {
+        if self.fail {
+            Err(anyhow::anyhow!("simulated db failure"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn db_check(fail: bool) -> crate::health::checks::DbHealthCheck {
+    crate::health::checks::DbHealthCheck::new(Arc::new(MockMaintenanceRepo { fail }))
+}
+
+#[tokio::test]
+async fn database_ping_ok_reports_up() {
+    let check = db_check(false);
+    assert_eq!(check.name(), "database");
+    assert_eq!(check.check().await, CheckOutcome::Up);
+}
+
+#[tokio::test]
+async fn database_ping_error_reports_down_with_static_detail() {
+    // The journal gets the real error; the unauthenticated `/health` detail
+    // stays static so sqlx internals aren't disclosed to anonymous callers.
+    let outcome = db_check(true).check().await;
+    assert_eq!(outcome, CheckOutcome::down("database unreachable"));
+}

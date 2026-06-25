@@ -49,3 +49,30 @@ async fn runner_refreshes_on_each_tick() {
         count.load(Ordering::SeqCst)
     );
 }
+
+/// The default-interval constructor refreshes at least once (the first tick
+/// fires immediately) and shuts down cleanly. Covers `start`, which production
+/// uses, without waiting out the 5 s cadence.
+#[tokio::test]
+async fn default_interval_runner_refreshes_and_shuts_down() {
+    let count = Arc::new(AtomicU32::new(0));
+    let mut monitor = HealthMonitor::new(1, Duration::from_secs(30));
+    monitor.register(Arc::new(CountingCheck {
+        count: count.clone(),
+    }));
+    let monitor = Arc::new(monitor);
+
+    let parent = tracing::info_span!("test");
+    let runner = HealthMonitorRunner::start(monitor, &parent);
+
+    // `interval` fires its first tick immediately, so one refresh lands well
+    // before the 5 s cadence would.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    runner.shutdown().await;
+
+    assert!(
+        count.load(Ordering::SeqCst) >= 1,
+        "expected an immediate first refresh, got {} probes",
+        count.load(Ordering::SeqCst)
+    );
+}

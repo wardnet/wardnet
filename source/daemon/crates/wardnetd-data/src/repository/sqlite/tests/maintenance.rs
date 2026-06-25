@@ -89,3 +89,38 @@ async fn incremental_vacuum_reduces_freelist() {
     let _ = std::fs::remove_file(path.with_extension("db-wal"));
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
+
+/// `ping` runs `SELECT 1` against the read pool and returns `Ok` while the
+/// database is live — the health monitor's `database` probe (issue #214).
+#[tokio::test]
+async fn ping_succeeds_on_live_database() {
+    let (pool, path) = make_incremental_pool().await;
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+
+    repo.ping()
+        .await
+        .expect("ping a live database should succeed");
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// `ping` surfaces an error once the pool is closed — the path the `database`
+/// health check maps to DOWN.
+#[tokio::test]
+async fn ping_errors_when_pool_closed() {
+    let (pool, path) = make_incremental_pool().await;
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+    pool.close().await;
+
+    assert!(
+        repo.ping().await.is_err(),
+        "ping must fail once the pool is closed"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}

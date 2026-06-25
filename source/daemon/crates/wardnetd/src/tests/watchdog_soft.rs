@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use wardnetd_services::health::{CheckOutcome, HealthCheck};
 use wardnetd_services::{HealthMonitor, HealthSnapshot, HealthStatus};
 
-use crate::watchdog::soft::should_ping;
+use crate::watchdog::soft::{SdNotifier, should_ping};
 use crate::watchdog::{Notifier, SoftWatchdogRunner};
 
 /// Captures `WATCHDOG=1` pings instead of touching a real `NOTIFY_SOCKET`.
@@ -51,6 +51,33 @@ fn snapshot(overall: HealthStatus) -> HealthSnapshot {
         overall,
         components: Vec::new(),
         refreshed_at: Instant::now(),
+    }
+}
+
+#[test]
+fn sd_notifier_is_a_graceful_noop_without_notify_socket() {
+    // Outside systemd `NOTIFY_SOCKET` is unset, so the production notifier's
+    // sends are no-ops and `recommended_interval` reports "not watchdog-
+    // supervised". Exercises the real `sd-notify`-backed paths used in prod.
+    // SAFETY: single-threaded test; we only read-then-restore the env var.
+    let saved = std::env::var_os("NOTIFY_SOCKET");
+    unsafe {
+        std::env::remove_var("NOTIFY_SOCKET");
+    }
+
+    assert_eq!(
+        SdNotifier::recommended_interval(),
+        None,
+        "no NOTIFY_SOCKET ⇒ not watchdog-supervised ⇒ caller falls back to config interval"
+    );
+    let notifier = SdNotifier;
+    notifier.notify_ready();
+    notifier.ping_watchdog();
+
+    if let Some(val) = saved {
+        unsafe {
+            std::env::set_var("NOTIFY_SOCKET", val);
+        }
     }
 }
 
