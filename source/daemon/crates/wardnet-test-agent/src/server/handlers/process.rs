@@ -3,8 +3,9 @@
 //! `POST /process/signal` reads the daemon pidfile and delivers a
 //! **whitelisted** signal (`STOP` / `CONT`) to the `wardnetd` process. The
 //! agent runs in the same container — hence the same PID namespace — as the
-//! daemon, so a plain `kill` reaches it directly; no container runtime or
-//! socket is involved.
+//! daemon, so a direct `kill(2)` syscall reaches it; no container runtime or
+//! socket is involved. We signal in-process rather than shelling out to a
+//! `kill` binary, which the minimal daemon container does not ship.
 //!
 //! This exists purely so the e2e suite can *freeze* the daemon (SIGSTOP) and
 //! verify that systemd's `Type=notify` + `WatchdogSec=15` supervision restarts
@@ -19,15 +20,15 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use tokio::process::Command;
 use tracing::{info, warn};
 
 use crate::server::AppState;
 use crate::server::models::{ErrorResponse, ProcessSignalRequest, ProcessSignalResponse};
 
-/// Signals the endpoint is allowed to deliver. `STOP` freezes the daemon (the
-/// watchdog test); `CONT` resumes it (cleanup / symmetry).
-const ALLOWED_SIGNALS: &[&str] = &["STOP", "CONT"];
+/// Signals the endpoint is allowed to deliver, paired with their `libc`
+/// numbers. `STOP` freezes the daemon (the watchdog test); `CONT` resumes it
+/// (cleanup / symmetry).
+const ALLOWED_SIGNALS: &[(&str, libc::c_int)] = &[("STOP", libc::SIGSTOP), ("CONT", libc::SIGCONT)];
 
 /// `POST /process/signal` — deliver `{ signal }` to the daemon PID.
 pub async fn post_process_signal(
@@ -35,18 +36,16 @@ pub async fn post_process_signal(
     Json(req): Json<ProcessSignalRequest>,
 ) -> impl IntoResponse {
     let signal = req.signal.trim().to_uppercase();
-    if !ALLOWED_SIGNALS.contains(&signal.as_str()) {
+    let Some(&(_, signum)) = ALLOWED_SIGNALS.iter().find(|(name, _)| *name == signal) else {
+        let allowed: Vec<&str> = ALLOWED_SIGNALS.iter().map(|(name, _)| *name).collect();
         return (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "signal must be one of {ALLOWED_SIGNALS:?}, got {:?}",
-                    req.signal
-                ),
+                error: format!("signal must be one of {allowed:?}, got {:?}", req.signal),
             }),
         )
             .into_response();
-    }
+    };
 
     let raw = match tokio::fs::read_to_string(&state.pidfile_path).await {
         Ok(s) => s,
@@ -95,24 +94,11 @@ pub async fn post_process_signal(
     }
 
     info!(pid, signal = %signal, "delivering signal to daemon");
-    let output = match Command::new("kill")
-        .args(["-s", &signal, &pid.to_string()])
-        .output()
-        .await
-    {
-        Ok(o) => o,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to spawn kill: {e}"),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    if output.status.success() {
+    // SAFETY: `kill(2)` is a plain syscall with no memory-safety
+    // preconditions; `pid` is validated above and `signum` is a whitelisted
+    // constant. A non-zero return means the kernel rejected the call.
+    let rc = unsafe { libc::kill(pid as libc::pid_t, signum) };
+    if rc == 0 {
         Json(ProcessSignalResponse {
             pid,
             signal,
@@ -120,13 +106,12 @@ pub async fn post_process_signal(
         })
         .into_response()
     } else {
+        let err = std::io::Error::last_os_error();
+        warn!(pid, signal = %signal, error = %err, "kill syscall failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!(
-                    "kill -s {signal} {pid} failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
+                error: format!("kill({pid}, SIG{signal}) failed: {err}"),
             }),
         )
             .into_response()
