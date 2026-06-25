@@ -28,6 +28,11 @@ on:
 # `security-events: write` via its own job-level block.
 permissions:
   contents: read
+  # The build-web job installs the web apps, which pull
+  # @wardnet/{ui,styles,brand} from GitHub Packages. Granted by the caller job
+  # (pr.yml/ci.yml/release.yml) and surfaced here so the leaf doesn't restrict
+  # it back to none. (check-daemon overrides this block with its own scopes.)
+  packages: read
 
 env:
   CARGO_TERM_COLOR: always

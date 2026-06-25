@@ -26,3 +26,15 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: yarn
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    # The design system (@wardnet/{ui,styles,brand}) is consumed from GitHub
+    # Packages, whose npm registry requires a token on every read — even for
+    # public packages, an anonymous install fails with YN0041 "Invalid
+    # authentication". source/.yarnrc.yml reads the token from GH_TOKEN, so
+    # export the workflow's GITHUB_TOKEN under that name for every subsequent
+    # `yarn install` in the job. The packages are public, so the default
+    # contents:read token reads them cross-repo — no `packages:` permission
+    # elevation (and thus no reusable-workflow caller-grant cascade) is needed.
+    - name: Authenticate Yarn to GitHub Packages
+      shell: bash
+      run: echo "GH_TOKEN=${{ github.token }}" >> "$GITHUB_ENV"

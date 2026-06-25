@@ -100,18 +100,29 @@ jobs:
       contents: read
       actions: read
       security-events: write
+      # build-web reads @wardnet/* from GitHub Packages.
+      packages: read
     uses: ./.github/workflows/build-daemon.yml
     secrets: inherit
 
   build-site:
     name: Build Site
     needs: resolve
+    # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/build-site.yml
     secrets: inherit
 
   tests-e2e:
     name: E2E Tests
     needs: [build-daemon, build-site]
+    # build-web (run on the host before the Docker build) reads @wardnet/*
+    # from GitHub Packages.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
@@ -138,6 +149,12 @@ jobs:
        needs.release-daemon.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Installs marketing-site, which pulls @wardnet/{brand,styles} from GitHub
+    # Packages; the manifest step additionally uses GITHUB_TOKEN for the
+    # Releases API.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4

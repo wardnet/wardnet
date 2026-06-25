@@ -24,6 +24,10 @@ on:
 # permission rules reject leaf > caller.
 permissions:
   contents: read
+  # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
+  # Granted by the caller job (pr.yml/ci.yml/release.yml) and surfaced here so
+  # the leaf doesn't restrict it back to none.
+  packages: read
 
 jobs:
   check-site:
