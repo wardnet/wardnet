@@ -159,6 +159,37 @@ case "$(uname -m)" in
 esac
 
 # ---------------------------------------------------------------------------
+# Detect hardware watchdog (issue #214)
+# ---------------------------------------------------------------------------
+# The daemon opens /dev/watchdog for the ungated hardware-reboot backstop. The
+# device is created by a platform watchdog driver; on the Raspberry Pi that's
+# `bcm2835_wdt`, which isn't always autoloaded. Best-effort: if the device is
+# absent, try to load the Pi module and re-check. This is purely informational
+# — the daemon runs fine without a watchdog (it logs "watchdog unavailable,
+# skipping" and skips the hardware layer), so a failure here never aborts the
+# install.
+detect_watchdog() {
+    if [ -c /dev/watchdog ]; then
+        echo "Hardware watchdog: /dev/watchdog present."
+        return
+    fi
+    echo "Hardware watchdog: /dev/watchdog not present; attempting to load bcm2835_wdt..."
+    if command -v modprobe >/dev/null 2>&1 && modprobe bcm2835_wdt 2>/dev/null && [ -c /dev/watchdog ]; then
+        echo "Hardware watchdog: loaded bcm2835_wdt; /dev/watchdog now present."
+        # Persist the module load across reboots (best-effort).
+        if [ -d /etc/modules-load.d ]; then
+            echo "bcm2835_wdt" > /etc/modules-load.d/wardnet-watchdog.conf 2>/dev/null \
+                && echo "Hardware watchdog: persisted module via /etc/modules-load.d/wardnet-watchdog.conf." \
+                || echo "Hardware watchdog: could not persist module load (non-fatal)."
+        fi
+    else
+        echo "Hardware watchdog: unavailable on this host — the daemon will run" \
+             "without the hardware reboot backstop (soft sd_notify watchdog still active)."
+    fi
+}
+detect_watchdog
+
+# ---------------------------------------------------------------------------
 # Pick LAN interface
 # ---------------------------------------------------------------------------
 

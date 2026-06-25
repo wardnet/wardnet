@@ -9,7 +9,13 @@ Wants=network-online.target
 OnFailure=wardnetd-rollback.service
 
 [Service]
-Type=simple
+# Type=notify: the daemon sends sd_notify(READY=1) once all listeners are
+# bound, so systemd only marks the unit active(running) when it can actually
+# serve. This also arms the watchdog supervision below (issue #214).
+Type=notify
+# Only the main process (wardnetd itself) is allowed to send notifications —
+# READY=1 and the periodic WATCHDOG=1 pings both originate there.
+NotifyAccess=main
 User=wardnet
 Group=wardnet
 ExecStart=/usr/local/bin/wardnetd --config /etc/wardnet/wardnet.toml
@@ -53,8 +59,19 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=wardnetd
 
-# Watchdog — if daemon doesn't pet within 15s, systemd kills and restarts it
-# WatchdogSec=15
+# Soft watchdog (issue #214): the daemon sends sd_notify(WATCHDOG=1) only while
+# its HealthMonitor reports overall UP and the snapshot is fresh. If health goes
+# DOWN — or the health loop itself stalls — the daemon withholds the ping, this
+# 15s budget elapses, and systemd restarts the *service* (seconds; the host
+# stays up). This is the proportionate middle layer; a *total* runtime freeze
+# (even the health loop wedged) is caught instead by the ungated hardware
+# /dev/watchdog, which reboots the host.
+#
+# WatchdogSec interacts with the StartLimit* budget above: repeated watchdog
+# restarts count toward StartLimitBurst, so a persistently-unhealthy daemon
+# eventually trips OnFailure=wardnetd-rollback.service (post-update crash-loop
+# recovery) rather than restarting forever.
+WatchdogSec=15
 
 [Install]
 WantedBy=multi-user.target
