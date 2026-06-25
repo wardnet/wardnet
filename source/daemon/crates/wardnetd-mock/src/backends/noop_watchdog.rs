@@ -8,6 +8,9 @@
 use async_trait::async_trait;
 use wardnetd_services::system::WatchdogOps;
 
+/// No-op [`WatchdogOps`] backend for the mock daemon. Reports the device as
+/// unavailable; every `pet`/`disarm` is a logged no-op so the dev daemon never
+/// arms a real `/dev/watchdog`.
 #[derive(Debug, Default, Clone)]
 pub struct NoopWatchdog;
 

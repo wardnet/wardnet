@@ -42,5 +42,6 @@ pub trait WatchdogOps: Send + Sync {
     /// `/dev/watchdog`, in the mock, and after a failed open — in which case
     /// `pet`/`disarm` are no-ops and the daemon runs normally without the
     /// hardware backstop.
+    #[must_use]
     fn is_available(&self) -> bool;
 }

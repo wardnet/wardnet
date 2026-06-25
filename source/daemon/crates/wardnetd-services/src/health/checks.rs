@@ -83,7 +83,13 @@ impl HealthCheck for DbHealthCheck {
     async fn check(&self) -> CheckOutcome {
         match self.repo.ping().await {
             Ok(()) => CheckOutcome::Up,
-            Err(e) => CheckOutcome::down(e.to_string()),
+            Err(e) => {
+                // Log the real error to the journal; keep the unauthenticated
+                // `/health` `detail` static so raw sqlx internals (paths, DB
+                // state) aren't disclosed to anonymous callers.
+                tracing::warn!(error = %e, "database health probe failed: {e}");
+                CheckOutcome::down("database unreachable")
+            }
         }
     }
 }
@@ -115,7 +121,10 @@ impl HealthCheck for DnsServerHealthCheck {
                 CheckOutcome::down("dns enabled but server not running")
             }
             Ok(_) => CheckOutcome::Up,
-            Err(e) => CheckOutcome::down(format!("dns config read failed: {e}")),
+            Err(e) => {
+                tracing::warn!(error = %e, "dns health probe: config read failed: {e}");
+                CheckOutcome::down("dns status unavailable")
+            }
         }
     }
 }
@@ -148,7 +157,10 @@ impl HealthCheck for DhcpServerHealthCheck {
                 CheckOutcome::down("dhcp enabled but server not running")
             }
             Ok(_) => CheckOutcome::Up,
-            Err(e) => CheckOutcome::down(format!("dhcp config read failed: {e}")),
+            Err(e) => {
+                tracing::warn!(error = %e, "dhcp health probe: config read failed: {e}");
+                CheckOutcome::down("dhcp status unavailable")
+            }
         }
     }
 }

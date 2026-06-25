@@ -802,25 +802,49 @@ async fn run(
     // blocking `:7411` serve returns, before the teardown sequence.
     let serving: Arc<dyn tls_server::ServingIdentity> = serving_control.clone();
     let https_app = tls_server::guarded_https_app(app.clone(), serving.clone());
-    let https_handle = tls_server::spawn_https_listener(
-        https_addr,
-        https_app,
-        rustls_config,
-        &shutdown_token,
-        &root_span,
-    );
-    let http_redirect_handle = tls_server::spawn_http_redirect_listener(
-        redirect_addr,
-        config.server.https_port,
-        serving,
-        &shutdown_token,
-        &root_span,
-    );
 
-    // All listeners are now bound (`:7411`) or spawned (`:443`/`:80`). Tell
-    // systemd we're ready: with `Type=notify` it only marks the unit
-    // `active (running)` once READY=1 arrives, so this gates the watchdog
-    // supervision and `systemctl start`'s return. No-op outside systemd.
+    // Bind the `:443` and `:80` listeners **synchronously** before signalling
+    // readiness, so `READY=1` can never precede a listener bind (issue #214).
+    // Both are non-fatal: a bind failure (e.g. port already in use) is logged
+    // and that listener is skipped — the daemon still serves the primary
+    // `:7411` surface.
+    let https_handle = match std::net::TcpListener::bind(https_addr) {
+        Ok(std_listener) => match std_listener.set_nonblocking(true) {
+            Ok(()) => Some(tls_server::spawn_https_listener(
+                std_listener,
+                https_app,
+                rustls_config,
+                &shutdown_token,
+                &root_span,
+            )),
+            Err(e) => {
+                tracing::error!(error = %e, %https_addr, "failed to set :443 listener non-blocking; skipping HTTPS: {e}");
+                None
+            }
+        },
+        Err(e) => {
+            tracing::error!(error = %e, %https_addr, "failed to bind :443 listener; skipping HTTPS: {e}");
+            None
+        }
+    };
+    let http_redirect_handle = match TcpListener::bind(redirect_addr).await {
+        Ok(redirect_listener) => Some(tls_server::spawn_http_redirect_listener(
+            redirect_listener,
+            config.server.https_port,
+            serving,
+            &shutdown_token,
+            &root_span,
+        )),
+        Err(e) => {
+            tracing::error!(error = %e, %redirect_addr, "failed to bind :80 redirect listener; skipping redirect: {e}");
+            None
+        }
+    };
+
+    // Every listener that could bind is now bound (`:7411`, plus `:443`/`:80`
+    // when available). Tell systemd we're ready: with `Type=notify` it only
+    // marks the unit `active (running)` once READY=1 arrives, so this gates the
+    // watchdog supervision and `systemctl start`'s return. No-op outside systemd.
     notifier.notify_ready();
 
     let api_span = tracing::info_span!(parent: &root_span, "api_server");
@@ -838,7 +862,12 @@ async fn run(
     // and `:80` listeners (and any token-watching tasks) into shutdown, then
     // wait for them to drain before tearing the rest down.
     shutdown_token.cancel();
-    let _ = tokio::join!(https_handle, http_redirect_handle);
+    if let Some(handle) = https_handle {
+        let _ = handle.await;
+    }
+    if let Some(handle) = http_redirect_handle {
+        let _ = handle.await;
+    }
 
     tracing::info!("server stopped, broadcasting GARP farewell before tearing down");
     // Farewell goes out *before* anything else in the shutdown sequence

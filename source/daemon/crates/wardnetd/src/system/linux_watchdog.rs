@@ -18,8 +18,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
@@ -48,12 +48,14 @@ const WDIOC_SETTIMEOUT: u32 = ioc(IOC_READ | IOC_WRITE, WATCHDOG_IOCTL_BASE, 6, 
 
 /// Hardware-watchdog operations backed by the Linux `/dev/watchdog` device.
 ///
-/// Holds the open device behind a [`Mutex`] so pets (which write a byte) and
-/// the one-shot disarm (which takes the file and closes it) are serialised.
+/// Holds the open device behind an `Arc<Mutex>` so pets (which write a byte)
+/// and the one-shot disarm (which takes the file and closes it) are serialised
+/// — and so the blocking write/close syscalls can be moved off the async
+/// executor via `spawn_blocking` (the `Arc` is cloned into the blocking task).
 /// `available` mirrors whether the device is currently open, so the sync
 /// [`WatchdogOps::is_available`] needs no lock.
 pub struct LinuxWatchdog {
-    device: Mutex<Option<std::fs::File>>,
+    device: Arc<Mutex<Option<std::fs::File>>>,
     available: AtomicBool,
     path: PathBuf,
 }
@@ -68,7 +70,7 @@ impl LinuxWatchdog {
             Ok(file) => {
                 Self::set_timeout(&file, timeout_secs, &path);
                 Self {
-                    device: Mutex::new(Some(file)),
+                    device: Arc::new(Mutex::new(Some(file))),
                     available: AtomicBool::new(true),
                     path,
                 }
@@ -104,7 +106,7 @@ impl LinuxWatchdog {
 
     fn unavailable(path: PathBuf) -> Self {
         Self {
-            device: Mutex::new(None),
+            device: Arc::new(Mutex::new(None)),
             available: AtomicBool::new(false),
             path,
         }
@@ -144,33 +146,50 @@ impl LinuxWatchdog {
 #[async_trait]
 impl WatchdogOps for LinuxWatchdog {
     async fn pet(&self) {
-        let mut guard = self
-            .device
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(file) = guard.as_mut() {
-            // Any byte other than 'V' is a keep-alive. A 0-byte is the
-            // conventional choice and can never be mistaken for the
-            // magic-close sentinel.
-            if let Err(e) = file.write_all(b"\0") {
-                tracing::warn!(error = %e, path = %self.path.display(), "watchdog pet failed: {e}");
+        // The write to `/dev/watchdog` is a blocking syscall; run it on the
+        // blocking pool so it can never park an async executor thread, even if
+        // the device driver stalls.
+        let device = self.device.clone();
+        let path = self.path.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut guard = device
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(file) = guard.as_mut() {
+                // Any byte other than 'V' is a keep-alive. A 0-byte is the
+                // conventional choice and can never be mistaken for the
+                // magic-close sentinel.
+                if let Err(e) = file.write_all(b"\0") {
+                    tracing::warn!(error = %e, path = %path.display(), "watchdog pet failed: {e}");
+                }
             }
-        }
+        })
+        .await;
     }
 
     async fn disarm(&self) {
-        let mut guard = self
-            .device
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(mut file) = guard.take() {
-            // Magic close: writing 'V' before the fd closes tells the kernel
-            // to disable the watchdog rather than reboot. Dropping `file`
-            // performs the close.
-            if let Err(e) = file.write_all(b"V") {
-                tracing::warn!(error = %e, "watchdog disarm ('V') write failed; closing anyway: {e}");
+        let device = self.device.clone();
+        let disarmed = tokio::task::spawn_blocking(move || {
+            let mut guard = device
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(mut file) = guard.take() {
+                // Magic close: writing 'V' before the fd closes tells the
+                // kernel to disable the watchdog rather than reboot. Dropping
+                // `file` performs the (blocking) close.
+                if let Err(e) = file.write_all(b"V") {
+                    tracing::warn!(error = %e, "watchdog disarm ('V') write failed; closing anyway: {e}");
+                }
+                drop(file);
+                true
+            } else {
+                false
             }
-            drop(file);
+        })
+        .await
+        .unwrap_or(false);
+
+        if disarmed {
             self.available.store(false, Ordering::SeqCst);
             tracing::info!(path = %self.path.display(), "hardware watchdog disarmed (magic close)");
         }

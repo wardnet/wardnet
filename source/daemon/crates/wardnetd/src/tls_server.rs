@@ -204,12 +204,15 @@ fn unprovisioned_response() -> Response {
 /// by [`guarded_https_app`]). Graceful shutdown is driven off `shutdown`. A bind
 /// failure is logged, not fatal — `:7411` keeps serving.
 pub fn spawn_https_listener(
-    addr: SocketAddr,
+    listener: std::net::TcpListener,
     app: Router,
     config: RustlsConfig,
     shutdown: &CancellationToken,
     parent: &tracing::Span,
 ) -> tokio::task::JoinHandle<()> {
+    let addr = listener
+        .local_addr()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
     let handle = Handle::new();
     {
         let handle = handle.clone();
@@ -224,7 +227,18 @@ pub fn spawn_https_listener(
     tokio::spawn(
         async move {
             tracing::info!(%addr, "HTTPS listener starting");
-            if let Err(e) = axum_server::bind_rustls(addr, config)
+            // Serve the already-bound listener (bound synchronously by the
+            // caller before READY=1) rather than binding here, so systemd's
+            // readiness signal can't precede the bind. `from_tcp_rustls`
+            // adopts the std listener and can fail on the conversion.
+            let server = match axum_server::from_tcp_rustls(listener, config) {
+                Ok(server) => server,
+                Err(e) => {
+                    tracing::error!(error = %e, %addr, "failed to adopt :443 listener for TLS; HTTPS unavailable: {e}");
+                    return;
+                }
+            };
+            if let Err(e) = server
                 .handle(handle)
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>())
                 .await
@@ -241,24 +255,21 @@ pub fn spawn_https_listener(
 /// otherwise the redirect is a same-host upgrade. A bind failure is logged, not
 /// fatal.
 pub fn spawn_http_redirect_listener(
-    addr: SocketAddr,
+    listener: tokio::net::TcpListener,
     https_port: u16,
     serving: Arc<dyn ServingIdentity>,
     shutdown: &CancellationToken,
     parent: &tracing::Span,
 ) -> tokio::task::JoinHandle<()> {
+    let addr = listener
+        .local_addr()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
     let app = redirect_router(https_port, serving);
     let shutdown = shutdown.clone();
     let span = tracing::info_span!(parent: parent, "http_redirect_server");
     tokio::spawn(
         async move {
-            let listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(listener) => listener,
-                Err(e) => {
-                    tracing::error!(error = %e, %addr, "failed to bind :80 redirect listener");
-                    return;
-                }
-            };
+            // Listener is bound synchronously by the caller before READY=1.
             tracing::info!(%addr, "HTTP→HTTPS redirect listener starting");
             let result = axum::serve(listener, app.into_make_service())
                 .with_graceful_shutdown(async move { shutdown.cancelled().await })
