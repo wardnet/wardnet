@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 7413,
+    port: 7415,
   },
   test: {
     globals: true,
