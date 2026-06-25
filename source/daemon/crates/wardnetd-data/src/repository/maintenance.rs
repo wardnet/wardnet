@@ -22,4 +22,10 @@ pub trait MaintenanceRepository: Send + Sync {
     /// return doesn't imply failure (it can mean the freelist was
     /// already empty, or the file is on `auto_vacuum=NONE`).
     async fn incremental_vacuum(&self) -> anyhow::Result<u64>;
+
+    /// Cheap connectivity probe — runs `SELECT 1` against the read pool and
+    /// returns `Ok(())` if the database answered. Used by the health
+    /// monitor's `database` check (issue #214); must stay non-blocking and
+    /// allocation-free on the hot path.
+    async fn ping(&self) -> anyhow::Result<()>;
 }

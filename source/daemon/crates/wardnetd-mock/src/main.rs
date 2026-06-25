@@ -35,12 +35,14 @@ use wardnetd_mock::backends::noop_remote_access::{
 };
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
+use wardnetd_mock::backends::noop_watchdog::NoopWatchdog;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
+use wardnetd_services::health::checks::{DbHealthCheck, LivenessHealthCheck};
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
@@ -49,7 +51,7 @@ use wardnetd_services::stats::flush_runner::{DEFAULT_FLUSH_INTERVAL, StatsFlushR
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier,
 };
-use wardnetd_services::{Backends, UpdateBackends, init_services_with_factory};
+use wardnetd_services::{Backends, HealthMonitor, UpdateBackends, init_services_with_factory};
 
 /// Wardnet mock daemon — local HTTP API for web-ui development.
 #[derive(Parser, Debug)]
@@ -265,6 +267,7 @@ async fn run(
         network_probe: Arc::new(NoopNetworkProbe),
         garp_ops: Arc::new(NoopGarpOps),
         cert_activator: Arc::new(NoopCertActivator),
+        watchdog_ops: Arc::new(NoopWatchdog),
     };
 
     let services = init_services_with_factory(
@@ -296,6 +299,19 @@ async fn run(
     let mock_tls: Arc<dyn wardnetd_services::tls::TlsService> =
         Arc::new(MockTlsService::new(remote_access_state.clone()));
 
+    // Health monitor (issue #214): the mock registers only the
+    // backend-independent probes (liveness + database). Its noop DNS/DHCP
+    // servers never bind a socket, so `is_running()` is false and including
+    // them would make `/health` report 503. Refresh once so the snapshot has
+    // both components UP; the mock runs no watchdog/refresh runners — those are
+    // production-only (no systemd, no /dev/watchdog in dev).
+    let mut health_monitor =
+        HealthMonitor::new(config.health.failure_threshold, Duration::from_secs(2));
+    health_monitor.register(Arc::new(LivenessHealthCheck));
+    health_monitor.register(Arc::new(DbHealthCheck::new(factory.maintenance())));
+    let health_monitor = Arc::new(health_monitor);
+    health_monitor.refresh().await;
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -319,7 +335,8 @@ async fn run(
         services.jobs.clone(),
         services.stats.clone(),
         services.rule_request.clone(),
-    );
+    )
+    .with_health_monitor(health_monitor);
 
     // Drain the DNS query log persistence channel into SQLite so the
     // fake live-stream events also populate the historical view.

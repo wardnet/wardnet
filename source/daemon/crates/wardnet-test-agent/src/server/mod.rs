@@ -61,6 +61,10 @@ fn build_router(state: Arc<AppState>) -> Router {
             "/container/exec",
             post(handlers::container::post_container_exec),
         )
+        .route(
+            "/process/signal",
+            post(handlers::process::post_process_signal),
+        )
         .route("/fixtures/{name}", get(handlers::fixtures::get_fixture))
         .route("/postupgrade/state", get(handlers::postupgrade::get_state))
         .route(

@@ -1,6 +1,8 @@
 mod db_maintenance_runner;
 mod error;
 mod event;
+mod health;
+mod health_checks;
 mod init;
 mod jobs;
 mod request_context;

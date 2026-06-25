@@ -19,6 +19,7 @@ pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
 pub mod garp;
+pub mod health;
 pub mod logging;
 pub mod maintenance;
 pub mod routing;
@@ -74,6 +75,9 @@ pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
 pub use crate::dns_filter::DnsFilterService;
 pub use crate::dns_local::DnsLocalService;
+pub use crate::health::{
+    CheckOutcome, ComponentHealth, HealthCheck, HealthMonitor, HealthSnapshot, HealthStatus,
+};
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
@@ -150,6 +154,11 @@ pub struct Backends {
     /// serving stack — and thus `axum-server` — stays out of this crate. See
     /// [`tls::CertActivator`].
     pub cert_activator: Arc<dyn tls::CertActivator>,
+    /// Hardware watchdog operations. Production wires the Linux
+    /// `/dev/watchdog` implementation; the mock wires a logging no-op so dev
+    /// launches never arm a real device. Pet **ungated** by health — see
+    /// [`system::WatchdogOps`] and issue #214.
+    pub watchdog_ops: Arc<dyn system::WatchdogOps>,
 }
 
 /// Auto-update backends, grouped so the three concerns (release discovery,

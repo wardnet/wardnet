@@ -1,6 +1,7 @@
 mod device_detector;
 mod firewall_netlink;
 mod garp_learning;
+mod health_runner;
 mod heartbeat;
 mod hostname_resolver;
 mod mdns_advertiser;
@@ -15,3 +16,5 @@ mod tls_server;
 mod tunnel_idle;
 mod tunnel_interface_wireguard;
 mod tunnel_monitor;
+mod watchdog_hard;
+mod watchdog_soft;

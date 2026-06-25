@@ -9,6 +9,7 @@ pub mod dns_events;
 pub mod dns_filter;
 pub mod dns_local;
 pub mod dns_log_ws;
+pub mod health;
 pub mod info;
 pub mod jobs;
 pub mod logs_ws;
@@ -54,6 +55,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = auth::register(r);
     r = setup::register(r);
     r = info::register(r);
+    r = health::register(r);
     r = devices::register(r);
     r = dns_capture::register(r);
     r = dns_events::register(r);

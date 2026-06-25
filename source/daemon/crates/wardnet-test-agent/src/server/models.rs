@@ -153,6 +153,30 @@ pub struct ContainerExecResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Process signal (watchdog e2e, issue #214)
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /process/signal`.
+#[derive(Debug, Deserialize)]
+pub struct ProcessSignalRequest {
+    /// Signal name to deliver to the daemon process. Whitelisted to
+    /// `STOP` / `CONT` so the endpoint can freeze (and resume) wardnetd for
+    /// the watchdog test without becoming an arbitrary-signal primitive.
+    pub signal: String,
+}
+
+/// Response for `POST /process/signal`.
+#[derive(Debug, Serialize)]
+pub struct ProcessSignalResponse {
+    /// PID the signal was delivered to (read from the daemon pidfile).
+    pub pid: i32,
+    /// The (normalised) signal name that was delivered.
+    pub signal: String,
+    /// Whether `kill` reported success.
+    pub delivered: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Shared error
 // ---------------------------------------------------------------------------
 

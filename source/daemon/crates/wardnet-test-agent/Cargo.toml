@@ -33,3 +33,8 @@ anyhow.workspace = true
 # already a workspace dep used by `wardnetd`'s pnet-based
 # packet-capture and probe paths.
 pnet.workspace = true
+# https://crates.io/crates/libc
+# Delivers SIGSTOP/SIGCONT to the daemon via the `kill(2)` syscall for the
+# watchdog e2e (issue #214). The minimal daemon container has no `kill`
+# binary, so we signal in-process rather than spawning one.
+libc.workspace = true

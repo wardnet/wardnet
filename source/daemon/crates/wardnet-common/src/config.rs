@@ -22,6 +22,13 @@ pub struct ApplicationConfiguration {
     pub pyroscope: PyroscopeConfig,
     pub update: UpdateConfig,
     pub mdns: MdnsConfig,
+    /// Health-monitor settings: how often the `HealthMonitor` refreshes its
+    /// snapshot, how many consecutive failures debounce a component to DOWN,
+    /// and the per-check timeout. See issue #214.
+    pub health: HealthConfig,
+    /// Watchdog settings: the hardware `/dev/watchdog` device and pet cadence
+    /// plus the health-gated soft (`sd_notify`) restart toggle. See issue #214.
+    pub watchdog: WatchdogConfig,
     /// Secret-store configuration. **Optional.**
     ///
     /// When absent, no local secret storage is available: tunnels that
@@ -63,6 +70,8 @@ impl Default for ApplicationConfiguration {
             pyroscope: PyroscopeConfig::default(),
             update: UpdateConfig::default(),
             mdns: MdnsConfig::default(),
+            health: HealthConfig::default(),
+            watchdog: WatchdogConfig::default(),
             secret_store: None,
             pidfile_path: default_pidfile_path(),
         }
@@ -586,6 +595,74 @@ impl Default for MdnsConfig {
         Self {
             enabled: true,
             hostname: None,
+        }
+    }
+}
+
+/// Health-monitor configuration (issue #214).
+///
+/// The `HealthMonitor` runs every registered `HealthCheck` on each refresh
+/// tick, debounces failures, and produces an overall `HealthStatus` that the
+/// health-gated soft watchdog consults before petting systemd's watchdog.
+/// All three fields are `serde` defaults so an existing `wardnet.toml` needs
+/// no `[health]` section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HealthConfig {
+    /// How often the monitor re-runs every check, in seconds.
+    pub refresh_interval_secs: u64,
+    /// Consecutive failed checks required before a component flips to DOWN.
+    /// Recovery is immediate (a single success clears the streak), so this
+    /// only debounces *into* the DOWN state — it never delays recovery.
+    pub failure_threshold: u32,
+    /// Per-check timeout, in seconds. A `check()` that exceeds it is recorded
+    /// as `Down { detail: "timeout" }` so a hung probe can never stall the
+    /// whole refresh cycle.
+    pub check_timeout_secs: u64,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            refresh_interval_secs: 5,
+            failure_threshold: 3,
+            check_timeout_secs: 2,
+        }
+    }
+}
+
+/// Watchdog configuration (issue #214).
+///
+/// Covers both the hardware `/dev/watchdog` (ungated kernel-reboot backstop)
+/// and the health-gated soft restart driven by `sd_notify(WATCHDOG=1)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WatchdogConfig {
+    /// Master switch for the hardware `/dev/watchdog` runner. When `false`
+    /// the daemon never opens the device (e.g. boards without a watchdog).
+    pub enabled: bool,
+    /// Path to the hardware watchdog character device.
+    pub device_path: PathBuf,
+    /// Hardware timeout programmed into the device, in seconds. The kernel
+    /// reboots the host if the device isn't pet within this window.
+    pub hardware_timeout_secs: u64,
+    /// How often the hardware runner pets the device, in seconds. Must be
+    /// comfortably below `hardware_timeout_secs`.
+    pub pet_interval_secs: u64,
+    /// When `true`, the soft watchdog sends `sd_notify(WATCHDOG=1)` only
+    /// while overall health is UP and the snapshot is fresh. Independent of
+    /// `enabled` — the soft path works even on boards without `/dev/watchdog`.
+    pub soft_enabled: bool,
+}
+
+impl Default for WatchdogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            device_path: PathBuf::from("/dev/watchdog"),
+            hardware_timeout_secs: 15,
+            pet_interval_secs: 5,
+            soft_enabled: true,
         }
     }
 }

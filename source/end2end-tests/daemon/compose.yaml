@@ -95,6 +95,10 @@ services:
       # daemon's only console output is the three-line println! banner
       # and any 5xx the spec hits is invisible in `compose logs`.
       - ./fixtures/systemd/wardnetd-debug-logging.conf:/etc/systemd/system/wardnetd.service.d/debug-logging.conf:ro
+      # Watchdog e2e drop-in (issue #214): caps TimeoutStopSec so a frozen
+      # daemon is killed promptly once WatchdogSec=15 fires, keeping
+      # watchdog.spec.ts's freeze→restart assertion fast. Test-only.
+      - ./fixtures/systemd/wardnetd-watchdog-test.conf:/etc/systemd/system/wardnetd.service.d/watchdog-test.conf:ro
       # systemd needs a writable /sys/fs/cgroup to manage its slice.
       # Even with cgroupns=host, Docker's default mount of
       # /sys/fs/cgroup inside the container is read-only — bind the

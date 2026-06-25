@@ -17619,6 +17619,40 @@
           }
         ]
       }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "description": "Liveness/readiness probe. Returns 200 with status `UP` when every registered health check passes (after debounce), or 503 with status `DOWN` when any component is down. Unauthenticated by design — reachable by load balancers and uptime monitors without a session. See issue #214.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Daemon healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Daemon unhealthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
     }
   },
   "components": {
@@ -19838,6 +19872,60 @@
             "$ref": "#/components/schemas/DnsZone"
           }
         }
+      },
+      "HealthComponentDto": {
+        "type": "object",
+        "description": "One component's debounced status within a [`HealthResponse`].",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Failure detail, present only while the component is `DOWN`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Stable check name (e.g. `\"database\"`, `\"dns\"`, `\"dhcp\"`, `\"liveness\"`)."
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthStatusDto",
+            "description": "Debounced status of this component."
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Response body for `GET /health` (issue #214).\n\nUnauthenticated, Actuator/k8s-style. The HTTP status code carries the\nmachine-readable verdict (200 UP / 503 DOWN); the body adds the per-\ncomponent breakdown for humans and dashboards.",
+        "required": [
+          "status",
+          "components"
+        ],
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthComponentDto"
+            },
+            "description": "Per-component statuses, in registration order."
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthStatusDto",
+            "description": "Overall verdict — `DOWN` if any component is down."
+          }
+        }
+      },
+      "HealthStatusDto": {
+        "type": "string",
+        "description": "Overall health verdict surfaced by `GET /health` (issue #214).\n\nMaps to the HTTP status: `Up` → 200, `Down` → 503. Mirrors the\n`HealthStatus` produced by the daemon's `HealthMonitor`.",
+        "enum": [
+          "UP",
+          "DOWN"
+        ]
       },
       "InfoResponse": {
         "type": "object",

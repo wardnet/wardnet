@@ -222,6 +222,11 @@ x509-parser = "0.18"
 # process default for :443 TLS (both ring + aws-lc-rs are in the tree, so rustls
 # 0.23 can't auto-pick).
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
+# https://crates.io/crates/sd-notify — pure-Rust sd_notify(3): READY=1 +
+# WATCHDOG=1 for the Type=notify unit and the health-gated soft watchdog
+# (issue #214). No libsystemd C dependency; a graceful no-op when
+# NOTIFY_SOCKET is unset (dev / mock).
+sd-notify = "0.4"
 
 # https://crates.io/crates/tempfile
 tempfile = "=3.27"
