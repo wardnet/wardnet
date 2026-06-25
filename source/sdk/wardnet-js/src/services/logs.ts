@@ -1,5 +1,13 @@
 import type { WardnetClient } from "../client.js";
 
+/** Reconnect backoff bounds. The delay starts at BASE and doubles every
+ *  consecutive failed attempt, capped at MAX; a successful open resets the
+ *  attempt counter. Without this the stream hammered the daemon every 3 s
+ *  forever while it was down — a tight loop that floods the console and the
+ *  network the moment the daemon is unreachable. */
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 /** A single structured log entry from the WebSocket stream. */
 export interface LogEntry {
   timestamp: string;
@@ -36,6 +44,9 @@ export class LogService {
   private filter: LogFilter = { level: "info" };
   private paused = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive failed reconnect attempts; drives the backoff delay and is
+   *  reset to 0 on a successful open. */
+  private reconnectAttempts = 0;
   private readonly origin: string;
 
   /**
@@ -76,7 +87,18 @@ export class LogService {
     this.callbacks = callbacks;
     if (initialFilter) this.filter = initialFilter;
     this.paused = false;
+    this.reconnectAttempts = 0;
     this.doConnect();
+  }
+
+  /** Schedule the next reconnect with exponential backoff + jitter. */
+  private scheduleReconnect(): void {
+    const exp = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempts);
+    this.reconnectAttempts += 1;
+    // ±25% jitter so a fleet of clients doesn't reconnect in lockstep the
+    // instant the daemon comes back.
+    const delay = exp * (0.75 + Math.random() * 0.5);
+    this.reconnectTimer = setTimeout(() => this.doConnect(), delay);
   }
 
   private doConnect(): void {
@@ -86,6 +108,7 @@ export class LogService {
     this.ws = ws;
 
     ws.onopen = () => {
+      this.reconnectAttempts = 0;
       this.callbacks?.onConnected();
       ws.send(JSON.stringify({ type: "set_filter", ...this.filter }));
     };
@@ -107,7 +130,7 @@ export class LogService {
       this.callbacks?.onDisconnected();
       this.ws = null;
       if (!this.paused) {
-        this.reconnectTimer = setTimeout(() => this.doConnect(), 3000);
+        this.scheduleReconnect();
       }
     };
 
@@ -135,6 +158,7 @@ export class LogService {
   /** Resume the stream (reconnects WebSocket). */
   resume(): void {
     this.paused = false;
+    this.reconnectAttempts = 0;
     this.doConnect();
   }
 

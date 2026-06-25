@@ -38,6 +38,10 @@ export function useDaemonStatus() {
         };
       }
     },
-    refetchInterval: 30_000,
+    // Poll fast while the daemon is unreachable so the connection-error gate
+    // and offline banner clear within a few seconds of it coming back; relax
+    // to 30 s once we have a healthy connection.
+    refetchInterval: (query) =>
+      query.state.data?.reachable === false ? 5_000 : 30_000,
   });
 }
