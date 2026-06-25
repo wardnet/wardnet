@@ -96,6 +96,20 @@
 
 **Shared challenge token** — The bridge's HTTP-01 challenge token, written to a shared Postgres table rather than held in one host's memory, so Let's Encrypt's `:80` validation is answered correctly no matter which host it reaches. Reaped on a TTL by the bridge sweep, mirroring the daemon's "always clear the challenge" discipline.
 
+## Reliability and watchdog (issue #214)
+
+**HealthMonitor** — The daemon-side aggregator (in `wardnetd-services/src/health/`) that holds the registered **HealthCheck**s, re-runs them all on a fixed tick, debounces failures, and publishes an immutable **HealthSnapshot** through an `ArcSwap` for lock-free reads. It only *reports* status; recovery policy lives in the watchdog layers. Checks run concurrently with a per-check `tokio::time::timeout`, so one hung probe can't stall the cycle.
+
+**HealthCheck** — A pluggable async probe (`name()` + `check() -> CheckOutcome`) adapting one subsystem into a cheap readiness signal. The four initial probes are **database** (`SELECT 1`), **liveness** (always UP — proves the loop schedules), **dns** and **dhcp**. The DNS/DHCP probes are **desired-vs-actual**: each reads its configured `enabled` flag (under an admin context, like the runners) and reports DOWN *only* when the service is enabled yet not running (a crash) — never for a deliberately toggled-off service, which would otherwise restart-loop the daemon. Must be non-blocking and never panic.
+
+**HealthStatus** — The debounced verdict, `UP` or `DOWN`, for a single component and for the daemon overall (overall is `DOWN` if *any* component is `DOWN`). A component only flips to `DOWN` after `failure_threshold` *consecutive* failed checks; it recovers on the first success.
+
+**`GET /health`** — The unauthenticated liveness/readiness endpoint (Actuator/k8s convention): `200` when overall **HealthStatus** is `UP`, `503` when `DOWN`, with a per-component breakdown in the body. A deliberate, documented exception to the require-auth rule, like `GET /api/setup/status`.
+
+**Soft watchdog** — The proportionate middle recovery layer: the daemon sends `sd_notify(WATCHDOG=1)` on a `WATCHDOG_USEC/2` cadence **only while** overall health is `UP` and the **HealthSnapshot** is fresh. If health goes `DOWN` — or the refresh loop stalls (stale snapshot) — the ping is withheld, systemd's `WatchdogSec=15` elapses, and systemd **restarts the service** (the host stays up). Health-gated, unlike the hard watchdog.
+
+**Hard watchdog** — The last-resort backstop: the daemon pets `/dev/watchdog` on a fixed cadence **ungated** by health (a `WatchdogOps` trait with a Linux impl and a `NoopWatchdog` mock). If the entire runtime freezes — even the health loop and the soft sd_notify ping can no longer run — the pets stop and the kernel **reboots the host**. On clean shutdown it disarms (magic close) so a graceful `systemctl stop` does not reboot. **Invariant: this layer is never health-gated.** See [adr-watchdog-and-health.md](docs/adr-watchdog-and-health.md).
+
 ## Monetization and entitlement
 
 **Free tier** — Self-host the daemon with your **own** domain (the **BYOD-Cloudflare DnsProvider**). Full features, uncapped, forever-free; touches no wardnet-operated service beyond release downloads, so it costs Wardnet nothing. The growth surface.

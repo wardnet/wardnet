@@ -308,3 +308,60 @@ Unauthenticated endpoints (`GET /v1/health`, `GET /v1/register/challenge`, `POST
 ### Shared validation (`api/validation.rs`)
 
 `RESERVED_NAMES`, `is_valid_name()`, `validate_name()`, and `validate_public_key()` live in one place. Do **not** duplicate them in handler modules — the name availability check and the registration handler must apply identical rules.
+
+## Watchdog + health subsystem (issue #214)
+
+A **three-layer** recovery model. `Restart=always` only catches a daemon that
+*exits*; a livelocked or deadlocked daemon keeps systemd happy and never
+recovers. The layers escalate from "report" to "restart the service" to "reboot
+the host". See [adr-watchdog-and-health.md](../docs/adr-watchdog-and-health.md).
+
+### Layer 1 — `HealthMonitor` (`wardnetd-services/src/health/`)
+
+`HealthCheck` is a `Send + Sync`, `#[async_trait]` trait (`name() -> &'static str`
++ `check() -> CheckOutcome`). `HealthMonitor` holds `Vec<Arc<dyn HealthCheck>>`
+plus an `arc_swap::ArcSwap<HealthSnapshot>` (the same lock-free pattern as the
+local-DNS `AuthoritativeView`). `refresh()` runs every check **concurrently**
+(`futures::future::join_all`), each wrapped in a `tokio::time::timeout`
+(`health.check_timeout_secs`, default 2 s) so a hung probe becomes
+`Down { detail: "timeout" }` rather than stalling the cycle. A per-check
+**consecutive-failure debounce** flips a component to DOWN only after
+`failure_threshold` (default 3) straight failures and recovers it on the first
+success; overall is DOWN if any component is DOWN. `HealthMonitorRunner`
+(`wardnetd/src/health_runner.rs`, child span `health`) drives `refresh()` every
+`health.refresh_interval_secs` (default 5 s). The four probes are registered in
+`main.rs`: `DbHealthCheck` (`SELECT 1` via `MaintenanceRepository::ping`),
+`LivenessHealthCheck`, `DnsServerHealthCheck`, `DhcpServerHealthCheck`. The
+DNS/DHCP probes are **desired-vs-actual**, not raw `is_running()`: each reads
+its configured `enabled` flag through the auth-gated service under a nil-admin
+`auth_context` (like the runners) and reports DOWN only when
+`enabled && !is_running()` — never for a deliberately toggled-off service,
+which would otherwise make the soft watchdog restart-loop a healthy daemon. The
+mock registers only liveness + DB (its noop DNS/DHCP servers never bind).
+`GET /health` (`wardnetd-api/src/api/health.rs`,
+unauthenticated, `security(())`) maps overall UP→200 / DOWN→503 with a
+per-component body, reading the snapshot from `AppState::health_monitor`.
+
+### Layer 2 — soft watchdog (`wardnetd/src/watchdog/soft.rs`, span `watchdog{layer=soft}`)
+
+`SoftWatchdogRunner` ticks at `WATCHDOG_USEC/2` and sends `sd_notify(WATCHDOG=1)`
+**only** when overall health is UP *and* the snapshot is fresh (younger than
+`2 × refresh_interval`); otherwise it withholds the ping and systemd's
+`WatchdogSec=15` restarts the *service*. The gating decision is the testable
+`should_ping(&snapshot, staleness)` helper. `sd_notify` is behind a `Notifier`
+trait (`SdNotifier` real impl; tests inject a fake) so the policy is unit-tested
+without a real `NOTIFY_SOCKET`. `main.rs` also sends `READY=1` via the same
+notifier once all listeners bind — which is why the unit is `Type=notify`.
+
+### Layer 3 — hard watchdog (`wardnetd/src/watchdog/hard.rs`, span `watchdog{layer=hard}`)
+
+`HardwareWatchdogRunner` pets `/dev/watchdog` every `watchdog.pet_interval_secs`
+**ungated** — it never consults health. This is the backstop for a *total*
+freeze where even the health loop can't run. The device is behind a
+`WatchdogOps` trait (`wardnetd-services/src/system/watchdog_ops.rs`) wired onto
+`Backends` like `SystemPowerOps`/`GarpOps`: `LinuxWatchdog`
+(`wardnetd/src/system/linux_watchdog.rs`, `WDIOC_SETTIMEOUT` ioctl + write-a-byte
+keep-alive + `'V'` magic-close disarm) in production, `NoopWatchdog` in the mock.
+`shutdown()` disarms first so a clean stop never reboots. **Invariant: the
+hardware pet is never health-gated** — that is the whole point of having a
+third layer below the health-gated soft restart.

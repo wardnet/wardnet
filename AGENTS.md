@@ -45,6 +45,13 @@ you're about to make, rather than the whole set.
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
   tick), region catalog with concurrent latency probing, and WAN IP discovery.
+- **[Watchdog + health subsystem](.agents/architecture.md#watchdog--health-subsystem-issue-214)** —
+  three-layer recovery: `HealthMonitor` (`HealthCheck` trait, `ArcSwap` snapshot,
+  concurrent refresh with per-check timeout + Y-consecutive debounce) → health-gated
+  **soft** watchdog (`sd_notify(WATCHDOG=1)` ⇒ systemd `WatchdogSec=15` service
+  restart) → **ungated** hard watchdog (`/dev/watchdog` ⇒ kernel host reboot). Plus
+  unauthenticated `GET /health`, `Type=notify` + `READY=1`, and the `WatchdogOps`
+  trait. Invariant: the hardware pet is never health-gated.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
