@@ -426,6 +426,44 @@ impl WizardMode {
     }
 }
 
+/// Overall health verdict surfaced by `GET /health` (issue #214).
+///
+/// Maps to the HTTP status: `Up` → 200, `Down` → 503. Mirrors the
+/// `HealthStatus` produced by the daemon's `HealthMonitor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum HealthStatusDto {
+    /// All registered checks are passing (after debounce).
+    Up,
+    /// At least one component is down.
+    Down,
+}
+
+/// One component's debounced status within a [`HealthResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct HealthComponentDto {
+    /// Stable check name (e.g. `"database"`, `"dns"`, `"dhcp"`, `"liveness"`).
+    pub name: String,
+    /// Debounced status of this component.
+    pub status: HealthStatusDto,
+    /// Failure detail, present only while the component is `DOWN`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Response body for `GET /health` (issue #214).
+///
+/// Unauthenticated, Actuator/k8s-style. The HTTP status code carries the
+/// machine-readable verdict (200 UP / 503 DOWN); the body adds the per-
+/// component breakdown for humans and dashboards.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct HealthResponse {
+    /// Overall verdict — `DOWN` if any component is down.
+    pub status: HealthStatusDto,
+    /// Per-component statuses, in registration order.
+    pub components: Vec<HealthComponentDto>,
+}
+
 /// Response for GET /api/setup/status.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetupStatusResponse {

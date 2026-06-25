@@ -26,6 +26,7 @@ pub mod tls_server;
 // Background tasks.
 pub mod device_detector;
 pub mod garp_learning;
+pub mod health_runner;
 pub mod heartbeat;
 pub mod mdns_advertiser;
 pub mod metrics_collector;
@@ -34,6 +35,10 @@ pub mod route_monitor;
 pub mod routing_listener;
 pub mod tunnel_idle;
 pub mod tunnel_monitor;
+
+// Three-layer watchdog (issue #214): the health-gated soft sd_notify restart
+// and the ungated hardware /dev/watchdog reboot backstop.
+pub mod watchdog;
 
 #[cfg(test)]
 mod tests;

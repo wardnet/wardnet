@@ -223,6 +223,17 @@ fn stub_backends() -> Backends {
         network_probe: Arc::new(StubNetworkProbe),
         garp_ops: Arc::new(StubGarpOps),
         cert_activator: Arc::new(StubCertActivator),
+        watchdog_ops: Arc::new(StubWatchdog),
+    }
+}
+
+struct StubWatchdog;
+#[async_trait]
+impl crate::system::WatchdogOps for StubWatchdog {
+    async fn pet(&self) {}
+    async fn disarm(&self) {}
+    fn is_available(&self) -> bool {
+        false
     }
 }
 

@@ -53,4 +53,13 @@ impl MaintenanceRepository for SqliteMaintenanceRepository {
             .unwrap_or(before);
         Ok(u64::try_from((before - after).max(0)).unwrap_or(0))
     }
+
+    async fn ping(&self) -> anyhow::Result<()> {
+        // Read pool: a health probe must never contend for the single
+        // writer connection. `SELECT 1` is a const string so it allocates
+        // nothing per call.
+        const PING: &str = "SELECT 1";
+        let _: i64 = sqlx::query_scalar(PING).fetch_one(&self.pools.read).await?;
+        Ok(())
+    }
 }

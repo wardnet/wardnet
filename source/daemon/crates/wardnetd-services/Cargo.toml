@@ -53,6 +53,8 @@ anyhow.workspace = true
 thiserror.workspace = true
 # https://crates.io/crates/async-trait
 async-trait.workspace = true
+# https://crates.io/crates/futures — concurrent health-check fan-out (join_all)
+futures.workspace = true
 # https://crates.io/crates/base64
 base64.workspace = true
 # https://crates.io/crates/sha2

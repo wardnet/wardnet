@@ -4308,6 +4308,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sd-notify"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b943eadf71d8b69e661330cb0e2656e31040acf21ee7708e2c238a0ec6af2bf4"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "secrecy"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5755,6 +5764,7 @@ dependencies = [
  "hickory-proto",
  "hickory-resolver",
  "ipnetwork 0.20.0",
+ "libc",
  "mdns-sd",
  "netlink-packet-route 0.31.0",
  "netlink-sys",
@@ -5770,6 +5780,7 @@ dependencies = [
  "rtnetlink",
  "rustables",
  "rustls",
+ "sd-notify",
  "serde",
  "serde_json",
  "socket2",
@@ -5879,6 +5890,7 @@ dependencies = [
  "cron",
  "ed25519-dalek",
  "flate2",
+ "futures",
  "hex",
  "hickory-proto",
  "instant-acme",

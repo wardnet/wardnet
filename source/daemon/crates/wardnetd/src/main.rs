@@ -24,6 +24,7 @@ use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, O
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::firewall_netlink::NetlinkFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
+use wardnetd::health_runner::HealthMonitorRunner;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
@@ -33,14 +34,18 @@ use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
-use wardnetd::system::{PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps};
+use wardnetd::system::{
+    LinuxWatchdog, PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps,
+};
 use wardnetd::tls_server;
 use wardnetd::tunnel_exit_probe::ReqwestTunnelExitProbe;
 use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
+use wardnetd::watchdog::{HardwareWatchdogRunner, Notifier, SdNotifier, SoftWatchdogRunner};
 use wardnetd_api::state::AppState;
+use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
@@ -51,10 +56,14 @@ use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 use wardnetd_services::dns_filter::runner::DnsFilterRunner;
+use wardnetd_services::health::checks::{
+    DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, LivenessHealthCheck,
+};
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
 use wardnetd_services::secret_store::build_secret_store;
+use wardnetd_services::system::WatchdogOps;
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
 };
@@ -248,6 +257,21 @@ async fn run(
         system_config_repo.clone(),
     ));
 
+    // Hardware watchdog backend. Opened here (like `garp_ops`) so a clone can
+    // be held for `HardwareWatchdogRunner` after `Backends` is consumed. When
+    // `watchdog.enabled = false`, or on a board without `/dev/watchdog`, this
+    // is an unavailable no-op and the daemon runs without the hardware
+    // backstop. The pet is ungated by health — see issue #214.
+    let watchdog_ops: Arc<dyn WatchdogOps> = if config.watchdog.enabled {
+        Arc::new(LinuxWatchdog::open(
+            config.watchdog.device_path.clone(),
+            config.watchdog.hardware_timeout_secs,
+        ))
+    } else {
+        tracing::info!("hardware watchdog disabled by config (watchdog.enabled = false)");
+        Arc::new(LinuxWatchdog::disabled())
+    };
+
     // Secret store is hoisted out of the `Backends` literal because the `:443`
     // TLS config is seeded from the stored cert (read through the SecretStore
     // abstraction) *before* services are wired — the `CertActivator` must exist
@@ -312,6 +336,7 @@ async fn run(
         network_probe: Arc::new(PnetNetworkProbe::new(config.network.lan_interface.clone())),
         garp_ops: garp_ops.clone(),
         cert_activator: cert_activator.clone(),
+        watchdog_ops: watchdog_ops.clone(),
     };
 
     // Wire services. Admin bootstrap already ran above; this helper
@@ -641,6 +666,66 @@ async fn run(
     // while there is no active FQDN.
     let tls_renewal_runner = TlsRenewalRunner::start(services.tls.clone(), &root_span);
 
+    // Health monitor (issue #214): register the four startup probes — DB
+    // connectivity, liveness (a fresh snapshot containing it proves the
+    // refresh loop schedules), and the two always-on core LAN services (DNS,
+    // DHCP). Refresh once synchronously so the first published snapshot
+    // reflects real checks before READY=1 is sent and the soft watchdog reads
+    // it.
+    let mut health_monitor = HealthMonitor::new(
+        config.health.failure_threshold,
+        Duration::from_secs(config.health.check_timeout_secs),
+    );
+    health_monitor.register(Arc::new(LivenessHealthCheck));
+    health_monitor.register(Arc::new(DbHealthCheck::new(repo_factory.maintenance())));
+    health_monitor.register(Arc::new(DnsServerHealthCheck::new(
+        services.dns.clone(),
+        dns_server.clone(),
+    )));
+    health_monitor.register(Arc::new(DhcpServerHealthCheck::new(
+        services.dhcp.clone(),
+        dhcp_server.clone(),
+    )));
+    let health_monitor = Arc::new(health_monitor);
+    health_monitor.refresh().await;
+
+    // Health refresh loop.
+    let health_runner = HealthMonitorRunner::start_with_interval(
+        health_monitor.clone(),
+        Duration::from_secs(config.health.refresh_interval_secs),
+        &root_span,
+    );
+
+    // Soft watchdog: health-gated sd_notify(WATCHDOG=1). Tick at WATCHDOG_USEC/2
+    // when systemd supervises us, else fall back to the health interval. A
+    // snapshot older than 2× the refresh interval is treated as stale (the
+    // refresh loop stalled) and withholds the ping.
+    let notifier: Arc<dyn Notifier> = Arc::new(SdNotifier);
+    let soft_watchdog_runner = if config.watchdog.soft_enabled {
+        let tick = SdNotifier::recommended_interval()
+            .unwrap_or_else(|| Duration::from_secs(config.health.refresh_interval_secs));
+        let staleness =
+            Duration::from_secs(config.health.refresh_interval_secs.saturating_mul(2).max(1));
+        Some(SoftWatchdogRunner::start(
+            health_monitor.clone(),
+            notifier.clone(),
+            tick,
+            staleness,
+            &root_span,
+        ))
+    } else {
+        tracing::info!("soft watchdog disabled by config (watchdog.soft_enabled = false)");
+        None
+    };
+
+    // Hard watchdog: ungated /dev/watchdog pet. No-op when the device is
+    // unavailable. Never consults health — this is the total-freeze backstop.
+    let hardware_watchdog_runner = HardwareWatchdogRunner::start(
+        watchdog_ops.clone(),
+        Duration::from_secs(config.watchdog.pet_interval_secs),
+        &root_span,
+    );
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -664,7 +749,8 @@ async fn run(
         services.jobs.clone(),
         services.stats.clone(),
         services.rule_request.clone(),
-    );
+    )
+    .with_health_monitor(health_monitor.clone());
 
     let app = wardnetd_api::api::router(state);
 
@@ -731,6 +817,12 @@ async fn run(
         &root_span,
     );
 
+    // All listeners are now bound (`:7411`) or spawned (`:443`/`:80`). Tell
+    // systemd we're ready: with `Type=notify` it only marks the unit
+    // `active (running)` once READY=1 arrives, so this gates the watchdog
+    // supervision and `systemctl start`'s return. No-op outside systemd.
+    notifier.notify_ready();
+
     let api_span = tracing::info_span!(parent: &root_span, "api_server");
     axum::serve(
         listener,
@@ -766,6 +858,14 @@ async fn run(
     }
 
     tracing::info!("shutting down background tasks");
+    // Hardware watchdog first: disarm (magic close) before the rest of the
+    // teardown runs, so a slow shutdown can't trip a reboot. Then the soft
+    // watchdog and the health loop.
+    hardware_watchdog_runner.shutdown().await;
+    if let Some(runner) = soft_watchdog_runner {
+        runner.shutdown().await;
+    }
+    health_runner.shutdown().await;
     routing_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;

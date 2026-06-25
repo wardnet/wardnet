@@ -5,9 +5,9 @@ use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsLocalService, DnsService, JobService, LogService, RoutingService,
-    RuleRequestService, StatsService, SystemService, TlsService, TunnelService, UpdateService,
-    VpnProviderService,
+    DnsFilterService, DnsLocalService, DnsService, HealthMonitor, JobService, LogService,
+    RoutingService, RuleRequestService, StatsService, SystemService, TlsService, TunnelService,
+    UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -42,6 +42,7 @@ struct Inner {
     job_service: Arc<dyn JobService>,
     stats_service: Arc<dyn StatsService>,
     rule_request_service: Arc<dyn RuleRequestService>,
+    health_monitor: Arc<HealthMonitor>,
 }
 
 impl AppState {
@@ -98,8 +99,25 @@ impl AppState {
                 job_service,
                 stats_service,
                 rule_request_service,
+                // Defaults to an empty monitor (initial snapshot is UP with no
+                // components). Production and the mock inject the live monitor
+                // — wired to the runners — via `with_health_monitor`.
+                health_monitor: Arc::new(HealthMonitor::new(1, std::time::Duration::from_secs(1))),
             }),
         }
+    }
+
+    /// Inject the live [`HealthMonitor`] that the health/watchdog runners
+    /// drive (issue #214). Returns `self` for chaining off [`Self::new`].
+    ///
+    /// Must be called before the state is cloned or shared — it mutates the
+    /// not-yet-shared `Arc<Inner>` in place. Panics otherwise (a wiring bug).
+    #[must_use]
+    pub fn with_health_monitor(mut self, health_monitor: Arc<HealthMonitor>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_health_monitor must be called before AppState is cloned")
+            .health_monitor = health_monitor;
+        self
     }
 
     /// Access the backup service.
@@ -243,5 +261,12 @@ impl AppState {
     #[must_use]
     pub fn rule_request_service(&self) -> &dyn RuleRequestService {
         self.inner.rule_request_service.as_ref()
+    }
+
+    /// Access the health monitor for the unauthenticated `GET /health`
+    /// endpoint (issue #214).
+    #[must_use]
+    pub fn health_monitor(&self) -> &HealthMonitor {
+        self.inner.health_monitor.as_ref()
     }
 }
