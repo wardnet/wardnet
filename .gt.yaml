@@ -1,0 +1,13 @@
+setup:
+  templates:
+    - name: agentic-toolkit
+      run: |
+        set -e
+        command -v agtk >/dev/null 2>&1 || \
+          curl -fsSL https://raw.githubusercontent.com/pedromvgomes/agentic-toolkit/main/install.sh | sh
+
+        if [ "$GT_SETUP_PHASE" = "worktree" ]; then
+          agtk sync                                       # worktree has its own checkout, source from cwd
+        else
+          agtk sync --source "${GT_ROOT}/${GT_DEFAULT_BRANCH}"   # clone: source the stack tree from main
+        fi

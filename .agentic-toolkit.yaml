@@ -1,11 +1,7 @@
 root: agentic
 extends:
-  - github.com/pedromvgomes/agentic-toolkit/stacks/default.yaml
-  - github.com/pedromvgomes/agentic-toolkit/stacks/plannotator.yaml
+   - github.com/wardnet/agentic-stacks/wardnet.yaml@main
 skills:
-  - github.com/pedromvgomes/gt/agentic/skills/use-gt
   - .agents/skills/bump-rust
 agents:
   - .agents/agents/rust-engineer
-rules:
-  - github.com/pedromvgomes/gt/agentic/rules/worktree-per-session.md
