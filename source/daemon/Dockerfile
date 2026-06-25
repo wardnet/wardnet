@@ -36,7 +36,6 @@ RUN apt-get update \
         systemd \
         systemd-sysv \
         iproute2 \
-        nftables \
         wireguard-tools \
         ca-certificates \
         wget \

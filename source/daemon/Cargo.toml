@@ -181,6 +181,11 @@ rtnetlink = "0.21"
 netlink-packet-route = "0.31"
 # https://crates.io/crates/netlink-sys
 netlink-sys = "0.8"
+# https://crates.io/crates/rustables — pure-Rust nftables over netlink (no nft
+# CLI). build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
+# BUILD env needs clang/libclang + kernel uapi headers; nothing C links at
+# runtime. Replaces the former `nft` shell-out (issue #307).
+rustables = "0.8.7"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.32"

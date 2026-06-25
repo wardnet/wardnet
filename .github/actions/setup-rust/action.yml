@@ -33,6 +33,14 @@ inputs:
 runs:
   using: composite
   steps:
+    # rustables' build.rs runs bindgen against <linux/netfilter/nf_tables.h>,
+    # so every Rust-compiling job needs clang/libclang (issue #307). The x86
+    # kernel uapi headers come from the runner's linux-libc-dev. Cross-compile
+    # jobs additionally set BINDGEN_EXTRA_CLANG_ARGS for the target sysroot.
+    - name: Install bindgen toolchain (clang)
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
       with:

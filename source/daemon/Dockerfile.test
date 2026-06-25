@@ -62,8 +62,18 @@ FROM rust:1.96-slim-bookworm@sha256:c8a94a78f67ec8c4d474ec7f71e0720f21eb7e584e15
 
 # minisign is needed at build time to generate the ephemeral signing
 # key + sign the synthetic release tarball that install.sh consumes.
+#
+# clang + libclang-dev: rustables' build.rs runs bindgen against
+# <linux/netfilter/nf_tables.h> (issue #307). linux-libc-dev supplies
+# those kernel uapi headers — unlike the full rust:1.96 image the
+# Makefile container path uses, the slim image here ships neither the
+# headers nor libclang, so both must be added explicitly.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends minisign \
+    && apt-get install -y --no-install-recommends \
+        minisign \
+        clang \
+        libclang-dev \
+        linux-libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

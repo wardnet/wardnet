@@ -180,9 +180,16 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # clang/libclang for rustables' bindgen is installed by setup-rust.
+
       - name: Install cross-compilation toolchain
         if: matrix.cross_apt_packages != ''
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y ${{ matrix.cross_apt_packages }}
+          # Point bindgen's clang at the aarch64 sysroot for arch-specific libc
+          # headers, but fall back to the host's arch-agnostic kernel uapi
+          # headers (linux/netfilter/*) via -idirafter. May need tuning in CI.
+          echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-gnu --sysroot=/usr/aarch64-linux-gnu -idirafter /usr/include" >> "$GITHUB_ENV"
 
       - name: Pin WARDNET_VERSION for tagged release builds
         # The downloaded web-ui-dist artifact lands real Vite output on top of

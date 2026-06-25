@@ -85,6 +85,8 @@ rtnetlink.workspace = true
 netlink-packet-route.workspace = true
 # https://crates.io/crates/netlink-sys
 netlink-sys.workspace = true
+# https://crates.io/crates/rustables — pure-Rust nftables over netlink (issue #307)
+rustables.workspace = true
 # https://crates.io/crates/regex
 regex.workspace = true
 # https://crates.io/crates/cron
