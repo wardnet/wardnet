@@ -7,7 +7,8 @@ setup:
           curl -fsSL https://raw.githubusercontent.com/pedromvgomes/agentic-toolkit/main/install.sh | sh
 
         if [ "$GT_SETUP_PHASE" = "worktree" ]; then
-          agtk sync                                       # worktree has its own checkout, source from cwd
+          agtk sync                                                       # worktree has its own checkout, source from cwd
         else
-          agtk sync --source "${GT_ROOT}/${GT_DEFAULT_BRANCH}"   # clone: source the stack tree from main
+          cd "$GT_ROOT"                                                   # clone: render .claude next to .bare at the gt root
+          agtk sync --config "${GT_ROOT}/${GT_DEFAULT_BRANCH}/.agentic-toolkit.yaml"   # config + lockfile from main, fetch over network
         fi
