@@ -70,3 +70,17 @@ async fn create_and_find_by_username() {
 ### Infrastructure tests — real impl, temp resources
 
 `FileSecretStore`, `AgeArchiver`, `SqliteDumper` are tested against real filesystem / real pool with tempfile-based isolation. Each test creates a unique directory under `std::env::temp_dir()` and cleans up on completion.
+
+## Web UI end-to-end tests (Playwright)
+
+The Playwright suite for the three web surfaces lives under
+`source/end2end-tests/web-ui/` (run with `make e2e-ui`). Its setup,
+topology, and the **authoritative selector convention** are documented in
+that directory's [`README.md`](../source/end2end-tests/web-ui/README.md).
+
+Selector convention in brief: **`data-testid` is the primary locator**
+(located via `page.getByTestId(...)`), with a human-facing label/role/text
+assertion added where meaningful. See the README for naming, placement,
+and label-assertion rules; the rationale for reversing the earlier
+role/label-first approach is in
+[`docs/adr-e2e-selector-convention.md`](../docs/adr-e2e-selector-convention.md).

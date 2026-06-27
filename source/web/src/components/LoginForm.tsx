@@ -69,6 +69,7 @@ export function LoginForm({
       <Field label="Username" htmlFor="username" name="username">
         <Input
           id="username"
+          data-testid="login-username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoComplete="username"
@@ -85,6 +86,7 @@ export function LoginForm({
         <Input
           id="password"
           type="password"
+          data-testid="login-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
@@ -110,11 +112,16 @@ export function LoginForm({
       )}
 
       {formError && (
-        <p role="alert" className="login-form__error">
+        <p role="alert" data-testid="login-error" className="login-form__error">
           {formError}
         </p>
       )}
-      <Button type="submit" disabled={loading} className="login-form__submit">
+      <Button
+        type="submit"
+        disabled={loading}
+        data-testid="login-submit"
+        className="login-form__submit"
+      >
         {loading ? "Signing in…" : "Log in"}
       </Button>
       <p className="login-form__hint">

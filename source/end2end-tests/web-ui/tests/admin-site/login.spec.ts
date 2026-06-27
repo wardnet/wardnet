@@ -6,6 +6,10 @@ import { loginViaUi } from "../../fixtures/ui.js";
 /**
  * Login form coverage on the shared (already set-up) daemon.
  *
+ * Selectors follow the suite's `data-testid` convention (README.md →
+ * "Selector convention"): testids locate, and human-facing label/role/text
+ * is additionally asserted where meaningful.
+ *
  * The `admin-site` project injects an authenticated `storageState`; these
  * tests need a logged-out context, so override it to empty. The admin
  * itself was created by the `setup` project, so the good-credentials
@@ -17,11 +21,16 @@ test("rejects bad credentials and stays on the login page", async ({
   page,
 }) => {
   await page.goto("./login");
-  await page.getByLabel("Username").fill(ADMIN_USERNAME);
-  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
-  await page.getByRole("button", { name: /log in/i }).click();
+  await page.getByTestId("login-username").fill(ADMIN_USERNAME);
+  await page.getByTestId("login-password").fill("wrong-password");
+  await page.getByTestId("login-submit").click();
 
-  await expect(page.getByRole("alert")).toBeVisible();
+  // Locate the error by testid; assert it carries the alert role and the
+  // human-facing failure copy.
+  const error = page.getByTestId("login-error");
+  await expect(error).toBeVisible();
+  await expect(error).toHaveRole("alert");
+  await expect(error).toContainText(/invalid username or password/i);
   await expect(page).toHaveURL(/\/admin\/login$/);
 });
 

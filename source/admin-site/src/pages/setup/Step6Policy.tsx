@@ -74,6 +74,7 @@ export default function Step6Policy() {
       <Button
         onClick={handleContinue}
         disabled={setDefault.isPending || advance.isPending}
+        data-testid="setup-policy-continue"
         className="w-full"
       >
         {setDefault.isPending || advance.isPending ? "Saving…" : "Continue"}

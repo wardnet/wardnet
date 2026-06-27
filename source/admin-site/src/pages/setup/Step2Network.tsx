@@ -78,6 +78,7 @@ export default function Step2Network() {
       <Button
         onClick={() => advance.mutate({ to_step: "dhcp" })}
         disabled={advance.isPending}
+        data-testid="setup-network-continue"
         className="w-full"
       >
         {advance.isPending ? "Saving…" : "Continue"}
