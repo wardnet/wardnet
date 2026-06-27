@@ -26,6 +26,10 @@ on:
 # permission rules reject leaf > caller.
 permissions:
   contents: read
+  # site-coverage installs marketing-site, which pulls @wardnet/{brand,styles}
+  # from GitHub Packages. Granted by the caller job (pr.yml) and surfaced here
+  # so the leaf doesn't restrict it back to none.
+  packages: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -104,6 +108,13 @@ jobs:
           cache-dependency-path: source/yarn.lock
 
       - name: Generate site coverage + test results
+        # marketing-site pulls @wardnet/{brand,styles} from GitHub Packages,
+        # whose registry rejects anonymous reads. This job sets up Node/Yarn
+        # directly (not via the setup-node-yarn action), so export GH_TOKEN —
+        # which source/.yarnrc.yml reads — here. Packages are public, so the
+        # default contents:read token suffices.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: cd source/marketing-site && yarn install --immutable && yarn test:coverage
 
       - name: Collect into shared layout

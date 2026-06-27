@@ -18,7 +18,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@wardnet/ui": "workspace:*",
+    "@wardnet/ui": "^0.1.0",
     "clsx": "2.1.1",
     "cronstrue": "3.14.0",
     "tailwind-merge": "3.6.0"

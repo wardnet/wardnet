@@ -4,8 +4,6 @@
   "packageManager": "yarn@4.17.0",
   "workspaces": [
     "sdk/wardnet-js",
-    "styles",
-    "ui",
     "web",
     "admin-site",
     "admin-app",

@@ -71,6 +71,8 @@ jobs:
       contents: read
       actions: read
       security-events: write
+      # build-web reads @wardnet/* from GitHub Packages.
+      packages: read
     uses: ./.github/workflows/build-daemon.yml
     secrets: inherit
 
@@ -78,6 +80,10 @@ jobs:
     name: Build Site
     needs: preflight
     if: needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true'
+    # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/build-site.yml
     secrets: inherit
 
@@ -85,6 +91,10 @@ jobs:
     name: Build Admin Web
     needs: preflight
     if: needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/build-admin-web.yml
     secrets: inherit
 
@@ -92,6 +102,10 @@ jobs:
     name: Build Admin App
     needs: preflight
     if: needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/build-admin-app.yml
     secrets: inherit
 
@@ -99,6 +113,10 @@ jobs:
     name: Build User App
     needs: preflight
     if: needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/build-user-app.yml
     secrets: inherit
 
@@ -117,6 +135,10 @@ jobs:
       needs.preflight.outputs.daemon == 'true' ||
       needs.preflight.outputs.site == 'true' ||
       needs.preflight.outputs.ci == 'true'
+    # site-coverage reads @wardnet/{brand,styles} from GitHub Packages.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
 
@@ -126,5 +148,10 @@ jobs:
     # Push-to-main parity with pr.yml — daemon or CI changes trigger
     # the full e2e gauntlet.
     if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
+    # build-web (run on the host before the Docker build) reads @wardnet/*
+    # from GitHub Packages.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit

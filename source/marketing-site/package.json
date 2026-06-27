@@ -19,7 +19,8 @@
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.2.7",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@wardnet/styles": "workspace:*",
+    "@wardnet/brand": "^0.1.0",
+    "@wardnet/styles": "^0.1.0",
     "lucide-react": "1.17.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

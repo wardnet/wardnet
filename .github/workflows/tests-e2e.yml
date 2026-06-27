@@ -33,6 +33,11 @@ on:
 # permission rules reject leaf > caller.
 permissions:
   contents: read
+  # Both e2e jobs run `make build-web` on the host before the Docker build;
+  # that installs the web apps, which pull @wardnet/{ui,styles,brand} from
+  # GitHub Packages. Granted by the caller job (pr.yml/ci.yml/release.yml) and
+  # surfaced here so the leaf doesn't restrict it back to none.
+  packages: read
 
 env:
   CARGO_TERM_COLOR: always

@@ -1,7 +1,7 @@
-import logoDark from "@/assets/wardnet-logo-dark.svg";
-import logoLight from "@/assets/wardnet-logo-light.svg";
-import logoTaglineDark from "@/assets/wardnet-logo-tagline-dark.svg";
-import logoTaglineLight from "@/assets/wardnet-logo-tagline-light.svg";
+import logoDark from "@wardnet/brand/svg/wardnet-logo-dark.svg";
+import logoLight from "@wardnet/brand/svg/wardnet-logo-light.svg";
+import logoTaglineDark from "@wardnet/brand/svg/wardnet-logo-tagline-dark.svg";
+import logoTaglineLight from "@wardnet/brand/svg/wardnet-logo-tagline-light.svg";
 
 interface LogoProps {
   /** Rendered height in px; width scales with the lockup's aspect ratio. */
