@@ -33,6 +33,8 @@ interface NavItem {
   label: string;
   icon: Icon;
   end?: boolean;
+  /** e2e locator rendered as `data-testid` on the nav link. */
+  testId: string;
 }
 
 interface NavSection {
@@ -42,31 +44,76 @@ interface NavSection {
 }
 
 const adminSections: NavSection[] = [
-  { items: [{ to: "/", label: "Dashboard", icon: LayoutGrid, end: true }] },
+  {
+    items: [
+      {
+        to: "/",
+        label: "Dashboard",
+        icon: LayoutGrid,
+        end: true,
+        testId: "nav-dashboard",
+      },
+    ],
+  },
   {
     heading: "Network",
     items: [
-      { to: "/devices", label: "Devices", icon: Monitor },
-      { to: "/tunnels", label: "Tunnels", icon: Cable },
-      { to: "/dhcp", label: "DHCP", icon: Router },
+      {
+        to: "/devices",
+        label: "Devices",
+        icon: Monitor,
+        testId: "nav-devices",
+      },
+      { to: "/tunnels", label: "Tunnels", icon: Cable, testId: "nav-tunnels" },
+      { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },
     ],
   },
   {
     heading: "Resolver",
     items: [
-      { to: "/dns", label: "DNS", icon: Globe, end: true },
-      { to: "/dns/local", label: "Local DNS", icon: Network },
-      { to: "/dns/filter", label: "DNS Filtering", icon: ShieldCheck },
-      { to: "/rule-requests", label: "Rule requests", icon: Inbox },
+      { to: "/dns", label: "DNS", icon: Globe, end: true, testId: "nav-dns" },
+      {
+        to: "/dns/local",
+        label: "Local DNS",
+        icon: Network,
+        testId: "nav-dns-local",
+      },
+      {
+        to: "/dns/filter",
+        label: "DNS Filtering",
+        icon: ShieldCheck,
+        testId: "nav-dns-filter",
+      },
+      {
+        to: "/rule-requests",
+        label: "Rule requests",
+        icon: Inbox,
+        testId: "nav-rule-requests",
+      },
     ],
   },
   {
     heading: "System",
     items: [
-      { to: "/settings", label: "Settings", icon: SettingsIcon },
-      { to: "/remote-access", label: "Remote access", icon: GlobeLock },
-      { to: "/backups", label: "Backups", icon: Archive },
-      { to: "/power", label: "Power", icon: Power },
+      {
+        to: "/settings",
+        label: "Settings",
+        icon: SettingsIcon,
+        testId: "nav-settings",
+      },
+      {
+        to: "/remote-access",
+        label: "Remote access",
+        icon: GlobeLock,
+        testId: "nav-remote-access",
+      },
+      {
+        to: "/backups",
+        label: "Backups",
+        icon: Archive,
+        testId: "nav-backups",
+      },
+      { to: "/power", label: "Power", icon: Power, testId: "nav-power" },
     ],
   },
 ];
@@ -132,6 +179,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   to={item.to}
                   end={item.end}
                   onClick={onNavigate}
+                  data-testid={item.testId}
                   className={({ isActive }) =>
                     `side__item${isActive ? " is-active" : ""}`
                   }

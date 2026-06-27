@@ -21,7 +21,11 @@ export default function Step8Confirm() {
           filtering from the dashboard.
         </p>
       </div>
-      <Button onClick={() => navigate("/")} className="w-full">
+      <Button
+        onClick={() => navigate("/")}
+        data-testid="setup-go-dashboard"
+        className="w-full"
+      >
         Go to dashboard
       </Button>
     </div>

@@ -78,6 +78,7 @@ export default function Step1Admin() {
         <Field label="Username" htmlFor="username" name="username">
           <Input
             id="username"
+            data-testid="setup-username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
@@ -94,6 +95,7 @@ export default function Step1Admin() {
           <Input
             id="password"
             type="password"
+            data-testid="setup-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
@@ -122,6 +124,7 @@ export default function Step1Admin() {
           <Input
             id="confirm-password"
             type="password"
+            data-testid="setup-confirm-password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
@@ -146,6 +149,7 @@ export default function Step1Admin() {
         <Button
           type="submit"
           disabled={setup.isPending || advance.isPending}
+          data-testid="setup-admin-submit"
           className="w-full"
         >
           {setup.isPending || advance.isPending

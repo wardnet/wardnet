@@ -12,7 +12,9 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <div className="row mb-6 justify-between">
       <div>
-        <h2 className="h-title">{title}</h2>
+        <h2 className="h-title" data-testid="page-title">
+          {title}
+        </h2>
         {description && <p className="h-sub">{description}</p>}
       </div>
       {actions && <div className="row gap-8">{actions}</div>}

@@ -65,3 +65,45 @@ it shows the no-device state.
 - `WARDNET_UI_BASE_URL` — daemon base URL the browser hits (default
   `http://wardnetd-ui:7411`; e.g. `http://localhost:7411` against a
   locally port-mapped daemon).
+
+## Selector convention
+
+This is the **authoritative** selector convention for the whole web-ui
+Playwright suite. `.agents/testing.md` links here; the rationale is
+recorded in
+[`docs/adr-e2e-selector-convention.md`](../../../docs/adr-e2e-selector-convention.md).
+
+**`data-testid` is the primary locator.** Locate every element with
+`page.getByTestId(...)`, then **additionally assert** the human-facing
+label / role / text where it is meaningful. The testid keeps locators
+stable across the pending branding re-skin and copy/DOM churn (a spec
+only changes when the contract changes); the extra label assertion
+preserves accessibility/intent coverage.
+
+Rules:
+
+1. **Attribute**: `data-testid` (Playwright's zero-config default — no
+   `testIdAttribute` override).
+2. **Naming**: flat, kebab-case, area-prefixed — `nav-devices`,
+   `mobile-menu-trigger`, `stat-devices`, `page-title`, `login-username`,
+   `notfound-page`. Per-surface project scoping prevents cross-surface
+   clashes, so no namespacing.
+3. **Placement**: declare testids on **app components** (admin-site /
+   admin-app / user-app) and the shared `@wardnet/web` components (e.g.
+   `LoginForm`); forward them through `@wardnet/ui` primitives via their
+   existing `...props` spread (`Button`, `Input`, `StatTile` already
+   forward). Generic primitives stay free of consumer-specific test
+   contracts.
+4. **Label assertion**: assert a label/role/text only on elements that
+   carry a meaningful one — interactive controls (`toContainText`,
+   `toHaveRole`, `toHaveAttribute("aria-current", …)`) and headings
+   (asserted via `getByRole("heading", …)`, which doubles as both the
+   step gate and the label). Structural containers get a testid but no
+   text assertion.
+5. **Scope**: add testids as specs need them. Don't pre-seed testids for
+   elements no spec exercises.
+
+A note on `getByRole("heading", …)` in the setup wizard: each step
+transition is gated on the next step's heading. The heading is the
+meaningful label, so the role-based assertion satisfies rule 4 — the
+interactive controls within the step are still located by testid.

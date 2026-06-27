@@ -347,6 +347,7 @@ export default function Step7RemoteAccess() {
           variant="outline"
           onClick={finish}
           disabled={advance.isPending}
+          data-testid="setup-remote-access-skip"
           className="w-full"
         >
           {advance.isPending ? "Skipping…" : "Skip for now"}

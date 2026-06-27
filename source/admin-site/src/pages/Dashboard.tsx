@@ -49,12 +49,14 @@ export default function Dashboard() {
         {/* Stat cards */}
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           <DashboardStatCard
+            testId="stat-devices"
             title="Devices"
             value={deviceCount}
             subtitle="on the network"
             to="/devices"
           />
           <DashboardStatCard
+            testId="stat-tunnels"
             title="Tunnels"
             value={tunnelCount}
             subtitle={`${activeTunnels} active`}
@@ -63,22 +65,26 @@ export default function Dashboard() {
           {status && (
             <>
               <DashboardStatCard
+                testId="stat-uptime"
                 title="Uptime"
                 value={formatUptime(status.uptime_seconds)}
                 subtitle={`v${status.release_version}`}
               />
               <DashboardStatCard
+                testId="stat-cpu"
                 title="CPU"
                 value={`${status.cpu_usage_percent.toFixed(1)}%`}
                 usagePercent={status.cpu_usage_percent}
               />
               <DashboardStatCard
+                testId="stat-memory"
                 title="Memory"
                 value={formatBytes(status.memory_used_bytes)}
                 subtitle={`of ${formatBytes(status.memory_total_bytes)}`}
                 usagePercent={memoryPercent}
               />
               <DashboardStatCard
+                testId="stat-disk"
                 title="Disk"
                 value={formatBytes(status.disk_free_bytes)}
                 subtitle={`free of ${formatBytes(status.disk_total_bytes)}`}
@@ -94,12 +100,14 @@ export default function Dashboard() {
             </>
           )}
           <DashboardStatCard
+            testId="stat-dns-queries"
             title="DNS queries (24h)"
             value={dnsStats?.total.toLocaleString() ?? "—"}
             to="/dns/logs"
             error={dnsStatsErrorMsg}
           />
           <DashboardStatCard
+            testId="stat-blocked"
             title="Blocked traffic (24h)"
             value={dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "—"}
             subtitle={

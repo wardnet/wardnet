@@ -70,6 +70,7 @@ export default function Step5Tunnel() {
         <Button
           onClick={() => advance.mutate({ to_step: "policy" })}
           disabled={advance.isPending}
+          data-testid="setup-tunnel-skip"
           className="w-full"
         >
           {advance.isPending

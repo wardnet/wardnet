@@ -88,6 +88,7 @@ export default function Step3DhcpOnboarding({
             type="radio"
             name="dhcp-mode"
             value="locked_router"
+            data-testid="setup-dhcp-mode-locked"
             checked={mode === "locked_router"}
             onChange={() => setMode("locked_router")}
             className="mt-1 accent-accent"
@@ -195,6 +196,7 @@ export default function Step3DhcpOnboarding({
       <Button
         onClick={handleContinue}
         disabled={advance.isPending || (mode === "primary" && !probeClean)}
+        data-testid="setup-dhcp-continue"
         className="w-full"
       >
         {advance.isPending

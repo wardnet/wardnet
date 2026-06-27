@@ -15,7 +15,12 @@ export function MobileMenu() {
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
-        <Button variant="ghost" size="icon" className="topbar__menu">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="topbar__menu"
+          data-testid="mobile-menu-trigger"
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20"

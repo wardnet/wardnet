@@ -12,6 +12,8 @@ interface DashboardStatCardProps {
   to?: string;
   /** If provided, renders the card in error mode instead of the stat tile. */
   error?: string | null;
+  /** e2e locator, forwarded to the rendered tile (or error card) as `data-testid`. */
+  testId?: string;
 }
 
 /** Single stat card for the admin dashboard. */
@@ -22,10 +24,12 @@ export function DashboardStatCard({
   usagePercent,
   to,
   error,
+  testId,
 }: DashboardStatCardProps) {
   if (error) {
     return (
       <div
+        data-testid={testId}
         className="card flex items-start gap-2 p-3.5 text-danger-soft-ink"
         style={{ background: "var(--danger-soft)" }}
       >
@@ -39,6 +43,7 @@ export function DashboardStatCard({
 
   const tile = (
     <StatTile
+      data-testid={testId}
       label={title}
       value={value}
       sub={subtitle}

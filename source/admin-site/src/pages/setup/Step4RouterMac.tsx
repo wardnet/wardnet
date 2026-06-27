@@ -116,6 +116,7 @@ export default function Step4RouterMac() {
       <Button
         onClick={handleContinue}
         disabled={advance.isPending}
+        data-testid="setup-router-mac-continue"
         className="w-full"
       >
         {advance.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
