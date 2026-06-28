@@ -32,6 +32,16 @@ const CHROMIUM_ARGS = [
   "--no-sandbox",
   // Docker's default /dev/shm is 64 MB; Chromium can exhaust it. Use /tmp.
   "--disable-dev-shm-usage",
+  // Trust the tls_proxy's self-signed cert at the BROWSER level, not just the
+  // context level. `ignoreHTTPSErrors` (set in `use` below) covers page
+  // navigations and fetches, but NOT the service-worker *script* fetch:
+  // registering a SW from an origin with a cert error fails with
+  // "An SSL certificate error occurred when fetching the script" even with
+  // `ignoreHTTPSErrors`. This flag disables cert verification process-wide so
+  // the admin-app / user-app service workers register and the offline-shell
+  // specs can run. (Harmless here — the whole stack is a throwaway self-signed
+  // proxy; see README.md → "Why a self-signed TLS proxy".)
+  "--ignore-certificate-errors",
 ];
 
 export default defineConfig({
