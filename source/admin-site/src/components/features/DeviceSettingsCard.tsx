@@ -108,7 +108,12 @@ export function DeviceSettingsCard({
         <CardTitle>Settings</CardTitle>
         {!editing && (
           <CardAction>
-            <Button variant="outline" size="sm" onClick={startEdit}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startEdit}
+              data-testid="device-settings-edit"
+            >
               Edit
             </Button>
           </CardAction>
@@ -154,6 +159,7 @@ export function DeviceSettingsCard({
                 onChange={setRoutingTarget}
                 tunnels={tunnels}
                 isAdmin
+                data-testid="device-settings-routing"
               />
             </Field>
 
@@ -187,7 +193,11 @@ export function DeviceSettingsCard({
             >
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={updateDevice.isPending}>
+            <Button
+              onClick={handleSave}
+              disabled={updateDevice.isPending}
+              data-testid="device-settings-save"
+            >
               {updateDevice.isPending ? savingLabel : saveLabel}
             </Button>
           </CardFooter>
@@ -213,7 +223,9 @@ export function DeviceSettingsCard({
             <Text size="xs" className="uppercase tracking-wide text-ink-3">
               Routing
             </Text>
-            <Text size="sm">{routingLabel(currentRule, tunnels)}</Text>
+            <Text size="sm" data-testid="device-settings-routing-value">
+              {routingLabel(currentRule, tunnels)}
+            </Text>
           </div>
           <div className="flex flex-col gap-0.5">
             <Text size="xs" className="uppercase tracking-wide text-ink-3">

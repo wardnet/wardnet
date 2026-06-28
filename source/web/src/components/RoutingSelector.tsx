@@ -28,6 +28,8 @@ interface RoutingSelectorProps {
   tunnels: TunnelSummary[];
   disabled?: boolean;
   isAdmin?: boolean;
+  /** e2e locator, forwarded to the rendered `<SelectTrigger>`. */
+  "data-testid"?: string;
 }
 
 /** Compound component for selecting a device's routing target.
@@ -42,6 +44,7 @@ export function RoutingSelector({
   tunnels,
   disabled,
   isAdmin,
+  "data-testid": dataTestId,
 }: RoutingSelectorProps) {
   const selected = valueFromTarget(value, tunnels);
 
@@ -57,7 +60,7 @@ export function RoutingSelector({
     return (
       <div className="flex flex-col gap-2">
         <Select value={DIRECT_VALUE} onValueChange={handleChange} disabled>
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="w-full" data-testid={dataTestId}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -85,7 +88,7 @@ export function RoutingSelector({
 
   return (
     <Select value={selected} onValueChange={handleChange} disabled={disabled}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger className="w-full" data-testid={dataTestId}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
