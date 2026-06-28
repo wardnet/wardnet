@@ -91,6 +91,7 @@ export function PowerCard({
               onClick={() => setRestartOpen(true)}
               disabled={busy}
               aria-label="Restart daemon"
+              data-testid="power-restart-daemon"
             >
               <RefreshCwIcon />
               Restart daemon
@@ -204,6 +205,7 @@ export function PowerCard({
             </AlertModalCancel>
             <AlertModalAction asChild>
               <Button
+                data-testid="power-restart-confirm"
                 onClick={() => {
                   setRestartOpen(false);
                   onRestartDaemon();
