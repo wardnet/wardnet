@@ -454,7 +454,7 @@ enum LatencyBehavior {
     Err(LatencyProbeError),
 }
 
-struct MockTunnelLatencyProber {
+pub(super) struct MockTunnelLatencyProber {
     behavior: Mutex<LatencyBehavior>,
     calls: Mutex<Vec<String>>,
 }
@@ -473,7 +473,7 @@ impl MockTunnelLatencyProber {
     }
 
     #[allow(dead_code)]
-    fn set_err(&self, err: LatencyProbeError) {
+    pub(super) fn set_err(&self, err: LatencyProbeError) {
         *self.behavior.lock().unwrap() = LatencyBehavior::Err(err);
     }
 
@@ -904,7 +904,7 @@ pub(super) struct TestHarness {
     keys: Arc<MockKeyStore>,
     stats_buffer: Arc<StatsBuffer>,
     exit_probe: Arc<MockTunnelExitProbe>,
-    latency_prober: Arc<MockTunnelLatencyProber>,
+    pub(super) latency_prober: Arc<MockTunnelLatencyProber>,
     pub(super) throughput_tester: Arc<MockThroughputTester>,
     pub(super) speed_test_repo: Arc<MockSpeedTestRepo>,
     pub(super) jobs: Arc<dyn JobService>,

@@ -15,6 +15,7 @@ use crate::auth_context;
 use crate::error::AppError;
 use crate::jobs::JobService;
 use crate::tunnel::interface::TunnelStats;
+use crate::tunnel::latency_prober::LatencyProbeError;
 use wardnetd_data::repository::TunnelRepository;
 
 use super::tunnel::{admin_ctx, build_harness, imported_tunnel_id};
@@ -176,4 +177,25 @@ async fn speed_test_leg_failure_fails_job() {
         0,
         "a failed run must not persist a half-result"
     );
+}
+
+#[tokio::test]
+async fn speed_test_fails_when_all_latency_probes_fail() {
+    let h = build_harness();
+    let id = imported_tunnel_id(&h).await;
+    h.tunnels
+        .update_status(&id.to_string(), "up")
+        .await
+        .unwrap();
+    h.tunnel_iface.set_stats(fresh_stats());
+    // Throughput succeeds but every ICMP probe times out — a leg with no
+    // usable latency samples must fail the whole run, with no row persisted.
+    h.latency_prober.set_err(LatencyProbeError::Timeout(1500));
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.clone().start_speed_test(id))
+        .await
+        .unwrap();
+    let job = await_job(&h.jobs, resp.job_id).await;
+    assert_eq!(job.status, JobStatus::Failed);
+    assert_eq!(h.speed_test_repo.count(), 0);
 }
