@@ -35,6 +35,10 @@ export interface DataTableGroup {
   id: string;
   label: string;
   count?: number;
+  /** Optional `data-testid` for this group's tab, forwarded from the
+   *  consuming component so the generic primitive carries no baked-in
+   *  test contract (e2e selector ADR). */
+  testId?: string;
 }
 
 export interface RowActionProps {
@@ -46,6 +50,9 @@ export interface RowActionProps {
   destructive?: boolean;
   /** Optional leading icon (rendered before the label). */
   icon?: ReactNode;
+  /** Optional `data-testid` for the menu item so e2e specs can target
+   *  a specific action without relying on its label text. */
+  testId?: string;
   children: ReactNode;
 }
 
@@ -58,12 +65,14 @@ export function RowAction({
   onSelect,
   destructive,
   icon,
+  testId,
   children,
 }: RowActionProps) {
   return (
     <DropdownMenuItem
       onSelect={onSelect}
       variant={destructive ? "destructive" : "default"}
+      data-testid={testId}
     >
       {icon}
       <span>{children}</span>
@@ -110,6 +119,13 @@ interface DataTableProps<TData, TValue> {
    *  reimplement it. */
   addLabel?: string;
   onAdd?: () => void;
+  /** Optional `data-testid`s forwarded onto the toolbar search input,
+   *  the Add CTA, and each row's overflow-menu trigger. Kept as props
+   *  (not literals) so this shared primitive holds no consumer-specific
+   *  test contract — the consuming compound/feature component owns it. */
+  searchTestId?: string;
+  addTestId?: string;
+  rowActionsTestId?: string;
   /** Free-form action slot — escape hatch for non-standard toolbar
    *  controls (multiple buttons, a custom widget). Prefer `addLabel`
    *  + `onAdd` for the common "Add X" case. */
@@ -150,6 +166,9 @@ export function DataTable<TData, TValue>({
   filters,
   addLabel,
   onAdd,
+  searchTestId,
+  addTestId,
+  rowActionsTestId,
   action,
   rowActions,
 }: DataTableProps<TData, TValue>) {
@@ -188,6 +207,7 @@ export function DataTable<TData, TValue>({
                       role="tab"
                       aria-selected={g.id === activeGroup}
                       data-state={g.id === activeGroup ? "active" : "inactive"}
+                      data-testid={g.testId}
                       onClick={() => onGroupChange?.(g.id)}
                     >
                       {g.label}
@@ -231,11 +251,12 @@ export function DataTable<TData, TValue>({
                 value={searchValue ?? ""}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder={searchPlaceholder}
+                data-testid={searchTestId}
               />
             </label>
           )}
           {hasAddCta && (
-            <Button variant="outline" onClick={onAdd}>
+            <Button variant="outline" onClick={onAdd} data-testid={addTestId}>
               <Plus aria-hidden />
               {addLabel}
             </Button>
@@ -302,6 +323,7 @@ export function DataTable<TData, TValue>({
                             variant="ghost"
                             size="icon-sm"
                             aria-label="Row actions"
+                            data-testid={rowActionsTestId}
                           >
                             <MoreHorizontal />
                           </Button>

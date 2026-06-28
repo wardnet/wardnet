@@ -15,6 +15,10 @@ interface Ipv4InputProps {
   readOnly?: boolean;
   className?: string;
   id?: string;
+  /** Forwarded onto the first octet input so e2e specs can locate and
+   *  drive the whole field (the `.`-keydown auto-tab carries typing
+   *  across the remaining segments). */
+  "data-testid"?: string;
 }
 
 function parseOctets(value: string): [string, string, string, string] {
@@ -36,6 +40,7 @@ export function Ipv4Input({
   readOnly,
   className,
   id,
+  "data-testid": dataTestId,
 }: Ipv4InputProps) {
   const ref0 = useRef<HTMLInputElement>(null);
   const ref1 = useRef<HTMLInputElement>(null);
@@ -144,6 +149,7 @@ export function Ipv4Input({
           <input
             ref={refs[i]}
             id={i === 0 ? id : undefined}
+            data-testid={i === 0 ? dataTestId : undefined}
             type="text"
             inputMode="numeric"
             value={octet}

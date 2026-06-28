@@ -306,3 +306,6 @@ export type {
   UpdateForwardingRuleResponse,
   DeleteForwardingRuleResponse,
 } from "./types/dns-local.js";
+
+// Utils
+export { isCompleteIpv4, ipv4ToInt } from "./utils/ipv4.js";

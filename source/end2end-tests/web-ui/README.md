@@ -24,6 +24,19 @@ self-seeded `wardnetd-ui` instance (`compose.ui.yaml`) — isolated from
 the API/kernel Vitest suite under `../daemon`. JUnit + an HTML report are
 written to `reports/`.
 
+### LAN client (`test_debian`)
+
+A real Debian container running `wardnet-test-agent client serve` on `:3001`
+is attached to `wardnet_lan`. DHCP-lease specs drive it via
+`fixtures/dhcp.ts:seedDhcpLease` (calls `/dhcp/renew` until a daemon-issued
+address lands on `eth0`). `ui_runner` depends on it with
+`condition: service_started`, not `service_healthy` — a flaky client should
+fail only the leases spec, not abort the whole suite. The IPAM range
+(`.2–.15`) sits below the pool the spec sets (`.100–.150`), so any `.100+`
+address is unambiguously daemon-issued. Agent helpers in `fixtures/dhcp.ts`
+are ported from `source/end2end-tests/daemon/tests/helpers.ts` because this
+harness deliberately avoids importing the daemon package.
+
 ## Why a self-signed TLS proxy (HTTPS)
 
 Two things need a *secure context*: the daemon's session cookie is set
@@ -92,8 +105,11 @@ Rules:
    admin-app / user-app) and the shared `@wardnet/web` components (e.g.
    `LoginForm`); forward them through `@wardnet/ui` primitives via their
    existing `...props` spread (`Button`, `Input`, `StatTile` already
-   forward). Generic primitives stay free of consumer-specific test
-   contracts.
+   forward). Complex primitives that expose several independently-targetable
+   slots (e.g. `data-table` with `searchTestId`, `addTestId`,
+   `rowActionsTestId`; `DataTableGroup.testId`; `RowAction.testId`) use
+   explicit named props instead of a single spread — the principle is the
+   same: consumers supply testids, the primitive never hardcodes them.
 4. **Label assertion**: assert a label/role/text only on elements that
    carry a meaningful one — interactive controls (`toContainText`,
    `toHaveRole`, `toHaveAttribute("aria-current", …)`) and headings

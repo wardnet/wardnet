@@ -39,12 +39,15 @@ export function ConfirmDialog({
         </AlertModalHeader>
         <AlertModalFooter>
           <AlertModalCancel asChild>
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline" data-testid="confirm-dialog-cancel">
+              Cancel
+            </Button>
           </AlertModalCancel>
           <AlertModalAction asChild>
             <Button
               variant={destructive ? "destructive" : "default"}
               onClick={onConfirm}
+              data-testid="confirm-dialog-confirm"
             >
               {confirmLabel}
             </Button>

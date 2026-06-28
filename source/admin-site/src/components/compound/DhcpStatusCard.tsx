@@ -31,13 +31,17 @@ export function DhcpStatusCard({
     <Card>
       <CardHeader>
         <CardTitle>DHCP server</CardTitle>
-        <Pill variant={status.running ? "ok" : "ghost"}>
+        <Pill
+          variant={status.running ? "ok" : "ghost"}
+          data-testid="dhcp-status-pill"
+        >
           <span className="dot" />
           {status.running ? "Running" : "Stopped"}
         </Pill>
         <CardAction>
           <Toggle
             id="dhcp-toggle"
+            data-testid="dhcp-toggle"
             aria-label="Enable DHCP"
             checked={status.enabled}
             onCheckedChange={onToggle}

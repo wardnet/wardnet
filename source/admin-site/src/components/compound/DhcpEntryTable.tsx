@@ -216,9 +216,19 @@ export function DhcpEntryTable({
   const columns = useMemo(() => buildColumns(deviceIndex), [deviceIndex]);
 
   const groups: DataTableGroup[] = [
-    { id: "all", label: "All", count: counts.all },
-    { id: "reservations", label: "Reservations", count: counts.reservations },
-    { id: "leases", label: "Leases", count: counts.leases },
+    { id: "all", label: "All", count: counts.all, testId: "dhcp-group-all" },
+    {
+      id: "reservations",
+      label: "Reservations",
+      count: counts.reservations,
+      testId: "dhcp-group-reservations",
+    },
+    {
+      id: "leases",
+      label: "Leases",
+      count: counts.leases,
+      testId: "dhcp-group-leases",
+    },
   ];
 
   // Empty initial state — show the discovery placeholder while we
@@ -243,8 +253,11 @@ export function DhcpEntryTable({
       searchValue={searchValue}
       onSearchChange={onSearchChange}
       searchPlaceholder="Search by MAC, hostname or IP"
+      searchTestId="dhcp-search"
       addLabel="Add reservation"
       onAdd={onAddReservation}
+      addTestId="dhcp-add-reservation"
+      rowActionsTestId="dhcp-entry-menu"
       onRowClick={
         onDeviceClick
           ? (entry) => {
@@ -260,6 +273,7 @@ export function DhcpEntryTable({
             <RowAction
               onSelect={() => onDeleteReservation(entry.reservation!.id)}
               destructive
+              testId="dhcp-entry-delete"
             >
               Delete
             </RowAction>
@@ -272,12 +286,16 @@ export function DhcpEntryTable({
         ) {
           return (
             <>
-              <RowAction onSelect={() => onMakeStatic(entry.lease!)}>
+              <RowAction
+                onSelect={() => onMakeStatic(entry.lease!)}
+                testId="dhcp-entry-make-static"
+              >
                 Make static
               </RowAction>
               <RowAction
                 onSelect={() => onRevokeLease(entry.lease!.id)}
                 destructive
+                testId="dhcp-entry-revoke"
               >
                 Revoke
               </RowAction>

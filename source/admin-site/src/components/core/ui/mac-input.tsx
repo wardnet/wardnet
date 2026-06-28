@@ -15,6 +15,10 @@ interface MacInputProps {
   readOnly?: boolean;
   className?: string;
   id?: string;
+  /** Forwarded onto the first hex segment input so e2e specs can locate
+   *  and drive the whole field (the 2-char auto-tab carries typing
+   *  across the remaining segments). */
+  "data-testid"?: string;
 }
 
 function parseSegments(
@@ -49,6 +53,7 @@ export function MacInput({
   readOnly,
   className,
   id,
+  "data-testid": dataTestId,
 }: MacInputProps) {
   // Six individual useRef calls (hook count must be constant and not called
   // inside a callback — `Array.from(() => useRef(...))` violates both).
@@ -149,6 +154,7 @@ export function MacInput({
           <input
             ref={refs[i]}
             id={i === 0 ? id : undefined}
+            data-testid={i === 0 ? dataTestId : undefined}
             type="text"
             value={seg.toUpperCase()}
             placeholder={placeholderSegs[i] ?? "00"}
