@@ -20,5 +20,6 @@ pub mod noop_network_probe;
 pub mod noop_power_ops;
 pub mod noop_remote_access;
 pub mod noop_routing;
+pub mod noop_throughput_tester;
 pub mod noop_tunnel;
 pub mod noop_watchdog;

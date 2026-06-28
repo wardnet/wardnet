@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { CreateTunnelRequest } from "@wardnet/js";
-import { tunnelService } from "../lib/sdk";
+import type { CreateTunnelRequest, Job } from "@wardnet/js";
+import { isJobTerminal } from "@wardnet/js";
+import { jobsService, tunnelService } from "../lib/sdk";
 
 export function useTunnels() {
   return useQuery({
@@ -99,4 +101,82 @@ export function useSetTunnelDnsOverride() {
     },
     onError: () => toast.error("Failed to update DNS override"),
   });
+}
+
+/** Recent speed test results for a tunnel (newest first). */
+export function useSpeedTestResults(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["tunnels", id, "speed-test"],
+    queryFn: () => tunnelService.getSpeedTestResults(id),
+    enabled: !!id && enabled,
+  });
+}
+
+/**
+ * Start a speed test for a tunnel and track the background job to completion.
+ *
+ * The server dispatches a job and returns immediately with its id; this hook
+ * polls the job (exposing `percentage` for an inline progress bar) and, on
+ * success, invalidates the tunnel's speed-test history so the new result
+ * renders. Each card uses its own instance, so one in-flight run is tracked
+ * per card. A 409 (run already in progress) surfaces as a dedicated toast.
+ *
+ * Mirrors the job-polling shape of `useRefreshBlocklist`; kept inline rather
+ * than extracting a shared poller so the existing blocklist hook is untouched.
+ */
+export function useStartSpeedTest() {
+  const qc = useQueryClient();
+  const [active, setActive] = useState<{
+    jobId: string;
+    tunnelId: string;
+  } | null>(null);
+
+  const dispatch = useMutation({
+    mutationFn: async (tunnelId: string) => {
+      const res = await tunnelService.startSpeedTest(tunnelId);
+      return { tunnelId, jobId: res.job_id };
+    },
+    onSuccess: ({ tunnelId, jobId }) => setActive({ jobId, tunnelId }),
+    onError: (error) => {
+      const message =
+        error instanceof Error ? error.message : "Speed test failed";
+      if (/already|conflict/i.test(message)) {
+        toast.error("Speed test already in progress");
+      } else {
+        toast.error(message);
+      }
+    },
+  });
+
+  const jobQuery = useQuery<Job>({
+    queryKey: ["job", active?.jobId],
+    queryFn: () => jobsService.get(active!.jobId),
+    enabled: !!active,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s && isJobTerminal(s) ? false : 1000;
+    },
+  });
+
+  useEffect(() => {
+    const job = jobQuery.data;
+    if (!job || !active) return;
+    if (job.status === "SUCCEED") {
+      qc.invalidateQueries({
+        queryKey: ["tunnels", active.tunnelId, "speed-test"],
+      });
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActive(null);
+    } else if (job.status === "TERMINATED_WITH_ERRORS") {
+      toast.error(job.error || "Speed test failed");
+      setActive(null);
+    }
+  }, [jobQuery.data, active, qc]);
+
+  return {
+    start: dispatch.mutate,
+    activeTunnelId: active?.tunnelId ?? null,
+    percentage: jobQuery.data?.percentage_done ?? 0,
+    isRunning: dispatch.isPending || !!active,
+  };
 }

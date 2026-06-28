@@ -26,6 +26,7 @@ use crate::system::SystemPowerOps;
 use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::tunnel::throughput_tester::{ThroughputError, ThroughputMeasurement, ThroughputTester};
 use crate::{init_services, init_services_with_factory};
 use wardnet_common::config::AdminConfig;
 
@@ -66,10 +67,23 @@ impl TunnelExitProbe for StubTunnelExitProbe {
     }
 }
 
+struct StubThroughputTester;
+#[async_trait]
+impl ThroughputTester for StubThroughputTester {
+    async fn download(
+        &self,
+        _interface: Option<&str>,
+    ) -> Result<ThroughputMeasurement, ThroughputError> {
+        Err(ThroughputError::Unsupported(
+            "stub throughput tester in init test".to_owned(),
+        ))
+    }
+}
+
 struct StubTunnelLatencyProber;
 #[async_trait]
 impl TunnelLatencyProber for StubTunnelLatencyProber {
-    async fn probe(&self, _interface: &str) -> Result<u64, LatencyProbeError> {
+    async fn probe(&self, _interface: Option<&str>) -> Result<u64, LatencyProbeError> {
         Err(LatencyProbeError::Unsupported(
             "stub latency prober in init test".to_owned(),
         ))
@@ -204,6 +218,7 @@ fn stub_backends() -> Backends {
         tunnel_interface: Arc::new(StubTunnelInterface),
         tunnel_exit_probe: Arc::new(StubTunnelExitProbe),
         tunnel_latency_prober: Arc::new(StubTunnelLatencyProber),
+        tunnel_throughput_tester: Arc::new(StubThroughputTester),
         policy_router: Arc::new(StubPolicyRouter),
         firewall: Arc::new(StubFirewall),
         packet_capture: Arc::new(StubPacketCapture),

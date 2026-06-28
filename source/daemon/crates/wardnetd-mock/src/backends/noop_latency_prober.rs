@@ -28,11 +28,13 @@ impl Default for NoopLatencyProber {
 
 #[async_trait]
 impl TunnelLatencyProber for NoopLatencyProber {
-    async fn probe(&self, interface_name: &str) -> Result<u64, LatencyProbeError> {
+    async fn probe(&self, interface_name: Option<&str>) -> Result<u64, LatencyProbeError> {
         // 10 ms feigned send time so back-to-back probes don't all
         // resolve in the same tokio poll.
         tokio::time::sleep(Duration::from_millis(10)).await;
-        Ok(synthetic_rtt(interface_name))
+        // `None` is the direct/WAN leg of a speed test; give it a stable
+        // low-ish baseline so the tunnel always looks slightly slower.
+        Ok(synthetic_rtt(interface_name.unwrap_or("<direct>")))
     }
 }
 

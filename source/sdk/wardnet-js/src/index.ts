@@ -126,6 +126,8 @@ export type {
   TunnelDevicesResponse,
   TunnelTestResult,
   TunnelTestResponse,
+  TunnelSpeedTestResult,
+  TunnelSpeedTestHistoryResponse,
   ListProvidersResponse,
   ValidateCredentialsRequest,
   ValidateCredentialsResponse,

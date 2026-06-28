@@ -16,20 +16,24 @@ use wardnet_common::routing::RoutingRule;
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::jobs::{JobService, JobServiceImpl};
 use crate::stats::buffer::StatsBuffer;
 use crate::stats::meter::Meter;
 use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::key_store::KeyStore;
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::tunnel::throughput_tester::{ThroughputError, ThroughputMeasurement, ThroughputTester};
 use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 use crate::{TunnelService, TunnelServiceImpl};
+use wardnet_common::speed_test::TunnelSpeedTestResult;
 use wardnet_common::tunnel::BestServerSelector;
 use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_data::repository::tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
 use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
 
 /// Helper to create an admin auth context for tests.
-fn admin_ctx() -> AuthContext {
+pub(super) fn admin_ctx() -> AuthContext {
     AuthContext::Admin {
         admin_id: Uuid::new_v4(),
     }
@@ -61,7 +65,7 @@ struct TunnelStatsRow {
     last_handshake: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-struct MockTunnelRepo {
+pub(super) struct MockTunnelRepo {
     rows: Mutex<Vec<TunnelRow>>,
     stats: Mutex<std::collections::HashMap<String, TunnelStatsRow>>,
 }
@@ -285,7 +289,7 @@ enum StatsBehavior {
 }
 
 /// Records calls to tunnel interface operations for assertion.
-struct MockTunnelInterface {
+pub(super) struct MockTunnelInterface {
     created: Mutex<Vec<String>>,
     brought_up: Mutex<Vec<String>>,
     torn_down: Mutex<Vec<String>>,
@@ -308,8 +312,16 @@ impl MockTunnelInterface {
         }
     }
 
-    fn set_stats(&self, stats: TunnelStats) {
+    pub(super) fn set_stats(&self, stats: TunnelStats) {
         *self.stats_behavior.lock().unwrap() = StatsBehavior::Some(stats);
+    }
+
+    pub(super) fn created_count(&self) -> usize {
+        self.created.lock().unwrap().len()
+    }
+
+    pub(super) fn torn_down_count(&self) -> usize {
+        self.torn_down.lock().unwrap().len()
     }
 
     fn set_stats_error(&self) {
@@ -473,8 +485,11 @@ impl MockTunnelLatencyProber {
 
 #[async_trait]
 impl TunnelLatencyProber for MockTunnelLatencyProber {
-    async fn probe(&self, interface: &str) -> Result<u64, LatencyProbeError> {
-        self.calls.lock().unwrap().push(interface.to_owned());
+    async fn probe(&self, interface: Option<&str>) -> Result<u64, LatencyProbeError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(interface.unwrap_or("<direct>").to_owned());
         match &*self.behavior.lock().unwrap() {
             LatencyBehavior::Ok(rtt) => Ok(*rtt),
             LatencyBehavior::Err(LatencyProbeError::Probe(m)) => {
@@ -487,6 +502,141 @@ impl TunnelLatencyProber for MockTunnelLatencyProber {
                 Err(LatencyProbeError::Unsupported(m.clone()))
             }
         }
+    }
+}
+
+// -- Mock ThroughputTester ------------------------------------------------
+
+/// Deterministic throughput tester. Records each leg (interface = `None`
+/// for direct, `Some(iface)` for tunnel) and can be made to fail a chosen
+/// leg or delay so an in-flight run overlaps with a second request.
+pub(super) struct MockThroughputTester {
+    direct_mbps: Mutex<f64>,
+    tunnel_mbps: Mutex<f64>,
+    fail_direct: Mutex<bool>,
+    fail_tunnel: Mutex<bool>,
+    delay_ms: Mutex<u64>,
+    calls: Mutex<Vec<Option<String>>>,
+}
+
+impl MockThroughputTester {
+    pub(super) fn new() -> Self {
+        Self {
+            direct_mbps: Mutex::new(94.0),
+            tunnel_mbps: Mutex::new(85.0),
+            fail_direct: Mutex::new(false),
+            fail_tunnel: Mutex::new(false),
+            delay_ms: Mutex::new(0),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn set_fail_tunnel(&self, v: bool) {
+        *self.fail_tunnel.lock().unwrap() = v;
+    }
+
+    pub(super) fn set_delay(&self, ms: u64) {
+        *self.delay_ms.lock().unwrap() = ms;
+    }
+
+    pub(super) fn calls(&self) -> Vec<Option<String>> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ThroughputTester for MockThroughputTester {
+    async fn download(
+        &self,
+        interface: Option<&str>,
+    ) -> Result<ThroughputMeasurement, ThroughputError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(interface.map(str::to_owned));
+        let delay = *self.delay_ms.lock().unwrap();
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+        let is_tunnel = interface.is_some();
+        let fail = if is_tunnel {
+            *self.fail_tunnel.lock().unwrap()
+        } else {
+            *self.fail_direct.lock().unwrap()
+        };
+        if fail {
+            return Err(ThroughputError::Download("mock leg failure".to_owned()));
+        }
+        let mbps = if is_tunnel {
+            *self.tunnel_mbps.lock().unwrap()
+        } else {
+            *self.direct_mbps.lock().unwrap()
+        };
+        Ok(ThroughputMeasurement { mbps })
+    }
+}
+
+// -- Mock TunnelSpeedTestRepository ---------------------------------------
+
+/// In-memory speed test repository capturing inserted rows.
+pub(super) struct MockSpeedTestRepo {
+    rows: Mutex<Vec<SpeedTestRow>>,
+}
+
+impl MockSpeedTestRepo {
+    pub(super) fn new() -> Self {
+        Self {
+            rows: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn count(&self) -> usize {
+        self.rows.lock().unwrap().len()
+    }
+
+    pub(super) fn rows(&self) -> Vec<SpeedTestRow> {
+        self.rows.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl TunnelSpeedTestRepository for MockSpeedTestRepo {
+    async fn insert(&self, row: &SpeedTestRow) -> anyhow::Result<()> {
+        self.rows.lock().unwrap().push(row.clone());
+        Ok(())
+    }
+
+    async fn find_recent(
+        &self,
+        tunnel_id: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<TunnelSpeedTestResult>> {
+        let mut rows: Vec<SpeedTestRow> = self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.tunnel_id == tunnel_id)
+            .cloned()
+            .collect();
+        // Newest first.
+        rows.sort_by(|a, b| b.tested_at.cmp(&a.tested_at));
+        rows.truncate(usize::try_from(limit).unwrap_or(0));
+        rows.into_iter()
+            .map(|r| {
+                Ok(TunnelSpeedTestResult {
+                    id: r.id.parse()?,
+                    tunnel_id: r.tunnel_id.parse()?,
+                    direct_throughput_mbps: r.direct_throughput_mbps,
+                    tunnel_throughput_mbps: r.tunnel_throughput_mbps,
+                    direct_latency_ms: r.direct_latency_ms,
+                    tunnel_latency_ms: r.tunnel_latency_ms,
+                    direct_jitter_ms: r.direct_jitter_ms,
+                    tunnel_jitter_ms: r.tunnel_jitter_ms,
+                    tested_at: r.tested_at.parse()?,
+                })
+            })
+            .collect()
     }
 }
 
@@ -746,18 +896,21 @@ impl ServerResolver for FakeServerResolver {
     }
 }
 
-struct TestHarness {
-    svc: TunnelServiceImpl,
-    tunnels: Arc<MockTunnelRepo>,
-    tunnel_iface: Arc<MockTunnelInterface>,
+pub(super) struct TestHarness {
+    pub(super) svc: Arc<TunnelServiceImpl>,
+    pub(super) tunnels: Arc<MockTunnelRepo>,
+    pub(super) tunnel_iface: Arc<MockTunnelInterface>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
     stats_buffer: Arc<StatsBuffer>,
     exit_probe: Arc<MockTunnelExitProbe>,
     latency_prober: Arc<MockTunnelLatencyProber>,
+    pub(super) throughput_tester: Arc<MockThroughputTester>,
+    pub(super) speed_test_repo: Arc<MockSpeedTestRepo>,
+    pub(super) jobs: Arc<dyn JobService>,
 }
 
-fn build_harness() -> TestHarness {
+pub(super) fn build_harness() -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
@@ -769,20 +922,28 @@ fn build_harness() -> TestHarness {
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
     let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
+    let throughput_tester = Arc::new(MockThroughputTester::new());
+    let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
+    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
+
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
+        throughput_tester.clone(),
         keys.clone(),
         events.clone(),
         meter,
         server_resolver,
+        jobs.clone(),
+        speed_test_repo.clone(),
+        3,
     );
 
     TestHarness {
-        svc,
+        svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
         events,
@@ -790,6 +951,9 @@ fn build_harness() -> TestHarness {
         stats_buffer,
         exit_probe,
         latency_prober,
+        throughput_tester,
+        speed_test_repo,
+        jobs,
     }
 }
 
@@ -804,20 +968,28 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
     let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
+    let throughput_tester = Arc::new(MockThroughputTester::new());
+    let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
+    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
+
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
+        throughput_tester.clone(),
         keys.clone(),
         events.clone(),
         meter,
         server_resolver,
+        jobs.clone(),
+        speed_test_repo.clone(),
+        3,
     );
 
     TestHarness {
-        svc,
+        svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
         events,
@@ -825,6 +997,9 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         stats_buffer,
         exit_probe,
         latency_prober,
+        throughput_tester,
+        speed_test_repo,
+        jobs,
     }
 }
 
@@ -839,20 +1014,28 @@ fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> Test
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
 
+    let throughput_tester = Arc::new(MockThroughputTester::new());
+    let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
+    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
+
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
+        throughput_tester.clone(),
         keys.clone(),
         events.clone(),
         meter,
         server_resolver,
+        jobs.clone(),
+        speed_test_repo.clone(),
+        3,
     );
 
     TestHarness {
-        svc,
+        svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
         events,
@@ -860,6 +1043,9 @@ fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> Test
         stats_buffer,
         exit_probe,
         latency_prober,
+        throughput_tester,
+        speed_test_repo,
+        jobs,
     }
 }
 
@@ -2237,7 +2423,7 @@ async fn list_tunnel_devices_anonymous_forbidden() {
 // -- test_tunnel ----------------------------------------------------------
 
 /// Helper: import a tunnel and return its id.
-async fn imported_tunnel_id(h: &TestHarness) -> Uuid {
+pub(super) async fn imported_tunnel_id(h: &TestHarness) -> Uuid {
     let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
         .await
         .unwrap();

@@ -17,6 +17,7 @@ pub mod session;
 pub mod stats;
 pub mod system_config;
 pub mod tunnel;
+pub mod tunnel_speed_test;
 pub mod update;
 
 pub use admin::SqliteAdminRepository;
@@ -33,6 +34,7 @@ pub use session::SqliteSessionRepository;
 pub use stats::SqliteStatsRepository;
 pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;
+pub use tunnel_speed_test::SqliteTunnelSpeedTestRepository;
 pub use update::SqliteUpdateRepository;
 
 #[cfg(test)]

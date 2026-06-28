@@ -7,10 +7,12 @@ import type {
   RebuildTunnelResponse,
   TunnelDetailResponse,
   TunnelDevicesResponse,
+  TunnelSpeedTestHistoryResponse,
   TunnelTestResponse,
   UpdateTunnelDnsOverrideRequest,
   UpdateTunnelDnsOverrideResponse,
 } from "../types/api.js";
+import type { JobDispatchedResponse } from "../types/jobs.js";
 
 /** Tunnel management service for the Wardnet daemon. */
 export class TunnelService {
@@ -83,5 +85,26 @@ export class TunnelService {
     return this.client.request<RebuildTunnelResponse>(`/tunnels/${id}/rebuild`, {
       method: "POST",
     });
+  }
+
+  /**
+   * Start a speed test for a tunnel (admin only). Returns a job id (202);
+   * poll `jobs.get(job_id)` for progress. The background job measures
+   * throughput, latency and jitter twice — once over the direct (WAN) path
+   * and once through the tunnel — so the result shows how much of the line
+   * the VPN preserves. A concurrent run on the same tunnel returns 409.
+   */
+  async startSpeedTest(id: string): Promise<JobDispatchedResponse> {
+    return this.client.request<JobDispatchedResponse>(`/tunnels/${id}/speed-test`, {
+      method: "POST",
+    });
+  }
+
+  /**
+   * List recent speed test results for a tunnel, newest first (admin only).
+   * Each result carries both the direct (WAN) and tunnel measurements.
+   */
+  async getSpeedTestResults(id: string): Promise<TunnelSpeedTestHistoryResponse> {
+    return this.client.request<TunnelSpeedTestHistoryResponse>(`/tunnels/${id}/speed-test/results`);
   }
 }

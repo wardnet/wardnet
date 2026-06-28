@@ -14,6 +14,7 @@ use uuid::Uuid;
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     BlocklistRefresh,
+    SpeedTest,
 }
 
 /// Lifecycle state of a [`Job`]. Jobs start as `Pending`, move to `Running`

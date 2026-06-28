@@ -223,6 +223,18 @@ impl TunnelService for MockTunnelService {
     async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn start_speed_test(
+        self: Arc<Self>,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_speed_tests(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::speed_test::TunnelSpeedTestHistoryResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

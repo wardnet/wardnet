@@ -400,6 +400,18 @@ impl TunnelService for StubTunnelService {
     async fn probe_latencies(&self) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn start_speed_test(
+        self: std::sync::Arc<Self>,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_speed_tests(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::speed_test::TunnelSpeedTestHistoryResponse, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

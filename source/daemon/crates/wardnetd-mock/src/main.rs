@@ -34,6 +34,7 @@ use wardnetd_mock::backends::noop_remote_access::{
     MockDdnsService, MockRemoteAccessState, MockTlsService,
 };
 use wardnetd_mock::backends::noop_routing::{NoopFirewallManager, NoopPolicyRouter};
+use wardnetd_mock::backends::noop_throughput_tester::NoopThroughputTester;
 use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::backends::noop_watchdog::NoopWatchdog;
 use wardnetd_mock::events::FakeEventEmitter;
@@ -249,6 +250,7 @@ async fn run(
         tunnel_interface: Arc::new(NoopTunnelInterface),
         tunnel_exit_probe: Arc::new(NoopExitProbe::new(factory.tunnel())),
         tunnel_latency_prober: Arc::new(NoopLatencyProber::new()),
+        tunnel_throughput_tester: Arc::new(NoopThroughputTester::new()),
         policy_router: Arc::new(NoopPolicyRouter),
         firewall: Arc::new(NoopFirewallManager),
         packet_capture: Arc::new(NoopPacketCapture),
