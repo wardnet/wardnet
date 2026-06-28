@@ -170,6 +170,7 @@ export function BackupCard({
                 variant="outline"
                 onClick={enterExport}
                 disabled={isExporting}
+                data-testid="backup-export-open"
               >
                 <DownloadIcon />
                 Download backup
@@ -216,6 +217,7 @@ export function BackupCard({
               >
                 <Input
                   id="backup-passphrase"
+                  data-testid="backup-passphrase"
                   type="password"
                   autoComplete="new-password"
                   value={exportPassphrase}
@@ -246,6 +248,7 @@ export function BackupCard({
               >
                 <Input
                   id="backup-passphrase-confirm"
+                  data-testid="backup-passphrase-confirm"
                   type="password"
                   autoComplete="new-password"
                   value={exportConfirm}
@@ -281,7 +284,11 @@ export function BackupCard({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isExporting}>
+              <Button
+                type="submit"
+                disabled={isExporting}
+                data-testid="backup-export-submit"
+              >
                 {isExporting ? (
                   <>
                     <Loader2 className="animate-spin" />
@@ -312,6 +319,7 @@ export function BackupCard({
                 variant="destructive"
                 onClick={enterRestore}
                 disabled={isPreviewing || isApplying}
+                data-testid="backup-restore-open"
               >
                 <UploadIcon />
                 Restore…
@@ -341,6 +349,7 @@ export function BackupCard({
               <Field label="Bundle file" htmlFor="backup-bundle" name="bundle">
                 <input
                   id="backup-bundle"
+                  data-testid="backup-bundle"
                   ref={fileInputRef}
                   type="file"
                   accept=".age,.wardnet,.wardnet.age"
@@ -363,6 +372,7 @@ export function BackupCard({
               >
                 <Input
                   id="restore-passphrase"
+                  data-testid="restore-passphrase"
                   type="password"
                   // `off` + `new-password` together suppress every popular
                   // browser's autofill for this field — this is a bundle
@@ -409,7 +419,11 @@ export function BackupCard({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPreviewing}>
+              <Button
+                type="submit"
+                disabled={isPreviewing}
+                data-testid="backup-preview-submit"
+              >
                 {isPreviewing ? (
                   <>
                     <Loader2 className="animate-spin" />
@@ -447,6 +461,7 @@ export function BackupCard({
                 variant="destructive"
                 onClick={handleApply}
                 disabled={!preview.compatible || isApplying}
+                data-testid="backup-apply-submit"
               >
                 {isApplying ? (
                   <>
@@ -471,7 +486,12 @@ function RestorePreviewDetails({
   preview: RestorePreviewResponse;
 }) {
   return (
-    <Text as="div" size="sm" className="space-y-3">
+    <Text
+      as="div"
+      size="sm"
+      className="space-y-3"
+      data-testid="restore-preview"
+    >
       {!preview.compatible && (
         <div className="flex gap-2 rounded-md bg-danger-soft p-3 text-danger-soft-ink">
           <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />

@@ -47,6 +47,7 @@ export default function Settings() {
               as="dl"
               size="sm"
               className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3"
+              data-testid="system-info"
             >
               <div>
                 <Text
@@ -60,6 +61,7 @@ export default function Settings() {
                   as="dd"
                   weight="medium"
                   title={`build: ${status.version}`}
+                  data-testid="system-version"
                 >
                   {status.release_version}
                 </Text>

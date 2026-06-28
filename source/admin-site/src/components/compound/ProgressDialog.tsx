@@ -91,9 +91,12 @@ export function ProgressDialog({
         if (!next && terminal) onDismiss();
       }}
     >
-      <AlertModalContent>
+      <AlertModalContent data-testid="progress-dialog">
         <AlertModalHeader>
-          <AlertModalTitle className="flex items-center gap-2">
+          <AlertModalTitle
+            className="flex items-center gap-2"
+            data-testid="progress-title"
+          >
             {phase === "in-progress" && (
               <Loader2Icon className="h-5 w-5 animate-spin text-ink-3" />
             )}
@@ -134,7 +137,11 @@ export function ProgressDialog({
           <AlertModalFooter>
             {phase === "success" && successAction}
             <AlertModalCancel asChild>
-              <Button variant="outline" onClick={onDismiss}>
+              <Button
+                variant="outline"
+                onClick={onDismiss}
+                data-testid="progress-dismiss"
+              >
                 Dismiss
               </Button>
             </AlertModalCancel>

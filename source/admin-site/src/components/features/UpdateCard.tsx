@@ -127,6 +127,7 @@ export function UpdateCard({
               token would ripple across the whole app. */}
         <Toggle
           id="auto-update-toggle"
+          data-testid="update-auto-toggle"
           aria-label="Enable automatic updates"
           className="ml-auto min-[890px]:order-last min-[890px]:ml-0"
           checked={autoEnabled}
@@ -139,7 +140,10 @@ export function UpdateCard({
             onValueChange={(v) => onChangeChannel(v as UpdateChannel)}
             disabled={!status || phaseActive}
           >
-            <SelectTrigger className="select-trigger--md w-40">
+            <SelectTrigger
+              className="select-trigger--md w-40"
+              data-testid="update-channel-trigger"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -152,6 +156,7 @@ export function UpdateCard({
             onClick={onCheck}
             disabled={isChecking || phaseActive}
             aria-label="Check for updates"
+            data-testid="update-check"
           >
             <RefreshCwIcon
               className={isChecking ? "animate-spin" : undefined}

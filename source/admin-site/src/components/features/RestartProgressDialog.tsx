@@ -122,7 +122,7 @@ function contentFor(phase: RestartPhase, onSignIn: () => void): PhaseContent {
       : "Service is back on and your session is still valid.",
     successAction: signedOut ? (
       <AlertModalAction asChild>
-        <Button onClick={onSignIn}>
+        <Button onClick={onSignIn} data-testid="restart-signin">
           <LogInIcon className="mr-2 h-4 w-4" />
           Sign in again
         </Button>

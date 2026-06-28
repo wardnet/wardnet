@@ -50,6 +50,7 @@ use wardnet_common::backup::{
     RestorePhase, SnapshotKind,
 };
 use wardnetd_data::database_dumper::DatabaseDumper;
+use wardnetd_data::db::restore_pending_marker_path;
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::secret_store::{SecretEntry, SecretStore};
 
@@ -392,6 +393,18 @@ impl BackupServiceImpl {
             self.secret_store
                 .restore_from_backup(&pending.contents.secrets)
                 .await?;
+
+            // Signal the next startup to discard the pre-restore WAL/SHM
+            // sidecars. The live WAL-mode pool keeps writing the old
+            // database's frames into `<db>-wal` until we restart (this
+            // method's restart-pending write, the graceful-shutdown
+            // record, …); without this marker SQLite would recover that
+            // WAL onto the freshly restored snapshot and resurrect
+            // pre-restore state. Written last so any failure above rolls
+            // back; removed again on the rollback path below.
+            tokio::fs::write(restore_pending_marker_path(&self.database_path), b"")
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to write restore-pending marker: {e}"))?;
             Ok(())
         }
         .await;
@@ -410,6 +423,10 @@ impl BackupServiceImpl {
                 let _ = tokio::fs::rename(&config_hold, &self.config_path).await;
             }
             let _ = tokio::fs::remove_file(&staged_config).await;
+            // Drop the restore marker if we got far enough to write it —
+            // the original DB (and its live WAL) are back in place and
+            // must recover normally on the next boot.
+            let _ = tokio::fs::remove_file(restore_pending_marker_path(&self.database_path)).await;
             // Replay pre-restore secrets — the `restore_from_backup`
             // contract is "replace store contents with these entries",
             // so re-applying the captured list reverts the store.

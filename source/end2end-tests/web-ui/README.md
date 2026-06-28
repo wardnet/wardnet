@@ -91,6 +91,16 @@ the `wardnet_session` cookie (built from the login token). The
 `user-app` is unauthenticated (device-keyed); from the mgmt-side runner
 it shows the no-device state.
 
+## Spec ordering (`stateful/`)
+
+The suite runs single-worker against one shared daemon, and Playwright
+runs spec files in lexicographic path order. Specs that **restart the
+daemon** (currently `power.spec.ts` and `backups.spec.ts`) live under
+`tests/admin-site/stateful/`, whose path sorts after every read-only
+spec — so the destructive restarts run last and a slow/flaky restart
+can't cascade into the read-only specs. Put any future restart/reboot/
+shutdown spec there too; keep order-independent specs at the top level.
+
 ## Local overrides
 
 - `WARDNET_UI_BASE_URL` — daemon base URL the browser hits (default
