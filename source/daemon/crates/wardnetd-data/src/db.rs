@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sqlx::SqlitePool;
@@ -23,6 +23,72 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 /// at the default 4 KiB page size is ~100 MiB of reclaimable space.
 const VACUUM_FREELIST_THRESHOLD_PAGES: i64 = 25_000;
 const MEMORY_CONNECTION_STRING: &str = ":memory:";
+/// File-name suffix for the sentinel a backup restore drops next to the
+/// database. Its presence on startup means the `<db>` file was just
+/// replaced by a restored snapshot and any leftover WAL/SHM sidecars
+/// belong to the *pre-restore* database — they must be discarded, not
+/// recovered onto the snapshot.
+const RESTORE_PENDING_SUFFIX: &str = ".restore-pending";
+
+/// Path of the restore-pending sentinel for a given database file.
+///
+/// The backup service writes this after laying down a restored snapshot;
+/// [`init_db_pools_from_connection_string`] consumes it on the next
+/// startup. Shared here so writer and reader agree on the location.
+#[must_use]
+pub fn restore_pending_marker_path(db_path: &Path) -> PathBuf {
+    let mut name = db_path.as_os_str().to_owned();
+    name.push(RESTORE_PENDING_SUFFIX);
+    PathBuf::from(name)
+}
+
+/// Build the path of a sibling sidecar (`-wal`, `-shm`, …) for a database file.
+fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut name = db_path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// If a backup restore is pending, discard the stale WAL/SHM sidecars
+/// before any pool opens the database.
+///
+/// A file-swap restore replaces `<db>` with a complete, self-contained
+/// `VACUUM INTO` snapshot, but the *live* WAL-mode pool keeps writing the
+/// pre-restore database's frames into `<db>-wal` until the process exits
+/// (the restart-pending write, the graceful-shutdown record, …). On the
+/// next boot `SQLite` would recover that WAL onto the freshly restored
+/// snapshot, silently resurrecting pre-restore state. Gated on the
+/// sentinel so a normal crash still recovers its WAL as usual.
+pub(crate) fn discard_stale_wal_for_restore(db_path: &Path) {
+    let marker = restore_pending_marker_path(db_path);
+    if !marker.exists() {
+        return;
+    }
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = sidecar_path(db_path, suffix);
+        match std::fs::remove_file(&sidecar) {
+            Ok(()) => tracing::warn!(
+                path = %sidecar.display(),
+                "restore pending: discarded stale SQLite sidecar so it isn't recovered onto the restored snapshot",
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::error!(
+                path = %sidecar.display(),
+                error = %e,
+                "restore pending: failed to discard stale SQLite sidecar",
+            ),
+        }
+    }
+    if let Err(e) = std::fs::remove_file(&marker)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::error!(
+            path = %marker.display(),
+            error = %e,
+            "restore pending: failed to remove restore sentinel; WAL discard may repeat next boot",
+        );
+    }
+}
 
 /// A reader/writer pair backed by `SQLite`.
 ///
@@ -101,6 +167,11 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+
+        // Before opening any pool: if a backup restore just laid down a
+        // fresh snapshot, drop the pre-restore WAL/SHM sidecars so SQLite
+        // recovers the restored database, not the stale WAL.
+        discard_stale_wal_for_restore(path);
 
         // Shared options used by both pools — they must agree on
         // journal mode, synchronous level, FK enforcement and the
