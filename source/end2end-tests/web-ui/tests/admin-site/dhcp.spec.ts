@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+import { seedReservation } from "../../fixtures/dhcp.js";
 
 /**
  * Admin-site DHCP page coverage: the enable/disable toggle, the
@@ -12,6 +14,20 @@ import { expect, test } from "@playwright/test";
  * leaves the server enabled, so behaviour doesn't depend on spec order
  * on the shared single-worker daemon.
  */
+
+/**
+ * Fill a segmented Ipv4Input/MacInput by setting each octet/segment
+ * input directly. Filling per-segment (rather than typing the dotted
+ * string) avoids the component's auto-tab: an octet > 25 auto-advances
+ * focus, which would otherwise let a following "." skip the next
+ * segment and produce a malformed value.
+ */
+async function fillSegments(field: Locator, parts: string[]): Promise<void> {
+  const inputs = field.locator("input");
+  for (let i = 0; i < parts.length; i++) {
+    await inputs.nth(i).fill(parts[i]);
+  }
+}
 
 test("the status toggle enables and disables the DHCP server", async ({
   page,
@@ -52,13 +68,9 @@ test("the pool editor validates the range client-side and persists a valid edit"
   const poolEnd = page.getByTestId("dhcp-pool-end");
   const save = page.getByTestId("dhcp-config-save");
 
-  // Inverted range — pool end below pool start. The segmented Ipv4Input
-  // auto-tabs between octets on each "." so typing the dotted-quad fills
-  // the whole field and overwrites the pre-filled value.
-  await poolStart.click();
-  await poolStart.pressSequentially("10.91.0.200");
-  await poolEnd.click();
-  await poolEnd.pressSequentially("10.91.0.100");
+  // Inverted range — pool end below pool start.
+  await fillSegments(poolStart, ["10", "91", "0", "200"]);
+  await fillSegments(poolEnd, ["10", "91", "0", "100"]);
 
   // Client-side guard blocks the save with an inline message.
   const validation = page.getByTestId("dhcp-config-validation");
@@ -70,10 +82,8 @@ test("the pool editor validates the range client-side and persists a valid edit"
 
   // Fix the range to a valid one that still contains any seeded lease
   // (.100–.150): start .100, end .180. The message clears, save unlocks.
-  await poolStart.click();
-  await poolStart.pressSequentially("10.91.0.100");
-  await poolEnd.click();
-  await poolEnd.pressSequentially("10.91.0.180");
+  await fillSegments(poolStart, ["10", "91", "0", "100"]);
+  await fillSegments(poolEnd, ["10", "91", "0", "180"]);
 
   await expect(validation).toBeHidden();
   await expect(save).toBeEnabled();
@@ -87,6 +97,14 @@ test("the pool editor validates the range client-side and persists a valid edit"
   await expect(range).toContainText("10.91.0.180");
 });
 
+// Guarantee the entry table is non-empty so its toolbar (and the "Add
+// reservation" button) renders — the table shows a placeholder with no
+// toolbar when it has zero leases and zero reservations. Seeded via the
+// API so the test doesn't depend on the leases spec running first.
+test.beforeAll(async () => {
+  await seedReservation("AA:BB:CC:DD:EE:50", "10.91.0.50");
+});
+
 test("a reservation can be created and then deleted", async ({ page }) => {
   await page.goto("./dhcp");
 
@@ -98,14 +116,20 @@ test("a reservation can be created and then deleted", async ({ page }) => {
   // Open the inline create form from the table toolbar.
   await page.getByTestId("dhcp-add-reservation").click();
 
-  await page.getByTestId("dhcp-reservation-mac").click();
-  await page
-    .getByTestId("dhcp-reservation-mac")
-    .pressSequentially("AABBCCDDEE60");
-  await page.getByTestId("dhcp-reservation-ip").click();
-  await page
-    .getByTestId("dhcp-reservation-ip")
-    .pressSequentially(reservationIp);
+  await fillSegments(page.getByTestId("dhcp-reservation-mac"), [
+    "AA",
+    "BB",
+    "CC",
+    "DD",
+    "EE",
+    "60",
+  ]);
+  await fillSegments(page.getByTestId("dhcp-reservation-ip"), [
+    "10",
+    "91",
+    "0",
+    "60",
+  ]);
   await page.getByTestId("dhcp-reservation-hostname").fill(hostname);
   await page.getByTestId("dhcp-reservation-submit").click();
 

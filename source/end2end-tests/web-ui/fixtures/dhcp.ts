@@ -194,3 +194,27 @@ export async function seedDhcpLease(): Promise<string> {
     DHCP_POOL_END,
   );
 }
+
+/**
+ * Create a static reservation via the API so the admin-site DHCP table
+ * is non-empty (the table renders a placeholder with no toolbar — and
+ * thus no "Add reservation" button — when it has zero entries). Needs
+ * no LAN client, so it's a cheap, order-independent precondition.
+ * Idempotent: a 409 (reservation already exists) is treated as success.
+ */
+export async function seedReservation(
+  macAddress: string,
+  ipAddress: string,
+): Promise<void> {
+  const token = await ensureAdminSetup();
+  try {
+    await api("/dhcp/reservations", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ mac_address: macAddress, ip_address: ipAddress }),
+    });
+  } catch (err) {
+    // A repeat run hits "reservation already exists" (409) — fine.
+    if (!String(err).includes("409")) throw err;
+  }
+}

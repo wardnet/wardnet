@@ -15,9 +15,10 @@ interface MacInputProps {
   readOnly?: boolean;
   className?: string;
   id?: string;
-  /** Forwarded onto the first hex segment input so e2e specs can locate
-   *  and drive the whole field (the 2-char auto-tab carries typing
-   *  across the remaining segments). */
+  /** Forwarded onto the field wrapper so e2e specs can locate it and
+   *  fill each hex-segment input individually
+   *  (`getByTestId(id).locator("input")`), avoiding reliance on the
+   *  2-char auto-tab while typing. */
   "data-testid"?: string;
 }
 
@@ -142,6 +143,7 @@ export function MacInput({
   return (
     <div
       data-segmented
+      data-testid={dataTestId}
       className={cn(
         "input",
         disabled && "cursor-not-allowed opacity-60",
@@ -154,7 +156,6 @@ export function MacInput({
           <input
             ref={refs[i]}
             id={i === 0 ? id : undefined}
-            data-testid={i === 0 ? dataTestId : undefined}
             type="text"
             value={seg.toUpperCase()}
             placeholder={placeholderSegs[i] ?? "00"}

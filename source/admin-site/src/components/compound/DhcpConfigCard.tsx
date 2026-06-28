@@ -73,7 +73,8 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   // are only checked when the user typed something.
   const validationError = useMemo<string | null>(() => {
     if (!editing) return null;
-    if (!isCompleteIpv4(poolStart)) return "Enter a complete pool start address.";
+    if (!isCompleteIpv4(poolStart))
+      return "Enter a complete pool start address.";
     if (!isCompleteIpv4(poolEnd)) return "Enter a complete pool end address.";
     if (!isCompleteIpv4(subnetMask)) return "Enter a complete subnet mask.";
     if (routerIp !== "" && !isCompleteIpv4(routerIp))
