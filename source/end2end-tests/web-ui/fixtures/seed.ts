@@ -82,7 +82,7 @@ interface SetupStatus {
 }
 
 /** JSON request against the daemon API. Throws on non-2xx. */
-async function api<T>(
+export async function api<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {

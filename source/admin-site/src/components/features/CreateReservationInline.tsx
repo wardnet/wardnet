@@ -84,6 +84,7 @@ export function CreateReservationInline({
           <Field label="MAC address" htmlFor="res-mac" className="flex-1">
             <MacInput
               id="res-mac"
+              data-testid="dhcp-reservation-mac"
               value={macAddress}
               onChange={setMacAddress}
               readOnly={macReadOnly}
@@ -93,6 +94,7 @@ export function CreateReservationInline({
           <Field label="IP address" htmlFor="res-ip" className="flex-1">
             <Ipv4Input
               id="res-ip"
+              data-testid="dhcp-reservation-ip"
               value={ipAddress}
               onChange={setIpAddress}
               placeholder="10.232.1.50"
@@ -108,6 +110,7 @@ export function CreateReservationInline({
           >
             <Input
               id="res-hostname"
+              data-testid="dhcp-reservation-hostname"
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               placeholder="my-printer"
@@ -121,6 +124,7 @@ export function CreateReservationInline({
           >
             <Input
               id="res-desc"
+              data-testid="dhcp-reservation-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Office printer"
@@ -140,10 +144,15 @@ export function CreateReservationInline({
           variant="ghost"
           onClick={onClose}
           disabled={createReservation.isPending}
+          data-testid="dhcp-reservation-cancel"
         >
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={createReservation.isPending}>
+        <Button
+          onClick={handleSave}
+          disabled={createReservation.isPending}
+          data-testid="dhcp-reservation-submit"
+        >
           {createReservation.isPending ? "Creating…" : "Create reservation"}
         </Button>
       </CardFooter>

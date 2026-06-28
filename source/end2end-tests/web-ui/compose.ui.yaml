@@ -174,6 +174,43 @@ services:
       retries: 30
       start_period: 10s
 
+  # Real LAN client used by the DHCP-leases spec (A3, #618). Runs the
+  # wardnet-test-agent HTTP server on :3001; the spec drives its
+  # /dhcp/renew to make `wardnetd-ui`'s DHCP server hand out a lease,
+  # then asserts that lease surfaces in the admin-site DHCP table. Same
+  # image + custom dhclient script as the daemon stack's test_debian
+  # (the leased address lands as a secondary IPv4 so compose's
+  # service-name DNS to test_debian keeps resolving). The wardnet_lan
+  # IPAM range (.2-.15) sits below the .100-.150 pool the spec sets, so
+  # a .100+ address is unambiguously daemon-issued.
+  #
+  # WARDNETD_TEST_IMAGE points at the image `wardnetd-ui` already builds
+  # (WEB_DIST=real, same Dockerfile.test that bundles wardnet-test-agent),
+  # so no second daemon image is compiled. The Makefile builds
+  # wardnetd-ui before this service so the `FROM` resolves.
+  test_debian:
+    build:
+      context: ../../..
+      dockerfile: source/end2end-tests/daemon/Dockerfile.client
+      args:
+        BASE_IMAGE: debian:bookworm-slim
+        WARDNETD_TEST_IMAGE: ${WARDNETD_UI_TEST_IMAGE:-wardnetd:dev-test-ui}
+    image: wardnet-test-client-debian:dev
+    depends_on:
+      wardnetd-ui:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      wardnet_lan: {}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
+
   ui_runner:
     build:
       context: ../../..
@@ -186,10 +223,20 @@ services:
         condition: service_healthy
       tls_proxy:
         condition: service_healthy
+      # Best-effort only (started, not healthy): the LAN client backs a
+      # single spec (dhcp-leases). If it never goes healthy, the runner
+      # must still start so the rest of the suite executes and that one
+      # spec surfaces its own assertion failure — matching the Makefile's
+      # `|| echo … running playwright anyway`. A hard `service_healthy`
+      # here (with `compose run`, no `--no-deps`) would instead abort the
+      # whole suite on a flaky LAN client.
+      test_debian:
+        condition: service_started
     environment:
       WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
       WARDNET_UI_FRESH_BASE_URL: "https://wardnetd-ui-fresh-tls"
       WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
+      WARDNET_TEST_DEBIAN_AGENT: "http://test_debian:3001"
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.

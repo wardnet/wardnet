@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@wardnet/web";
 import {
   Card,
@@ -12,6 +12,7 @@ import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
+import { isCompleteIpv4, ipv4ToInt } from "@wardnet/js";
 import { ApiErrorAlert } from "@wardnet/web";
 import { useUpdateDhcpConfig } from "@wardnet/web";
 import { useDnsConfig } from "@wardnet/web";
@@ -65,7 +66,26 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
     updateConfig.reset();
   }
 
+  // Client-side guard for the pool editor. `Ipv4Input` already clamps
+  // octets to 0–255, so we only catch incomplete addresses and a pool
+  // range whose end precedes its start — the same rules the daemon
+  // enforces, surfaced before the round-trip. Optional fields (router)
+  // are only checked when the user typed something.
+  const validationError = useMemo<string | null>(() => {
+    if (!editing) return null;
+    if (!isCompleteIpv4(poolStart))
+      return "Enter a complete pool start address.";
+    if (!isCompleteIpv4(poolEnd)) return "Enter a complete pool end address.";
+    if (!isCompleteIpv4(subnetMask)) return "Enter a complete subnet mask.";
+    if (routerIp !== "" && !isCompleteIpv4(routerIp))
+      return "Enter a complete fallback router address.";
+    if (ipv4ToInt(poolEnd) < ipv4ToInt(poolStart))
+      return "Pool end must be at or after pool start.";
+    return null;
+  }, [editing, poolStart, poolEnd, subnetMask, routerIp]);
+
   async function handleSave() {
+    if (validationError) return;
     await updateConfig.mutateAsync({
       pool_start: poolStart,
       pool_end: poolEnd,
@@ -88,7 +108,12 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
         </CardTitle>
         {!editing && (
           <CardAction>
-            <Button variant="outline" size="sm" onClick={startEdit}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startEdit}
+              data-testid="dhcp-config-edit"
+            >
               Edit
             </Button>
           </CardAction>
@@ -106,6 +131,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               >
                 <Ipv4Input
                   id="dhcp-pool-start"
+                  data-testid="dhcp-pool-start"
                   value={poolStart}
                   onChange={setPoolStart}
                   placeholder="192.168.1.100"
@@ -118,6 +144,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               >
                 <Ipv4Input
                   id="dhcp-pool-end"
+                  data-testid="dhcp-pool-end"
                   value={poolEnd}
                   onChange={setPoolEnd}
                   placeholder="192.168.1.200"
@@ -128,6 +155,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             <Field label="Subnet mask" htmlFor="dhcp-subnet">
               <Ipv4Input
                 id="dhcp-subnet"
+                data-testid="dhcp-subnet"
                 value={subnetMask}
                 onChange={setSubnetMask}
                 placeholder="255.255.255.0"
@@ -157,6 +185,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               >
                 <Ipv4Input
                   id="dhcp-router"
+                  data-testid="dhcp-router"
                   value={routerIp}
                   onChange={setRouterIp}
                   placeholder="10.232.1.1"
@@ -179,6 +208,17 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               </Field>
             )}
 
+            {validationError && (
+              <Text
+                as="p"
+                size="sm"
+                className="text-danger-soft-ink"
+                data-testid="dhcp-config-validation"
+              >
+                {validationError}
+              </Text>
+            )}
+
             {updateConfig.isError && (
               <ApiErrorAlert
                 error={updateConfig.error}
@@ -191,10 +231,15 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               variant="ghost"
               onClick={cancelEdit}
               disabled={updateConfig.isPending}
+              data-testid="dhcp-config-cancel"
             >
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={updateConfig.isPending}>
+            <Button
+              onClick={handleSave}
+              disabled={updateConfig.isPending || validationError !== null}
+              data-testid="dhcp-config-save"
+            >
               {updateConfig.isPending ? "Saving…" : "Save"}
             </Button>
           </CardFooter>
@@ -210,7 +255,12 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             </div>
             <div>
               <dt className="text-ink-3">Pool range</dt>
-              <Text as="dd" size="xs" className="font-mono">
+              <Text
+                as="dd"
+                size="xs"
+                className="font-mono"
+                data-testid="dhcp-config-pool-range"
+              >
                 {config.pool_start} &ndash; {config.pool_end}
               </Text>
             </div>

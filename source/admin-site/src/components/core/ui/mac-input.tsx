@@ -15,6 +15,11 @@ interface MacInputProps {
   readOnly?: boolean;
   className?: string;
   id?: string;
+  /** Forwarded onto the field wrapper so e2e specs can locate it and
+   *  fill each hex-segment input individually
+   *  (`getByTestId(id).locator("input")`), avoiding reliance on the
+   *  2-char auto-tab while typing. */
+  "data-testid"?: string;
 }
 
 function parseSegments(
@@ -49,6 +54,7 @@ export function MacInput({
   readOnly,
   className,
   id,
+  "data-testid": dataTestId,
 }: MacInputProps) {
   // Six individual useRef calls (hook count must be constant and not called
   // inside a callback — `Array.from(() => useRef(...))` violates both).
@@ -137,6 +143,7 @@ export function MacInput({
   return (
     <div
       data-segmented
+      data-testid={dataTestId}
       className={cn(
         "input",
         disabled && "cursor-not-allowed opacity-60",

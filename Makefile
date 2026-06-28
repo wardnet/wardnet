@@ -504,6 +504,8 @@ e2e-ui: build-web
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait test_debian || \
+	    echo "warning: test_debian (LAN client) not healthy; running playwright anyway so failures surface as assertions"; \
 	echo "::group::compose ps before playwright"; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a; \
 	echo "::endgroup::"; \

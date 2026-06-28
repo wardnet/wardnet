@@ -15,6 +15,12 @@ interface Ipv4InputProps {
   readOnly?: boolean;
   className?: string;
   id?: string;
+  /** Forwarded onto the field wrapper so e2e specs can locate it and
+   *  fill each octet input individually (`getByTestId(id).locator("input")`).
+   *  Per-segment filling avoids the auto-tab-on-`.` behaviour, which
+   *  can skip an octet that another octet's >25 auto-advance already
+   *  jumped past. */
+  "data-testid"?: string;
 }
 
 function parseOctets(value: string): [string, string, string, string] {
@@ -36,6 +42,7 @@ export function Ipv4Input({
   readOnly,
   className,
   id,
+  "data-testid": dataTestId,
 }: Ipv4InputProps) {
   const ref0 = useRef<HTMLInputElement>(null);
   const ref1 = useRef<HTMLInputElement>(null);
@@ -132,6 +139,7 @@ export function Ipv4Input({
   return (
     <div
       data-segmented
+      data-testid={dataTestId}
       className={cn(
         "input",
         disabled && "cursor-not-allowed opacity-60",
