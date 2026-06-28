@@ -49,6 +49,7 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
           <button
             onClick={handleAccept}
             disabled={loading}
+            data-testid="biometric-setup-enable"
             className="flex-1 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink disabled:opacity-50"
           >
             {loading ? "Setting up…" : "Enable"}
@@ -56,6 +57,7 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
           <button
             onClick={onDecline}
             disabled={loading}
+            data-testid="biometric-setup-decline"
             className="flex-1 rounded-md border border-line px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
           >
             Not now

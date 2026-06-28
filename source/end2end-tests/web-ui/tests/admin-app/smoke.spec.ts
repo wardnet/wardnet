@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Scaffold smoke: the admin-app PWA shell loads in a mobile viewport
- * without throwing. PWA install / offline / nav coverage lands in B1.
+ * Smoke canary: the admin-app PWA shell loads in a mobile viewport without
+ * throwing. Full PWA install / offline / nav coverage lives in
+ * `pwa-shell.spec.ts`.
  */
 test("admin-app shell renders", async ({ page }) => {
   const pageErrors: string[] = [];

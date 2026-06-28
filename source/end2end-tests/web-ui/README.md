@@ -9,8 +9,13 @@ in `wardnetd` via rust-embed and served on one origin:
 | `admin-app`  | admin mobile PWA       | `/admin-app/` |
 | `user-app`   | device-keyed user PWA  | `/`           |
 
-This is the **PW-0 scaffold** (epic #614): harness + one smoke spec per
-surface. Feature coverage lands in the A/B/C-stage sub-issues.
+The harness (epic #614, PW-0) is established; feature coverage lands per
+A/B/C-stage sub-issue. Each surface keeps a `smoke.spec.ts` canary
+alongside its feature specs — `admin-site/` carries the desktop SPA
+coverage (dashboard, devices, DHCP, login, setup, layout, not-found) and
+`admin-app/pwa-shell.spec.ts` covers the mobile PWA shell (manifest +
+installability, the service-worker offline shell, tab-bar nav, and
+`/admin-app/login` + shared admin-session reuse).
 
 ## Run
 
