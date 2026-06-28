@@ -112,6 +112,7 @@ export function UpstreamServersCard({
           {!adding && (
             <Button
               variant="outline"
+              data-testid="upstream-add"
               onClick={() => setAdding(true)}
               disabled={isSaving}
             >
@@ -143,6 +144,7 @@ export function UpstreamServersCard({
           <DataTable
             columns={columns}
             data={rows}
+            rowActionsTestId="upstream-row-menu"
             rowActions={(row) => (
               <>
                 <RowAction
@@ -157,7 +159,11 @@ export function UpstreamServersCard({
                 >
                   Move down
                 </RowAction>
-                <RowAction onSelect={() => remove(row.__index)} destructive>
+                <RowAction
+                  onSelect={() => remove(row.__index)}
+                  testId="upstream-remove"
+                  destructive
+                >
                   Remove
                 </RowAction>
               </>
@@ -221,6 +227,7 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
             >
               <Input
                 id="ups-name"
+                data-testid="upstream-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Cloudflare"
@@ -260,6 +267,7 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
             >
               <Input
                 id="ups-addr"
+                data-testid="upstream-address"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="1.1.1.1"
@@ -319,7 +327,11 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSaving}>
+          <Button
+            type="submit"
+            data-testid="upstream-submit"
+            disabled={isSaving}
+          >
             Add server
           </Button>
         </CardFooter>

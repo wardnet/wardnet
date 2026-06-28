@@ -174,7 +174,9 @@ export default function DnsFilter() {
         description="Block ads, trackers, and unwanted domains across every device on the network. Profiles bundle blocklists, allowlists, and custom rules."
         actions={
           hasProfiles ? (
-            <Button onClick={addProfile}>Add profile</Button>
+            <Button onClick={addProfile} data-testid="filter-add-profile">
+              Add profile
+            </Button>
           ) : undefined
         }
       />

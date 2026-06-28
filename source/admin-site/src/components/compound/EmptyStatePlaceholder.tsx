@@ -13,6 +13,10 @@ interface EmptyStatePlaceholderProps {
   actionLabel?: string;
   /** Action button callback. */
   onAction?: () => void;
+  /** Optional `data-testid` for the action button, forwarded from the
+   *  consuming component so this shared placeholder carries no baked-in
+   *  test contract (e2e selector ADR). */
+  actionTestId?: string;
   /** Override the default icon. */
   icon?: ReactNode;
 }
@@ -31,6 +35,7 @@ export function EmptyStatePlaceholder({
   hint,
   actionLabel,
   onAction,
+  actionTestId,
   icon,
 }: EmptyStatePlaceholderProps) {
   // Pre-computed token tints keep the rings + icon hierarchy that defines
@@ -133,7 +138,11 @@ export function EmptyStatePlaceholder({
           </Text>
         )}
         {actionLabel && onAction && (
-          <Button onClick={onAction} className="mt-2">
+          <Button
+            onClick={onAction}
+            data-testid={actionTestId}
+            className="mt-2"
+          >
             {actionLabel}
           </Button>
         )}

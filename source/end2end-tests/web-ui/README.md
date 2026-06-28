@@ -37,6 +37,19 @@ address is unambiguously daemon-issued. Agent helpers in `fixtures/dhcp.ts`
 are ported from `source/end2end-tests/daemon/tests/helpers.ts` because this
 harness deliberately avoids importing the daemon package.
 
+### Blocklist fixture server (`blocklist_server`)
+
+A static HTTP server (Caddy `file-server`, same pinned image as `tls_proxy`)
+on `wardnet_mgmt` at the fixed IP `10.90.0.20`, serving
+`fixtures/blocklist/hosts.txt`. The ad-blocking spec (`adblocking.spec.ts`)
+adds a blocklist pointing at `http://10.90.0.20/hosts.txt`
+(`WARDNET_BLOCKLIST_FIXTURE_URL`) and forces an update; the **daemon** fetches
+and parses it, so this exercises the real download path (the daemon's
+downloader uses a plain `reqwest` client — no HTTPS/SSRF guard). The URL uses
+the server's IP, not its Docker service name, because the daemon is itself the
+DNS resolver on this stack. `ui_runner` depends on it with
+`condition: service_healthy`.
+
 ## Why a self-signed TLS proxy (HTTPS)
 
 Two things need a *secure context*: the daemon's session cookie is set

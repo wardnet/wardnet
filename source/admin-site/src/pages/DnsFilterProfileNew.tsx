@@ -53,6 +53,7 @@ export default function DnsFilterProfileNew() {
           >
             <Input
               id="profile-name"
+              data-testid="profile-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Parental Controls"
@@ -86,6 +87,7 @@ export default function DnsFilterProfileNew() {
           </Button>
           <Button
             onClick={handleSave}
+            data-testid="profile-create-submit"
             disabled={create.isPending || name.trim() === ""}
           >
             {create.isPending ? "Creating…" : "Create profile"}

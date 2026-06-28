@@ -61,6 +61,7 @@ export function AllowlistTable({
         hint="Domains added here will never be blocked, even if they appear in a blocklist."
         actionLabel="Add domain"
         onAction={onAdd}
+        actionTestId="allowlist-add"
       />
     );
   }
@@ -72,6 +73,7 @@ export function AllowlistTable({
       fixedLayout
       addLabel="Add domain"
       onAdd={onAdd}
+      addTestId="allowlist-add"
       rowActions={(entry) => (
         <RowAction onSelect={() => onDelete(entry.id)} destructive>
           Remove

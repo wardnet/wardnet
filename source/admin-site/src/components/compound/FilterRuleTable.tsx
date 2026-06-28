@@ -73,6 +73,7 @@ export function FilterRuleTable({
         hint="Add AdGuard-syntax rules for fine-grained control over what gets blocked or allowed."
         actionLabel="Add rule"
         onAction={onAdd}
+        actionTestId="rule-add"
       />
     );
   }
@@ -84,6 +85,7 @@ export function FilterRuleTable({
       fixedLayout
       addLabel="Add rule"
       onAdd={onAdd}
+      addTestId="rule-add"
       rowActions={(rule) => (
         <>
           <RowAction onSelect={() => onToggle(rule.id, !rule.enabled)}>

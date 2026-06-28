@@ -97,13 +97,17 @@ export default function Dns() {
             <Card>
               <CardHeader>
                 <CardTitle>DNS server</CardTitle>
-                <Pill variant={status.running ? "ok" : "ghost"}>
+                <Pill
+                  variant={status.running ? "ok" : "ghost"}
+                  data-testid="dns-status-pill"
+                >
                   <span className="dot" />
                   {status.running ? "Running" : "Stopped"}
                 </Pill>
                 <CardAction>
                   <Toggle
                     id="dns-toggle"
+                    data-testid="dns-toggle"
                     aria-label="Enable DNS"
                     checked={status.enabled}
                     onCheckedChange={(enabled) => toggleDns.mutate(enabled)}
@@ -153,6 +157,7 @@ export default function Dns() {
                   <Button
                     variant="outline"
                     size="sm"
+                    data-testid="dns-flush-cache"
                     onClick={() => flushCache.mutate()}
                     disabled={flushCache.isPending}
                   >
