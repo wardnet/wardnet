@@ -2,6 +2,6 @@ root: agentic
 extends:
    - github.com/wardnet/agentic-stacks/wardnet.yaml@main
 skills:
-  - .agents/skills/bump-rust
+  - ./.agents/skills/bump-rust
 agents:
-  - .agents/agents/rust-engineer
+  - ./.agents/agents/rust-engineer
