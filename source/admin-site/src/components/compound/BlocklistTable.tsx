@@ -104,6 +104,7 @@ export function BlocklistTable({
         hint="Add a blocklist URL to start blocking ads and trackers network-wide."
         actionLabel="Add blocklist"
         onAction={onAdd}
+        actionTestId="blocklist-add"
       />
     );
   }
@@ -118,12 +119,17 @@ export function BlocklistTable({
       fixedLayout
       addLabel="Add blocklist"
       onAdd={onAdd}
+      addTestId="blocklist-add"
+      rowActionsTestId="blocklist-row-menu"
       rowActions={(b) => (
         <>
           <RowAction onSelect={() => onToggle(b)}>
             {b.enabled ? "Disable" : "Enable"}
           </RowAction>
-          <RowAction onSelect={() => onRefresh(b.id)}>
+          <RowAction
+            onSelect={() => onRefresh(b.id)}
+            testId="blocklist-refresh"
+          >
             {refreshingId === b.id ? "Updating…" : "Update now"}
           </RowAction>
           <RowAction onSelect={() => onDelete(b.id)} destructive>

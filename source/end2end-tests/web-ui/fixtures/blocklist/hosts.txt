@@ -1,0 +1,9 @@
+# e2e ad-blocking fixture (hosts format)
+#
+# Served by the `blocklist_server` compose service and fetched by the
+# daemon when the adblocking spec forces a blocklist update. Hosts-file
+# format (`0.0.0.0 <domain>`) is parsed by the daemon's filter parser
+# into block rules. The `.test` TLD keeps these unmistakably synthetic.
+0.0.0.0 ads.e2e-fixture.test
+0.0.0.0 tracker.e2e-fixture.test
+0.0.0.0 analytics.e2e-fixture.test

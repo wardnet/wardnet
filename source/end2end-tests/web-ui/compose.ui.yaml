@@ -211,6 +211,32 @@ services:
       retries: 20
       start_period: 10s
 
+  # Static HTTP server for the ad-blocking spec (A4, #619). Serves a
+  # tiny hosts-format blocklist that the daemon fetches when the spec
+  # forces a blocklist update. The daemon's downloader uses a plain
+  # reqwest client (no HTTPS/SSRF guard), so plain HTTP over the mgmt
+  # network is sufficient. Reuses the pinned Caddy image (same digest as
+  # tls_proxy) as a `file-server` — no extra image pull. A FIXED IP is
+  # used (not the service name) because the daemon is itself the DNS
+  # resolver on this stack, so the spec's blocklist URL is
+  # `http://10.90.0.20/hosts.txt`, sidestepping Docker service-name DNS.
+  blocklist_server:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    command: ["file-server", "--root", "/srv", "--listen", ":80"]
+    volumes:
+      - ./fixtures/blocklist:/srv:ro
+    networks:
+      wardnet_mgmt:
+        ipv4_address: 10.90.0.20
+    healthcheck:
+      # BusyBox in the Caddy Alpine image has `nc`; just check the port
+      # is accepting connections (file-server starts in <1s).
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
   ui_runner:
     build:
       context: ../../..
@@ -232,11 +258,16 @@ services:
       # whole suite on a flaky LAN client.
       test_debian:
         condition: service_started
+      # The ad-blocking spec needs this up before it forces a blocklist
+      # refresh; gate the runner on it being healthy.
+      blocklist_server:
+        condition: service_healthy
     environment:
       WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
       WARDNET_UI_FRESH_BASE_URL: "https://wardnetd-ui-fresh-tls"
       WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
       WARDNET_TEST_DEBIAN_AGENT: "http://test_debian:3001"
+      WARDNET_BLOCKLIST_FIXTURE_URL: "http://10.90.0.20/hosts.txt"
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.

@@ -390,6 +390,7 @@ function BlocklistForm({
         <Field label="Name" htmlFor="bl-name">
           <Input
             id="bl-name"
+            data-testid="blocklist-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Steven Black Hosts"
@@ -402,6 +403,7 @@ function BlocklistForm({
         >
           <Input
             id="bl-url"
+            data-testid="blocklist-url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
@@ -445,6 +447,7 @@ function BlocklistForm({
           Cancel
         </Button>
         <Button
+          data-testid="blocklist-submit"
           onClick={() =>
             onSubmit({ name, url, cron_schedule: schedule, enabled })
           }
@@ -514,6 +517,7 @@ function AllowlistCard({ profileId }: SubSectionProps) {
               >
                 <Input
                   id="al-domain"
+                  data-testid="allowlist-domain"
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
                   placeholder="example.com"
@@ -546,6 +550,7 @@ function AllowlistCard({ profileId }: SubSectionProps) {
               </Button>
               <Button
                 onClick={handleSave}
+                data-testid="allowlist-submit"
                 disabled={create.isPending || domain.trim() === ""}
               >
                 {create.isPending ? "Adding…" : "Allow domain"}
@@ -632,6 +637,7 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
               >
                 <Input
                   id="fr-text"
+                  data-testid="rule-text"
                   value={ruleText}
                   onChange={(e) => setRuleText(e.target.value)}
                   placeholder="||example.com^"
@@ -676,6 +682,7 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
               </Button>
               <Button
                 onClick={handleSave}
+                data-testid="rule-submit"
                 disabled={create.isPending || ruleText.trim() === ""}
               >
                 {create.isPending ? "Adding…" : "Add rule"}
