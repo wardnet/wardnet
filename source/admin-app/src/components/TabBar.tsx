@@ -18,6 +18,7 @@ export function TabBar() {
           key={to}
           to={to}
           end={end}
+          data-testid={`tab-${label.toLowerCase()}`}
           className="flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[10.5px] font-semibold tracking-wide text-white/50 transition-colors duration-snap aria-[current=page]:text-accent"
         >
           <Icon size={23} strokeWidth={2} />
