@@ -220,9 +220,13 @@ services:
   # used (not the service name) because the daemon is itself the DNS
   # resolver on this stack, so the spec's blocklist URL is
   # `http://10.90.0.20/hosts.txt`, sidestepping Docker service-name DNS.
+  #
+  # The command leads with `caddy`: this image's default CMD is the full
+  # `caddy …` invocation (it does not prepend `caddy` via ENTRYPOINT), so
+  # overriding `command` must name the binary explicitly.
   blocklist_server:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
-    command: ["file-server", "--root", "/srv", "--listen", ":80"]
+    command: ["caddy", "file-server", "--root", "/srv", "--listen", ":80"]
     volumes:
       - ./fixtures/blocklist:/srv:ro
     networks:
