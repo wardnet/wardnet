@@ -5,8 +5,8 @@ use sqlx::{ConnectOptions, Connection};
 use uuid::Uuid;
 
 use crate::db::{
-    discard_stale_wal_for_restore, init_pool, init_pool_from_connection_string,
-    restore_pending_marker_path,
+    discard_stale_wal_for_restore, init_db_pools_from_connection_string, init_pool,
+    init_pool_from_connection_string, restore_pending_marker_path,
 };
 
 /// Sibling sidecar path (`-wal` / `-shm`) for a database file.
@@ -180,6 +180,52 @@ async fn restore_marker_discards_stale_wal_so_snapshot_wins() {
         let _ = tokio::fs::remove_file(sidecar(p, "-wal")).await;
         let _ = tokio::fs::remove_file(sidecar(p, "-shm")).await;
     }
+}
+
+#[tokio::test]
+async fn init_db_pools_with_file_path_creates_migrates_and_runs_the_restore_guard() {
+    // Exercises the on-disk (file) branch — including the restore-WAL
+    // guard call — rather than the `:memory:` branch the other tests use.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-init-file-{}.db", Uuid::new_v4()));
+
+    let pools = init_db_pools_from_connection_string(db.to_str().unwrap())
+        .await
+        .expect("file-based pool creation should succeed");
+
+    let table_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            .fetch_one(&pools.read)
+            .await
+            .expect("sqlite_master query should succeed");
+    assert!(table_count > 0, "migrations should have created tables");
+
+    pools.write.close().await;
+    pools.read.close().await;
+    for s in ["", "-wal", "-shm"] {
+        let _ = tokio::fs::remove_file(sidecar(&db, s)).await;
+    }
+}
+
+#[tokio::test]
+async fn discard_stale_wal_tolerates_unremovable_sidecar_and_marker() {
+    // The guard must never panic on filesystem errors. Make both the
+    // `-wal` sidecar and the marker directories so `remove_file` fails
+    // with a non-NotFound error, and leave `-shm` absent so the NotFound
+    // arm is exercised too.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-wal-err-{}.db", Uuid::new_v4()));
+    std::fs::create_dir(restore_pending_marker_path(&db)).unwrap();
+    std::fs::create_dir(sidecar(&db, "-wal")).unwrap();
+
+    discard_stale_wal_for_restore(&db);
+
+    // Errors were swallowed; the unremovable entries remain.
+    assert!(sidecar(&db, "-wal").exists());
+    assert!(restore_pending_marker_path(&db).exists());
+
+    let _ = std::fs::remove_dir_all(sidecar(&db, "-wal"));
+    let _ = std::fs::remove_dir_all(restore_pending_marker_path(&db));
 }
 
 #[tokio::test]
