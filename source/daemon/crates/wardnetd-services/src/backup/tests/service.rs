@@ -23,6 +23,7 @@ use wardnet_common::api::{ApplyImportRequest, ExportBackupRequest};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::backup::{BackupStatus, BundleManifest, CURRENT_BUNDLE_FORMAT_VERSION};
 use wardnetd_data::database_dumper::DatabaseDumper;
+use wardnetd_data::db::restore_pending_marker_path;
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::secret_store::{FileSecretStore, SecretStore};
 
@@ -629,6 +630,86 @@ async fn status_reflects_failed_export_when_dumper_errors() {
 // Status transitions to `Failed` when the preview archiver rejects a
 // garbage payload.
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn apply_import_rolls_back_and_leaves_no_restore_marker_on_failure() {
+    // When the install fails mid-apply, run_apply_import must roll the
+    // live database back and not leave a restore-pending marker behind
+    // (the marker would make the next boot discard a legitimate WAL).
+    struct RestoreFailsDumper {
+        dump_bytes: Vec<u8>,
+        schema_version: i64,
+    }
+    #[async_trait]
+    impl DatabaseDumper for RestoreFailsDumper {
+        async fn dump(&self) -> anyhow::Result<Vec<u8>> {
+            Ok(self.dump_bytes.clone())
+        }
+        async fn restore(&self, _bytes: &[u8]) -> anyhow::Result<i64> {
+            anyhow::bail!("restore boom")
+        }
+        async fn current_schema_version(&self) -> anyhow::Result<i64> {
+            Ok(self.schema_version)
+        }
+    }
+
+    let tempdir = std::env::temp_dir().join(format!("wardnet-backup-test-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&tempdir).unwrap();
+    let database_path = tempdir.join("wardnet.db");
+    let config_path = tempdir.join("wardnet.toml");
+    std::fs::write(&database_path, b"live db").unwrap();
+    std::fs::write(&config_path, b"live config").unwrap();
+
+    let secret_store: Arc<dyn SecretStore> = Arc::new(FileSecretStore::new(tempdir.join("sec")));
+    let svc = BackupServiceImpl::new(
+        Arc::new(AgeArchiver::new()),
+        Arc::new(RestoreFailsDumper {
+            dump_bytes: b"snapshot bytes".to_vec(),
+            schema_version: 42,
+        }),
+        secret_store,
+        Arc::new(MockSystemConfig::new()),
+        database_path.clone(),
+        config_path.clone(),
+        "0.2.0-test",
+        "test-host",
+    );
+
+    let passphrase = "correct-horse-battery-staple".to_owned();
+    let bundle = auth_context::with_context(
+        admin_ctx(),
+        svc.export(ExportBackupRequest {
+            passphrase: passphrase.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    let preview = auth_context::with_context(admin_ctx(), svc.preview_import(bundle, passphrase))
+        .await
+        .unwrap();
+
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.apply_import(ApplyImportRequest {
+            preview_token: preview.preview_token,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::Internal(_)));
+
+    // Rollback restored the original database, and no restore marker
+    // survives to mislead the next startup.
+    assert_eq!(
+        tokio::fs::read(&database_path).await.unwrap(),
+        b"live db",
+        "rollback should restore the original database"
+    );
+    assert!(
+        !restore_pending_marker_path(&database_path).exists(),
+        "no restore-pending marker should remain after a rolled-back apply"
+    );
+}
 
 #[tokio::test]
 async fn preview_import_sets_failed_status_on_archiver_error() {
