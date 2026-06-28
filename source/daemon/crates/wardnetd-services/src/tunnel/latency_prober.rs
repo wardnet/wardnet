@@ -19,15 +19,16 @@ pub enum LatencyProbeError {
     Unsupported(String),
 }
 
-/// Sends a single ICMP echo through a specific network interface and
-/// returns the observed round-trip time.
+/// Sends a single ICMP echo and returns the observed round-trip time.
 ///
-/// Implementations must bind the outbound socket to `interface_name`
-/// (Linux: `SO_BINDTODEVICE`) so the probe traverses the tunnel rather
-/// than the default route.
+/// When `interface_name` is `Some`, implementations must bind the outbound
+/// socket to it (Linux: `SO_BINDTODEVICE`) so the probe traverses that tunnel
+/// rather than the default route. When `None`, the probe is sent **unbound**
+/// over the default route (the direct/WAN path) — used by the speed test to
+/// establish a baseline to compare the tunnel against.
 #[async_trait]
 pub trait TunnelLatencyProber: Send + Sync {
-    /// Probe `interface_name` and return the round-trip time in
-    /// milliseconds.
-    async fn probe(&self, interface_name: &str) -> Result<u64, LatencyProbeError>;
+    /// Probe `interface_name` (or the direct/WAN path when `None`) and return
+    /// the round-trip time in milliseconds.
+    async fn probe(&self, interface_name: Option<&str>) -> Result<u64, LatencyProbeError>;
 }

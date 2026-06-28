@@ -22,6 +22,25 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Format a throughput value in megabits/s (e.g. "85.0 Mbps"). */
+export function formatMbps(mbps: number): string {
+  return `${mbps.toFixed(1)} Mbps`;
+}
+
+/** Format a latency/jitter value in milliseconds, rounded (e.g. "23 ms"). */
+export function formatMs(ms: number): string {
+  return `${Math.round(ms)} ms`;
+}
+
+/**
+ * Percentage of the direct (WAN) line a tunnel retains — the speed-test
+ * headline. `direct` of 0 yields 0 to avoid divide-by-zero.
+ */
+export function retentionPct(direct: number, tunnel: number): number {
+  if (direct <= 0) return 0;
+  return Math.round((tunnel / direct) * 100);
+}
+
 /** Format seconds into a human-readable uptime string (e.g. "2d 5h 30m"). */
 export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);

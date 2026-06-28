@@ -221,6 +221,14 @@ impl AppState {
         self.inner.tunnel_service.as_ref()
     }
 
+    /// Owned handle to the tunnel service, for methods whose receiver is
+    /// `Arc<Self>` (e.g. [`TunnelService::start_speed_test`], which moves a
+    /// clone into a background job).
+    #[must_use]
+    pub fn tunnel_service_arc(&self) -> Arc<dyn TunnelService> {
+        self.inner.tunnel_service.clone()
+    }
+
     /// Access the auto-update service.
     #[must_use]
     pub fn update_service(&self) -> &dyn UpdateService {

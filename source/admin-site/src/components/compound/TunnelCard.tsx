@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  Gauge,
   Loader2,
   RotateCcw,
   SlidersHorizontal,
@@ -10,14 +11,101 @@ import { Link } from "react-router";
 import { Button } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { StatusBadge } from "./StatusBadge";
-import { countryFlag, formatBytes, timeAgo } from "@wardnet/web";
-import { useTestTunnel, useRebuildTunnel } from "@wardnet/web";
+import {
+  countryFlag,
+  formatBytes,
+  formatMbps,
+  formatMs,
+  retentionPct,
+  timeAgo,
+} from "@wardnet/web";
+import {
+  useTestTunnel,
+  useRebuildTunnel,
+  useSpeedTestResults,
+  useStartSpeedTest,
+} from "@wardnet/web";
 import type {
   Tunnel,
   TunnelStatus,
   ProviderInfo,
   TunnelTestResult,
+  TunnelSpeedTestResult,
 } from "@wardnet/js";
+
+/**
+ * Direct-vs-tunnel comparison grid. A raw tunnel number is meaningless on its
+ * own, so each row shows the direct (WAN) baseline beside the tunnel value
+ * plus the delta — the only honest read on VPN quality.
+ */
+function SpeedTestComparison({ result }: { result: TunnelSpeedTestResult }) {
+  const kept = retentionPct(
+    result.direct_throughput_mbps,
+    result.tunnel_throughput_mbps,
+  );
+  const latencyOverhead = result.tunnel_latency_ms - result.direct_latency_ms;
+  const jitterOverhead = result.tunnel_jitter_ms - result.direct_jitter_ms;
+
+  return (
+    <div
+      data-testid="tunnel-speed-test-result"
+      className="col gap-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2 text-xs"
+    >
+      <div className="row text-ink-3">
+        <Text as="span" size="2xs" weight="medium">
+          Speed test
+        </Text>
+        <span className="ml-auto">tested {timeAgo(result.tested_at)}</span>
+      </div>
+      <div
+        className="grid items-center gap-x-3 gap-y-1"
+        style={{ gridTemplateColumns: "auto 1fr 1fr auto" }}
+      >
+        <span className="text-ink-3" />
+        <Text as="span" size="2xs" weight="medium" className="text-ink-3">
+          Direct
+        </Text>
+        <Text as="span" size="2xs" weight="medium" className="text-ink-3">
+          Tunnel
+        </Text>
+        <span className="text-ink-3" />
+
+        <span className="text-ink-3">Download</span>
+        <span className="mono">
+          {formatMbps(result.direct_throughput_mbps)}
+        </span>
+        <span className="mono" data-testid="tunnel-speed-test-download">
+          {formatMbps(result.tunnel_throughput_mbps)}
+        </span>
+        <Text
+          as="span"
+          weight="medium"
+          className={kept >= 80 ? "text-[var(--success-ink)]" : "text-ink-2"}
+        >
+          {kept}% kept
+        </Text>
+
+        <span className="text-ink-3">Latency</span>
+        <span className="mono">{formatMs(result.direct_latency_ms)}</span>
+        <span className="mono" data-testid="tunnel-speed-test-latency">
+          {formatMs(result.tunnel_latency_ms)}
+        </span>
+        <span className="text-ink-2">
+          {latencyOverhead >= 0 ? "+" : ""}
+          {formatMs(latencyOverhead)}
+        </span>
+
+        <span className="text-ink-3">Jitter</span>
+        <span className="mono">{formatMs(result.direct_jitter_ms)}</span>
+        <span className="mono">{formatMs(result.tunnel_jitter_ms)}</span>
+        <span className="text-ink-2">
+          {jitterOverhead >= 0 ? "+" : ""}
+          {formatMs(jitterOverhead)}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
   switch (status) {
@@ -79,9 +167,30 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
 
   const testTunnel = useTestTunnel();
   const rebuildTunnel = useRebuildTunnel();
+  const startSpeedTest = useStartSpeedTest();
+  // Only fetch this tunnel's speed-test history once the user has run a test
+  // on this card (avoids one request per card across the whole tunnels grid on
+  // load — persisted history lives on the tunnel detail page). A run in flight
+  // also enables it so the prior result shows while the new test runs.
+  const [speedTestRequested, setSpeedTestRequested] = useState(false);
+  const speedTestRunning =
+    startSpeedTest.isRunning && startSpeedTest.activeTunnelId === tunnel.id;
+  const speedTestResults = useSpeedTestResults(
+    tunnel.id,
+    speedTestRequested || speedTestRunning,
+  );
+  const latestSpeedTest = speedTestResults.data?.results[0] ?? null;
   const [testResult, setTestResult] = useState<TunnelTestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testedAt, setTestedAt] = useState<string | null>(null);
+
+  const onSpeedTestClick = (e: React.MouseEvent) => {
+    // Card is wrapped in <Link>; don't navigate when clicking Speed test.
+    e.preventDefault();
+    e.stopPropagation();
+    setSpeedTestRequested(true);
+    startSpeedTest.start(tunnel.id);
+  };
 
   const onTestClick = (e: React.MouseEvent) => {
     // Card is wrapped in <Link>; don't navigate when clicking Test.
@@ -215,7 +324,28 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         </div>
       )}
 
+      {latestSpeedTest && <SpeedTestComparison result={latestSpeedTest} />}
+
       <div className="row gap-8" style={{ justifyContent: "flex-end" }}>
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid="tunnel-speed-test-button"
+          disabled={speedTestRunning}
+          onClick={onSpeedTestClick}
+        >
+          {speedTestRunning ? (
+            <>
+              <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
+              Testing {startSpeedTest.percentage}%
+            </>
+          ) : (
+            <>
+              <Gauge className="mr-1 size-3" aria-hidden />
+              Speed test
+            </>
+          )}
+        </Button>
         <Button
           size="sm"
           variant="outline"

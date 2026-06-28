@@ -1,5 +1,5 @@
-import { memo } from "react";
-import { RotateCcwIcon } from "lucide-react";
+import { memo, useState } from "react";
+import { ChevronDownIcon, RotateCcwIcon, ZapIcon } from "lucide-react";
 import { Card, Text, Heading } from "@wardnet/web";
 import { Sparkline } from "@wardnet/web";
 import {
@@ -9,15 +9,128 @@ import {
   useRebuildTunnel,
   useTunnelStats,
   useCombinedTunnelStats,
+  useSpeedTestResults,
+  useStartSpeedTest,
   countryFlag,
   formatBytes,
+  retentionPct,
   timeAgo,
   TunnelStatusPill,
 } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
-import type { Device, Tunnel } from "@wardnet/js";
+import type { Device, Tunnel, TunnelSpeedTestResult } from "@wardnet/js";
 
 const BUCKET_SECS = 60;
+
+/** Compact mobile speed-test panel: a run button, the latest direct-vs-tunnel
+ *  result inline, and tap-to-expand for the last-5 history (no detail route). */
+const SpeedTestPanel = memo(function SpeedTestPanel({
+  tunnelId,
+}: {
+  tunnelId: string;
+}) {
+  const startSpeedTest = useStartSpeedTest();
+  const [requested, setRequested] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const running =
+    startSpeedTest.isRunning && startSpeedTest.activeTunnelId === tunnelId;
+  // Only fetch history once the user runs a test on this card (or while one is
+  // in flight) — avoids one request per card across the tunnels list on load.
+  const { data } = useSpeedTestResults(tunnelId, requested || running);
+
+  const results = data?.results ?? [];
+  const latest: TunnelSpeedTestResult | undefined = results[0];
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
+      <button
+        data-testid="tunnel-speed-test-button"
+        onClick={() => {
+          setRequested(true);
+          startSpeedTest.start(tunnelId);
+        }}
+        disabled={running}
+        className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-sunken text-ink-2 transition-colors duration-snap active:bg-line disabled:opacity-50"
+      >
+        <ZapIcon size={14} className={running ? "animate-pulse" : undefined} />
+        <Text as="span" size="sm" weight="medium">
+          {running ? `Testing ${startSpeedTest.percentage}%` : "Speed test"}
+        </Text>
+      </button>
+
+      {latest && (
+        <div
+          data-testid="tunnel-speed-test-result"
+          className="flex flex-col rounded-lg bg-sunken"
+        >
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex flex-col gap-1 px-3 py-2 text-left"
+          >
+            <div className="flex items-center justify-between">
+              <Text as="span" size="xs" className="text-ink-3">
+                ↓ tun / direct
+              </Text>
+              <div className="flex items-center gap-2">
+                <Text as="span" size="sm" weight="medium" className="font-mono text-ink">
+                  {latest.tunnel_throughput_mbps.toFixed(1)} /{" "}
+                  {latest.direct_throughput_mbps.toFixed(1)} Mbps
+                </Text>
+                <Text as="span" size="xs" weight="medium" className="text-ink-2">
+                  {retentionPct(
+                    latest.direct_throughput_mbps,
+                    latest.tunnel_throughput_mbps,
+                  )}
+                  % kept
+                </Text>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <Text as="span" size="xs" className="text-ink-3">
+                ◷ tun / direct
+              </Text>
+              <div className="flex items-center gap-2">
+                <Text as="span" size="sm" className="font-mono text-ink">
+                  {Math.round(latest.tunnel_latency_ms)} /{" "}
+                  {Math.round(latest.direct_latency_ms)} ms
+                </Text>
+                <ChevronDownIcon
+                  size={14}
+                  className={`text-ink-3 transition-transform duration-snap ${
+                    expanded ? "rotate-180" : ""
+                  }`}
+                />
+              </div>
+            </div>
+            <Text as="span" size="2xs" className="text-ink-3">
+              tested {timeAgo(latest.tested_at)}
+            </Text>
+          </button>
+
+          {expanded && results.length > 1 && (
+            <div className="flex flex-col gap-1 border-t border-line px-3 py-2">
+              {results.slice(1).map((r) => (
+                <div key={r.id} className="flex items-center justify-between">
+                  <Text as="span" size="xs" className="font-mono text-ink-2">
+                    {r.tunnel_throughput_mbps.toFixed(1)} /{" "}
+                    {r.direct_throughput_mbps.toFixed(1)} Mbps
+                  </Text>
+                  <Text as="span" size="xs" className="text-ink-3">
+                    {retentionPct(
+                      r.direct_throughput_mbps,
+                      r.tunnel_throughput_mbps,
+                    )}
+                    % · {timeAgo(r.tested_at)}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 function deviceCount(
   tunnelId: string,
@@ -130,6 +243,8 @@ const TunnelCard = memo(function TunnelCard({
             <Text as="span" size="xs" className="text-ink-3">↑ {formatBytes(txRate)}/s</Text>
           </div>
         )}
+
+        <SpeedTestPanel tunnelId={tunnel.id} />
       </div>
     </Card>
   );

@@ -119,6 +119,35 @@ export interface TunnelTestResponse {
   result: TunnelTestResult;
 }
 
+/**
+ * One completed speed test: the direct (WAN) baseline and the tunnel result,
+ * measured back-to-back so retention (how much of the line the VPN keeps) is
+ * an apples-to-apples comparison.
+ */
+export interface TunnelSpeedTestResult {
+  id: string;
+  tunnel_id: string;
+  /** Download throughput over the direct (unbound/WAN) path, megabits/s. */
+  direct_throughput_mbps: number;
+  /** Download throughput through the tunnel interface, megabits/s. */
+  tunnel_throughput_mbps: number;
+  /** Median round-trip latency over the direct path, milliseconds. */
+  direct_latency_ms: number;
+  /** Median round-trip latency through the tunnel, milliseconds. */
+  tunnel_latency_ms: number;
+  /** Latency jitter (sample stddev) over the direct path, milliseconds. */
+  direct_jitter_ms: number;
+  /** Latency jitter (sample stddev) through the tunnel, milliseconds. */
+  tunnel_jitter_ms: number;
+  /** ISO 8601 timestamp of when the test completed. */
+  tested_at: string;
+}
+
+/** Response for GET /api/tunnels/:id/speed-test/results — newest first. */
+export interface TunnelSpeedTestHistoryResponse {
+  results: TunnelSpeedTestResult[];
+}
+
 /** Request body for PUT /api/tunnels/:id/dns-override. */
 export interface UpdateTunnelDnsOverrideRequest {
   /**

@@ -43,6 +43,7 @@ use wardnetd::tunnel_idle::IdleTunnelWatcher;
 use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
+use wardnetd::tunnel_throughput_tester::HttpThroughputTester;
 use wardnetd::watchdog::{HardwareWatchdogRunner, Notifier, SdNotifier, SoftWatchdogRunner};
 use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
@@ -314,6 +315,9 @@ async fn run(
                 .latency_probe_target
                 .parse()
                 .expect("tunnel.latency_probe_target must be a valid IP address"),
+        )),
+        tunnel_throughput_tester: Arc::new(HttpThroughputTester::new(
+            config.tunnel.speed_test_url.clone(),
         )),
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())

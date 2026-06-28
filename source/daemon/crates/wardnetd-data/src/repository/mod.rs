@@ -13,6 +13,7 @@ pub mod sqlite;
 pub mod stats;
 pub mod system_config;
 pub mod tunnel;
+pub mod tunnel_speed_test;
 pub mod update;
 
 pub use admin::AdminRepository;
@@ -37,11 +38,12 @@ pub use sqlite::{
     SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
     SqliteDnsRepository, SqliteMaintenanceRepository, SqliteRuleRequestRepository,
     SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteUpdateRepository,
+    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
+pub use tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
 pub use update::{UpdateHistoryRow, UpdateRepository};
 
 #[cfg(test)]

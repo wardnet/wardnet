@@ -344,6 +344,15 @@ pub struct TunnelConfig {
     /// `key=value` document including `ip=` and `loc=`. Overriding this
     /// requires the same response shape.
     pub test_probe_url: String,
+    /// URL the speed test downloads from to measure throughput. The default
+    /// is Cloudflare's `__down` endpoint requesting a 10 MB payload. The
+    /// download runs twice per speed test — once unbound (direct/WAN) and
+    /// once bound to the tunnel interface (`SO_BINDTODEVICE`) — so the
+    /// endpoint must serve the requested byte count over plain HTTPS.
+    pub speed_test_url: String,
+    /// Number of ICMP echo samples taken per leg of a speed test to derive
+    /// median latency and jitter. Defaults to 5.
+    pub speed_test_latency_samples: u32,
 }
 
 impl Default for TunnelConfig {
@@ -355,6 +364,8 @@ impl Default for TunnelConfig {
             latency_probe_interval_secs: 60,
             latency_probe_target: "1.1.1.1".to_owned(),
             test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
+            speed_test_url: "https://speed.cloudflare.com/__down?bytes=10000000".to_owned(),
+            speed_test_latency_samples: 5,
         }
     }
 }

@@ -223,6 +223,32 @@ impl TunnelService for MockTunnelService {
     async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn start_speed_test(
+        self: Arc<Self>,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
+        Ok(wardnet_common::jobs::JobDispatchedResponse {
+            job_id: Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+        })
+    }
+    async fn list_speed_tests(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<wardnet_common::speed_test::TunnelSpeedTestHistoryResponse, AppError> {
+        Ok(wardnet_common::speed_test::TunnelSpeedTestHistoryResponse {
+            results: vec![wardnet_common::speed_test::TunnelSpeedTestResult {
+                id: Uuid::parse_str("00000000-0000-0000-0000-0000000000bb").unwrap(),
+                tunnel_id: id,
+                direct_throughput_mbps: 94.0,
+                tunnel_throughput_mbps: 85.0,
+                direct_latency_ms: 11.0,
+                tunnel_latency_ms: 23.0,
+                direct_jitter_ms: 2.0,
+                tunnel_jitter_ms: 4.0,
+                tested_at: chrono::Utc::now(),
+            }],
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +331,14 @@ fn tunnel_router(state: AppState) -> Router {
         .route(
             "/api/tunnels/{id}/rebuild",
             axum::routing::post(crate::api::tunnels::rebuild_tunnel),
+        )
+        .route(
+            "/api/tunnels/{id}/speed-test",
+            axum::routing::post(crate::api::tunnels::start_speed_test),
+        )
+        .route(
+            "/api/tunnels/{id}/speed-test/results",
+            get(crate::api::tunnels::list_speed_tests),
         )
         .with_state(state)
 }
@@ -924,4 +958,40 @@ async fn rebuild_tunnel_unauthorized_without_session() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// Speed test endpoints
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn start_speed_test_returns_accepted_with_job_id() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let (status, json) = post_json(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/speed-test",
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert!(json["job_id"].is_string());
+}
+
+#[tokio::test]
+async fn list_speed_test_results_returns_history() {
+    let state = build_state(MockTunnelService::empty());
+    let app = tunnel_router(state);
+
+    let (status, json) = get_json(
+        app,
+        "/api/tunnels/00000000-0000-0000-0000-000000000010/speed-test/results",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let results = json["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["tunnel_throughput_mbps"], 85.0);
+    assert_eq!(results[0]["direct_throughput_mbps"], 94.0);
 }

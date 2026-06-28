@@ -42,14 +42,21 @@ impl SurgePingTunnelLatencyProber {
 #[async_trait]
 impl TunnelLatencyProber for SurgePingTunnelLatencyProber {
     #[cfg(target_os = "linux")]
-    async fn probe(&self, interface: &str) -> Result<u64, LatencyProbeError> {
+    async fn probe(&self, interface: Option<&str>) -> Result<u64, LatencyProbeError> {
         use surge_ping::{Client, Config, ICMP, PingIdentifier, PingSequence};
 
         let kind = match self.target {
             IpAddr::V4(_) => ICMP::V4,
             IpAddr::V6(_) => ICMP::V6,
         };
-        let config = Config::builder().kind(kind).interface(interface).build();
+        // `Some` binds the socket to the tunnel (SO_BINDTODEVICE); `None`
+        // leaves it unbound so the probe egresses the default WAN route — the
+        // direct baseline leg of a speed test.
+        let mut builder = Config::builder().kind(kind);
+        if let Some(iface) = interface {
+            builder = builder.interface(iface);
+        }
+        let config = builder.build();
 
         let client = Client::new(&config)
             .map_err(|e| LatencyProbeError::Probe(format!("client build failed: {e}")))?;
@@ -77,7 +84,7 @@ impl TunnelLatencyProber for SurgePingTunnelLatencyProber {
     }
 
     #[cfg(not(target_os = "linux"))]
-    async fn probe(&self, _interface: &str) -> Result<u64, LatencyProbeError> {
+    async fn probe(&self, _interface: Option<&str>) -> Result<u64, LatencyProbeError> {
         Err(LatencyProbeError::Unsupported(
             "SO_BINDTODEVICE is Linux-only; tunnel latency probe requires Linux".to_owned(),
         ))

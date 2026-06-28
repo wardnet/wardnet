@@ -30,6 +30,9 @@ export {
 export {
   cn,
   formatBytes,
+  formatMbps,
+  formatMs,
+  retentionPct,
   formatUptime,
   formatDate,
   formatTime,
@@ -101,6 +104,8 @@ export {
   useTestTunnel,
   useRebuildTunnel,
   useSetTunnelDnsOverride,
+  useSpeedTestResults,
+  useStartSpeedTest,
 } from "./hooks/useTunnels";
 
 // Hooks — providers

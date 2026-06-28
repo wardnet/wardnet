@@ -782,6 +782,18 @@ impl TunnelService for StubTunnelService {
     async fn probe_latencies(&self) -> Result<(), AppError> {
         Ok(())
     }
+    async fn start_speed_test(
+        self: Arc<Self>,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::jobs::JobDispatchedResponse, AppError> {
+        unimplemented!("not used in api stub tests")
+    }
+    async fn list_speed_tests(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::speed_test::TunnelSpeedTestHistoryResponse, AppError> {
+        unimplemented!("not used in api stub tests")
+    }
 }
 
 pub struct StubLogService;

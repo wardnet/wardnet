@@ -16,12 +16,63 @@ import {
   useDeleteTunnel,
   useSetTunnelDnsOverride,
   useRebuildTunnel,
+  useSpeedTestResults,
 } from "@wardnet/web";
 import { useTunnelStats, RANGES, type StatsRange } from "@wardnet/web";
 import { type ZoomRange } from "@/hooks/useChartZoom";
 import { countryFlag } from "@wardnet/web";
-import { timeAgo } from "@wardnet/web";
+import { retentionPct, timeAgo } from "@wardnet/web";
 import type { TunnelStatus } from "@wardnet/js";
+
+/** Last-5 speed test history: each row pairs the tunnel value with its
+ *  direct (WAN) baseline so the comparison is visible at a glance. */
+function SpeedTestHistory({ tunnelId }: { tunnelId: string }) {
+  const { data } = useSpeedTestResults(tunnelId);
+  const results = data?.results ?? [];
+  if (results.length === 0) return null;
+
+  return (
+    <Card data-testid="tunnel-speed-test-history">
+      <CardHeader>
+        <CardTitle>Speed test history</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-ink-3">
+              <th className="pb-2 font-medium">Tested at</th>
+              <th className="pb-2 font-medium">Download (tun / direct)</th>
+              <th className="pb-2 font-medium">Latency (tun / direct)</th>
+              <th className="pb-2 font-medium">Kept</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((r) => (
+              <tr key={r.id} className="border-t border-[var(--line)]">
+                <td className="py-2">{timeAgo(r.tested_at)}</td>
+                <td className="py-2 mono">
+                  {r.tunnel_throughput_mbps.toFixed(1)} /{" "}
+                  {r.direct_throughput_mbps.toFixed(1)} Mbps
+                </td>
+                <td className="py-2 mono">
+                  {Math.round(r.tunnel_latency_ms)} /{" "}
+                  {Math.round(r.direct_latency_ms)} ms
+                </td>
+                <td className="py-2">
+                  {retentionPct(
+                    r.direct_throughput_mbps,
+                    r.tunnel_throughput_mbps,
+                  )}
+                  %
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
 
 function statusTone(status: TunnelStatus): "success" | "neutral" | "danger" {
   switch (status) {
@@ -213,6 +264,8 @@ export default function TunnelDetail() {
       </div>
 
       <TunnelDevicesTable tunnelId={tunnel.id} />
+
+      <SpeedTestHistory tunnelId={tunnel.id} />
 
       <div className="row justify-end gap-8">
         <Button

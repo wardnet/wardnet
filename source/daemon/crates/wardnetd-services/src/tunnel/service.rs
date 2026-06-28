@@ -10,21 +10,26 @@ use wardnet_common::api::{
     TunnelDevicesResponse, TunnelTestResult,
 };
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::jobs::{JobDispatchedResponse, JobKind};
+use wardnet_common::speed_test::TunnelSpeedTestHistoryResponse;
 use wardnet_common::tunnel::{Tunnel, TunnelStatus};
 use wardnet_common::wireguard_config;
 
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 use crate::stats::meter::Meter;
 use crate::tunnel::exit_probe::{ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{
     CreateTunnelParams, TunnelConfig as TiTunnelConfig, TunnelInterface,
 };
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::tunnel::throughput_tester::ThroughputTester;
 use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_data::repository::tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
 use wardnetd_data::secret_store::SecretStore;
 
 use crate::tunnel::key_store::{KeyStore, KeyStoreAdapter};
@@ -120,6 +125,22 @@ pub trait TunnelService: Send + Sync {
     /// Used by the tunnel monitor background task. No auth guard — called from
     /// background task context.
     async fn probe_latencies(&self) -> Result<(), AppError>;
+
+    /// Start an asynchronous speed test for a tunnel and return the job id.
+    ///
+    /// The handler returns immediately (202); the background job measures
+    /// throughput, latency and jitter twice — once over the direct (WAN)
+    /// path and once through the tunnel — and persists a single result row.
+    /// If the tunnel is `Down` it is brought up for the run and torn back
+    /// down afterwards. A concurrent run for the same tunnel (or an in-flight
+    /// [`test_tunnel`](Self::test_tunnel)) returns `AppError::Conflict`; the
+    /// in-flight slot is held for the full job duration.
+    async fn start_speed_test(self: Arc<Self>, id: Uuid)
+    -> Result<JobDispatchedResponse, AppError>;
+
+    /// List the most recent speed test results for a tunnel, newest first
+    /// (bounded to the last few runs).
+    async fn list_speed_tests(&self, id: Uuid) -> Result<TunnelSpeedTestHistoryResponse, AppError>;
 }
 
 /// Default implementation of [`TunnelService`].
@@ -129,10 +150,16 @@ pub struct TunnelServiceImpl {
     tunnel_interface: Arc<dyn TunnelInterface>,
     exit_probe: Arc<dyn TunnelExitProbe>,
     latency_prober: Arc<dyn TunnelLatencyProber>,
+    throughput_tester: Arc<dyn ThroughputTester>,
     keys: Arc<dyn KeyStore>,
     events: Arc<dyn EventPublisher>,
     meter: Arc<Meter>,
     server_resolver: Arc<dyn ServerResolver>,
+    jobs: Arc<dyn JobService>,
+    speed_test_repo: Arc<dyn TunnelSpeedTestRepository>,
+    /// Number of ICMP samples taken per leg of a speed test to derive median
+    /// latency and jitter. From `config.tunnel.speed_test_latency_samples`.
+    speed_test_latency_samples: u32,
     /// Last cumulative `(bytes_tx, bytes_rx)` observed per tunnel.
     /// Used by `collect_stats` to compute positive deltas to feed into
     /// the generic stats pipeline. A counter that goes *down* means the
@@ -160,13 +187,55 @@ fn parse_port(endpoint: Option<&str>) -> u16 {
     }
 }
 
+/// Number of recent speed test results returned by `list_speed_tests`.
+const SPEED_TEST_HISTORY_LIMIT: i64 = 5;
+
+/// One leg of a speed test (direct or tunnel).
+struct LegMeasurement {
+    throughput_mbps: f64,
+    latency_ms: f64,
+    jitter_ms: f64,
+}
+
+/// Reduce a set of ICMP RTT samples (ms) to `(median, jitter)`, where jitter
+/// is the sample standard deviation. Returns `(0.0, 0.0)` for an empty slice
+/// (callers reject empty sample sets before this point).
+fn summarize_latency(samples: &[u64]) -> (f64, f64) {
+    if samples.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut sorted: Vec<u64> = samples.to_vec();
+    sorted.sort_unstable();
+    let mid = sorted.len() / 2;
+    #[allow(clippy::cast_precision_loss)]
+    let median = if sorted.len().is_multiple_of(2) {
+        f64::midpoint(sorted[mid - 1] as f64, sorted[mid] as f64)
+    } else {
+        sorted[mid] as f64
+    };
+
+    #[allow(clippy::cast_precision_loss)]
+    let n = samples.len() as f64;
+    #[allow(clippy::cast_precision_loss)]
+    let mean = samples.iter().map(|&s| s as f64).sum::<f64>() / n;
+    let jitter = if samples.len() > 1 {
+        #[allow(clippy::cast_precision_loss)]
+        let variance = samples
+            .iter()
+            .map(|&s| {
+                let d = s as f64 - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / (n - 1.0);
+        variance.sqrt()
+    } else {
+        0.0
+    };
+    (median, jitter)
+}
+
 impl TunnelServiceImpl {
-    /// Create a new tunnel service wired to the daemon's [`SecretStore`].
-    ///
-    /// `WireGuard` private keys are stored through a [`KeyStoreAdapter`]
-    /// built internally — callers outside this crate only need to hand
-    /// in a secret store; the key-store facade never escapes the tunnel
-    /// module.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
@@ -174,10 +243,14 @@ impl TunnelServiceImpl {
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
         latency_prober: Arc<dyn TunnelLatencyProber>,
+        throughput_tester: Arc<dyn ThroughputTester>,
         secret_store: Arc<dyn SecretStore>,
         events: Arc<dyn EventPublisher>,
         meter: Arc<Meter>,
         server_resolver: Arc<dyn ServerResolver>,
+        jobs: Arc<dyn JobService>,
+        speed_test_repo: Arc<dyn TunnelSpeedTestRepository>,
+        speed_test_latency_samples: u32,
     ) -> Self {
         let keys: Arc<dyn KeyStore> = Arc::new(KeyStoreAdapter::new(secret_store));
         Self {
@@ -186,20 +259,19 @@ impl TunnelServiceImpl {
             tunnel_interface,
             exit_probe,
             latency_prober,
+            throughput_tester,
             keys,
             events,
             meter,
             server_resolver,
+            jobs,
+            speed_test_repo,
+            speed_test_latency_samples,
             last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
     }
 
-    /// Test-only constructor that accepts a pre-built [`KeyStore`] mock.
-    ///
-    /// Kept `pub(crate)` so nothing outside `wardnetd-services` can
-    /// depend on the narrower interface — production code must go
-    /// through [`Self::new`] with a [`SecretStore`].
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_key_store(
@@ -208,10 +280,14 @@ impl TunnelServiceImpl {
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
         latency_prober: Arc<dyn TunnelLatencyProber>,
+        throughput_tester: Arc<dyn ThroughputTester>,
         keys: Arc<dyn KeyStore>,
         events: Arc<dyn EventPublisher>,
         meter: Arc<Meter>,
         server_resolver: Arc<dyn ServerResolver>,
+        jobs: Arc<dyn JobService>,
+        speed_test_repo: Arc<dyn TunnelSpeedTestRepository>,
+        speed_test_latency_samples: u32,
     ) -> Self {
         Self {
             tunnels,
@@ -219,10 +295,14 @@ impl TunnelServiceImpl {
             tunnel_interface,
             exit_probe,
             latency_prober,
+            throughput_tester,
             keys,
             events,
             meter,
             server_resolver,
+            jobs,
+            speed_test_repo,
+            speed_test_latency_samples,
             last_bytes: Mutex::new(HashMap::new()),
             tests_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
@@ -706,6 +786,99 @@ impl TunnelServiceImpl {
             timestamp: chrono::Utc::now(),
         });
 
+        Ok(())
+    }
+
+    /// Measure one leg of a speed test: a single throughput download plus
+    /// `speed_test_latency_samples` ICMP probes. `interface` is `Some(iface)`
+    /// for the tunnel leg (binds the socket) or `None` for the direct/WAN
+    /// baseline. A leg fails (whole test fails) if the download errors or
+    /// every latency probe fails — a half-measurement is meaningless.
+    async fn measure_leg(&self, interface: Option<&str>) -> Result<LegMeasurement, AppError> {
+        let throughput = self
+            .throughput_tester
+            .download(interface)
+            .await
+            .map_err(|e| {
+                AppError::UpstreamUnavailable(format!("throughput download failed: {e}"))
+            })?;
+
+        let samples_wanted = self.speed_test_latency_samples.max(1);
+        let mut samples = Vec::with_capacity(samples_wanted as usize);
+        for _ in 0..samples_wanted {
+            if let Ok(rtt_ms) = self.latency_prober.probe(interface).await {
+                samples.push(rtt_ms);
+            }
+        }
+        if samples.is_empty() {
+            return Err(AppError::UpstreamUnavailable(
+                "all latency probes failed".to_owned(),
+            ));
+        }
+        let (latency_ms, jitter_ms) = summarize_latency(&samples);
+        Ok(LegMeasurement {
+            throughput_mbps: throughput.mbps,
+            latency_ms,
+            jitter_ms,
+        })
+    }
+
+    /// Body of the speed test job. Measures the direct (WAN) baseline, then
+    /// the tunnel (bringing it up first if it was `Down`), persists one row
+    /// with both legs, and restores the prior tunnel state before returning.
+    async fn run_speed_test(&self, id: Uuid, reporter: &ProgressReporter) -> Result<(), AppError> {
+        let tunnel = self.require_tunnel(id).await?;
+        let was_down = tunnel.status == TunnelStatus::Down;
+        let interface_name = tunnel.interface_name.clone();
+        reporter.set_progress(5).await;
+
+        // Direct (WAN) baseline first. The two legs run sequentially — both
+        // ultimately traverse the same physical uplink, so measuring them at
+        // once would split the pipe and corrupt both numbers.
+        let direct = self.measure_leg(None).await;
+        reporter.set_progress(40).await;
+
+        // Bring the tunnel up if needed, wait for a fresh handshake, then
+        // measure through it. Wrapped so a failure still hits the teardown
+        // path below instead of leaking a tunnel we brought up.
+        let through = async {
+            if was_down {
+                self.bring_up_core(id).await?;
+                self.await_fresh_handshake(&interface_name, std::time::Duration::from_millis(3500))
+                    .await?;
+            }
+            self.measure_leg(Some(&interface_name)).await
+        }
+        .await;
+        reporter.set_progress(90).await;
+
+        if was_down && let Err(e) = self.tear_down_core(id, "speed test completed").await {
+            tracing::warn!(
+                tunnel_id = %id,
+                error = %e,
+                "speed test: failed to tear down tunnel after run; leaving best-effort"
+            );
+        }
+
+        let direct = direct?;
+        let through = through?;
+
+        let row = SpeedTestRow {
+            id: Uuid::new_v4().to_string(),
+            tunnel_id: id.to_string(),
+            direct_throughput_mbps: direct.throughput_mbps,
+            tunnel_throughput_mbps: through.throughput_mbps,
+            direct_latency_ms: direct.latency_ms,
+            tunnel_latency_ms: through.latency_ms,
+            direct_jitter_ms: direct.jitter_ms,
+            tunnel_jitter_ms: through.jitter_ms,
+            tested_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.speed_test_repo
+            .insert(&row)
+            .await
+            .map_err(AppError::Internal)?;
+        reporter.set_progress(100).await;
         Ok(())
     }
 }
@@ -1203,7 +1376,11 @@ impl TunnelService for TunnelServiceImpl {
             .collect();
 
         for tunnel in active_tunnels {
-            match self.latency_prober.probe(&tunnel.interface_name).await {
+            match self
+                .latency_prober
+                .probe(Some(&tunnel.interface_name))
+                .await
+            {
                 Ok(rtt_ms) => {
                     let labels = format!(r#"{{"tunnel_id":"{}"}}"#, tunnel.id);
                     #[allow(clippy::cast_precision_loss)]
@@ -1231,5 +1408,83 @@ impl TunnelService for TunnelServiceImpl {
             }
         }
         Ok(())
+    }
+
+    async fn start_speed_test(
+        self: Arc<Self>,
+        id: Uuid,
+    ) -> Result<JobDispatchedResponse, AppError> {
+        auth_context::require_admin()?;
+
+        // Claim the in-flight slot synchronously so a concurrent run (or an
+        // overlapping `test_tunnel`) is rejected with 409 immediately, before
+        // any state changes. The guard is then moved into the job closure so
+        // the slot is held for the full job duration, not just this handler.
+        let guard = self.acquire_in_flight(id)?;
+
+        // Fail fast if the tunnel doesn't exist, rather than 202-then-fail.
+        self.require_tunnel(id).await?;
+
+        let me = Arc::clone(&self);
+        let job_id = self
+            .jobs
+            .dispatch(JobKind::SpeedTest, move |reporter| async move {
+                let _guard = guard;
+                me.run_speed_test(id, &reporter)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+            })
+            .await;
+        Ok(JobDispatchedResponse { job_id })
+    }
+
+    async fn list_speed_tests(&self, id: Uuid) -> Result<TunnelSpeedTestHistoryResponse, AppError> {
+        auth_context::require_admin()?;
+        self.require_tunnel(id).await?;
+        let results = self
+            .speed_test_repo
+            .find_recent(&id.to_string(), SPEED_TEST_HISTORY_LIMIT)
+            .await
+            .map_err(AppError::Internal)?;
+        Ok(TunnelSpeedTestHistoryResponse { results })
+    }
+}
+
+#[cfg(test)]
+mod summarize_latency_tests {
+    use super::summarize_latency;
+
+    fn approx(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    #[test]
+    fn empty_is_zero() {
+        let (median, jitter) = summarize_latency(&[]);
+        assert!(approx(median, 0.0));
+        assert!(approx(jitter, 0.0));
+    }
+
+    #[test]
+    fn single_sample_has_no_jitter() {
+        let (median, jitter) = summarize_latency(&[42]);
+        assert!(approx(median, 42.0));
+        assert!(approx(jitter, 0.0));
+    }
+
+    #[test]
+    fn odd_count_takes_middle_and_sample_stddev() {
+        // Sorted: [10, 20, 30] -> median 20; mean 20, sample variance
+        // (100 + 0 + 100) / 2 = 100 -> stddev 10.
+        let (median, jitter) = summarize_latency(&[10, 30, 20]);
+        assert!(approx(median, 20.0));
+        assert!(approx(jitter, 10.0));
+    }
+
+    #[test]
+    fn even_count_averages_the_two_middles() {
+        // Sorted: [10, 20, 30, 40] -> median midpoint(20, 30) = 25.
+        let (median, _) = summarize_latency(&[40, 10, 30, 20]);
+        assert!(approx(median, 25.0));
     }
 }

@@ -16539,6 +16539,376 @@
         ]
       }
     },
+    "/api/tunnels/{id}/speed-test": {
+      "post": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "Start a speed test for this tunnel. Returns immediately with a job id (202); the background job measures throughput, latency and jitter twice — once over the direct (WAN) path and once through the tunnel — so the result shows how much of the line the VPN preserves. If the tunnel is down it is brought up for the run and torn back down after. Poll `GET /api/jobs/{job_id}` for progress. A concurrent run (or an overlapping test) on the same tunnel returns 409. Admin only.",
+        "operationId": "start_speed_test",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Speed test job dispatched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDispatchedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/tunnels/{id}/speed-test/results": {
+      "get": {
+        "tags": [
+          "tunnels"
+        ],
+        "description": "List recent speed test results for this tunnel, newest first (last few runs). Each result carries both the direct (WAN) and tunnel measurements for throughput, latency and jitter. Admin only.",
+        "operationId": "list_speed_tests",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tunnel ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Speed test history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelSpeedTestHistoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/tunnels/{id}/test": {
       "post": {
         "tags": [
@@ -20216,7 +20586,8 @@
         "type": "string",
         "description": "Discriminator for what kind of work a job represents. The kind is fixed\nat job creation time; new kinds get new variants here.",
         "enum": [
-          "blocklist_refresh"
+          "blocklist_refresh",
+          "speed_test"
         ]
       },
       "JobStatus": {
@@ -21629,6 +22000,80 @@
             "items": {
               "$ref": "#/components/schemas/Device"
             }
+          }
+        }
+      },
+      "TunnelSpeedTestHistoryResponse": {
+        "type": "object",
+        "description": "History of recent speed tests for one tunnel, newest first.",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TunnelSpeedTestResult"
+            }
+          }
+        }
+      },
+      "TunnelSpeedTestResult": {
+        "type": "object",
+        "description": "One completed speed test: the direct (WAN) baseline and the tunnel result,\nmeasured back-to-back in a single run.",
+        "required": [
+          "id",
+          "tunnel_id",
+          "direct_throughput_mbps",
+          "tunnel_throughput_mbps",
+          "direct_latency_ms",
+          "tunnel_latency_ms",
+          "direct_jitter_ms",
+          "tunnel_jitter_ms",
+          "tested_at"
+        ],
+        "properties": {
+          "direct_jitter_ms": {
+            "type": "number",
+            "format": "double",
+            "description": "Latency jitter (sample standard deviation) over the direct path, in ms."
+          },
+          "direct_latency_ms": {
+            "type": "number",
+            "format": "double",
+            "description": "Median ICMP round-trip latency over the direct path, in milliseconds."
+          },
+          "direct_throughput_mbps": {
+            "type": "number",
+            "format": "double",
+            "description": "Download throughput over the direct (unbound/WAN) path, in megabits/s."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tested_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tunnel_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tunnel_jitter_ms": {
+            "type": "number",
+            "format": "double",
+            "description": "Latency jitter (sample standard deviation) through the tunnel, in ms."
+          },
+          "tunnel_latency_ms": {
+            "type": "number",
+            "format": "double",
+            "description": "Median ICMP round-trip latency through the tunnel, in milliseconds."
+          },
+          "tunnel_throughput_mbps": {
+            "type": "number",
+            "format": "double",
+            "description": "Download throughput through the tunnel interface, in megabits/s."
           }
         }
       },

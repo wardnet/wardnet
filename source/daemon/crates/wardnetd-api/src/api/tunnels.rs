@@ -9,6 +9,8 @@ use wardnet_common::api::{
     RebuildTunnelResponse, TunnelDetailResponse, TunnelDevicesResponse, TunnelTestResponse,
     UpdateTunnelDnsOverrideRequest, UpdateTunnelDnsOverrideResponse,
 };
+use wardnet_common::jobs::JobDispatchedResponse;
+use wardnet_common::speed_test::TunnelSpeedTestHistoryResponse;
 
 use crate::api::middleware::AdminAuth;
 use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound, UpstreamUnavailable};
@@ -22,6 +24,8 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(get_tunnel, delete_tunnel))
         .routes(routes!(list_tunnel_devices))
         .routes(routes!(test_tunnel))
+        .routes(routes!(start_speed_test))
+        .routes(routes!(list_speed_tests))
         .routes(routes!(update_tunnel_dns_override))
         .routes(routes!(rebuild_tunnel))
 }
@@ -184,6 +188,65 @@ pub async fn test_tunnel(
 ) -> Result<Json<TunnelTestResponse>, AppError> {
     let result = state.tunnel_service().test_tunnel(id).await?;
     Ok(Json(TunnelTestResponse { result }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/tunnels/{id}/speed-test",
+    tag = "tunnels",
+    description = "Start a speed test for this tunnel. Returns immediately with a job \
+                   id (202); the background job measures throughput, latency and jitter \
+                   twice — once over the direct (WAN) path and once through the tunnel — \
+                   so the result shows how much of the line the VPN preserves. If the \
+                   tunnel is down it is brought up for the run and torn back down after. \
+                   Poll `GET /api/jobs/{job_id}` for progress. A concurrent run (or an \
+                   overlapping test) on the same tunnel returns 409. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 202, description = "Speed test job dispatched", body = JobDispatchedResponse),
+        AuthErrors,
+        NotFound,
+        Conflict,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn start_speed_test(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<(StatusCode, Json<JobDispatchedResponse>), AppError> {
+    let response = state.tunnel_service_arc().start_speed_test(id).await?;
+    Ok((StatusCode::ACCEPTED, Json(response)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/tunnels/{id}/speed-test/results",
+    tag = "tunnels",
+    description = "List recent speed test results for this tunnel, newest first \
+                   (last few runs). Each result carries both the direct (WAN) and \
+                   tunnel measurements for throughput, latency and jitter. Admin only.",
+    params(("id" = Uuid, Path, description = "Tunnel ID")),
+    responses(
+        (status = 200, description = "Speed test history", body = TunnelSpeedTestHistoryResponse),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn list_speed_tests(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TunnelSpeedTestHistoryResponse>, AppError> {
+    let response = state.tunnel_service().list_speed_tests(id).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(

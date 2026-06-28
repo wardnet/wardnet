@@ -1,5 +1,5 @@
 /** Discriminator for what kind of background work a job represents. */
-export type JobKind = "blocklist_refresh";
+export type JobKind = "blocklist_refresh" | "speed_test";
 
 /** Lifecycle state of a background job. */
 export type JobStatus = "PENDING" | "RUNNING" | "SUCCEED" | "TERMINATED_WITH_ERRORS";

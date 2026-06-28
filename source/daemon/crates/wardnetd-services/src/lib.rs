@@ -110,6 +110,11 @@ pub struct Backends {
     /// production (Linux-only) and to a deterministic mock in
     /// `wardnetd-mock`.
     pub tunnel_latency_prober: Arc<dyn tunnel::TunnelLatencyProber>,
+    /// Downloads a fixed payload to measure throughput, either unbound
+    /// (direct/WAN) or bound to a tunnel interface (`SO_BINDTODEVICE`).
+    /// Wired to a reqwest-based downloader in production and a fixed-value
+    /// stub in the mock.
+    pub tunnel_throughput_tester: Arc<dyn tunnel::ThroughputTester>,
     pub policy_router: Arc<dyn routing::PolicyRouter>,
     pub firewall: Arc<dyn routing::FirewallManager>,
     pub packet_capture: Arc<dyn device::PacketCapture>,
@@ -404,6 +409,7 @@ fn create_services(
     let dns_local_repo = repo_factory.dns_local();
     let maintenance_repo = repo_factory.maintenance();
     let tunnel_repo = repo_factory.tunnel();
+    let tunnel_speed_test_repo = repo_factory.tunnel_speed_tests();
     let update_repo = repo_factory.update();
     let stats_repo = repo_factory.stats();
 
@@ -513,10 +519,14 @@ fn create_services(
         backends.tunnel_interface.clone(),
         backends.tunnel_exit_probe.clone(),
         backends.tunnel_latency_prober.clone(),
+        backends.tunnel_throughput_tester.clone(),
         backends.secret_store.clone(),
         event_publisher.clone(),
         stats_meter.clone(),
         registry.clone(),
+        job_service.clone(),
+        tunnel_speed_test_repo.clone(),
+        config.tunnel.speed_test_latency_samples,
     ));
 
     let vpn_provider_service: Arc<dyn VpnProviderService> = Arc::new(VpnProviderServiceImpl::new(
