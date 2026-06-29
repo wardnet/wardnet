@@ -55,6 +55,13 @@ tenant-management account record.
 
 ### 4. Entitlement lease as the enforcement token
 
+> **Superseded (2026-06-29)** by
+> [`adr-daemon-cloud-auth.md`](adr-daemon-cloud-auth.md): there is no entitlement
+> lease. Entitlement is derived from the **token-mint outcome** (a `403` mint ⇒
+> suspended, the next successful mint ⇒ restored). The *intent* below — local
+> self-degradation with guaranteed re-entry — is preserved; only the transport
+> (signed lease → mint-403) changed.
+
 Tenant management (global) signs a short-lived **entitlement lease**
 `{install_id, entitled, exp}` (TTL ~7 days; the daemon refreshes daily, so a
 transient outage cannot break a paying customer for up to the TTL). It is
