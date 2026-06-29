@@ -86,8 +86,12 @@ fn handle_panic(panic: Box<dyn Any + Send + 'static>) -> Response {
 /// [`handle_panic`], so a single bad request can never unwind the connection
 /// task and take the listener down. Placed *inside* the [`TraceLayer`] so the
 /// resulting `500` is still recorded by the request-tracing span.
-pub(crate) fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) -> Response>
-{
+///
+/// Exposed so other served routers in the daemon (e.g. the `:80` HTTP→HTTPS
+/// redirect listener) get the same panic isolation — every listener must be
+/// covered, not just the main API.
+#[must_use]
+pub fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) -> Response> {
     CatchPanicLayer::custom(handle_panic as fn(Box<dyn Any + Send + 'static>) -> Response)
 }
 

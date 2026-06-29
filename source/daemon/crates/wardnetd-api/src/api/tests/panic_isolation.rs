@@ -44,4 +44,16 @@ async fn handler_panic_is_isolated_as_500() {
         .expect("handler panic must not propagate past the service");
 
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    // The body is the standard `ApiError` shape (not a leaked panic message).
+    let body = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("readable body");
+    let err: wardnet_common::api::ApiError =
+        serde_json::from_slice(&body).expect("500 body is valid ApiError JSON");
+    assert_eq!(err.error, "internal server error");
+    assert_eq!(
+        err.detail, None,
+        "panic message must not leak to the client"
+    );
 }
