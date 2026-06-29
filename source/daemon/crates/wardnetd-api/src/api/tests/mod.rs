@@ -14,6 +14,7 @@ mod logs_ws;
 mod middleware;
 mod network;
 mod openapi;
+mod panic_isolation;
 mod providers;
 mod request_context;
 mod router;

@@ -28,19 +28,68 @@ pub mod update;
 #[cfg(test)]
 mod tests;
 
+use std::any::Any;
 use std::time::Duration;
 
 use crate::state::AppState;
 use crate::web::static_handler;
+use axum::Json;
 use axum::Router;
 use axum::http;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
+use wardnet_common::api::ApiError;
 use wardnetd_services::auth_context::AuthContextLayer;
+use wardnetd_services::request_context;
 use wardnetd_services::request_context::RequestContextLayer;
+
+/// Convert a caught handler panic into a `500` response — the panic-isolation
+/// boundary for the whole HTTP stack (see [`catch_panic_layer`]).
+///
+/// Logs the panic at `error` level so it reaches structured logs / Loki (the
+/// default panic hook only writes to stderr, which is how the equivalent
+/// wardnet-cloud incident produced zero log lines), then returns the same
+/// `ApiError` JSON shape as [`wardnetd_services::error::AppError`] so clients
+/// see a consistent body. The panic message is deliberately **not** echoed in
+/// the response — it can carry internal detail — but it is always logged.
+// The by-value `Box` is dictated by `CatchPanicLayer::custom`'s handler
+// signature; we only need to borrow it to extract the message.
+#[allow(clippy::needless_pass_by_value)]
+fn handle_panic(panic: Box<dyn Any + Send + 'static>) -> Response {
+    let detail = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&'static str>().copied())
+        .unwrap_or("unknown panic");
+
+    tracing::error!(
+        panic = %detail,
+        "request handler panicked; isolated as 500 (listener kept alive): {detail}"
+    );
+
+    let body = ApiError {
+        error: "internal server error".to_owned(),
+        detail: None,
+        request_id: request_context::current_request_id(),
+    };
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
+}
+
+/// Panic-isolation layer for the HTTP stack. A panic in any handler (or in the
+/// middleware it wraps) is caught and turned into a logged `500` by
+/// [`handle_panic`], so a single bad request can never unwind the connection
+/// task and take the listener down. Placed *inside* the [`TraceLayer`] so the
+/// resulting `500` is still recorded by the request-tracing span.
+pub(crate) fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) -> Response>
+{
+    CatchPanicLayer::custom(handle_panic as fn(Box<dyn Any + Send + 'static>) -> Response)
+}
 
 /// Build the OpenAPI-aware router by letting each module register its own
 /// handlers. Order is purely cosmetic — it controls the grouping in the
@@ -162,6 +211,12 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(
             middleware::inject_request_context,
         ))
+        // Panic isolation: catch any handler/middleware panic and turn it into a
+        // logged 500 instead of letting it unwind the connection task (which can
+        // take the listener down). Inside `TraceLayer` so the 500 is still
+        // traced; outside our auth/context middleware so their panics are caught
+        // too.
+        .layer(catch_panic_layer())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::extract::Request| {
