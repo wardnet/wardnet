@@ -97,7 +97,7 @@ pub(crate) async fn select_best(
             let healthy = match client.get(&entry.health_url).send().await {
                 Ok(response) => response.status().is_success(),
                 Err(error) => {
-                    tracing::debug!(slug = %entry.slug, %error, "region health probe failed");
+                    tracing::debug!(slug = %entry.slug, %error, "region health probe failed for {}: {error}", entry.slug);
                     false
                 }
             };

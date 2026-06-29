@@ -119,8 +119,13 @@ impl TenantsClient {
             identity.mark_unentitled();
             return Err(CloudError::EntitlementLost);
         }
-        let parsed: TokenResponse = request::json(request::ok(resp).await?).await?;
+        // A non-`403` success means the subscription is active, so mark the box
+        // entitled *before* parsing the body: a malformed (e.g. truncated) `200`
+        // must still clear a suspended flag, otherwise the box can never
+        // self-heal (every re-probe would hit the same parse error).
+        let ok = request::ok(resp).await?;
         identity.mark_entitled();
+        let parsed: TokenResponse = request::json(ok).await?;
         Ok(parsed.token)
     }
 

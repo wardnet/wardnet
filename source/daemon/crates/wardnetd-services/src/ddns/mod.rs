@@ -578,7 +578,7 @@ impl DdnsService for DdnsServiceImpl {
             .map_err(AppError::Internal)?;
         self.set_cfg(KEY_TENANT_ID, &tenant_id).await?;
 
-        tracing::info!(%tenant_id, "enrolled daemon identity with tenants");
+        tracing::info!(%tenant_id, "enrolled daemon identity with tenants: tenant_id={tenant_id}");
         Ok(())
     }
 

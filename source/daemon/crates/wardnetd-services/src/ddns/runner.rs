@@ -109,6 +109,8 @@ async fn refresh(ddns: &dyn DdnsService, admin_ctx: &AuthContext) {
 async fn probe(ddns: &dyn DdnsService, admin_ctx: &AuthContext) {
     match auth_context::with_context(admin_ctx.clone(), ddns.probe_entitlement()).await {
         Ok(()) => tracing::debug!("entitlement re-probe complete"),
-        Err(error) => tracing::debug!(%error, "entitlement re-probe failed; still suspended"),
+        Err(error) => {
+            tracing::debug!(%error, "entitlement re-probe failed; still suspended: {error}");
+        }
     }
 }
