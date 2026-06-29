@@ -9,7 +9,7 @@
 //! out of coverage, like the sibling no-op backends).
 //!
 //! ## Simulated behaviour
-//! - `register_with_bridge` / `configure_cloudflare` record a fake FQDN + public
+//! - `register_network` / `configure_cloudflare` record a fake FQDN + public
 //!   IP and start a timer.
 //! - For [`ISSUE_DELAY`] after registration the TLS phase reports `issuing` and
 //!   the resolution check `pending`; after it, `issued` (a 90-day cert) and
@@ -209,11 +209,13 @@ impl DdnsService for MockDdnsService {
                 provider: Some(s.provider.to_owned()),
                 fqdn: Some(s.fqdn.clone()),
                 last_public_ip: Some(s.public_ip.clone()),
+                suspended: false,
             },
             None => DdnsStatus {
                 provider: None,
                 fqdn: None,
                 last_public_ip: None,
+                suspended: false,
             },
         })
     }

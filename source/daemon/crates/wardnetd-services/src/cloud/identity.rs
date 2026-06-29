@@ -117,7 +117,12 @@ impl DaemonIdentity {
         // (the token-mint path uses PoP-only auth and never re-enters `token`,
         // but the compiler can't see that).
         let token = Box::pin(self.tenants.mint_token(self)).await?;
-        let exp = decode_exp(&token).unwrap_or(now + FALLBACK_TTL_SECS);
+        // Guard against an implausible `exp` (missing, zero, or already inside the
+        // refresh window): treat it as the fallback TTL, so a malformed token can
+        // never drive a re-mint-on-every-call loop against the token endpoint.
+        let exp = decode_exp(&token)
+            .filter(|exp| *exp > now + REFRESH_SKEW_SECS)
+            .unwrap_or(now + FALLBACK_TTL_SECS);
         *self.cached.lock().unwrap() = Some((token.clone(), exp));
         Ok(token)
     }

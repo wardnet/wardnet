@@ -761,9 +761,11 @@ impl DdnsService for DdnsServiceImpl {
         };
 
         // Remove the upstream presence first, while the provider's config +
-        // secrets are still present to build it. Non-fatal: a dead backend must
-        // not trap the operator configured, so log and continue to the wipe.
-        if let Some(provider) = self.build_provider().await?
+        // secrets are still present to build it. Non-fatal: neither a dead backend
+        // nor a half-written/corrupt config (a build failure) may trap the
+        // operator configured, so a build error is treated as "nothing to remove"
+        // (`.ok().flatten()`) and we always continue to the local wipe.
+        if let Some(provider) = self.build_provider().await.ok().flatten()
             && let Err(e) = provider.teardown().await
         {
             tracing::warn!(
