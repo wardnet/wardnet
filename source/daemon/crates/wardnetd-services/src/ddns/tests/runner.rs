@@ -20,10 +20,20 @@ struct CountingDdns {
 
 #[async_trait]
 impl DdnsService for CountingDdns {
-    async fn register_with_bridge(&self, _name: String) -> Result<DdnsRegistration, AppError> {
+    async fn request_enrollment_code(&self, _email: String) -> Result<(), AppError> {
         unreachable!("not called by the runner")
     }
-    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+    async fn enroll(&self, _code: String) -> Result<(), AppError> {
+        unreachable!("not called by the runner")
+    }
+    async fn check_slug(&self, _slug: String) -> Result<bool, AppError> {
+        unreachable!("not called by the runner")
+    }
+    async fn register_network(
+        &self,
+        _slug: String,
+        _display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError> {
         unreachable!("not called by the runner")
     }
     async fn configure_cloudflare(

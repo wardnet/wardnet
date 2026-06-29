@@ -1142,13 +1142,20 @@ pub struct StubDdnsService;
 
 #[async_trait]
 impl wardnetd_services::DdnsService for StubDdnsService {
-    async fn register_with_bridge(
-        &self,
-        _name: String,
-    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
+    async fn request_enrollment_code(&self, _email: String) -> Result<(), AppError> {
         unimplemented!()
     }
-    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+    async fn enroll(&self, _code: String) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn check_slug(&self, _slug: String) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn register_network(
+        &self,
+        _slug: String,
+        _display_name: Option<String>,
+    ) -> Result<wardnetd_services::ddns::DdnsRegistration, AppError> {
         unimplemented!()
     }
     async fn configure_cloudflare(

@@ -1,24 +1,32 @@
-//! Service-layer tests. Auth gating and the unconfigured short-circuit use
-//! mock repositories; registration and IP-refresh run against a `wiremock`
-//! bridge so the persistence + change-detection logic is exercised end to end.
+//! Service-layer tests. Auth gating and the unconfigured short-circuit use mock
+//! repositories; enrollment, registration, IP-refresh, ACME and teardown run
+//! against `wiremock` tenants + ddns servers so the persistence + auth flow is
+//! exercised end to end.
+//!
+//! Every JWT + `PoP` call first mints a token via the tenants server's
+//! `POST /v1/token`; the [`mount_token`] helper answers it with a JWT-shaped
+//! body (see `crate::cloud::tests` for the canonical pattern).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use base64::Engine as _;
+use serde_json::json;
 use uuid::Uuid;
 use wardnet_common::api::DdnsResolutionVerdict;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::SystemConfigRepository;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_json, header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::auth_context;
+use crate::ddns::region::RegionEndpoint;
 use crate::ddns::{
-    DdnsService, DdnsServiceImpl, DdnsSettings, KEY_BRIDGE_BASE_URL, KEY_CF_ZONE_ID, KEY_DOMAIN,
-    KEY_INSTALL_ID, KEY_LAST_IP, KEY_PROVIDER, KEY_REGION, KEY_SUBDOMAIN, PROVIDER_BRIDGE,
-    PROVIDER_CLOUDFLARE, SECRET_BRIDGE_BEARER, SECRET_BRIDGE_SIGNING_KEY, SECRET_CF_TOKEN,
+    DdnsService, DdnsServiceImpl, DdnsSettings, KEY_CF_ZONE_ID, KEY_DOMAIN, KEY_LAST_IP,
+    KEY_NETWORK_ID, KEY_PROVIDER, KEY_REGION, KEY_SLUG, KEY_SUBDOMAIN, KEY_TENANT_ID,
+    PROVIDER_CLOUDFLARE, PROVIDER_WARDNET, SECRET_CF_TOKEN, SECRET_DAEMON_KEY,
 };
 use crate::error::AppError;
 use crate::secret_store::SecretStore;
@@ -98,42 +106,49 @@ fn admin_ctx() -> AuthContext {
     }
 }
 
-fn settings(bridge_url: Option<String>, echo: Vec<String>) -> DdnsSettings {
+/// A JWT-shaped string whose payload decodes to `{"exp": exp}` (mirrors the
+/// canonical helper in `crate::cloud::tests`).
+fn fake_jwt(exp: i64) -> String {
+    let payload =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{exp}}}"));
+    format!("header.{payload}.sig")
+}
+
+/// Mount `POST /v1/token` on a tenants server, answering with a fresh,
+/// far-from-expiry JWT. Required by every JWT + `PoP` call the service makes.
+async fn mount_token(server: &MockServer) {
+    let exp = chrono::Utc::now().timestamp() + 3600;
+    Mock::given(method("POST"))
+        .and(path("/v1/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
+        .mount(server)
+        .await;
+}
+
+/// Build settings pointed at a wiremock tenants server, with an explicit region
+/// catalog and echo endpoints. Cloudflare/DoH are left empty (their tests build
+/// `DdnsSettings` directly).
+fn settings(
+    region_catalog: Vec<RegionEndpoint>,
+    tenants_url: String,
+    echo: Vec<String>,
+) -> DdnsSettings {
     DdnsSettings {
-        region_catalog: bridge_url
-            .map(|url| vec![("use1".to_owned(), url)])
-            .unwrap_or_default(),
+        region_catalog,
+        tenants_base_url: tenants_url,
         echo_endpoints: echo,
         cf_base_url: String::new(),
         doh_resolvers: vec![],
     }
 }
 
-/// A bridge with a healthy `/v1/health` plus challenge + register endpoints.
-async fn registerable_bridge() -> MockServer {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/v1/health"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/v1/register/challenge"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "challenge_id": "chal-1", "nonce": "n0nce", "difficulty": 4,
-            "expires_at": "2030-01-01T00:00:00Z",
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/v1/register"))
-        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-            "id": "install-9", "bearer_token": "tok-9",
-            "subdomain": "happy-einstein.my.wardnet.services", "region": "us",
-        })))
-        .mount(&server)
-        .await;
-    server
+/// A one-region catalog whose health probe + control base both target `ddns`.
+fn region_catalog(slug: &str, ddns: &MockServer) -> Vec<RegionEndpoint> {
+    vec![RegionEndpoint {
+        slug: slug.to_owned(),
+        ddns_base_url: ddns.uri(),
+        health_url: format!("{}/v1/health", ddns.uri()),
+    }]
 }
 
 async fn echo_server(ip: &str) -> MockServer {
@@ -146,7 +161,36 @@ async fn echo_server(ip: &str) -> MockServer {
     server
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
+/// Pre-seed a fully registered wardnet identity (provider + network + key) into
+/// the mock config + secrets.
+async fn seed_wardnet_identity(
+    config: &MockSystemConfig,
+    secrets: &MockSecretStore,
+    region_slug: &str,
+    last_ip: Option<&str>,
+) {
+    config.set(KEY_PROVIDER, PROVIDER_WARDNET).await.unwrap();
+    config.set(KEY_TENANT_ID, "t-1").await.unwrap();
+    config.set(KEY_NETWORK_ID, "net-1").await.unwrap();
+    config.set(KEY_SLUG, "happy").await.unwrap();
+    config
+        .set(KEY_SUBDOMAIN, "happy.my.wardnet.services")
+        .await
+        .unwrap();
+    config.set(KEY_REGION, region_slug).await.unwrap();
+    if let Some(ip) = last_ip {
+        config.set(KEY_LAST_IP, ip).await.unwrap();
+    }
+    secrets.put(SECRET_DAEMON_KEY, &[3u8; 32]).await.unwrap();
+}
+
+/// Pre-seed only the enrolled identity (key, no network/provider) — the state
+/// after [`DdnsService::enroll`] but before [`DdnsService::register_network`].
+async fn seed_enrolled(secrets: &MockSecretStore) {
+    secrets.put(SECRET_DAEMON_KEY, &[5u8; 32]).await.unwrap();
+}
+
+// ── Auth gating + unconfigured short-circuits ───────────────────────────────────
 
 #[tokio::test]
 async fn refresh_and_register_require_admin() {
@@ -160,7 +204,9 @@ async fn refresh_and_register_require_admin() {
         AppError::Forbidden(_)
     ));
     assert!(matches!(
-        svc.register_with_bridge("x".to_owned()).await.unwrap_err(),
+        svc.register_network("alice".to_owned(), None)
+            .await
+            .unwrap_err(),
         AppError::Forbidden(_)
     ));
 }
@@ -177,159 +223,342 @@ async fn refresh_is_noop_when_unconfigured() {
     assert_eq!(result, None);
 }
 
+// ── Enrollment ──────────────────────────────────────────────────────────────────
+
 #[tokio::test]
-async fn register_with_bridge_persists_identity() {
-    let server = registerable_bridge().await;
+async fn request_enrollment_code_requires_admin() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    assert!(matches!(
+        svc.request_enrollment_code("a@b.com".to_owned())
+            .await
+            .unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+}
+
+#[tokio::test]
+async fn request_enrollment_code_posts_email_and_purpose() {
+    let tenants = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/verification-codes"))
+        .and(body_json(
+            json!({ "email": "a@b.com", "purpose": "enrollment" }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "code": null })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        settings(vec![], tenants.uri(), vec![]),
+    );
+    auth_context::with_context(
+        admin_ctx(),
+        svc.request_enrollment_code("a@b.com".to_owned()),
+    )
+    .await
+    .unwrap();
+    // `.expect(1)` is verified when `tenants` drops here.
+}
+
+#[tokio::test]
+async fn request_enrollment_code_rejects_invalid_email_locally() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    // No `@` → rejected before any network call.
+    let err =
+        auth_context::with_context(admin_ctx(), svc.request_enrollment_code("nope".to_owned()))
+            .await
+            .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+#[tokio::test]
+async fn enroll_persists_key_and_tenant_id() {
+    let tenants = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/enroll"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "tenant_id": "t-1" })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(server.uri()), vec![]),
+        settings(vec![], tenants.uri(), vec![]),
     );
 
-    let registration = auth_context::with_context(
-        admin_ctx(),
-        svc.register_with_bridge("happy-einstein".to_owned()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(registration.subdomain, "happy-einstein.my.wardnet.services");
-    assert_eq!(registration.region, "us");
+    auth_context::with_context(admin_ctx(), svc.enroll("ABC123".to_owned()))
+        .await
+        .unwrap();
 
+    // The fresh Ed25519 seed and the tenant binding are persisted…
     assert_eq!(
-        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
-        Some(PROVIDER_BRIDGE)
-    );
-    assert_eq!(
-        config.get(KEY_INSTALL_ID).await.unwrap().as_deref(),
-        Some("install-9")
-    );
-    assert_eq!(
-        config.get(KEY_SUBDOMAIN).await.unwrap().as_deref(),
-        Some("happy-einstein.my.wardnet.services")
-    );
-    assert_eq!(config.get(KEY_REGION).await.unwrap().as_deref(), Some("us"));
-    assert_eq!(
-        config.get(KEY_BRIDGE_BASE_URL).await.unwrap(),
-        Some(server.uri())
-    );
-
-    assert_eq!(
-        secrets
-            .get(SECRET_BRIDGE_SIGNING_KEY)
-            .await
-            .unwrap()
-            .unwrap()
-            .len(),
+        secrets.get(SECRET_DAEMON_KEY).await.unwrap().unwrap().len(),
         32
     );
     assert_eq!(
-        secrets.get(SECRET_BRIDGE_BEARER).await.unwrap().unwrap(),
-        b"tok-9"
+        config.get(KEY_TENANT_ID).await.unwrap().as_deref(),
+        Some("t-1")
+    );
+    // …but the provider is NOT yet wardnet — there is no network until
+    // `register_network` runs.
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn enroll_rejects_empty_code_locally() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let err = auth_context::with_context(admin_ctx(), svc.enroll("   ".to_owned()))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+// ── Slug availability ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn check_slug_returns_available() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    Mock::given(method("GET"))
+        .and(path("/v1/availability"))
+        .and(query_param("slug", "alice"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "available": true })))
+        .mount(&tenants)
+        .await;
+
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        secrets,
+        settings(vec![], tenants.uri(), vec![]),
+    );
+
+    let available = auth_context::with_context(admin_ctx(), svc.check_slug("alice".to_owned()))
+        .await
+        .unwrap();
+    assert!(available);
+}
+
+#[tokio::test]
+async fn check_slug_returns_taken() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    Mock::given(method("GET"))
+        .and(path("/v1/availability"))
+        .and(query_param("slug", "taken"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "available": false })))
+        .mount(&tenants)
+        .await;
+
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        secrets,
+        settings(vec![], tenants.uri(), vec![]),
+    );
+
+    let available = auth_context::with_context(admin_ctx(), svc.check_slug("taken".to_owned()))
+        .await
+        .unwrap();
+    assert!(!available);
+}
+
+#[tokio::test]
+async fn check_slug_rejects_invalid_locally() {
+    // A slug with a path separator short-circuits to `false` with no network
+    // call (no server wired) — both a path-injection guard and the cloud's own
+    // "invalid ⇒ unavailable" semantics.
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let available = auth_context::with_context(admin_ctx(), svc.check_slug("bad/name".to_owned()))
+        .await
+        .unwrap();
+    assert!(!available);
+}
+
+#[tokio::test]
+async fn check_slug_not_enrolled_is_conflict() {
+    // A valid slug but no enrolled identity → availability is tenant-scoped, so
+    // it fails fast with Conflict before any network call.
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let err = auth_context::with_context(admin_ctx(), svc.check_slug("alice".to_owned()))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict(_)));
+}
+
+// ── Network registration ────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn register_network_persists_wardnet_provider() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/networks"))
+        .and(body_json(json!({ "slug": "alice", "region": "use1" })))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "n-1",
+            "tenant_id": "t-1",
+            "slug": "alice",
+            "display_name": "alice",
+            "region": "use1",
+            "provisioning_state": "provisioning",
+            "created_at": "2026-06-29T00:00:00Z",
+            "updated_at": "2026-06-29T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
+    // The region health probe (`select_best`) must see a reachable region.
+    let ddns = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/health"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&ddns)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
+    );
+
+    let registration =
+        auth_context::with_context(admin_ctx(), svc.register_network("alice".to_owned(), None))
+            .await
+            .unwrap();
+    assert_eq!(registration.subdomain, "alice.my.wardnet.services");
+    assert_eq!(registration.region, "use1");
+
+    assert_eq!(
+        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
+        Some(PROVIDER_WARDNET)
+    );
+    assert_eq!(
+        config.get(KEY_NETWORK_ID).await.unwrap().as_deref(),
+        Some("n-1")
+    );
+    assert_eq!(
+        config.get(KEY_SLUG).await.unwrap().as_deref(),
+        Some("alice")
+    );
+    assert_eq!(
+        config.get(KEY_SUBDOMAIN).await.unwrap().as_deref(),
+        Some("alice.my.wardnet.services")
+    );
+    assert_eq!(
+        config.get(KEY_REGION).await.unwrap().as_deref(),
+        Some("use1")
     );
 }
 
 #[tokio::test]
-async fn register_rejects_invalid_name_before_any_network_call() {
-    // A name with a path separator must be rejected locally (BadRequest) so it
-    // can never be interpolated into the bridge URL path. No bridge is wired, so
-    // a network attempt would itself error differently.
+async fn register_network_rejects_invalid_slug_before_any_network_call() {
+    // A slug with a path separator must be rejected locally (BadRequest) so it
+    // can never be interpolated into the tenants request URL.
     let svc = DdnsServiceImpl::new(
         Arc::new(MockSystemConfig::default()),
         Arc::new(MockSecretStore::default()),
     );
     let err = auth_context::with_context(
         admin_ctx(),
-        svc.register_with_bridge("../installs/x/ip".to_owned()),
+        svc.register_network("../networks/x".to_owned(), None),
     )
     .await
     .unwrap_err();
     assert!(matches!(err, AppError::BadRequest(_)));
 }
 
-#[tokio::test]
-async fn check_name_available_returns_false_for_invalid_name() {
-    // Invalid names short-circuit to `false` with no network call (no bridge
-    // wired here), mirroring the bridge's own availability semantics.
-    let svc = DdnsServiceImpl::new(
-        Arc::new(MockSystemConfig::default()),
-        Arc::new(MockSecretStore::default()),
-    );
-    let available =
-        auth_context::with_context(admin_ctx(), svc.check_name_available("bad/name".to_owned()))
-            .await
-            .unwrap();
-    assert!(!available);
-}
-
-/// Pre-seed a registered bridge identity into the mock config + secrets.
-async fn seed_bridge_identity(
-    config: &MockSystemConfig,
-    secrets: &MockSecretStore,
-    bridge_url: &str,
-    last_ip: Option<&str>,
-) {
-    config.set(KEY_PROVIDER, PROVIDER_BRIDGE).await.unwrap();
-    config.set(KEY_INSTALL_ID, "inst-1").await.unwrap();
-    config.set(KEY_BRIDGE_BASE_URL, bridge_url).await.unwrap();
-    if let Some(ip) = last_ip {
-        config.set(KEY_LAST_IP, ip).await.unwrap();
-    }
-    secrets
-        .put(SECRET_BRIDGE_SIGNING_KEY, &[3u8; 32])
-        .await
-        .unwrap();
-    secrets.put(SECRET_BRIDGE_BEARER, b"tok").await.unwrap();
-}
+// ── Public-IP refresh ───────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn refresh_skips_when_ip_unchanged() {
-    let bridge = MockServer::start().await;
+    let tenants = MockServer::start().await;
+    let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/installs/inst-1/ip"))
+        .and(path("/v1/ip"))
         .respond_with(ResponseTemplate::new(204))
         .expect(0) // must NOT be called when the IP is unchanged
-        .mount(&bridge)
+        .mount(&ddns)
         .await;
     let echo = echo_server("1.2.3.4").await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), Some("1.2.3.4")).await;
+    seed_wardnet_identity(&config, &secrets, "use1", Some("1.2.3.4")).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(bridge.uri()), vec![echo.uri()]),
+        settings(
+            region_catalog("use1", &ddns),
+            tenants.uri(),
+            vec![echo.uri()],
+        ),
     );
 
     let result = auth_context::with_context(admin_ctx(), svc.refresh_public_ip())
         .await
         .unwrap();
     assert_eq!(result, None);
-    // `.expect(0)` is verified when `bridge` drops here.
+    // `.expect(0)` is verified when `ddns` drops here.
 }
 
 #[tokio::test]
 async fn refresh_publishes_when_ip_changed() {
-    let bridge = MockServer::start().await;
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/installs/inst-1/ip"))
+        .and(path("/v1/ip"))
+        .and(body_json(json!({ "ip": "9.9.9.9" })))
+        .and(header_exists("authorization"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
-        .mount(&bridge)
+        .mount(&ddns)
         .await;
     let echo = echo_server("9.9.9.9").await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), Some("1.1.1.1")).await;
+    seed_wardnet_identity(&config, &secrets, "use1", Some("1.1.1.1")).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(bridge.uri()), vec![echo.uri()]),
+        settings(
+            region_catalog("use1", &ddns),
+            tenants.uri(),
+            vec![echo.uri()],
+        ),
     );
 
     let result = auth_context::with_context(admin_ctx(), svc.refresh_public_ip())
@@ -342,150 +571,7 @@ async fn refresh_publishes_when_ip_changed() {
     );
 }
 
-/// A Cloudflare API mock that serves the zone list for `lookup_zone_id`.
-async fn cf_zones_server() -> MockServer {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/zones"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "success": true,
-            "errors": [],
-            "result": [
-                { "id": "zone-eg", "name": "example.com" },
-                { "id": "zone-other", "name": "other.net" },
-            ],
-        })))
-        .mount(&server)
-        .await;
-    server
-}
-
-#[tokio::test]
-async fn configure_cloudflare_requires_admin() {
-    let svc = DdnsServiceImpl::new(
-        Arc::new(MockSystemConfig::default()),
-        Arc::new(MockSecretStore::default()),
-    );
-    assert!(matches!(
-        svc.configure_cloudflare("tok".to_owned(), "home.example.com".to_owned())
-            .await
-            .unwrap_err(),
-        AppError::Forbidden(_)
-    ));
-}
-
-#[tokio::test]
-async fn configure_cloudflare_resolves_zone_and_persists_identity() {
-    let cf = cf_zones_server().await;
-    let config = Arc::new(MockSystemConfig::default());
-    let secrets = Arc::new(MockSecretStore::default());
-    let svc = DdnsServiceImpl::with_settings(
-        config.clone(),
-        secrets.clone(),
-        DdnsSettings {
-            region_catalog: vec![],
-            echo_endpoints: vec![],
-            cf_base_url: cf.uri(),
-            doh_resolvers: vec![],
-        },
-    );
-
-    // A subdomain resolves to its registrable apex zone (longest suffix match).
-    let registration = auth_context::with_context(
-        admin_ctx(),
-        svc.configure_cloudflare("cf-token".to_owned(), "home.example.com".to_owned()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(registration.subdomain, "home.example.com");
-
-    assert_eq!(
-        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
-        Some(PROVIDER_CLOUDFLARE)
-    );
-    assert_eq!(
-        config.get(KEY_DOMAIN).await.unwrap().as_deref(),
-        Some("home.example.com")
-    );
-    assert_eq!(
-        config.get(KEY_CF_ZONE_ID).await.unwrap().as_deref(),
-        Some("zone-eg")
-    );
-    assert_eq!(
-        secrets.get(SECRET_CF_TOKEN).await.unwrap().unwrap(),
-        b"cf-token"
-    );
-}
-
-#[tokio::test]
-async fn configure_cloudflare_errors_when_no_zone_covers_domain() {
-    let cf = cf_zones_server().await;
-    let config = Arc::new(MockSystemConfig::default());
-    let secrets = Arc::new(MockSecretStore::default());
-    let svc = DdnsServiceImpl::with_settings(
-        config.clone(),
-        secrets.clone(),
-        DdnsSettings {
-            region_catalog: vec![],
-            echo_endpoints: vec![],
-            cf_base_url: cf.uri(),
-            doh_resolvers: vec![],
-        },
-    );
-
-    // No accessible zone is a suffix of `unrelated.org` — a user-fixable input
-    // error (wrong domain / under-scoped token), so BadRequest, not an outage.
-    let err = auth_context::with_context(
-        admin_ctx(),
-        svc.configure_cloudflare("cf-token".to_owned(), "unrelated.org".to_owned()),
-    )
-    .await
-    .unwrap_err();
-    assert!(matches!(err, AppError::BadRequest(_)));
-    // Nothing should have been persisted on failure.
-    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
-    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
-}
-
-#[tokio::test]
-async fn configure_cloudflare_rejected_token_is_bad_request() {
-    // A 403 from Cloudflare (bad/under-scoped token) is a user-fixable error, so
-    // it must surface as BadRequest (keep the operator on the form) rather than
-    // UpstreamUnavailable (which the wizard treats as a retryable outage).
-    let cf = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/zones"))
-        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
-            "success": false,
-            "errors": [{ "message": "Invalid API token" }],
-            "result": null,
-        })))
-        .mount(&cf)
-        .await;
-
-    let config = Arc::new(MockSystemConfig::default());
-    let secrets = Arc::new(MockSecretStore::default());
-    let svc = DdnsServiceImpl::with_settings(
-        config.clone(),
-        secrets.clone(),
-        DdnsSettings {
-            region_catalog: vec![],
-            echo_endpoints: vec![],
-            cf_base_url: cf.uri(),
-            doh_resolvers: vec![],
-        },
-    );
-
-    let err = auth_context::with_context(
-        admin_ctx(),
-        svc.configure_cloudflare("bad-token".to_owned(), "home.example.com".to_owned()),
-    )
-    .await
-    .unwrap_err();
-    assert!(matches!(err, AppError::BadRequest(_)));
-    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
-    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
-}
+// ── ACME challenge ──────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn acme_challenge_requires_admin() {
@@ -527,23 +613,28 @@ async fn acme_challenge_errors_when_unconfigured() {
 }
 
 #[tokio::test]
-async fn set_acme_challenge_publishes_txt_via_bridge() {
-    let bridge = MockServer::start().await;
+async fn set_acme_challenge_publishes_txt_via_ddns() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/installs/inst-1/acme-challenge"))
+        .and(path("/v1/acme-challenge"))
+        .and(body_json(
+            json!({ "values": ["apex-value", "wildcard-value"] }),
+        ))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
-        .mount(&bridge)
+        .mount(&ddns)
         .await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
+    seed_wardnet_identity(&config, &secrets, "use1", None).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(bridge.uri()), vec![]),
+        settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
     );
 
     auth_context::with_context(
@@ -552,60 +643,253 @@ async fn set_acme_challenge_publishes_txt_via_bridge() {
     )
     .await
     .unwrap();
-    // `.expect(1)` is verified when `bridge` drops here.
+    // `.expect(1)` is verified when `ddns` drops here.
 }
 
 #[tokio::test]
-async fn clear_acme_challenge_deletes_txt_via_bridge() {
-    let bridge = MockServer::start().await;
+async fn clear_acme_challenge_deletes_txt_via_ddns() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    let ddns = MockServer::start().await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/installs/inst-1/acme-challenge"))
+        .and(path("/v1/acme-challenge"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
-        .mount(&bridge)
+        .mount(&ddns)
         .await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
+    seed_wardnet_identity(&config, &secrets, "use1", None).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(bridge.uri()), vec![]),
+        settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
     );
 
     auth_context::with_context(admin_ctx(), svc.clear_acme_challenge())
         .await
         .unwrap();
-    // `.expect(1)` is verified when `bridge` drops here.
+    // `.expect(1)` is verified when `ddns` drops here.
 }
 
-// ── Teardown (#531) ──────────────────────────────────────────────────────────────
+// ── Entitlement ─────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn teardown_deregisters_bridge_and_wipes_state() {
-    let bridge = MockServer::start().await;
-    // The bridge deregister endpoint must be hit exactly once.
-    Mock::given(method("DELETE"))
-        .and(path("/v1/installs/inst-1"))
-        .respond_with(ResponseTemplate::new(204))
-        .expect(1)
-        .mount(&bridge)
+async fn token_403_surfaces_as_forbidden() {
+    // A 403 from token minting (lapsed subscription) must surface as Forbidden so
+    // the wizard can drive the Suspended state, not a generic outage.
+    let tenants = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/token"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("subscription is not active"))
+        .mount(&tenants)
+        .await;
+
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        secrets,
+        settings(vec![], tenants.uri(), vec![]),
+    );
+
+    let err = auth_context::with_context(admin_ctx(), svc.check_slug("alice".to_owned()))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::Forbidden(_)));
+}
+
+// ── Cloudflare (BYOD) ───────────────────────────────────────────────────────────
+
+/// A Cloudflare API mock that serves the zone list for `lookup_zone_id`.
+async fn cf_zones_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/zones"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "success": true,
+            "errors": [],
+            "result": [
+                { "id": "zone-eg", "name": "example.com" },
+                { "id": "zone-other", "name": "other.net" },
+            ],
+        })))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Cloudflare-only settings: an empty region catalog + tenants URL (unused on the
+/// BYOD path), with the CF API base pointed at `cf`.
+fn cloudflare_settings(cf: &MockServer) -> DdnsSettings {
+    DdnsSettings {
+        region_catalog: vec![],
+        tenants_base_url: String::new(),
+        echo_endpoints: vec![],
+        cf_base_url: cf.uri(),
+        doh_resolvers: vec![],
+    }
+}
+
+#[tokio::test]
+async fn configure_cloudflare_requires_admin() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    assert!(matches!(
+        svc.configure_cloudflare("tok".to_owned(), "home.example.com".to_owned())
+            .await
+            .unwrap_err(),
+        AppError::Forbidden(_)
+    ));
+}
+
+#[tokio::test]
+async fn configure_cloudflare_resolves_zone_and_persists_identity() {
+    let cf = cf_zones_server().await;
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let svc =
+        DdnsServiceImpl::with_settings(config.clone(), secrets.clone(), cloudflare_settings(&cf));
+
+    // A subdomain resolves to its registrable apex zone (longest suffix match).
+    let registration = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("cf-token".to_owned(), "home.example.com".to_owned()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(registration.subdomain, "home.example.com");
+
+    assert_eq!(
+        config.get(KEY_PROVIDER).await.unwrap().as_deref(),
+        Some(PROVIDER_CLOUDFLARE)
+    );
+    assert_eq!(
+        config.get(KEY_DOMAIN).await.unwrap().as_deref(),
+        Some("home.example.com")
+    );
+    assert_eq!(
+        config.get(KEY_CF_ZONE_ID).await.unwrap().as_deref(),
+        Some("zone-eg")
+    );
+    assert_eq!(
+        secrets.get(SECRET_CF_TOKEN).await.unwrap().unwrap(),
+        b"cf-token"
+    );
+}
+
+#[tokio::test]
+async fn configure_cloudflare_errors_when_no_zone_covers_domain() {
+    let cf = cf_zones_server().await;
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    let svc =
+        DdnsServiceImpl::with_settings(config.clone(), secrets.clone(), cloudflare_settings(&cf));
+
+    // No accessible zone is a suffix of `unrelated.org` — a user-fixable input
+    // error (wrong domain / under-scoped token), so BadRequest, not an outage.
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("cf-token".to_owned(), "unrelated.org".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+    // Nothing should have been persisted on failure.
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn configure_cloudflare_rejected_token_is_bad_request() {
+    // A 403 from Cloudflare (bad/under-scoped token) is a user-fixable error, so
+    // it must surface as BadRequest (keep the operator on the form) rather than
+    // UpstreamUnavailable (which the wizard treats as a retryable outage).
+    let cf = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/zones"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "success": false,
+            "errors": [{ "message": "Invalid API token" }],
+            "result": null,
+        })))
+        .mount(&cf)
         .await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), Some("9.9.9.9")).await;
-    config
-        .set(KEY_SUBDOMAIN, "happy.example.net")
+    let svc =
+        DdnsServiceImpl::with_settings(config.clone(), secrets.clone(), cloudflare_settings(&cf));
+
+    let err = auth_context::with_context(
+        admin_ctx(),
+        svc.configure_cloudflare("bad-token".to_owned(), "home.example.com".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)));
+    assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_CF_TOKEN).await.unwrap(), None);
+}
+
+// ── Status ──────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn status_reports_configured_wardnet_provider() {
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_wardnet_identity(&config, &secrets, "use1", Some("9.9.9.9")).await;
+    let svc =
+        DdnsServiceImpl::with_settings(config, secrets, settings(vec![], String::new(), vec![]));
+
+    let status = auth_context::with_context(admin_ctx(), svc.status())
         .await
         .unwrap();
+    assert_eq!(status.provider.as_deref(), Some(PROVIDER_WARDNET));
+    assert_eq!(status.fqdn.as_deref(), Some("happy.my.wardnet.services"));
+    assert_eq!(status.last_public_ip.as_deref(), Some("9.9.9.9"));
+}
+
+#[tokio::test]
+async fn status_reports_unconfigured() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    let status = auth_context::with_context(admin_ctx(), svc.status())
+        .await
+        .unwrap();
+    assert_eq!(status.provider, None);
+    assert_eq!(status.fqdn, None);
+}
+
+// ── Teardown ────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn teardown_removes_daemon_and_wipes_state() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    // The per-daemon removal endpoint must be hit exactly once.
+    Mock::given(method("DELETE"))
+        .and(path("/v1/networks/net-1/daemons/self"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+    let ddns = MockServer::start().await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_wardnet_identity(&config, &secrets, "use1", Some("9.9.9.9")).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
-        settings(Some(bridge.uri()), vec![]),
+        settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
     );
 
     auth_context::with_context(admin_ctx(), svc.teardown())
@@ -614,12 +898,14 @@ async fn teardown_deregisters_bridge_and_wipes_state() {
 
     // Config + secrets are wiped → `status()` reports unconfigured.
     assert_eq!(config.get(KEY_PROVIDER).await.unwrap(), None);
-    assert_eq!(config.get(KEY_INSTALL_ID).await.unwrap(), None);
+    assert_eq!(config.get(KEY_TENANT_ID).await.unwrap(), None);
+    assert_eq!(config.get(KEY_NETWORK_ID).await.unwrap(), None);
+    assert_eq!(config.get(KEY_SLUG).await.unwrap(), None);
     assert_eq!(config.get(KEY_SUBDOMAIN).await.unwrap(), None);
+    assert_eq!(config.get(KEY_REGION).await.unwrap(), None);
     assert_eq!(config.get(KEY_LAST_IP).await.unwrap(), None);
-    assert_eq!(secrets.get(SECRET_BRIDGE_SIGNING_KEY).await.unwrap(), None);
-    assert_eq!(secrets.get(SECRET_BRIDGE_BEARER).await.unwrap(), None);
-    // `.expect(1)` on the DELETE is verified when `bridge` drops here.
+    assert_eq!(secrets.get(SECRET_DAEMON_KEY).await.unwrap(), None);
+    // `.expect(1)` on the DELETE is verified when `tenants` drops here.
 }
 
 #[tokio::test]
@@ -662,16 +948,8 @@ async fn teardown_deletes_cloudflare_records_and_wipes_state() {
     config.set(KEY_CF_ZONE_ID, "zone-eg").await.unwrap();
     secrets.put(SECRET_CF_TOKEN, b"cf-token").await.unwrap();
 
-    let svc = DdnsServiceImpl::with_settings(
-        config.clone(),
-        secrets.clone(),
-        DdnsSettings {
-            region_catalog: vec![],
-            echo_endpoints: vec![],
-            cf_base_url: cf.uri(),
-            doh_resolvers: vec![],
-        },
-    );
+    let svc =
+        DdnsServiceImpl::with_settings(config.clone(), secrets.clone(), cloudflare_settings(&cf));
 
     auth_context::with_context(admin_ctx(), svc.teardown())
         .await
@@ -685,30 +963,29 @@ async fn teardown_deletes_cloudflare_records_and_wipes_state() {
 }
 
 #[tokio::test]
-async fn switching_to_cloudflare_deregisters_old_bridge() {
-    // Old bridge: its deregister endpoint must be called once by the switch.
-    let bridge = MockServer::start().await;
+async fn switching_to_cloudflare_deregisters_old_wardnet() {
+    // Old wardnet network: its per-daemon removal must be called once by the switch.
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/installs/inst-1"))
+        .and(path("/v1/networks/net-1/daemons/self"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
-        .mount(&bridge)
+        .mount(&tenants)
         .await;
     let cf = cf_zones_server().await;
+    let ddns = MockServer::start().await;
 
     let config = Arc::new(MockSystemConfig::default());
     let secrets = Arc::new(MockSecretStore::default());
-    seed_bridge_identity(&config, &secrets, &bridge.uri(), None).await;
-    config
-        .set(KEY_SUBDOMAIN, "happy.example.net")
-        .await
-        .unwrap();
+    seed_wardnet_identity(&config, &secrets, "use1", None).await;
 
     let svc = DdnsServiceImpl::with_settings(
         config.clone(),
         secrets.clone(),
         DdnsSettings {
-            region_catalog: vec![],
+            region_catalog: region_catalog("use1", &ddns),
+            tenants_base_url: tenants.uri(),
             echo_endpoints: vec![],
             cf_base_url: cf.uri(),
             doh_resolvers: vec![],
@@ -722,17 +999,17 @@ async fn switching_to_cloudflare_deregisters_old_bridge() {
     .await
     .unwrap();
 
-    // New provider is committed; the old bridge identity + secret are cleared.
+    // New provider is committed; the old wardnet identity + secret are cleared.
     assert_eq!(
         config.get(KEY_PROVIDER).await.unwrap().as_deref(),
         Some(PROVIDER_CLOUDFLARE)
     );
-    assert_eq!(config.get(KEY_INSTALL_ID).await.unwrap(), None);
-    assert_eq!(secrets.get(SECRET_BRIDGE_SIGNING_KEY).await.unwrap(), None);
-    // `.expect(1)` on the old-bridge DELETE is verified when `bridge` drops here.
+    assert_eq!(config.get(KEY_NETWORK_ID).await.unwrap(), None);
+    assert_eq!(secrets.get(SECRET_DAEMON_KEY).await.unwrap(), None);
+    // `.expect(1)` on the old-wardnet DELETE is verified when `tenants` drops here.
 }
 
-// ── Resolution check (#531) ──────────────────────────────────────────────────────
+// ── Resolution check ────────────────────────────────────────────────────────────
 
 /// Build a DoH-JSON resolver mock returning `answer_ips` as A records with the
 /// given `status` code (0 = NOERROR, 3 = NXDOMAIN).
@@ -756,18 +1033,19 @@ async fn doh_server(status: u32, answer_ips: &[&str]) -> MockServer {
 fn resolution_settings(doh: &MockServer) -> DdnsSettings {
     DdnsSettings {
         region_catalog: vec![],
+        tenants_base_url: String::new(),
         echo_endpoints: vec![],
         cf_base_url: String::new(),
         doh_resolvers: vec![format!("{}/dns-query", doh.uri())],
     }
 }
 
-/// Seed a configured bridge identity with a known FQDN + last-published IP, for
+/// Seed a configured wardnet identity with a known FQDN + last-published IP, for
 /// the resolution-check tests (which only read `status()` + query `DoH`).
 async fn seed_for_resolution(config: &MockSystemConfig, last_ip: &str) {
-    config.set(KEY_PROVIDER, PROVIDER_BRIDGE).await.unwrap();
+    config.set(KEY_PROVIDER, PROVIDER_WARDNET).await.unwrap();
     config
-        .set(KEY_SUBDOMAIN, "happy.example.net")
+        .set(KEY_SUBDOMAIN, "happy.my.wardnet.services")
         .await
         .unwrap();
     config.set(KEY_LAST_IP, last_ip).await.unwrap();
@@ -801,7 +1079,7 @@ async fn resolution_check_reports_match() {
         .await
         .unwrap();
     assert_eq!(result.verdict, DdnsResolutionVerdict::Match);
-    assert_eq!(result.fqdn.as_deref(), Some("happy.example.net"));
+    assert_eq!(result.fqdn.as_deref(), Some("happy.my.wardnet.services"));
     assert_eq!(result.resolved_ips, vec!["9.9.9.9".to_owned()]);
 }
 

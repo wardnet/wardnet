@@ -24,7 +24,6 @@
 //! domain + zone). Secrets live in the on-Pi [`SecretStore`] under `ddns/…`
 //! (Ed25519 signing seed, bridge bearer token, Cloudflare API token).
 
-pub mod bridge;
 pub mod cloudflare;
 pub mod doh;
 pub mod provider;
@@ -43,30 +42,41 @@ use wardnet_common::api::{DdnsResolutionCheckResponse, DdnsResolutionVerdict};
 use wardnetd_data::repository::SystemConfigRepository;
 
 use crate::auth_context;
+use crate::cloud::{CloudError, DaemonIdentity, DdnsClient, TenantsClient, WardnetDnsProvider};
 use crate::error::AppError;
 use crate::secret_store::SecretStore;
 
-use self::bridge::BridgeProvider;
 use self::cloudflare::CloudflareProvider;
 use self::provider::DnsProvider;
+use self::region::RegionEndpoint;
 
 // ── system_config keys (non-secret) ────────────────────────────────────────────
 const KEY_PROVIDER: &str = "ddns_provider";
-const KEY_INSTALL_ID: &str = "ddns_install_id";
+const KEY_TENANT_ID: &str = "ddns_tenant_id";
+const KEY_NETWORK_ID: &str = "ddns_network_id";
+const KEY_SLUG: &str = "ddns_slug";
 const KEY_SUBDOMAIN: &str = "ddns_subdomain";
 const KEY_REGION: &str = "ddns_region";
-const KEY_BRIDGE_BASE_URL: &str = "ddns_bridge_base_url";
 const KEY_LAST_IP: &str = "ddns_last_public_ip";
 const KEY_DOMAIN: &str = "ddns_domain";
 const KEY_CF_ZONE_ID: &str = "ddns_cf_zone_id";
 
 // ── secret-store paths ─────────────────────────────────────────────────────────
-const SECRET_BRIDGE_SIGNING_KEY: &str = "ddns/bridge/signing_key";
-const SECRET_BRIDGE_BEARER: &str = "ddns/bridge/bearer_token";
+/// The daemon's 32-byte Ed25519 seed — its cloud identity. Generated at enroll,
+/// never leaves the Pi.
+const SECRET_DAEMON_KEY: &str = "ddns/daemon/signing_key";
 const SECRET_CF_TOKEN: &str = "ddns/cloudflare/api_token";
 
-const PROVIDER_BRIDGE: &str = "bridge";
+/// The wardnet-managed provider (enroll → network → ddns).
+const PROVIDER_WARDNET: &str = "wardnet";
+/// The Bring-Your-Own-Domain Cloudflare provider.
 const PROVIDER_CLOUDFLARE: &str = "cloudflare";
+/// The retired pre-mesh `bridge` provider. Any install still carrying it is
+/// wiped on sight and must re-enroll (no migration — the auth model changed).
+const PROVIDER_LEGACY_BRIDGE: &str = "bridge";
+
+/// The parent domain wardnet vanity slugs hang off of: `<slug>.my.wardnet.services`.
+const SUBDOMAIN_PARENT: &str = "my.wardnet.services";
 
 /// Outcome of a successful bridge registration, surfaced to the wizard (C9).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,12 +101,31 @@ pub struct DdnsStatus {
 /// Auth-gated DDNS operations. Every method requires an admin context.
 #[async_trait]
 pub trait DdnsService: Send + Sync {
-    /// Probe regions, register a fresh installation on the best bridge under
-    /// `name`, and persist its identity (config + secrets). Used by the wizard.
-    async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError>;
+    /// Request a one-time enrollment code be emailed to the wardnet account
+    /// `email`. First step of the wizard's wardnet path. Stores nothing — the
+    /// user then enters the emailed code into [`enroll`](Self::enroll).
+    async fn request_enrollment_code(&self, email: String) -> Result<(), AppError>;
 
-    /// Check whether `name` is available on the best-latency bridge.
-    async fn check_name_available(&self, name: String) -> Result<bool, AppError>;
+    /// Enroll against the one-time `code`: generate a fresh Ed25519 identity,
+    /// bind it to the tenant, and persist the key + `tenant_id`. The daemon is
+    /// now *enrolled* but has no network yet — [`register_network`] completes the
+    /// wardnet provider.
+    async fn enroll(&self, code: String) -> Result<(), AppError>;
+
+    /// Check whether vanity `slug` is available (well-formed, unreserved, free).
+    /// Requires a prior [`enroll`](Self::enroll) — availability is a tenant-scoped
+    /// query.
+    async fn check_slug(&self, slug: String) -> Result<bool, AppError>;
+
+    /// Register a network under `slug` on the lowest-latency region, persist the
+    /// wardnet provider identity (network id, slug, region, FQDN), and return the
+    /// assigned `<slug>.my.wardnet.services` hostname. Requires a prior
+    /// [`enroll`](Self::enroll).
+    async fn register_network(
+        &self,
+        slug: String,
+        display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError>;
 
     /// Configure the **BYOD-Cloudflare** provider for a domain the operator
     /// controls. Resolves the zone id from `domain` (which also validates
@@ -148,8 +177,10 @@ pub trait DdnsService: Send + Sync {
 
 /// Tunable base URLs, overridable in tests to point at wiremock servers.
 pub(crate) struct DdnsSettings {
-    /// Region catalog as `(slug, base_url)` pairs.
-    region_catalog: Vec<(String, String)>,
+    /// Per-region `ddns` catalog (control + health URLs), probed for selection.
+    region_catalog: Vec<RegionEndpoint>,
+    /// Global `tenants` service base URL (enroll / token / availability / networks).
+    tenants_base_url: String,
     /// Public-IP echo endpoints, tried in order.
     echo_endpoints: Vec<String>,
     /// Cloudflare API base URL.
@@ -161,10 +192,8 @@ pub(crate) struct DdnsSettings {
 impl Default for DdnsSettings {
     fn default() -> Self {
         Self {
-            region_catalog: region::REGION_CATALOG
-                .iter()
-                .map(|e| (e.slug.to_owned(), e.base_url.to_owned()))
-                .collect(),
+            region_catalog: region::default_catalog(),
+            tenants_base_url: region::TENANTS_BASE_URL.to_owned(),
             echo_endpoints: public_ip::ECHO_ENDPOINTS
                 .iter()
                 .map(|s| (*s).to_owned())
@@ -242,18 +271,15 @@ impl DdnsServiceImpl {
     /// cache-invalidation plumbing. All providers share the one pooled
     /// `self.http` client, so no connection state is discarded.
     async fn build_provider(&self) -> Result<Option<Box<dyn DnsProvider>>, AppError> {
-        match self.get_cfg(KEY_PROVIDER).await?.as_deref() {
-            Some(PROVIDER_BRIDGE) => {
-                let install_id = self.require_cfg(KEY_INSTALL_ID).await?;
-                let base_url = self.require_cfg(KEY_BRIDGE_BASE_URL).await?;
-                let bearer = self.get_secret_string(SECRET_BRIDGE_BEARER).await?;
-                let seed = self.require_signing_seed().await?;
-                Ok(Some(Box::new(BridgeProvider::new(
-                    self.http.clone(),
-                    base_url,
-                    install_id,
-                    bearer,
-                    seed,
+        match self.current_provider().await?.as_deref() {
+            Some(PROVIDER_WARDNET) => {
+                let network_id = self.require_cfg(KEY_NETWORK_ID).await?;
+                let region = self.require_cfg(KEY_REGION).await?;
+                let ddns_base = self.ddns_base_for_region(&region)?;
+                let (tenants, identity) = self.build_identity().await?;
+                let ddns = DdnsClient::new(self.http.clone(), ddns_base);
+                Ok(Some(Box::new(WardnetDnsProvider::new(
+                    ddns, tenants, identity, network_id,
                 ))))
             }
             Some(PROVIDER_CLOUDFLARE) => {
@@ -279,22 +305,90 @@ impl DdnsServiceImpl {
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("missing config key {key}")))
     }
 
-    async fn require_signing_seed(&self) -> Result<[u8; 32], AppError> {
+    /// A fresh `tenants` client bound to the configured global endpoint. Cheap
+    /// to build (shares the pooled `http`), so constructed per use.
+    fn tenants_client(&self) -> Arc<TenantsClient> {
+        Arc::new(TenantsClient::new(
+            self.http.clone(),
+            self.settings.tenants_base_url.clone(),
+        ))
+    }
+
+    /// Load the persisted Ed25519 seed and build the daemon's cloud identity,
+    /// returning it alongside the `tenants` client it mints tokens through.
+    /// Errors with [`AppError::Conflict`] when not enrolled (no seed) — the wizard
+    /// must enroll first.
+    async fn build_identity(&self) -> Result<(Arc<TenantsClient>, Arc<DaemonIdentity>), AppError> {
         let bytes = self
             .secrets
-            .get(SECRET_BRIDGE_SIGNING_KEY)
+            .get(SECRET_DAEMON_KEY)
             .await
             .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("missing DDNS signing key")))?;
-        bytes
-            .try_into()
-            .map_err(|_| AppError::Internal(anyhow::anyhow!("DDNS signing key is not 32 bytes")))
+            .ok_or_else(|| {
+                AppError::Conflict("not enrolled — request a code and enroll first".to_owned())
+            })?;
+        let seed: [u8; 32] = bytes.try_into().map_err(|_| {
+            AppError::Internal(anyhow::anyhow!("daemon signing key is not 32 bytes"))
+        })?;
+        let tenants = self.tenants_client();
+        let identity = DaemonIdentity::from_seed(seed, tenants.clone());
+        Ok((tenants, identity))
+    }
+
+    /// Resolve a region slug to its `ddns` control base URL from the catalog.
+    fn ddns_base_for_region(&self, slug: &str) -> Result<String, AppError> {
+        self.settings
+            .region_catalog
+            .iter()
+            .find(|e| e.slug == slug)
+            .map(|e| e.ddns_base_url.clone())
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown DDNS region slug '{slug}'")))
+    }
+
+    /// The configured provider kind, treating the retired `bridge` value as
+    /// unconfigured — and wiping its residue on sight (pre-GA: no migration, the
+    /// operator re-enrolls).
+    async fn current_provider(&self) -> Result<Option<String>, AppError> {
+        match self.get_cfg(KEY_PROVIDER).await? {
+            Some(kind) if kind == PROVIDER_LEGACY_BRIDGE => {
+                self.wipe_legacy_bridge().await?;
+                Ok(None)
+            }
+            other => Ok(other),
+        }
+    }
+
+    /// Delete every key/secret left by the retired `bridge` provider so a stale
+    /// identity never lingers or misreports status.
+    async fn wipe_legacy_bridge(&self) -> Result<(), AppError> {
+        const LEGACY_KEYS: &[&str] = &[
+            "ddns_install_id",
+            "ddns_bridge_base_url",
+            "ddns_subdomain",
+            "ddns_region",
+            "ddns_provider",
+            "ddns_last_public_ip",
+        ];
+        const LEGACY_SECRETS: &[&str] = &["ddns/bridge/signing_key", "ddns/bridge/bearer_token"];
+        for key in LEGACY_KEYS {
+            self.config.delete(key).await.map_err(AppError::Internal)?;
+        }
+        for path in LEGACY_SECRETS {
+            self.secrets
+                .delete(path)
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        tracing::warn!(
+            "wiped retired `bridge` DDNS identity; re-enroll via the wizard to use the new cloud"
+        );
+        Ok(())
     }
 
     /// The active public hostname (bridge subdomain or BYOD domain), if any.
     async fn active_fqdn(&self, provider: Option<&str>) -> Result<Option<String>, AppError> {
         match provider {
-            Some(PROVIDER_BRIDGE) => self.get_cfg(KEY_SUBDOMAIN).await,
+            Some(PROVIDER_WARDNET) => self.get_cfg(KEY_SUBDOMAIN).await,
             Some(PROVIDER_CLOUDFLARE) => self.get_cfg(KEY_DOMAIN).await,
             _ => Ok(None),
         }
@@ -307,14 +401,15 @@ impl DdnsServiceImpl {
     /// new provider; teardown clears them separately.
     async fn clear_provider_state(&self, kind: &str) -> Result<(), AppError> {
         let (keys, secrets): (&[&str], &[&str]) = match kind {
-            PROVIDER_BRIDGE => (
+            PROVIDER_WARDNET => (
                 &[
-                    KEY_INSTALL_ID,
+                    KEY_TENANT_ID,
+                    KEY_NETWORK_ID,
+                    KEY_SLUG,
                     KEY_SUBDOMAIN,
                     KEY_REGION,
-                    KEY_BRIDGE_BASE_URL,
                 ],
-                &[SECRET_BRIDGE_SIGNING_KEY, SECRET_BRIDGE_BEARER],
+                &[SECRET_DAEMON_KEY],
             ),
             PROVIDER_CLOUDFLARE => (&[KEY_DOMAIN, KEY_CF_ZONE_ID], &[SECRET_CF_TOKEN]),
             _ => (&[], &[]),
@@ -377,106 +472,164 @@ impl DdnsServiceImpl {
     }
 }
 
-/// Whether `name` is a syntactically valid bridge subdomain label.
+/// Whether `slug` is a syntactically valid vanity slug.
 ///
-/// **Security boundary:** `name` is interpolated into the bridge request URL
-/// path (`/v1/names/{name}/available`, `/v1/register`), so it must be validated
-/// **before** building that URL — an unchecked `/`, `?`, `.` or whitespace would
-/// let an admin reshape the request path. The bridge enforces the authoritative
-/// rules (incl. the reserved-name list) and is the source of truth; this is the
-/// daemon-side guard against path injection, mirroring the bridge's charset and
-/// length constraints (`source/bridge/src/api/validation.rs`).
-fn is_valid_bridge_name(name: &str) -> bool {
-    let len = name.len();
+/// **Security boundary:** the slug is interpolated into the tenants request URL
+/// (`/v1/availability?slug={slug}`) and signed as part of the `PoP`
+/// `path_and_query`, so it must be validated **before** building that URL — an
+/// unchecked `/`, `?`, `.` or whitespace would let an admin reshape the request
+/// path. The cloud enforces the authoritative rules (incl. the reserved-name
+/// list); this is the daemon-side guard, mirroring the cloud's `[a-z0-9-]`, 3–32
+/// constraints.
+fn is_valid_slug(slug: &str) -> bool {
+    let len = slug.len();
     (3..=32).contains(&len)
-        && !name.starts_with('-')
-        && !name.ends_with('-')
-        && name
+        && !slug.starts_with('-')
+        && !slug.ends_with('-')
+        && slug
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// Map a cloud-client error onto the service's [`AppError`] surface.
+fn map_cloud_err(error: CloudError) -> AppError {
+    match error {
+        CloudError::EntitlementLost => {
+            AppError::Forbidden("tenant subscription is not active".to_owned())
+        }
+        CloudError::BadRequest(detail) => AppError::BadRequest(detail),
+        CloudError::Upstream(e) => AppError::UpstreamUnavailable(e.to_string()),
+    }
+}
+
 #[async_trait]
 impl DdnsService for DdnsServiceImpl {
-    async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
+    async fn request_enrollment_code(&self, email: String) -> Result<(), AppError> {
         auth_context::require_admin()?;
-
-        // Capture the prior provider (bound to its old identity) before any
-        // overwrite, so a switch can deregister it after the new one commits. A
-        // half-written prior config must never block a fresh registration, so a
-        // build failure is treated as "no old provider" rather than propagated.
-        let old_provider = self.build_provider().await.ok().flatten();
-        let old_kind = self.get_cfg(KEY_PROVIDER).await?;
-        let old_fqdn = self.active_fqdn(old_kind.as_deref()).await?;
-
-        if !is_valid_bridge_name(&name) {
+        let email = email.trim();
+        // Minimal local sanity — the tenants service is authoritative.
+        if email.is_empty() || !email.contains('@') {
             return Err(AppError::BadRequest(
-                "hostname must be 3–32 chars of lowercase letters, digits, and hyphens, \
+                "a valid account email is required".to_owned(),
+            ));
+        }
+        self.tenants_client()
+            .request_enrollment_code(email)
+            .await
+            .map_err(map_cloud_err)
+    }
+
+    async fn enroll(&self, code: String) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(AppError::BadRequest(
+                "enrollment code is required".to_owned(),
+            ));
+        }
+
+        // A fresh identity per enrollment — re-enrolling rebinds a new key.
+        let mut seed = [0u8; 32];
+        rand::fill(&mut seed);
+        let tenants = self.tenants_client();
+        let identity = DaemonIdentity::from_seed(seed, tenants.clone());
+
+        let tenant_id = tenants
+            .enroll(code, identity.public_key_b64())
+            .await
+            .map_err(map_cloud_err)?;
+
+        // Persist the key + tenant binding. The provider is *not* set to wardnet
+        // yet — the daemon is enrolled but has no network until
+        // `register_network` completes.
+        self.secrets
+            .put(SECRET_DAEMON_KEY, &seed)
+            .await
+            .map_err(AppError::Internal)?;
+        self.set_cfg(KEY_TENANT_ID, &tenant_id).await?;
+
+        tracing::info!(%tenant_id, "enrolled daemon identity with tenants");
+        Ok(())
+    }
+
+    async fn check_slug(&self, slug: String) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+        // Reject invalid slugs locally (no network call) — both to avoid path
+        // injection into the request URL and because an invalid slug is, by
+        // definition, unavailable (mirrors the cloud's own behaviour).
+        if !is_valid_slug(&slug) {
+            return Ok(false);
+        }
+        let (tenants, identity) = self.build_identity().await?;
+        tenants
+            .availability(&identity, &slug)
+            .await
+            .map_err(map_cloud_err)
+    }
+
+    async fn register_network(
+        &self,
+        slug: String,
+        display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError> {
+        auth_context::require_admin()?;
+        if !is_valid_slug(&slug) {
+            return Err(AppError::BadRequest(
+                "slug must be 3–32 chars of lowercase letters, digits, and hyphens, \
                  not starting or ending with a hyphen"
                     .to_owned(),
             ));
         }
 
+        let (tenants, identity) = self.build_identity().await?;
+
+        // Capture the prior provider (bound to its old identity) before any
+        // overwrite, so a switch can deregister it after the new one commits. A
+        // half-written prior config must never block registration, so a build
+        // failure is treated as "no old provider".
+        let old_provider = self.build_provider().await.ok().flatten();
+        let old_kind = self.current_provider().await?;
+        let old_fqdn = self.active_fqdn(old_kind.as_deref()).await?;
+
         let region = region::select_best(&self.http, &self.settings.region_catalog)
             .await
             .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))?;
 
-        let identity = bridge::register_install(&self.http, &region.base_url, &name)
+        let network = tenants
+            .register_network(&identity, &slug, display_name.as_deref(), &region.slug)
             .await
-            .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))?;
+            .map_err(map_cloud_err)?;
 
-        // Secrets first, so a partial failure never leaves a published identity
-        // without its signing material.
-        self.secrets
-            .put(SECRET_BRIDGE_SIGNING_KEY, &identity.signing_key_seed)
-            .await
-            .map_err(AppError::Internal)?;
-        self.secrets
-            .put(SECRET_BRIDGE_BEARER, identity.bearer_token.as_bytes())
-            .await
-            .map_err(AppError::Internal)?;
+        // The next token must be network-scoped (the daemon can now reach ddns).
+        identity.forget_token();
 
-        self.set_cfg(KEY_PROVIDER, PROVIDER_BRIDGE).await?;
-        self.set_cfg(KEY_INSTALL_ID, &identity.install_id).await?;
-        self.set_cfg(KEY_SUBDOMAIN, &identity.subdomain).await?;
-        self.set_cfg(KEY_REGION, &identity.region).await?;
-        self.set_cfg(KEY_BRIDGE_BASE_URL, &region.base_url).await?;
+        let subdomain = format!("{}.{SUBDOMAIN_PARENT}", network.slug);
+        self.set_cfg(KEY_NETWORK_ID, &network.network_id).await?;
+        self.set_cfg(KEY_SLUG, &network.slug).await?;
+        self.set_cfg(KEY_SUBDOMAIN, &subdomain).await?;
+        self.set_cfg(KEY_REGION, &region.slug).await?;
+        self.set_cfg(KEY_PROVIDER, PROVIDER_WARDNET).await?;
 
         tracing::info!(
-            subdomain = %identity.subdomain,
-            region = %identity.region,
-            "registered DDNS installation with bridge"
+            %subdomain,
+            region = %region.slug,
+            provisioning_state = %network.provisioning_state,
+            "registered DDNS network"
         );
 
         self.teardown_superseded(
             old_provider,
             old_kind.as_deref(),
             old_fqdn.as_deref(),
-            PROVIDER_BRIDGE,
-            &identity.subdomain,
+            PROVIDER_WARDNET,
+            &subdomain,
         )
         .await;
 
         Ok(DdnsRegistration {
-            subdomain: identity.subdomain,
-            region: identity.region,
+            subdomain,
+            region: network.region,
         })
-    }
-
-    async fn check_name_available(&self, name: String) -> Result<bool, AppError> {
-        auth_context::require_admin()?;
-        // Reject invalid names locally (no network call) — both to avoid path
-        // injection into the bridge URL and because an invalid name is, by
-        // definition, not an available one (mirrors the bridge's own behaviour).
-        if !is_valid_bridge_name(&name) {
-            return Ok(false);
-        }
-        let region = region::select_best(&self.http, &self.settings.region_catalog)
-            .await
-            .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))?;
-        bridge::check_name_available(&self.http, &region.base_url, &name)
-            .await
-            .map_err(|e| AppError::UpstreamUnavailable(e.to_string()))
     }
 
     async fn configure_cloudflare(
@@ -488,7 +641,7 @@ impl DdnsService for DdnsServiceImpl {
 
         // Capture the prior provider before any overwrite (see register_with_bridge).
         let old_provider = self.build_provider().await.ok().flatten();
-        let old_kind = self.get_cfg(KEY_PROVIDER).await?;
+        let old_kind = self.current_provider().await?;
         let old_fqdn = self.active_fqdn(old_kind.as_deref()).await?;
 
         // Resolving the zone id both maps domain → zone and validates the token.
@@ -568,7 +721,7 @@ impl DdnsService for DdnsServiceImpl {
 
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         auth_context::require_admin()?;
-        let provider = self.get_cfg(KEY_PROVIDER).await?;
+        let provider = self.current_provider().await?;
         let fqdn = self.active_fqdn(provider.as_deref()).await?;
         let last_public_ip = self.get_cfg(KEY_LAST_IP).await?;
         Ok(DdnsStatus {
@@ -581,8 +734,8 @@ impl DdnsService for DdnsServiceImpl {
     async fn teardown(&self) -> Result<(), AppError> {
         auth_context::require_admin()?;
 
-        let Some(kind) = self.get_cfg(KEY_PROVIDER).await? else {
-            return Ok(()); // already unconfigured — idempotent
+        let Some(kind) = self.current_provider().await? else {
+            return Ok(()); // already unconfigured (or legacy, now wiped) — idempotent
         };
 
         // Remove the upstream presence first, while the provider's config +

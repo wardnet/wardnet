@@ -12,6 +12,7 @@ pub mod version;
 
 pub mod auth;
 pub mod backup;
+pub mod cloud;
 pub mod ddns;
 pub mod device;
 pub mod dhcp;

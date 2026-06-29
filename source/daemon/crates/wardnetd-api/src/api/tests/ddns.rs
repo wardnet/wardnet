@@ -75,14 +75,24 @@ struct MockDdns {
 }
 #[async_trait]
 impl DdnsService for MockDdns {
-    async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
-        Ok(DdnsRegistration {
-            subdomain: format!("{name}.my.wardnet.services"),
-            region: "us".to_owned(),
-        })
+    async fn request_enrollment_code(&self, _email: String) -> Result<(), AppError> {
+        Ok(())
     }
-    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+    async fn enroll(&self, _code: String) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn check_slug(&self, _slug: String) -> Result<bool, AppError> {
         Ok(self.available)
+    }
+    async fn register_network(
+        &self,
+        slug: String,
+        _display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError> {
+        Ok(DdnsRegistration {
+            subdomain: format!("{slug}.my.wardnet.services"),
+            region: "use1".to_owned(),
+        })
     }
     async fn configure_cloudflare(
         &self,
@@ -102,7 +112,7 @@ impl DdnsService for MockDdns {
     }
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         Ok(DdnsStatus {
-            provider: Some("bridge".to_owned()),
+            provider: Some("wardnet".to_owned()),
             fqdn: Some("happy-einstein.my.wardnet.services".to_owned()),
             last_public_ip: Some("9.9.9.9".to_owned()),
         })
@@ -184,6 +194,11 @@ fn make_state(ddns: Arc<dyn DdnsService>, tls: Arc<dyn TlsService>) -> AppState 
 
 fn app(state: AppState) -> Router {
     Router::new()
+        .route(
+            "/api/ddns/enrollment-code",
+            post(crate::api::ddns::ddns_enrollment_code),
+        )
+        .route("/api/ddns/enroll", post(crate::api::ddns::ddns_enroll))
         .route("/api/ddns/check", get(crate::api::ddns::ddns_check))
         .route("/api/ddns/register", post(crate::api::ddns::ddns_register))
         .route(
@@ -215,7 +230,7 @@ fn admin_get(uri: &str) -> Request<Body> {
 async fn ddns_check_returns_availability() {
     let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
     let resp = app(state)
-        .oneshot(admin_get("/api/ddns/check?name=happy-einstein"))
+        .oneshot(admin_get("/api/ddns/check?slug=happy-einstein"))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -236,7 +251,7 @@ async fn ddns_register_returns_assigned_fqdn() {
         .header("Cookie", "wardnet_session=test")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_vec(&serde_json::json!({ "name": "happy-einstein" })).unwrap(),
+            serde_json::to_vec(&serde_json::json!({ "slug": "happy-einstein" })).unwrap(),
         ))
         .unwrap();
     let resp = app(state).oneshot(req).await.unwrap();
@@ -244,7 +259,39 @@ async fn ddns_register_returns_assigned_fqdn() {
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: DdnsRegisterResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(json.fqdn, "happy-einstein.my.wardnet.services");
-    assert_eq!(json.region.as_deref(), Some("us"));
+    assert_eq!(json.region.as_deref(), Some("use1"));
+}
+
+#[tokio::test]
+async fn ddns_enrollment_code_returns_no_content() {
+    let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/ddns/enrollment-code")
+        .header("Cookie", "wardnet_session=test")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&serde_json::json!({ "email": "a@b.com" })).unwrap(),
+        ))
+        .unwrap();
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn ddns_enroll_returns_no_content() {
+    let state = make_state(Arc::new(MockDdns { available: true }), Arc::new(MockTls));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/ddns/enroll")
+        .header("Cookie", "wardnet_session=test")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&serde_json::json!({ "code": "ABC123" })).unwrap(),
+        ))
+        .unwrap();
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
@@ -257,7 +304,7 @@ async fn ddns_status_maps_service_status() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: DdnsStatusResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json.provider.as_deref(), Some("bridge"));
+    assert_eq!(json.provider.as_deref(), Some("wardnet"));
     assert_eq!(
         json.fqdn.as_deref(),
         Some("happy-einstein.my.wardnet.services")

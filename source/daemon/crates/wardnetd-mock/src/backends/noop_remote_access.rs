@@ -1,9 +1,10 @@
 //! Stateful in-memory mock of the remote-access (DDNS + TLS) services.
 //!
-//! Lets web-ui devs exercise the full HTTPS/DDNS flow — bridge / BYOD-Cloudflare
-//! registration, the `issuing → issued` certificate progress, the external
-//! resolution check, and teardown — **entirely offline**, with no real bridge,
-//! Cloudflare, Let's Encrypt, or DNS. Despite the `noop_` prefix it is stateful;
+//! Lets web-ui devs exercise the full HTTPS/DDNS flow — wardnet enrollment
+//! (code → enroll → slug → register network) / BYOD-Cloudflare, the
+//! `issuing → issued` certificate progress, the external resolution check, and
+//! teardown — **entirely offline**, with no real cloud, Cloudflare, Let's
+//! Encrypt, or DNS. Despite the `noop_` prefix it is stateful;
 //! the prefix marks that it performs **no** kernel or network I/O (and keeps it
 //! out of coverage, like the sibling no-op backends).
 //!
@@ -144,23 +145,38 @@ impl MockDdnsService {
 
 #[async_trait]
 impl DdnsService for MockDdnsService {
-    async fn register_with_bridge(&self, name: String) -> Result<DdnsRegistration, AppError> {
-        let fqdn = format!("{name}.my.wardnet.services");
+    async fn request_enrollment_code(&self, _email: String) -> Result<(), AppError> {
+        // No real email — the code is irrelevant to the offline simulation.
+        Ok(())
+    }
+
+    async fn enroll(&self, _code: String) -> Result<(), AppError> {
+        // Stateless in the mock: `register_network` sets up the simulation, so any
+        // non-empty code "enrolls".
+        Ok(())
+    }
+
+    async fn check_slug(&self, slug: String) -> Result<bool, AppError> {
+        Ok(!TAKEN_NAMES.contains(&slug.as_str()))
+    }
+
+    async fn register_network(
+        &self,
+        slug: String,
+        _display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError> {
+        let fqdn = format!("{slug}.my.wardnet.services");
         *self.state.sim.lock().unwrap() = Some(Sim {
-            provider: "bridge",
+            provider: "wardnet",
             fqdn: fqdn.clone(),
             public_ip: FAKE_PUBLIC_IP.to_owned(),
             started: Instant::now(),
-            force_failure: name.contains(FAILURE_TRIGGER),
+            force_failure: slug.contains(FAILURE_TRIGGER),
         });
         Ok(DdnsRegistration {
             subdomain: fqdn,
-            region: "us".to_owned(),
+            region: "use1".to_owned(),
         })
-    }
-
-    async fn check_name_available(&self, name: String) -> Result<bool, AppError> {
-        Ok(!TAKEN_NAMES.contains(&name.as_str()))
     }
 
     async fn configure_cloudflare(
