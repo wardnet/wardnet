@@ -1,24 +1,48 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ConfigureCloudflareRequest,
+  DdnsEnrollRequest,
+  DdnsEnrollmentCodeRequest,
   DdnsRegisterRequest,
   DdnsResolutionCheckResponse,
   TlsStatusResponse,
 } from "@wardnet/js";
 import { remoteAccessService } from "../lib/sdk";
 
-/** Check whether a bridge short name is available (manual, on demand). */
-export function useCheckDdnsName() {
+/**
+ * Step 1 of the wardnet flow: email a one-time enrollment code to the wardnet
+ * account. Manual (on demand).
+ */
+export function useRequestEnrollmentCode() {
   return useMutation({
-    mutationFn: (name: string) => remoteAccessService.checkName(name),
+    mutationFn: (body: DdnsEnrollmentCodeRequest) =>
+      remoteAccessService.requestEnrollmentCode(body),
   });
 }
 
-/** Register on the bridge; issuance begins in the background. */
+/**
+ * Step 2 of the wardnet flow: enroll this daemon against the emailed code,
+ * binding its cloud identity to the tenant.
+ */
+export function useEnrollDdns() {
+  return useMutation({
+    mutationFn: (body: DdnsEnrollRequest) => remoteAccessService.enroll(body),
+  });
+}
+
+/** Check whether a vanity slug is available (manual, on demand). */
+export function useCheckDdnsSlug() {
+  return useMutation({
+    mutationFn: (slug: string) => remoteAccessService.checkSlug(slug),
+  });
+}
+
+/** Register a wardnet network under a slug; issuance begins in the background. */
 export function useRegisterDdns() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: DdnsRegisterRequest) => remoteAccessService.register(body),
+    mutationFn: (body: DdnsRegisterRequest) =>
+      remoteAccessService.register(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ddns", "status"] });
       queryClient.invalidateQueries({ queryKey: ["tls", "status"] });

@@ -24,11 +24,13 @@ import {
 import { toast } from "sonner";
 import { WardnetApiError } from "@wardnet/js";
 import {
-  useCheckDdnsName,
+  useCheckDdnsSlug,
   useConfigureCloudflare,
   useDdnsStatus,
   useDeleteDdns,
+  useEnrollDdns,
   useRegisterDdns,
+  useRequestEnrollmentCode,
   useResolutionCheck,
   useTlsStatus,
 } from "@wardnet/web";
@@ -36,7 +38,14 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
 import { isReservedName, isValidName, suggestName } from "@/lib/suggestName";
 
-type Provider = "bridge" | "cloudflare";
+type Provider = "wardnet" | "cloudflare";
+
+/**
+ * The wardnet path is a three-step enrollment before the slug is chosen:
+ * email the account a one-time code → enter the code (enroll) → pick a slug.
+ */
+type WardnetStep = "email" | "code" | "slug";
+
 type Availability =
   | "unknown"
   | "checking"
@@ -50,10 +59,12 @@ type Availability =
  * daemon-owned HTTPS provisioning the setup wizard introduces. Unlike the
  * wizard's one-shot step this page is the steady-state surface: it leads with
  * live status (phase, certificate, resolution check) and keeps the provider
- * form behind a "Change provider" action; enabling and switching reuse the same
- * `POST /api/ddns/{register,cloudflare}` endpoints as the wizard (the daemon
- * performs the new-first/teardown-old switch and kicks off background issuance),
- * so this page only drives them and polls `GET /api/tls/status`.
+ * form behind a "Change provider" action. The wardnet path runs the same
+ * email → code → slug enrollment as the wizard; enabling and switching reuse the
+ * same `POST /api/ddns/{enrollment-code,enroll,register,cloudflare}` endpoints
+ * (the daemon performs the new-first/teardown-old switch and kicks off
+ * background issuance), so this page only drives them and polls
+ * `GET /api/tls/status`.
  */
 export default function RemoteAccess() {
   const { data: ddns } = useDdnsStatus();
@@ -61,16 +72,21 @@ export default function RemoteAccess() {
   const configured = !!ddns?.provider;
   const resolution = useResolutionCheck(configured);
 
+  const requestCode = useRequestEnrollmentCode();
+  const enroll = useEnrollDdns();
   const register = useRegisterDdns();
   const configureCf = useConfigureCloudflare();
   const teardown = useDeleteDdns();
-  const { mutateAsync: checkNameAsync } = useCheckDdnsName();
+  const { mutateAsync: checkSlugAsync } = useCheckDdnsSlug();
 
   // The provider form is shown when enabling (unconfigured) or after the
   // operator explicitly chooses to change an existing configuration.
   const [changing, setChanging] = useState(false);
-  const [provider, setProvider] = useState<Provider>("bridge");
-  const [name, setName] = useState(() => suggestName());
+  const [provider, setProvider] = useState<Provider>("wardnet");
+  const [wardnetStep, setWardnetStep] = useState<WardnetStep>("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [slug, setSlug] = useState(() => suggestName());
   const [serverAvailability, setServerAvailability] = useState<
     "unknown" | "checking" | "available" | "taken" | "error"
   >("unknown");
@@ -79,18 +95,21 @@ export default function RemoteAccess() {
   const [formError, setFormError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
 
-  const clientValid = provider !== "bridge" || isValidName(name);
+  const clientValid =
+    provider !== "wardnet" || wardnetStep !== "slug" || isValidName(slug);
   const availability: Availability = !clientValid
     ? "invalid"
     : serverAvailability;
 
-  // Debounced live availability check for the bridge name (mirrors the wizard).
+  // Debounced live availability check for the wardnet slug (mirrors the wizard),
+  // only once enrolled and on the slug step.
   useEffect(() => {
-    if (provider !== "bridge" || !isValidName(name)) return;
+    if (provider !== "wardnet" || wardnetStep !== "slug" || !isValidName(slug))
+      return;
     let cancelled = false;
     const handle = setTimeout(() => {
       setServerAvailability("checking");
-      checkNameAsync(name)
+      checkSlugAsync(slug)
         .then((res) => {
           if (!cancelled)
             setServerAvailability(res.available ? "available" : "taken");
@@ -103,26 +122,55 @@ export default function RemoteAccess() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [name, provider, checkNameAsync]);
+  }, [slug, provider, wardnetStep, checkSlugAsync]);
 
   function describeError(err: unknown): string {
     if (err instanceof WardnetApiError) return err.body.error;
     return "Couldn't reach the daemon. Please try again.";
   }
 
+  function selectProvider(next: Provider) {
+    setFormError(null);
+    setProvider(next);
+    if (next === "wardnet") setWardnetStep("email");
+  }
+
   function openChange() {
     setFormError(null);
-    setProvider(ddns?.provider === "cloudflare" ? "cloudflare" : "bridge");
-    setName(suggestName());
+    setProvider(ddns?.provider === "cloudflare" ? "cloudflare" : "wardnet");
+    setWardnetStep("email");
+    setEmail("");
+    setCode("");
+    setSlug(suggestName());
     setToken("");
     setDomain("");
     setChanging(true);
   }
 
-  async function handleEnableBridge() {
+  async function handleSendCode() {
     setFormError(null);
     try {
-      await register.mutateAsync({ name });
+      await requestCode.mutateAsync({ email });
+      setWardnetStep("code");
+    } catch (err) {
+      setFormError(describeError(err));
+    }
+  }
+
+  async function handleVerifyCode() {
+    setFormError(null);
+    try {
+      await enroll.mutateAsync({ code });
+      setWardnetStep("slug");
+    } catch (err) {
+      setFormError(describeError(err));
+    }
+  }
+
+  async function handleRegisterWardnet() {
+    setFormError(null);
+    try {
+      await register.mutateAsync({ slug });
       setChanging(false);
     } catch (err) {
       setFormError(describeError(err));
@@ -168,19 +216,23 @@ export default function RemoteAccess() {
     }
   }
 
-  /** Action verb for the submit button — avoids "Switch to bridge" while on bridge. */
+  /** Action verb for the slug/cloudflare submit button. */
   function submitLabel(): string {
     if (!configured) return "Enable remote access";
     if (provider !== ddns?.provider) {
-      return `Switch to ${provider === "bridge" ? "Wardnet bridge" : "Cloudflare"}`;
+      return `Switch to ${provider === "wardnet" ? "Wardnet" : "Cloudflare"}`;
     }
-    return provider === "bridge"
+    return provider === "wardnet"
       ? "Register a new hostname"
       : "Update Cloudflare settings";
   }
 
-  const busy = register.isPending || configureCf.isPending;
-  const bridgeDisabled =
+  const busy =
+    requestCode.isPending ||
+    enroll.isPending ||
+    register.isPending ||
+    configureCf.isPending;
+  const slugDisabled =
     busy || availability === "checking" || availability === "invalid";
 
   // Provider picker + inputs (no buttons — actions live in the card footer).
@@ -188,45 +240,32 @@ export default function RemoteAccess() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <ProviderOption
-          label="Wardnet bridge"
-          description="Zero-config. We assign a hostname under wardnet.services and handle DNS."
-          selected={provider === "bridge"}
-          onSelect={() => setProvider("bridge")}
+          label="Wardnet"
+          description="Zero-config. We assign a hostname under wardnet.services and handle DNS — enroll with your wardnet account."
+          selected={provider === "wardnet"}
+          onSelect={() => selectProvider("wardnet")}
         />
         <ProviderOption
           label="Your own domain (Cloudflare)"
           description="Use a domain you control via a Cloudflare API token."
           selected={provider === "cloudflare"}
-          onSelect={() => setProvider("cloudflare")}
+          onSelect={() => selectProvider("cloudflare")}
         />
       </div>
 
-      {provider === "bridge" ? (
-        <div className="flex flex-col gap-2">
-          <Field label="Hostname" htmlFor="ddns-name" name="ddns-name">
-            <Input
-              id="ddns-name"
-              value={name}
-              onChange={(e) => setName(e.target.value.toLowerCase())}
-              placeholder="happy-einstein"
-              autoComplete="off"
-            />
-          </Field>
-          <Text
-            as="div"
-            size="xs"
-            className="flex items-center justify-between"
-          >
-            <AvailabilityHint availability={availability} name={name} />
-            <button
-              type="button"
-              className="text-accent hover:underline"
-              onClick={() => setName(suggestName())}
-            >
-              Suggest another
-            </button>
-          </Text>
-        </div>
+      {provider === "wardnet" ? (
+        <WardnetFields
+          step={wardnetStep}
+          email={email}
+          onEmailChange={setEmail}
+          code={code}
+          onCodeChange={setCode}
+          slug={slug}
+          onSlugChange={setSlug}
+          availability={availability}
+          onSuggest={() => setSlug(suggestName())}
+          onChangeEmail={() => setWardnetStep("email")}
+        />
       ) : (
         <div className="flex flex-col gap-4">
           <Field label="Domain" htmlFor="cf-domain" name="cf-domain">
@@ -275,10 +314,26 @@ export default function RemoteAccess() {
           Cancel
         </Button>
       )}
-      {provider === "bridge" ? (
-        <Button onClick={handleEnableBridge} disabled={bridgeDisabled}>
-          {register.isPending ? "Working…" : submitLabel()}
-        </Button>
+      {provider === "wardnet" ? (
+        wardnetStep === "email" ? (
+          <Button
+            onClick={handleSendCode}
+            disabled={busy || !email.includes("@")}
+          >
+            {requestCode.isPending ? "Sending…" : "Send code"}
+          </Button>
+        ) : wardnetStep === "code" ? (
+          <Button
+            onClick={handleVerifyCode}
+            disabled={busy || code.trim().length === 0}
+          >
+            {enroll.isPending ? "Verifying…" : "Verify code"}
+          </Button>
+        ) : (
+          <Button onClick={handleRegisterWardnet} disabled={slugDisabled}>
+            {register.isPending ? "Working…" : submitLabel()}
+          </Button>
+        )
       ) : (
         <Button
           onClick={handleEnableCloudflare}
@@ -403,6 +458,107 @@ export default function RemoteAccess() {
   );
 }
 
+/** The wardnet enrollment fields, switching by step. */
+function WardnetFields({
+  step,
+  email,
+  onEmailChange,
+  code,
+  onCodeChange,
+  slug,
+  onSlugChange,
+  availability,
+  onSuggest,
+  onChangeEmail,
+}: {
+  step: WardnetStep;
+  email: string;
+  onEmailChange: (v: string) => void;
+  code: string;
+  onCodeChange: (v: string) => void;
+  slug: string;
+  onSlugChange: (v: string) => void;
+  availability: Availability;
+  onSuggest: () => void;
+  onChangeEmail: () => void;
+}) {
+  if (step === "email") {
+    return (
+      <Field
+        label="Wardnet account email"
+        htmlFor="wardnet-email"
+        name="wardnet-email"
+      >
+        <Input
+          id="wardnet-email"
+          type="email"
+          value={email}
+          onChange={(e) => onEmailChange(e.target.value.trim())}
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
+      </Field>
+    );
+  }
+
+  if (step === "code") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Field
+          label="Enrollment code"
+          htmlFor="wardnet-code"
+          name="wardnet-code"
+        >
+          <Input
+            id="wardnet-code"
+            value={code}
+            onChange={(e) => onCodeChange(e.target.value.trim())}
+            placeholder="Code from your email"
+            autoComplete="one-time-code"
+          />
+        </Field>
+        <Text as="div" size="xs" className="flex items-center justify-between">
+          <span className="text-ink-3">
+            We emailed a one-time code to {email}.
+          </span>
+          <button
+            type="button"
+            className="text-accent hover:underline"
+            onClick={onChangeEmail}
+          >
+            Change email
+          </button>
+        </Text>
+      </div>
+    );
+  }
+
+  // step === "slug"
+  return (
+    <div className="flex flex-col gap-2">
+      <Field label="Hostname" htmlFor="ddns-slug" name="ddns-slug">
+        <Input
+          id="ddns-slug"
+          value={slug}
+          onChange={(e) => onSlugChange(e.target.value.toLowerCase())}
+          placeholder="happy-einstein"
+          autoComplete="off"
+        />
+      </Field>
+      <Text as="div" size="xs" className="flex items-center justify-between">
+        <AvailabilityHint availability={availability} slug={slug} />
+        <button
+          type="button"
+          className="text-accent hover:underline"
+          onClick={onSuggest}
+        >
+          Suggest another
+        </button>
+      </Text>
+    </div>
+  );
+}
+
 function ProviderOption({
   label,
   description,
@@ -437,18 +593,18 @@ function ProviderOption({
 
 function AvailabilityHint({
   availability,
-  name,
+  slug,
 }: {
   availability: Availability;
-  name: string;
+  slug: string;
 }) {
   switch (availability) {
     case "invalid":
       return (
         <span className="text-ink-3">
-          {name.length < 3
+          {slug.length < 3
             ? "At least 3 characters."
-            : isReservedName(name)
+            : isReservedName(slug)
               ? "This name is reserved — try another."
               : "Use lowercase letters, digits, and hyphens only."}
         </span>
@@ -456,9 +612,9 @@ function AvailabilityHint({
     case "checking":
       return <span className="text-ink-3">Checking availability…</span>;
     case "available":
-      return <span className="text-ink-2">✓ {name} is available</span>;
+      return <span className="text-ink-2">✓ {slug} is available</span>;
     case "taken":
-      return <span className="text-danger">{name} is taken — try another</span>;
+      return <span className="text-danger">{slug} is taken — try another</span>;
     case "error":
       return (
         <span className="text-ink-3">

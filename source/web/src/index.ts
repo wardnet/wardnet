@@ -261,7 +261,9 @@ export { useSetupStatus, useSetup, useAdvanceWizard } from "./hooks/useSetup";
 
 // Hooks — remote access (DDNS + TLS)
 export {
-  useCheckDdnsName,
+  useRequestEnrollmentCode,
+  useEnrollDdns,
+  useCheckDdnsSlug,
   useRegisterDdns,
   useConfigureCloudflare,
   useDdnsStatus,

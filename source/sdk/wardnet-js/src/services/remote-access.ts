@@ -2,6 +2,8 @@ import type { WardnetClient } from "../client.js";
 import type {
   ConfigureCloudflareRequest,
   DdnsCheckResponse,
+  DdnsEnrollRequest,
+  DdnsEnrollmentCodeRequest,
   DdnsRegisterRequest,
   DdnsRegisterResponse,
   DdnsResolutionCheckResponse,
@@ -10,20 +12,48 @@ import type {
 } from "../types/remote-access.js";
 
 /**
- * Remote-access service: DDNS registration (bridge / BYOD-Cloudflare) and TLS
- * provisioning status. Drives the setup wizard's "Remote access" step and the
- * dashboard provisioning indicator. All endpoints are admin-authenticated.
+ * Remote-access service: the wardnet-cloud enrollment flow (request code →
+ * enroll → check slug → register network), BYOD-Cloudflare configuration, and
+ * TLS provisioning status. Drives the setup wizard's "Remote access" step and
+ * the dashboard provisioning indicator. All endpoints are admin-authenticated.
  */
 export class RemoteAccessService {
   constructor(private readonly client: WardnetClient) {}
 
-  /** Check whether a bridge short name is available. */
-  async checkName(name: string): Promise<DdnsCheckResponse> {
-    const path = `/ddns/check?name=${encodeURIComponent(name)}`;
+  /**
+   * Step 1 of the wardnet flow: request a one-time enrollment code be emailed
+   * to the wardnet account. Stores nothing; the operator then submits the code
+   * to {@link enroll}. Resolves on `204` (emailed if the account exists).
+   */
+  async requestEnrollmentCode(body: DdnsEnrollmentCodeRequest): Promise<void> {
+    await this.client.request<void>("/ddns/enrollment-code", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Step 2 of the wardnet flow: enroll this daemon against the emailed code,
+   * binding its cloud identity to the tenant. Afterwards check slug
+   * availability and {@link register} a network.
+   */
+  async enroll(body: DdnsEnrollRequest): Promise<void> {
+    await this.client.request<void>("/ddns/enroll", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Check whether a vanity slug is available (requires a prior enroll). */
+  async checkSlug(slug: string): Promise<DdnsCheckResponse> {
+    const path = `/ddns/check?slug=${encodeURIComponent(slug)}`;
     return this.client.request<DdnsCheckResponse>(path);
   }
 
-  /** Register on the bridge under `name`; issuance starts in the background. */
+  /**
+   * Final step of the wardnet flow: register a network under `slug` on the
+   * lowest-latency region; issuance starts in the background.
+   */
   async register(body: DdnsRegisterRequest): Promise<DdnsRegisterResponse> {
     return this.client.request<DdnsRegisterResponse>("/ddns/register", {
       method: "POST",

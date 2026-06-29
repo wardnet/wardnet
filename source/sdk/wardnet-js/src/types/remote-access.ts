@@ -1,15 +1,33 @@
-// Remote access — DDNS + TLS provisioning (issues #527–#530).
+// Remote access — DDNS + TLS provisioning (wardnet-cloud enrollment flow).
+
+/** Request body for `POST /api/ddns/enrollment-code` (wardnet provider, step 1). */
+export interface DdnsEnrollmentCodeRequest {
+  /** The wardnet account email a one-time enrollment code is emailed to. */
+  email: string;
+}
+
+/** Request body for `POST /api/ddns/enroll` (wardnet provider, step 2). */
+export interface DdnsEnrollRequest {
+  /** The one-time code emailed to the account, as entered by the operator. */
+  code: string;
+}
 
 /** Response for `GET /api/ddns/check`. */
 export interface DdnsCheckResponse {
-  /** `true` when the name is well-formed and unclaimed on the best bridge. */
+  /** `true` when the slug is well-formed and unclaimed. */
   available: boolean;
 }
 
-/** Request body for `POST /api/ddns/register` (bridge provider). */
+/** Request body for `POST /api/ddns/register` (wardnet provider, final step). */
 export interface DdnsRegisterRequest {
-  /** The short name to claim, e.g. `happy-einstein`. */
-  name: string;
+  /**
+   * The vanity slug to claim, e.g. `happy-einstein`, forming
+   * `<slug>.my.wardnet.services`. The cloud validates it (3–32 chars,
+   * `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
+   */
+  slug: string;
+  /** Optional human-facing network name; defaults to the slug when omitted. */
+  display_name?: string;
 }
 
 /** Request body for `POST /api/ddns/cloudflare` (BYOD provider). */
@@ -22,20 +40,26 @@ export interface ConfigureCloudflareRequest {
 
 /** Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`. */
 export interface DdnsRegisterResponse {
-  /** The public hostname now assigned to this installation. */
+  /** The public hostname now assigned to this network. */
   fqdn: string;
-  /** The bridge region label (display only); `null` for BYOD-Cloudflare. */
+  /** The region slug (display only); `null` for BYOD-Cloudflare. */
   region: string | null;
 }
 
 /** Response for `GET /api/ddns/status`. */
 export interface DdnsStatusResponse {
-  /** `null` when DDNS is not configured; otherwise `"bridge"` or `"cloudflare"`. */
+  /** `null` when DDNS is not configured; otherwise `"wardnet"` or `"cloudflare"`. */
   provider: string | null;
-  /** The active public hostname (bridge subdomain or BYOD domain), if any. */
+  /** The active public hostname (wardnet subdomain or BYOD domain), if any. */
   fqdn: string | null;
   /** The IP last published by the daemon, if any. */
   last_public_ip: string | null;
+  /**
+   * `true` when the wardnet subscription is suspended — the premium app
+   * surfaces (user PWA + admin mobile app) are disabled until it is restored.
+   * Always `false` for BYOD-Cloudflare.
+   */
+  suspended: boolean;
 }
 
 /**
