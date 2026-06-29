@@ -6,6 +6,14 @@
 //! the runner contract in `.agents/architecture.md`. When DDNS is unconfigured
 //! the service returns [`TlsStatus::NotConfigured`] before any ACME call, so the
 //! runner is fully inert until a provider is registered.
+//!
+//! ## Suspended state
+//!
+//! While the box is [suspended](Entitlement::is_suspended) the runner is fully
+//! inert: there is no point renewing a public certificate for a box whose premium
+//! surfaces are disabled, and the ACME DNS-01 challenge publishes through the
+//! (also-suspended) wardnet provider. Renewal resumes automatically once the DDNS
+//! runner's entitlement re-probe restores the box.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +24,7 @@ use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
+use crate::entitlement::Entitlement;
 
 use super::{TlsService, TlsStatus};
 
@@ -32,10 +41,14 @@ pub struct TlsRenewalRunner {
 
 impl TlsRenewalRunner {
     /// Start the runner under a child span of `parent`.
-    pub fn start(tls: Arc<dyn TlsService>, parent: &tracing::Span) -> Self {
+    pub fn start(
+        tls: Arc<dyn TlsService>,
+        entitlement: Arc<Entitlement>,
+        parent: &tracing::Span,
+    ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "tls_renewal_runner");
-        let handle = tokio::spawn(runner_loop(tls, cancel.clone()).instrument(span));
+        let handle = tokio::spawn(runner_loop(tls, entitlement, cancel.clone()).instrument(span));
         Self { cancel, handle }
     }
 
@@ -47,7 +60,11 @@ impl TlsRenewalRunner {
     }
 }
 
-async fn runner_loop(tls: Arc<dyn TlsService>, cancel: CancellationToken) {
+async fn runner_loop(
+    tls: Arc<dyn TlsService>,
+    entitlement: Arc<Entitlement>,
+    cancel: CancellationToken,
+) {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
     };
@@ -65,7 +82,15 @@ async fn runner_loop(tls: Arc<dyn TlsService>, cancel: CancellationToken) {
                 break;
             }
             _ = interval.tick() => {
-                ensure(tls.as_ref(), &admin_ctx).await;
+                // Fully inert while suspended — renewing a cert for a box with
+                // its premium surfaces disabled is pointless, and the ACME
+                // challenge would publish through the suspended wardnet provider.
+                // The DDNS runner's re-probe is what restores entitlement.
+                if entitlement.is_suspended() {
+                    tracing::debug!("TLS renewal: suspended, skipping");
+                } else {
+                    ensure(tls.as_ref(), &admin_ctx).await;
+                }
             }
         }
     }

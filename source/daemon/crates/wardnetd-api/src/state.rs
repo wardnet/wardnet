@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
+use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
@@ -43,6 +44,12 @@ struct Inner {
     stats_service: Arc<dyn StatsService>,
     rule_request_service: Arc<dyn RuleRequestService>,
     health_monitor: Arc<HealthMonitor>,
+    /// Process-wide entitlement state. Read by the serving layer to gate the
+    /// premium app surfaces (user PWA + admin mobile app) while suspended, and
+    /// surfaced to handlers. Defaults to an active handle in [`Self::new`];
+    /// production and the mock inject the live one (the same handle the DDNS
+    /// cloud clients flip) via [`Self::with_entitlement`].
+    entitlement: Arc<Entitlement>,
 }
 
 impl AppState {
@@ -103,8 +110,24 @@ impl AppState {
                 // components). Production and the mock inject the live monitor
                 // — wired to the runners — via `with_health_monitor`.
                 health_monitor: Arc::new(HealthMonitor::new(1, std::time::Duration::from_secs(1))),
+                // Defaults to active (never suspended). Production and the mock
+                // inject the live handle via `with_entitlement`.
+                entitlement: Entitlement::shared(),
             }),
         }
+    }
+
+    /// Inject the live [`Entitlement`] handle the DDNS cloud clients flip on
+    /// token mints. Returns `self` for chaining off [`Self::new`].
+    ///
+    /// Like [`Self::with_health_monitor`], this must be called before the state
+    /// is cloned or shared — it mutates the not-yet-shared `Arc<Inner>` in place.
+    #[must_use]
+    pub fn with_entitlement(mut self, entitlement: Arc<Entitlement>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_entitlement must be called before AppState is cloned")
+            .entitlement = entitlement;
+        self
     }
 
     /// Inject the live [`HealthMonitor`] that the health/watchdog runners
@@ -276,5 +299,21 @@ impl AppState {
     #[must_use]
     pub fn health_monitor(&self) -> &HealthMonitor {
         self.inner.health_monitor.as_ref()
+    }
+
+    /// Whether the wardnet subscription is currently suspended. The serving
+    /// layer reads this to gate the premium app surfaces (user PWA `/` + admin
+    /// mobile app `/admin-app/`) while leaving the admin website `/admin/` and
+    /// `/api/*` reachable so the operator can always resubscribe.
+    #[must_use]
+    pub fn is_suspended(&self) -> bool {
+        self.inner.entitlement.is_suspended()
+    }
+
+    /// Clone the shared [`Entitlement`] handle, for moving into the serving
+    /// layer or a background task.
+    #[must_use]
+    pub fn entitlement(&self) -> Arc<Entitlement> {
+        self.inner.entitlement.clone()
     }
 }

@@ -20,7 +20,11 @@ use super::{CloudError, DdnsClient, TenantsClient, pop};
 /// Deterministic identity bound to a wiremock tenants server.
 fn identity_for(server: &MockServer) -> Arc<DaemonIdentity> {
     let tenants = Arc::new(TenantsClient::new(reqwest::Client::new(), server.uri()));
-    DaemonIdentity::from_seed([7u8; 32], tenants, crate::entitlement::Entitlement::shared())
+    DaemonIdentity::from_seed(
+        [7u8; 32],
+        tenants,
+        crate::entitlement::Entitlement::shared(),
+    )
 }
 
 /// A JWT-shaped string whose payload decodes to `{"exp": exp}`.

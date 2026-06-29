@@ -146,6 +146,20 @@ pub trait DdnsService: Send + Sync {
     /// DDNS is unconfigured or the IP is unchanged. Called by the runner.
     async fn refresh_public_ip(&self) -> Result<Option<Ipv4Addr>, AppError>;
 
+    /// Cheap entitlement re-probe for the **suspended** state: force a token
+    /// mint against the cloud purely for its side effect on the shared
+    /// entitlement flag (a `200` calls `restore()`, a `403` keeps the box
+    /// suspended). The runner calls this instead of [`refresh_public_ip`] while
+    /// suspended, so the daemon self-heals the moment the operator resubscribes
+    /// — without doing any of the heavier publish work that would `403` anyway.
+    ///
+    /// A no-op (`Ok(())`) when the active provider has no subscription to probe
+    /// (BYOD-Cloudflare or unconfigured). The default impl is a no-op so mocks
+    /// need not override it; only [`DdnsServiceImpl`] mints.
+    async fn probe_entitlement(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     /// Read the current DDNS status.
     async fn status(&self) -> Result<DdnsStatus, AppError>;
 
@@ -347,8 +361,7 @@ impl DdnsServiceImpl {
             AppError::Internal(anyhow::anyhow!("daemon signing key is not 32 bytes"))
         })?;
         let tenants = self.tenants_client();
-        let identity =
-            DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
+        let identity = DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
         Ok((tenants, identity))
     }
 
@@ -549,8 +562,7 @@ impl DdnsService for DdnsServiceImpl {
         let mut seed = [0u8; 32];
         rand::fill(&mut seed);
         let tenants = self.tenants_client();
-        let identity =
-            DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
+        let identity = DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
 
         let tenant_id = tenants
             .enroll(code, identity.public_key_b64())
@@ -735,6 +747,32 @@ impl DdnsService for DdnsServiceImpl {
 
         tracing::info!(%ip, "published DDNS A record");
         Ok(Some(ip))
+    }
+
+    async fn probe_entitlement(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        // Only the wardnet provider carries a subscription. BYOD-Cloudflare and
+        // the unconfigured state have nothing to probe — never suspended, so a
+        // mint here would be meaningless (and `build_identity` would fail with
+        // "not enrolled").
+        if self.current_provider().await? != Some(PROVIDER_WARDNET.to_owned()) {
+            return Ok(());
+        }
+
+        // Force a mint for its side effect only: `mint_token` flips the shared
+        // entitlement flag (restore on `200`, re-suspend on `403`). We discard
+        // the token. `EntitlementLost` is the expected "still suspended" outcome
+        // — swallow it; surface only genuine transport failures so the runner
+        // can log them.
+        let (_, identity) = self.build_identity().await?;
+        match identity.token().await {
+            // Either the mint succeeded (the flag was restored inside the client)
+            // or it `403`'d (still suspended, flag already set) — both leave the
+            // shared entitlement correct, so the probe is done.
+            Ok(_) | Err(CloudError::EntitlementLost) => Ok(()),
+            Err(e) => Err(AppError::UpstreamUnavailable(e.to_string())),
+        }
     }
 
     async fn status(&self) -> Result<DdnsStatus, AppError> {

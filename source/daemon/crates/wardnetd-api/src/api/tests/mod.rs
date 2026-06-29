@@ -19,5 +19,6 @@ mod request_context;
 mod router;
 mod rule_requests;
 mod setup;
+mod suspension_gate;
 mod system;
 mod tunnels;
