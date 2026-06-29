@@ -19414,7 +19414,7 @@
               "string",
               "null"
             ],
-            "description": "The active public hostname (bridge subdomain or BYOD domain), if any."
+            "description": "The active public hostname (wardnet subdomain or BYOD domain), if any."
           },
           "last_public_ip": {
             "type": [
@@ -19429,6 +19429,10 @@
               "null"
             ],
             "description": "`None` when DDNS is not configured; otherwise `\"wardnet\"` or `\"cloudflare\"`."
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "`true` when the wardnet subscription is suspended — the premium app\nsurfaces (user PWA + admin mobile app) are disabled until it is restored.\nAlways `false` for BYOD-Cloudflare."
           }
         }
       },

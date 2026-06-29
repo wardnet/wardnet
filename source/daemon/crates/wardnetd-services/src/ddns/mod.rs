@@ -43,6 +43,7 @@ use wardnetd_data::repository::SystemConfigRepository;
 
 use crate::auth_context;
 use crate::cloud::{CloudError, DaemonIdentity, DdnsClient, TenantsClient, WardnetDnsProvider};
+use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::secret_store::SecretStore;
 
@@ -90,12 +91,15 @@ pub struct DdnsRegistration {
 /// Current DDNS state, surfaced to Settings / status views (C10).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdnsStatus {
-    /// `None` when DDNS is not configured; otherwise `"bridge"` or `"cloudflare"`.
+    /// `None` when DDNS is not configured; otherwise `"wardnet"` or `"cloudflare"`.
     pub provider: Option<String>,
-    /// The active public hostname (bridge subdomain or BYOD domain), if any.
+    /// The active public hostname (wardnet subdomain or BYOD domain), if any.
     pub fqdn: Option<String>,
     /// The IP last published by the daemon, if any.
     pub last_public_ip: Option<String>,
+    /// `true` when the wardnet subscription is suspended (a token mint was
+    /// refused) — the premium app surfaces are disabled. Always `false` for BYOD.
+    pub suspended: bool,
 }
 
 /// Auth-gated DDNS operations. Every method requires an admin context.
@@ -210,6 +214,9 @@ pub struct DdnsServiceImpl {
     secrets: Arc<dyn SecretStore>,
     http: reqwest::Client,
     settings: DdnsSettings,
+    /// Process-wide entitlement handle, flipped by token mints (suspend on a
+    /// `403`, restore on success) and read by the API/serving + runner layers.
+    entitlement: Arc<Entitlement>,
 }
 
 impl DdnsServiceImpl {
@@ -234,7 +241,16 @@ impl DdnsServiceImpl {
             secrets,
             http,
             settings,
+            entitlement: Entitlement::shared(),
         }
+    }
+
+    /// The shared entitlement handle this service flips on token mints. The
+    /// composition root clones it into [`AppState`] and the background runners so
+    /// the whole daemon reads one suspended state.
+    #[must_use]
+    pub fn entitlement(&self) -> Arc<Entitlement> {
+        self.entitlement.clone()
     }
 
     // ── config / secret helpers ────────────────────────────────────────────
@@ -331,7 +347,8 @@ impl DdnsServiceImpl {
             AppError::Internal(anyhow::anyhow!("daemon signing key is not 32 bytes"))
         })?;
         let tenants = self.tenants_client();
-        let identity = DaemonIdentity::from_seed(seed, tenants.clone());
+        let identity =
+            DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
         Ok((tenants, identity))
     }
 
@@ -532,7 +549,8 @@ impl DdnsService for DdnsServiceImpl {
         let mut seed = [0u8; 32];
         rand::fill(&mut seed);
         let tenants = self.tenants_client();
-        let identity = DaemonIdentity::from_seed(seed, tenants.clone());
+        let identity =
+            DaemonIdentity::from_seed(seed, tenants.clone(), self.entitlement.clone());
 
         let tenant_id = tenants
             .enroll(code, identity.public_key_b64())
@@ -724,10 +742,14 @@ impl DdnsService for DdnsServiceImpl {
         let provider = self.current_provider().await?;
         let fqdn = self.active_fqdn(provider.as_deref()).await?;
         let last_public_ip = self.get_cfg(KEY_LAST_IP).await?;
+        // Suspension only applies to the wardnet provider; BYOD has no subscription.
+        let suspended =
+            provider.as_deref() == Some(PROVIDER_WARDNET) && self.entitlement.is_suspended();
         Ok(DdnsStatus {
             provider,
             fqdn,
             last_public_ip,
+            suspended,
         })
     }
 

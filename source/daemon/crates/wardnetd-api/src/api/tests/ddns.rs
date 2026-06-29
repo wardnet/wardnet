@@ -115,6 +115,7 @@ impl DdnsService for MockDdns {
             provider: Some("wardnet".to_owned()),
             fqdn: Some("happy-einstein.my.wardnet.services".to_owned()),
             last_public_ip: Some("9.9.9.9".to_owned()),
+            suspended: false,
         })
     }
     async fn teardown(&self) -> Result<(), AppError> {

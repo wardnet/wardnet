@@ -157,6 +157,7 @@ impl DdnsService for MockDdns {
             provider: self.fqdn.as_ref().map(|_| "wardnet".to_owned()),
             fqdn: self.fqdn.clone(),
             last_public_ip: None,
+            suspended: false,
         })
     }
     async fn teardown(&self) -> Result<(), AppError> {

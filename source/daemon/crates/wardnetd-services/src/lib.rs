@@ -19,6 +19,7 @@ pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
+pub mod entitlement;
 pub mod garp;
 pub mod health;
 pub mod logging;

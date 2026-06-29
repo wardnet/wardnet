@@ -566,10 +566,15 @@ pub struct DdnsRegisterResponse {
 pub struct DdnsStatusResponse {
     /// `None` when DDNS is not configured; otherwise `"wardnet"` or `"cloudflare"`.
     pub provider: Option<String>,
-    /// The active public hostname (bridge subdomain or BYOD domain), if any.
+    /// The active public hostname (wardnet subdomain or BYOD domain), if any.
     pub fqdn: Option<String>,
     /// The IP last published by the daemon, if any.
     pub last_public_ip: Option<String>,
+    /// `true` when the wardnet subscription is suspended — the premium app
+    /// surfaces (user PWA + admin mobile app) are disabled until it is restored.
+    /// Always `false` for BYOD-Cloudflare.
+    #[serde(default)]
+    pub suspended: bool,
 }
 
 /// Verdict of the external [resolution check](DdnsResolutionCheckResponse):

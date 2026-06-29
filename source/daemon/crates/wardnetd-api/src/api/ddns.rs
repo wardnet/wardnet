@@ -251,6 +251,7 @@ pub async fn ddns_status(
         provider: status.provider,
         fqdn: status.fqdn,
         last_public_ip: status.last_public_ip,
+        suspended: status.suspended,
     }))
 }
 

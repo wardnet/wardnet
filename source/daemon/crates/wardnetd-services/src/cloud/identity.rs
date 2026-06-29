@@ -18,7 +18,6 @@
 //! Minting a network-scoped token after registering a network is a matter of
 //! [`DaemonIdentity::forget_token`] then the next [`DaemonIdentity::token`].
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
@@ -27,6 +26,7 @@ use ed25519_dalek::SigningKey;
 
 use super::CloudError;
 use super::tenants::TenantsClient;
+use crate::entitlement::Entitlement;
 
 /// Refresh the JWT when it has fewer than this many seconds left, so a token
 /// never expires mid-flight.
@@ -35,22 +35,28 @@ const REFRESH_SKEW_SECS: i64 = 120;
 /// real cloud tokens always carry one).
 const FALLBACK_TTL_SECS: i64 = 300;
 
-/// The daemon's cloud identity — Ed25519 key + cached JWT + entitlement flag.
+/// The daemon's cloud identity — Ed25519 key + cached JWT + shared entitlement.
 pub struct DaemonIdentity {
     signing_key: SigningKey,
     public_key_b64: String,
     tenants: Arc<TenantsClient>,
     /// `(token, exp_unix)` — `None` until first mint.
     cached: Mutex<Option<(String, i64)>>,
-    /// `true` while the last token mint succeeded; `false` once refused for
-    /// entitlement.
-    entitled: AtomicBool,
+    /// The process-wide entitlement handle this identity's token mints flip
+    /// (suspend on a `403`, restore on success).
+    entitlement: Arc<Entitlement>,
 }
 
 impl DaemonIdentity {
-    /// Build an identity from the persisted 32-byte Ed25519 seed.
+    /// Build an identity from the persisted 32-byte Ed25519 seed, sharing the
+    /// process-wide [`Entitlement`] so its token mints drive the daemon's
+    /// suspended state.
     #[must_use]
-    pub fn from_seed(seed: [u8; 32], tenants: Arc<TenantsClient>) -> Arc<Self> {
+    pub fn from_seed(
+        seed: [u8; 32],
+        tenants: Arc<TenantsClient>,
+        entitlement: Arc<Entitlement>,
+    ) -> Arc<Self> {
         let signing_key = SigningKey::from_bytes(&seed);
         let public_key_b64 = base64::engine::general_purpose::STANDARD
             .encode(signing_key.verifying_key().to_bytes());
@@ -59,7 +65,7 @@ impl DaemonIdentity {
             public_key_b64,
             tenants,
             cached: Mutex::new(None),
-            entitled: AtomicBool::new(true),
+            entitlement,
         })
     }
 
@@ -78,15 +84,15 @@ impl DaemonIdentity {
     /// was not refused). Read by the Suspended/entitlement layer.
     #[must_use]
     pub fn is_entitled(&self) -> bool {
-        self.entitled.load(Ordering::Acquire)
+        !self.entitlement.is_suspended()
     }
 
     pub(crate) fn mark_entitled(&self) {
-        self.entitled.store(true, Ordering::Release);
+        self.entitlement.restore();
     }
 
     pub(crate) fn mark_unentitled(&self) {
-        self.entitled.store(false, Ordering::Release);
+        self.entitlement.suspend();
     }
 
     /// Drop the cached token so the next [`token`](Self::token) re-mints — used
