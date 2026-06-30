@@ -24,10 +24,37 @@ make e2e-ui      # build web → real-asset daemon image → compose → run sui
 make e2e-all     # daemon (Vitest) + web-ui (Playwright)
 ```
 
-The suite runs inside the `ui_runner` container against a dedicated,
-self-seeded `wardnetd-ui` instance (`compose.ui.yaml`) — isolated from
-the API/kernel Vitest suite under `../daemon`. JUnit + an HTML report are
-written to `reports/`.
+The suite runs against a dedicated, self-seeded `wardnetd-ui` instance
+(`compose.ui.yaml`) — isolated from the API/kernel Vitest suite under
+`../daemon` — across **two runner containers**:
+
+- `ui_runner` (wardnet_mgmt) drives the **admin-site** and **admin-app**
+  projects; its report lands in `reports/`.
+- `ui_runner_lan` (wardnet_lan + wardnet_mgmt) drives the device-keyed
+  **user-app** project through the LAN-side TLS proxy; its report lands
+  in `reports/lan/` (`REPORT_SUBDIR=lan`).
+
+`make e2e-ui` runs them sequentially against the one shared daemon and
+fails if either does.
+
+### LAN-side runner + proxy (`ui_runner_lan` / `tls_proxy_lan`, C1 #626)
+
+The user-app (`/`) is **device-keyed**: the daemon resolves
+`GET /api/devices/me` from the request's *source IP*
+(`middleware.rs::resolve_auth_context` — raw TCP peer, no
+`X-Forwarded-For` trust). But service workers only register over HTTPS,
+and an L7 TLS proxy re-originates the connection, so the daemon would see
+the proxy's IP, not the browser-runner's.
+
+We turn that into the mechanism: `tls_proxy_lan` lives only on
+`wardnet_lan` at a fixed IP (`10.91.0.20`) and forwards to the daemon's
+LAN IP, so every user-app request reaches the daemon from that one IP.
+The `seed-lan-device` setup project warms the proxy (a throwaway request
+forces a proxy→daemon hop that packet-capture discovery observes) and
+polls until `10.91.0.20` is a discovered device. The user-app then sees a
+real HTTPS origin **and** a non-null `devices/me`. The no-device/null
+case (`identity.spec.ts`) is exercised by navigating the same runner to
+the mgmt proxy origin (`wardnetd-ui-tls`), whose IP is not a device.
 
 ### LAN client (`test_debian`)
 
@@ -88,8 +115,9 @@ REST API (plain `fetch` — see `fixtures/seed.ts` for why not the
 source-only `@wardnet/js` SDK), then writes `.auth/admin.json` carrying
 the `wardnet_session` cookie (built from the login token). The
 `admin-site` and `admin-app` projects reuse it via `storageState`.
-`user-app` is unauthenticated (device-keyed); from the mgmt-side runner
-it shows the no-device state.
+`user-app` is unauthenticated (device-keyed); it runs on the LAN-side
+runner and depends on the `seed-lan-device` project instead (see "LAN-side
+runner + proxy" above).
 
 ## Spec ordering (`stateful/`)
 

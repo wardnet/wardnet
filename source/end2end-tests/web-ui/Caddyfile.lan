@@ -1,0 +1,34 @@
+# LAN-side TLS-terminating reverse proxy for the user-app e2e runner.
+#
+# The user-app (`/`) is device-keyed: the daemon classifies
+# `GET /api/devices/me` by the request's *source IP*
+# (`wardnetd-api/.../middleware.rs::resolve_auth_context` — raw TCP peer
+# via `ConnectInfo`, no `X-Forwarded-For` trust). A caller is a "device"
+# only if its source IP matches a discovered LAN device.
+#
+# But the PWA-shell specs need a *secure context* (service workers only
+# register over HTTPS), which forces a TLS proxy — and an L7 proxy
+# re-originates the TCP connection, so the daemon sees the PROXY's IP,
+# not the browser-runner's. We turn that into a feature: this proxy lives
+# only on `wardnet_lan` with a fixed IP, the upstream is the daemon's
+# pinned LAN IP `10.91.0.1` (an explicit IP — not the service name —
+# forces the proxy→daemon hop over `wardnet_lan` so the daemon observes
+# this proxy's LAN source IP), and the harness seeds THIS proxy's IP as a
+# discovered device. The user-app project then sees a real HTTPS origin
+# AND a non-null `devices/me`. (The non-LAN/null case is exercised by
+# navigating the same runner to the mgmt proxy `wardnetd-ui-tls`.)
+#
+# Self-signed (`tls internal`); Playwright trusts it via
+# `ignoreHTTPSErrors` + `--ignore-certificate-errors`.
+{
+	admin off
+	auto_https disable_redirects
+	# Self-signed CA generated in-container; never trusted outside the
+	# e2e stack (Playwright uses ignoreHTTPSErrors).
+	local_certs
+}
+
+https://wardnetd-ui-lan-tls {
+	tls internal
+	reverse_proxy 10.91.0.1:7411
+}
