@@ -6,8 +6,6 @@ import {
   seedDiscoveredDevice,
   seedTunnel,
 } from "../../fixtures/devices.js";
-import { ADMIN_PASSWORD, ADMIN_USERNAME } from "../../fixtures/seed.js";
-import { loginViaUi } from "../../fixtures/ui.js";
 
 /**
  * admin-app PWA page coverage (epic #614 → B2, #625): each of the five
@@ -30,7 +28,9 @@ import { loginViaUi } from "../../fixtures/ui.js";
  *     server enabled and filtering at its original state.
  *   - Device routing: set to a tunnel, then restored to Default on the
  *     seeded device.
- *   - Daemon restart: really fired (it recovers — see the stateful describe).
+ * The daemon-restart flow really restarts the daemon, so per the suite README
+ * ("Spec ordering (stateful/)") it lives in its own stateful/restart.spec.ts —
+ * which sorts last — rather than here, keeping its blast radius off these specs.
  * Two actions are NOT fired, for hard infra reasons documented at their tests:
  *   - Device *reboot* can't recover the compose container (mirrors the
  *     admin-site power.spec, which also avoids reboot/shutdown) — open + cancel.
@@ -99,9 +99,17 @@ test.describe("devices", () => {
     for (const f of ["all", "online", "vpn"] as const) {
       const pill = page.getByTestId(`device-filter-${f}`);
       await pill.click();
-      const label = (await pill.textContent()) ?? "";
-      const count = Number(label.match(/\((\d+)\)/)?.[1] ?? "-1");
-      await expect(page.getByTestId("device-row")).toHaveCount(count);
+      // Re-read the pill's count and the row count together on each poll: the
+      // "online" count is time-derived and a background refetch can move both,
+      // so a one-shot snapshot could leave `toHaveCount` chasing a value that
+      // no longer occurs. Comparing fresh reads converges once the page settles.
+      await expect
+        .poll(async () => {
+          const label = (await pill.textContent()) ?? "";
+          const expected = Number(label.match(/\((\d+)\)/)?.[1] ?? "-1");
+          return (await page.getByTestId("device-row").count()) === expected;
+        })
+        .toBe(true);
     }
   });
 
@@ -255,48 +263,4 @@ test("an unknown route redirects to the dashboard", async ({ page }) => {
   await page.goto("./this-route-does-not-exist");
   await expect(page).toHaveURL(/\/admin-app\/?$/);
   await expect(page.getByTestId("tab-home")).toBeVisible();
-});
-
-test.describe("daemon restart (stateful)", () => {
-  // Really restarts the daemon, so it is declared last — the suite runs
-  // single-worker in declaration order, keeping the blast radius off the
-  // read-only / restore-after tests above. The daemon runs as systemd PID 1
-  // in the compose container with a persistent state volume, so it comes
-  // back; DB-backed sessions stay valid across the restart (the cookie
-  // survives), so the expected outcome is an in-place recovery. The
-  // signed-out branch is handled defensively.
-  test("the restart flow shows the busy overlay and recovers", async ({
-    page,
-  }) => {
-    test.setTimeout(120_000);
-
-    await page.goto("./system");
-
-    // Confirm restart.
-    await page.getByTestId("system-restart-daemon").click();
-    await expect(page.getByText("Restart daemon?", { exact: true })).toBeVisible();
-    await page.getByTestId("confirm-dialog-confirm").click();
-
-    // The full-screen busy overlay appears while the daemon is down, then
-    // tears itself down once the daemon is back and the app reconnects.
-    await expect(page.getByTestId("system-busy-overlay")).toBeVisible();
-    await expect(page.getByTestId("system-busy-overlay")).toBeHidden({
-      timeout: 90_000,
-    });
-
-    // Recover: normally the session survives and we're still in the shell;
-    // if the daemon came back signed-out, re-authenticate so later specs
-    // keep an authenticated context.
-    if (/\/admin-app\/login/.test(page.url())) {
-      await loginViaUi(page, ADMIN_USERNAME, ADMIN_PASSWORD);
-      const declineBiometric = page.getByTestId("biometric-setup-decline");
-      if (await declineBiometric.isVisible().catch(() => false)) {
-        await declineBiometric.click();
-      }
-      await expect(page).toHaveURL(/\/admin-app\/?$/);
-    } else {
-      await page.goto("./system");
-      await expect(page.getByTestId("system-status-pill")).toBeVisible();
-    }
-  });
 });

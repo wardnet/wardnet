@@ -23,6 +23,7 @@ export function ConfirmDialog({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
           side="bottom"
+          data-testid="confirm-dialog"
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
@@ -38,7 +39,7 @@ export function ConfirmDialog({
         </div>
 
         {/* Buttons */}
-        <div data-testid="confirm-dialog" className="flex flex-col gap-2 px-4 pb-10">
+        <div className="flex flex-col gap-2 px-4 pb-10">
           <button
             data-testid="confirm-dialog-confirm"
             onClick={onConfirm}

@@ -120,7 +120,6 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
                 active={current === tunnel.id}
                 disabled={updateDevice.isPending}
                 onSelect={() => handleSelect({ type: "tunnel", tunnel_id: tunnel.id })}
-                testId={`device-routing-tunnel-${tunnel.id}`}
               />
             );
           })}
