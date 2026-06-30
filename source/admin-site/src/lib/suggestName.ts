@@ -2,11 +2,10 @@
  * Two-word hostname suggestions for the remote-access wizard step.
  *
  * Produces `adjective-scientist` slugs (e.g. `happy-einstein`) the operator can
- * accept or override. The generator deliberately mirrors the bridge's own name
- * rules (see `source/bridge/src/api/validation.rs`) so a suggestion never
- * fails registration: 3–32 chars, lowercase `[a-z0-9-]`, no leading/trailing
- * hyphen, and not a reserved label. Words are kept short so the joined slug
- * stays well under 32 characters.
+ * accept or override. The generator deliberately mirrors the wardnet cloud's
+ * own slug rules so a suggestion never fails registration: 3–32 chars,
+ * lowercase `[a-z0-9-]`, no leading/trailing hyphen, and not a reserved label.
+ * Words are kept short so the joined slug stays well under 32 characters.
  */
 
 const ADJECTIVES = [

@@ -662,13 +662,23 @@ async fn run(
     );
 
     // DDNS update runner — keeps the public A record current. Inert (no network
-    // calls) until a DDNS provider is configured by the setup wizard.
-    let ddns_update_runner = DdnsUpdateRunner::start(services.ddns.clone(), &root_span);
+    // calls) until a DDNS provider is configured by the setup wizard. While the
+    // box is suspended it re-probes entitlement each tick (cheap) instead of
+    // publishing, so it self-heals when the operator resubscribes.
+    let ddns_update_runner = DdnsUpdateRunner::start(
+        services.ddns.clone(),
+        services.entitlement.clone(),
+        &root_span,
+    );
 
     // TLS renewal runner — issues the cert once DDNS is configured and renews it
     // before expiry, hot-swapping the live `:443` cert. Inert (no ACME calls)
-    // while there is no active FQDN.
-    let tls_renewal_runner = TlsRenewalRunner::start(services.tls.clone(), &root_span);
+    // while there is no active FQDN, and also fully inert while suspended.
+    let tls_renewal_runner = TlsRenewalRunner::start(
+        services.tls.clone(),
+        services.entitlement.clone(),
+        &root_span,
+    );
 
     // Health monitor (issue #214): register the four startup probes — DB
     // connectivity, liveness (a fresh snapshot containing it proves the
@@ -754,7 +764,11 @@ async fn run(
         services.stats.clone(),
         services.rule_request.clone(),
     )
-    .with_health_monitor(health_monitor.clone());
+    .with_health_monitor(health_monitor.clone())
+    // Inject the live entitlement handle (the same one the DDNS cloud clients
+    // flip) so the serving layer can gate the premium app surfaces while
+    // suspended. Must precede any clone/share of `state`.
+    .with_entitlement(services.entitlement.clone());
 
     let app = wardnetd_api::api::router(state);
 

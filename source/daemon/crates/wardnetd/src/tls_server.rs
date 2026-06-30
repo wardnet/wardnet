@@ -287,11 +287,15 @@ pub fn spawn_http_redirect_listener(
 /// or LAN name like `wardnet`, `wardnet.lan`, or the bare LAN IP), the redirect
 /// rewrites the host to the canonical FQDN so the client lands on the name with a
 /// valid cert. Otherwise it is a same-host upgrade.
-fn redirect_router(https_port: u16, serving: Arc<dyn ServingIdentity>) -> Router {
-    Router::new().fallback(move |headers: HeaderMap, uri: Uri| {
-        let serving = serving.clone();
-        async move { redirect_to_https(https_port, serving.canonical_fqdn(), &headers, &uri) }
-    })
+pub(crate) fn redirect_router(https_port: u16, serving: Arc<dyn ServingIdentity>) -> Router {
+    Router::new()
+        .fallback(move |headers: HeaderMap, uri: Uri| {
+            let serving = serving.clone();
+            async move { redirect_to_https(https_port, serving.canonical_fqdn(), &headers, &uri) }
+        })
+        // Panic isolation, same as the main API router: a panic in the redirect
+        // path must surface as a logged 500, never unwind the `:80` listener.
+        .layer(wardnetd_api::api::catch_panic_layer())
 }
 
 pub(crate) fn redirect_to_https(

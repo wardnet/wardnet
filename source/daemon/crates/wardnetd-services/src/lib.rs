@@ -12,12 +12,14 @@ pub mod version;
 
 pub mod auth;
 pub mod backup;
+pub mod cloud;
 pub mod ddns;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
+pub mod entitlement;
 pub mod garp;
 pub mod health;
 pub mod logging;
@@ -225,6 +227,11 @@ pub struct Services {
     pub stats: Arc<dyn StatsService>,
     /// Shared stats buffer — drained by [`StatsFlushRunner`] in `main.rs`.
     pub stats_buffer: Arc<StatsBuffer>,
+    /// Process-wide entitlement state, flipped by the DDNS cloud clients on
+    /// token mints (suspend on a `403`, restore on success). Cloned into
+    /// `AppState` (to gate the premium app surfaces) and the DDNS/TLS runners
+    /// (to stay inert while suspended). The same handle the `ddns` service holds.
+    pub entitlement: Arc<entitlement::Entitlement>,
 }
 
 /// Initialize all services from the application configuration.
@@ -479,10 +486,15 @@ fn create_services(
     // DDNS service — reads/writes provider config in `system_config` (fresh
     // handle) and credentials in the shared secret store. Constructs the active
     // provider internally from stored config; no extra `Backends` field needed.
-    let ddns: Arc<dyn DdnsService> = Arc::new(DdnsServiceImpl::new(
-        repo_factory.system_config(),
-        backends.secret_store.clone(),
-    ));
+    //
+    // Built concretely so we can lift the shared `Entitlement` handle out before
+    // boxing it as a trait object: the cloud clients inside the service flip it
+    // on token mints, and the composition root clones it into `AppState` and the
+    // background runners so the whole daemon reads one suspended state.
+    let ddns_impl =
+        DdnsServiceImpl::new(repo_factory.system_config(), backends.secret_store.clone());
+    let entitlement = ddns_impl.entitlement();
+    let ddns: Arc<dyn DdnsService> = Arc::new(ddns_impl);
 
     // TLS service — ACME issuance/renewal. Publishes DNS-01 challenges through
     // `ddns`, persists cert material in the shared secret store, and hot-swaps
@@ -601,6 +613,7 @@ fn create_services(
         dns_events_repo,
         stats: stats_service,
         stats_buffer,
+        entitlement,
     }
 }
 

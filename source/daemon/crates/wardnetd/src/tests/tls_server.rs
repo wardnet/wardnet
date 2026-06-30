@@ -20,7 +20,7 @@ use tower::ServiceExt;
 
 use crate::tls_server::{
     ServingIdentity, build_serving_control, generate_placeholder_pem, guarded_https_app,
-    install_crypto_provider, redirect_to_https,
+    install_crypto_provider, redirect_router, redirect_to_https,
 };
 
 static CRYPTO_INIT: Once = Once::new();
@@ -104,6 +104,43 @@ async fn activate_sets_domain_and_lifts_gate() {
 
 fn test_app() -> Router {
     Router::new().route("/ping", get(|| async { "pong" }))
+}
+
+/// A [`ServingIdentity`] that panics when its canonical FQDN is read — used to
+/// inject a realistic handler panic into the `:80` redirect router (the redirect
+/// fallback calls `canonical_fqdn()` on every request).
+struct PanicServing;
+
+impl ServingIdentity for PanicServing {
+    fn is_provisioned(&self) -> bool {
+        false
+    }
+    fn canonical_fqdn(&self) -> Option<Arc<String>> {
+        panic!("simulated serving-identity panic")
+    }
+}
+
+/// The `:80` HTTP→HTTPS redirect listener must isolate handler panics as a `500`
+/// — like the main API — instead of letting them unwind the connection task. A
+/// panic in the redirect path (here, reading the canonical FQDN) must not
+/// propagate past the service.
+#[tokio::test]
+async fn redirect_router_isolates_handler_panics() {
+    let app = redirect_router(443, Arc::new(PanicServing));
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .header(header::HOST, "home.example.net")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app
+        .oneshot(req)
+        .await
+        .expect("redirect handler panic must not propagate past the service");
+
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]

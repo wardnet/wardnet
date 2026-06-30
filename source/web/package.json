@@ -20,7 +20,7 @@
   "dependencies": {
     "@wardnet/ui": "^0.1.0",
     "clsx": "2.1.1",
-    "cronstrue": "3.14.0",
+    "cronstrue": "3.21.0",
     "tailwind-merge": "3.6.0"
   },
   "peerDependencies": {

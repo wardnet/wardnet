@@ -50,7 +50,7 @@ function verdictView(verdict: DdnsResolutionVerdict): {
 }
 
 function providerLabel(provider: string | null | undefined): string {
-  if (provider === "bridge") return "Wardnet bridge";
+  if (provider === "wardnet") return "Wardnet";
   if (provider === "cloudflare") return "Your domain (Cloudflare)";
   return "—";
 }

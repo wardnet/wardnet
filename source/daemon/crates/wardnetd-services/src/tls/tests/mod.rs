@@ -126,10 +126,20 @@ struct MockDdns {
 
 #[async_trait]
 impl DdnsService for MockDdns {
-    async fn register_with_bridge(&self, _name: String) -> Result<DdnsRegistration, AppError> {
+    async fn request_enrollment_code(&self, _email: String) -> Result<(), AppError> {
         unreachable!("not used in TLS tests")
     }
-    async fn check_name_available(&self, _name: String) -> Result<bool, AppError> {
+    async fn enroll(&self, _code: String) -> Result<(), AppError> {
+        unreachable!("not used in TLS tests")
+    }
+    async fn check_slug(&self, _slug: String) -> Result<bool, AppError> {
+        unreachable!("not used in TLS tests")
+    }
+    async fn register_network(
+        &self,
+        _slug: String,
+        _display_name: Option<String>,
+    ) -> Result<DdnsRegistration, AppError> {
         unreachable!("not used in TLS tests")
     }
     async fn configure_cloudflare(
@@ -144,9 +154,10 @@ impl DdnsService for MockDdns {
     }
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         Ok(DdnsStatus {
-            provider: self.fqdn.as_ref().map(|_| "bridge".to_owned()),
+            provider: self.fqdn.as_ref().map(|_| "wardnet".to_owned()),
             fqdn: self.fqdn.clone(),
             last_public_ip: None,
+            suspended: false,
         })
     }
     async fn teardown(&self) -> Result<(), AppError> {

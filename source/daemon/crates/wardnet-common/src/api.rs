@@ -513,16 +513,34 @@ pub struct SetDefaultPolicyRequest {
 /// Response for `GET /api/ddns/check`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DdnsCheckResponse {
-    /// `true` when the name is well-formed and unclaimed on the best bridge.
+    /// `true` when the slug is well-formed and unclaimed.
     pub available: bool,
 }
 
-/// Request body for `POST /api/ddns/register` (bridge provider).
+/// Request body for `POST /api/ddns/enrollment-code` (wardnet provider, step 1).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsEnrollmentCodeRequest {
+    /// The wardnet account email a one-time enrollment code is emailed to.
+    pub email: String,
+}
+
+/// Request body for `POST /api/ddns/enroll` (wardnet provider, step 2).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DdnsEnrollRequest {
+    /// The one-time code emailed to the account, as entered by the operator.
+    pub code: String,
+}
+
+/// Request body for `POST /api/ddns/register` (wardnet provider, final step).
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DdnsRegisterRequest {
-    /// The short name to claim, e.g. `happy-einstein`. The bridge validates it
-    /// (3–32 chars, `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
-    pub name: String,
+    /// The vanity slug to claim, e.g. `happy-einstein`, forming
+    /// `<slug>.my.wardnet.services`. The cloud validates it (3–32 chars,
+    /// `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
+    pub slug: String,
+    /// Optional human-facing network name; defaults to the slug when omitted.
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 /// Request body for `POST /api/ddns/cloudflare` (BYOD provider).
@@ -537,21 +555,26 @@ pub struct ConfigureCloudflareRequest {
 /// Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DdnsRegisterResponse {
-    /// The public hostname now assigned to this installation.
+    /// The public hostname now assigned to this network.
     pub fqdn: String,
-    /// The bridge region label (display only); `None` for BYOD-Cloudflare.
+    /// The region slug (display only); `None` for BYOD-Cloudflare.
     pub region: Option<String>,
 }
 
 /// Response for `GET /api/ddns/status`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DdnsStatusResponse {
-    /// `None` when DDNS is not configured; otherwise `"bridge"` or `"cloudflare"`.
+    /// `None` when DDNS is not configured; otherwise `"wardnet"` or `"cloudflare"`.
     pub provider: Option<String>,
-    /// The active public hostname (bridge subdomain or BYOD domain), if any.
+    /// The active public hostname (wardnet subdomain or BYOD domain), if any.
     pub fqdn: Option<String>,
     /// The IP last published by the daemon, if any.
     pub last_public_ip: Option<String>,
+    /// `true` when the wardnet subscription is suspended — the premium app
+    /// surfaces (user PWA + admin mobile app) are disabled until it is restored.
+    /// Always `false` for BYOD-Cloudflare.
+    #[serde(default)]
+    pub suspended: bool,
 }
 
 /// Verdict of the external [resolution check](DdnsResolutionCheckResponse):

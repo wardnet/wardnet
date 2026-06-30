@@ -887,7 +887,7 @@
         "tags": [
           "ddns"
         ],
-        "description": "Disable remote access: remove the published DNS record and provider identity (bridge install / Cloudflare record), drop the stored certificate, and revert :443 to the unprovisioned placeholder. Idempotent. Admin only.",
+        "description": "Disable remote access: remove this daemon from its network (wardnet) or delete the Cloudflare record (BYOD), drop the stored certificate, and revert :443 to the unprovisioned placeholder. Idempotent. Admin only.",
         "operationId": "ddns_teardown",
         "responses": {
           "204": {
@@ -1005,13 +1005,13 @@
         "tags": [
           "ddns"
         ],
-        "description": "Check whether a short name is available on the best-latency bridge. Returns `available: false` for malformed or reserved names too (no error). Admin only.",
+        "description": "Check whether a vanity slug is available. Returns `available: false` for malformed or reserved slugs too (no error). Requires a prior enroll. Admin only.",
         "operationId": "ddns_check",
         "parameters": [
           {
-            "name": "name",
+            "name": "slug",
             "in": "query",
-            "description": "The short name to check, e.g. happy-einstein",
+            "description": "The vanity slug to check, e.g. happy-einstein",
             "required": true,
             "schema": {
               "type": "string"
@@ -1303,12 +1303,332 @@
         ]
       }
     },
+    "/api/ddns/enroll": {
+      "post": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Enroll this daemon against the one-time code: generate its cloud identity and bind it to the tenant. Step 2 of the wardnet flow; afterwards check slug availability and register a network. Admin only.",
+        "operationId": "ddns_enroll",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DdnsEnrollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Enrolled"
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/ddns/enrollment-code": {
+      "post": {
+        "tags": [
+          "ddns"
+        ],
+        "description": "Request a one-time enrollment code be emailed to the wardnet account. Step 1 of the wardnet remote-access flow; the operator then submits the emailed code to `POST /api/ddns/enroll`. Admin only.",
+        "operationId": "ddns_enrollment_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DdnsEnrollmentCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Code requested (emailed if the account exists)"
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/ddns/register": {
       "post": {
         "tags": [
           "ddns"
         ],
-        "description": "Register this installation on the wardnet bridge under the given short name, then kick off certificate issuance in the background. The response returns as soon as the identity is persisted; poll `GET /api/tls/status` for issuance progress. Admin only.",
+        "description": "Register a network under the given vanity slug on the lowest-latency region, then kick off certificate issuance in the background. Requires a prior enroll. The response returns as soon as the identity is persisted; poll `GET /api/tls/status` for issuance progress. Admin only.",
         "operationId": "ddns_register",
         "requestBody": {
           "content": {
@@ -18970,20 +19290,53 @@
         "properties": {
           "available": {
             "type": "boolean",
-            "description": "`true` when the name is well-formed and unclaimed on the best bridge."
+            "description": "`true` when the slug is well-formed and unclaimed."
+          }
+        }
+      },
+      "DdnsEnrollRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ddns/enroll` (wardnet provider, step 2).",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The one-time code emailed to the account, as entered by the operator."
+          }
+        }
+      },
+      "DdnsEnrollmentCodeRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ddns/enrollment-code` (wardnet provider, step 1).",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The wardnet account email a one-time enrollment code is emailed to."
           }
         }
       },
       "DdnsRegisterRequest": {
         "type": "object",
-        "description": "Request body for `POST /api/ddns/register` (bridge provider).",
+        "description": "Request body for `POST /api/ddns/register` (wardnet provider, final step).",
         "required": [
-          "name"
+          "slug"
         ],
         "properties": {
-          "name": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-facing network name; defaults to the slug when omitted."
+          },
+          "slug": {
             "type": "string",
-            "description": "The short name to claim, e.g. `happy-einstein`. The bridge validates it\n(3–32 chars, `[a-z0-9-]`, no leading/trailing hyphen, not reserved)."
+            "description": "The vanity slug to claim, e.g. `happy-einstein`, forming\n`<slug>.my.wardnet.services`. The cloud validates it (3–32 chars,\n`[a-z0-9-]`, no leading/trailing hyphen, not reserved)."
           }
         }
       },
@@ -18996,14 +19349,14 @@
         "properties": {
           "fqdn": {
             "type": "string",
-            "description": "The public hostname now assigned to this installation."
+            "description": "The public hostname now assigned to this network."
           },
           "region": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The bridge region label (display only); `None` for BYOD-Cloudflare."
+            "description": "The region slug (display only); `None` for BYOD-Cloudflare."
           }
         }
       },
@@ -19061,7 +19414,7 @@
               "string",
               "null"
             ],
-            "description": "The active public hostname (bridge subdomain or BYOD domain), if any."
+            "description": "The active public hostname (wardnet subdomain or BYOD domain), if any."
           },
           "last_public_ip": {
             "type": [
@@ -19075,7 +19428,11 @@
               "string",
               "null"
             ],
-            "description": "`None` when DDNS is not configured; otherwise `\"bridge\"` or `\"cloudflare\"`."
+            "description": "`None` when DDNS is not configured; otherwise `\"wardnet\"` or `\"cloudflare\"`."
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "`true` when the wardnet subscription is suspended — the premium app\nsurfaces (user PWA + admin mobile app) are disabled until it is restored.\nAlways `false` for BYOD-Cloudflare."
           }
         }
       },

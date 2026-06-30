@@ -164,6 +164,8 @@ export { RemoteAccessService } from "./services/remote-access.js";
 
 // Types — remote access (DDNS + TLS)
 export type {
+  DdnsEnrollmentCodeRequest,
+  DdnsEnrollRequest,
   DdnsCheckResponse,
   DdnsRegisterRequest,
   ConfigureCloudflareRequest,

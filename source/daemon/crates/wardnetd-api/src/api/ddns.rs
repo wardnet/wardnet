@@ -1,10 +1,10 @@
 //! Dynamic-DNS HTTP handlers — `/api/ddns/...` (issues #527/#530).
 //!
 //! Drives the setup wizard's "Remote access (HTTPS)" step and (later) the
-//! Settings surface: name-availability checks, bridge registration, BYOD-
-//! Cloudflare configuration, and the current DDNS status. All endpoints are
-//! admin-gated — the wizard runs the operator as the auto-logged-in admin from
-//! step 1 onward, so no pre-auth elevation is needed.
+//! Settings surface: the wardnet enrollment flow (request code → enroll → check
+//! slug → register network), BYOD-Cloudflare configuration, and the current DDNS
+//! status. All endpoints are admin-gated — the wizard runs the operator as the
+//! auto-logged-in admin from step 1 onward, so no pre-auth elevation is needed.
 //!
 //! Registration persists the provider identity **synchronously** (so the
 //! response carries the assigned FQDN), then kicks a **detached** task to
@@ -24,8 +24,8 @@ use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use wardnet_common::api::{
-    ConfigureCloudflareRequest, DdnsCheckResponse, DdnsRegisterRequest, DdnsRegisterResponse,
-    DdnsResolutionCheckResponse, DdnsStatusResponse,
+    ConfigureCloudflareRequest, DdnsCheckResponse, DdnsEnrollRequest, DdnsEnrollmentCodeRequest,
+    DdnsRegisterRequest, DdnsRegisterResponse, DdnsResolutionCheckResponse, DdnsStatusResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -35,6 +35,8 @@ use wardnetd_services::error::AppError;
 
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
+        .routes(routes!(ddns_enrollment_code))
+        .routes(routes!(ddns_enroll))
         .routes(routes!(ddns_check))
         .routes(routes!(ddns_register))
         .routes(routes!(ddns_cloudflare))
@@ -46,7 +48,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 /// Query string for `GET /api/ddns/check`.
 #[derive(Deserialize)]
 pub struct CheckQuery {
-    name: String,
+    slug: String,
 }
 
 /// Spawn the detached, admin-context provisioning task: publish the public A
@@ -83,13 +85,66 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
 }
 
 #[utoipa::path(
+    post,
+    path = "/api/ddns/enrollment-code",
+    tag = "ddns",
+    description = "Request a one-time enrollment code be emailed to the wardnet \
+                   account. Step 1 of the wardnet remote-access flow; the operator \
+                   then submits the emailed code to `POST /api/ddns/enroll`. \
+                   Admin only.",
+    request_body = DdnsEnrollmentCodeRequest,
+    responses(
+        (status = 204, description = "Code requested (emailed if the account exists)"),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn ddns_enrollment_code(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<DdnsEnrollmentCodeRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .ddns_service()
+        .request_enrollment_code(body.email)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/ddns/enroll",
+    tag = "ddns",
+    description = "Enroll this daemon against the one-time code: generate its cloud \
+                   identity and bind it to the tenant. Step 2 of the wardnet flow; \
+                   afterwards check slug availability and register a network. \
+                   Admin only.",
+    request_body = DdnsEnrollRequest,
+    responses(
+        (status = 204, description = "Enrolled"),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn ddns_enroll(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<DdnsEnrollRequest>,
+) -> Result<StatusCode, AppError> {
+    state.ddns_service().enroll(body.code).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     get,
     path = "/api/ddns/check",
     tag = "ddns",
-    description = "Check whether a short name is available on the best-latency \
-                   bridge. Returns `available: false` for malformed or reserved \
-                   names too (no error). Admin only.",
-    params(("name" = String, Query, description = "The short name to check, e.g. happy-einstein")),
+    description = "Check whether a vanity slug is available. Returns \
+                   `available: false` for malformed or reserved slugs too (no \
+                   error). Requires a prior enroll. Admin only.",
+    params(("slug" = String, Query, description = "The vanity slug to check, e.g. happy-einstein")),
     responses(
         (status = 200, description = "Availability result", body = DdnsCheckResponse),
         AuthErrors,
@@ -101,10 +156,7 @@ pub async fn ddns_check(
     _auth: AdminAuth,
     Query(query): Query<CheckQuery>,
 ) -> Result<Json<DdnsCheckResponse>, AppError> {
-    let available = state
-        .ddns_service()
-        .check_name_available(query.name)
-        .await?;
+    let available = state.ddns_service().check_slug(query.slug).await?;
     Ok(Json(DdnsCheckResponse { available }))
 }
 
@@ -112,11 +164,11 @@ pub async fn ddns_check(
     post,
     path = "/api/ddns/register",
     tag = "ddns",
-    description = "Register this installation on the wardnet bridge under the \
-                   given short name, then kick off certificate issuance in the \
-                   background. The response returns as soon as the identity is \
-                   persisted; poll `GET /api/tls/status` for issuance progress. \
-                   Admin only.",
+    description = "Register a network under the given vanity slug on the \
+                   lowest-latency region, then kick off certificate issuance in \
+                   the background. Requires a prior enroll. The response returns as \
+                   soon as the identity is persisted; poll `GET /api/tls/status` \
+                   for issuance progress. Admin only.",
     request_body = DdnsRegisterRequest,
     responses(
         (status = 200, description = "Registered; provisioning started", body = DdnsRegisterResponse),
@@ -130,7 +182,10 @@ pub async fn ddns_register(
     auth: AdminAuth,
     Json(body): Json<DdnsRegisterRequest>,
 ) -> Result<Json<DdnsRegisterResponse>, AppError> {
-    let registration = state.ddns_service().register_with_bridge(body.name).await?;
+    let registration = state
+        .ddns_service()
+        .register_network(body.slug, body.display_name)
+        .await?;
     // Reflect "issuing" before the spawn runs, so a poll racing the task still
     // shows progress rather than a stale idle/failed phase.
     state.tls_service().mark_provisioning_started().await?;
@@ -196,6 +251,7 @@ pub async fn ddns_status(
         provider: status.provider,
         fqdn: status.fqdn,
         last_public_ip: status.last_public_ip,
+        suspended: status.suspended,
     }))
 }
 
@@ -226,9 +282,9 @@ pub async fn ddns_resolution_check(
     delete,
     path = "/api/ddns",
     tag = "ddns",
-    description = "Disable remote access: remove the published DNS record and \
-                   provider identity (bridge install / Cloudflare record), drop \
-                   the stored certificate, and revert :443 to the unprovisioned \
+    description = "Disable remote access: remove this daemon from its network \
+                   (wardnet) or delete the Cloudflare record (BYOD), drop the \
+                   stored certificate, and revert :443 to the unprovisioned \
                    placeholder. Idempotent. Admin only.",
     responses(
         (status = 204, description = "Remote access torn down (or already absent)"),

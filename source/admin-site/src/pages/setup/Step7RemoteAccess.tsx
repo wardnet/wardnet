@@ -1,102 +1,54 @@
-import { useEffect, useState } from "react";
-import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
-import { Field } from "@wardnet/web";
-import { Input } from "@wardnet/web";
+import { Button, Text } from "@wardnet/web";
 import { WardnetApiError } from "@wardnet/js";
-import {
-  useAdvanceWizard,
-  useCheckDdnsName,
-  useConfigureCloudflare,
-  useRegisterDdns,
-  useTlsStatus,
-} from "@wardnet/web";
+import { useAdvanceWizard, useTlsStatus } from "@wardnet/web";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
-import { isReservedName, isValidName, suggestName } from "@/lib/suggestName";
-
-type Provider = "bridge" | "cloudflare";
-type Availability =
-  | "unknown"
-  | "checking"
-  | "available"
-  | "taken"
-  | "invalid"
-  | "error";
+import {
+  CloudflareFields,
+  ProviderOption,
+  WardnetFields,
+} from "@/components/features/wardnet-enrollment";
+import {
+  useWardnetEnrollment,
+  type WardnetStep,
+} from "@/lib/wardnet-enrollment";
+import { useState } from "react";
+import { suggestName } from "@/lib/suggestName";
 
 /**
  * Step 7 — enable remote access (HTTPS).
  *
- * Lets the operator give the Pi a public hostname and a real certificate via
- * either the wardnet bridge (default, zero-config) or their own Cloudflare
- * domain (BYOD). Registration persists synchronously; the certificate is then
- * issued in the background, so this step never blocks — the operator can wait
- * for the green "live" state, or Continue/Skip at any time. Issuance can also
- * be retried later from Settings, so an offline Pi still completes setup.
+ * Lets the operator give the gateway a public hostname and a real certificate
+ * via either **wardnet** (the managed `<slug>.my.wardnet.services`, reached
+ * through a one-time email enrollment) or their own **Cloudflare** domain
+ * (BYOD). Registration persists synchronously; the certificate is then issued
+ * in the background, so this step never blocks — the operator can wait for the
+ * green "live" state, or Continue/Skip at any time. Issuance can also be retried
+ * later from Settings, so an offline gateway still completes setup.
+ *
+ * The provider form (state machine, fields, availability check) lives in the
+ * shared {@link useWardnetEnrollment} hook; this step only wires success/error
+ * and renders the wizard-specific progress/skip flow.
  */
 export default function Step7RemoteAccess() {
   const advance = useAdvanceWizard();
-  const register = useRegisterDdns();
-  const configureCf = useConfigureCloudflare();
-  // `mutateAsync` is referentially stable, so it's safe in the effect deps.
-  const { mutateAsync: checkNameAsync } = useCheckDdnsName();
 
-  const [provider, setProvider] = useState<Provider>("bridge");
-  const [name, setName] = useState(() => suggestName());
-  const [serverAvailability, setServerAvailability] = useState<
-    "unknown" | "checking" | "available" | "taken" | "error"
-  >("unknown");
-  const [token, setToken] = useState("");
-  const [domain, setDomain] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   // Once provisioning has been kicked off we swap the form for live progress.
   const [started, setStarted] = useState(false);
-  // Set when an Enable attempt failed because the upstream service was
-  // unreachable (vs a fixable input error) — swaps the form for a clear
-  // "service unavailable, continue anyway" view.
+  // Set when an attempt failed because the upstream service was unreachable (vs
+  // a fixable input error) — swaps the form for a clear "service unavailable,
+  // continue anyway" view.
   const [upstreamDown, setUpstreamDown] = useState(false);
-
-  // Poll TLS status only after we've started provisioning.
-  const { data: tlsStatus } = useTlsStatus({ enabled: started });
-
-  // Client-side validity is derived during render (no effect/setState), so the
-  // "invalid" hint and the disabled button update instantly as the user types.
-  const clientValid = provider !== "bridge" || isValidName(name);
-  const availability: Availability = !clientValid
-    ? "invalid"
-    : serverAvailability;
-
-  // Debounced live availability check for the bridge name. All state writes are
-  // async (inside the timer / promise), never synchronous in the effect body.
-  useEffect(() => {
-    if (provider !== "bridge" || !isValidName(name)) return;
-    let cancelled = false;
-    const handle = setTimeout(() => {
-      setServerAvailability("checking");
-      checkNameAsync(name)
-        .then((res) => {
-          if (!cancelled)
-            setServerAvailability(res.available ? "available" : "taken");
-        })
-        .catch(() => {
-          // The daemon couldn't reach a bridge (offline / bridge down). Surface
-          // it rather than leaving the field with no feedback.
-          if (!cancelled) setServerAvailability("error");
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [name, provider, checkNameAsync]);
 
   function describeError(err: unknown): string {
     if (err instanceof WardnetApiError) return err.body.error;
     return "Couldn't reach the daemon. You can skip and set this up later from Settings.";
   }
 
-  // A 502/503 means the daemon reached out but the upstream (bridge or
+  // A 502/503 means the daemon reached out but the upstream (wardnet cloud or
   // Cloudflare) was unavailable — an outage, not a user mistake. Bad input
-  // (e.g. a rejected token) comes back as a 4xx and stays on the form to fix.
+  // (e.g. a wrong code or rejected token) comes back as a 4xx and stays on the
+  // form to fix.
   function isUpstreamDown(err: unknown): boolean {
     return (
       err instanceof WardnetApiError &&
@@ -104,33 +56,39 @@ export default function Step7RemoteAccess() {
     );
   }
 
-  function handleEnableError(err: unknown) {
-    if (isUpstreamDown(err)) {
-      setUpstreamDown(true);
-    } else {
-      setFormError(describeError(err));
-    }
-  }
+  const enrollment = useWardnetEnrollment({
+    onProvisioned: () => setStarted(true),
+    onError: (err) => {
+      if (isUpstreamDown(err)) {
+        setUpstreamDown(true);
+      } else {
+        setFormError(describeError(err));
+      }
+    },
+    clearError: () => setFormError(null),
+  });
+  const {
+    provider,
+    setProvider,
+    wardnetStep,
+    setWardnetStep,
+    email,
+    setEmail,
+    code,
+    setCode,
+    slug,
+    setSlug,
+    token,
+    setToken,
+    domain,
+    setDomain,
+    availability,
+    slugDisabled,
+    pending,
+  } = enrollment;
 
-  async function handleEnableBridge() {
-    setFormError(null);
-    try {
-      await register.mutateAsync({ name });
-      setStarted(true);
-    } catch (err) {
-      handleEnableError(err);
-    }
-  }
-
-  async function handleEnableCloudflare() {
-    setFormError(null);
-    try {
-      await configureCf.mutateAsync({ token, domain });
-      setStarted(true);
-    } catch (err) {
-      handleEnableError(err);
-    }
-  }
+  // Poll TLS status only after we've started provisioning.
+  const { data: tlsStatus } = useTlsStatus({ enabled: started });
 
   async function finish() {
     setFormError(null);
@@ -191,7 +149,7 @@ export default function Step7RemoteAccess() {
   // ── Upstream unavailable: the service is down, not the operator's input ───
   if (upstreamDown) {
     const serviceName =
-      provider === "bridge" ? "hostname service" : "Cloudflare";
+      provider === "wardnet" ? "wardnet service" : "Cloudflare";
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
@@ -235,10 +193,6 @@ export default function Step7RemoteAccess() {
   }
 
   // ── Pre-registration: provider picker + form ─────────────────────────────
-  const busy = register.isPending || configureCf.isPending;
-  const bridgeDisabled =
-    busy || availability === "checking" || availability === "invalid";
-
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
@@ -252,10 +206,10 @@ export default function Step7RemoteAccess() {
 
       <div className="flex flex-col gap-2">
         <ProviderOption
-          label="Wardnet bridge"
-          description="Zero-config. We assign a hostname under wardnet.services and handle DNS."
-          selected={provider === "bridge"}
-          onSelect={() => setProvider("bridge")}
+          label="Wardnet"
+          description="Zero-config. We assign a hostname under wardnet.services and handle DNS — enroll with your wardnet account."
+          selected={provider === "wardnet"}
+          onSelect={() => setProvider("wardnet")}
         />
         <ProviderOption
           label="Your own domain (Cloudflare)"
@@ -265,58 +219,26 @@ export default function Step7RemoteAccess() {
         />
       </div>
 
-      {provider === "bridge" ? (
-        <div className="flex flex-col gap-2">
-          <Field label="Hostname" htmlFor="ddns-name" name="ddns-name">
-            <Input
-              id="ddns-name"
-              value={name}
-              onChange={(e) => setName(e.target.value.toLowerCase())}
-              placeholder="happy-einstein"
-              autoComplete="off"
-            />
-          </Field>
-          <Text
-            as="div"
-            size="xs"
-            className="flex items-center justify-between"
-          >
-            <AvailabilityHint availability={availability} name={name} />
-            <button
-              type="button"
-              className="text-accent hover:underline"
-              onClick={() => setName(suggestName())}
-            >
-              Suggest another
-            </button>
-          </Text>
-        </div>
+      {provider === "wardnet" ? (
+        <WardnetFields
+          step={wardnetStep}
+          email={email}
+          onEmailChange={setEmail}
+          code={code}
+          onCodeChange={setCode}
+          slug={slug}
+          onSlugChange={setSlug}
+          availability={availability}
+          onSuggest={() => setSlug(suggestName())}
+          onChangeEmail={() => setWardnetStep("email")}
+        />
       ) : (
-        <div className="flex flex-col gap-4">
-          <Field label="Domain" htmlFor="cf-domain" name="cf-domain">
-            <Input
-              id="cf-domain"
-              value={domain}
-              onChange={(e) => setDomain(e.target.value.toLowerCase())}
-              placeholder="home.example.com"
-              autoComplete="off"
-            />
-          </Field>
-          <Field
-            label="Cloudflare API token"
-            htmlFor="cf-token"
-            name="cf-token"
-          >
-            <Input
-              id="cf-token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="DNS:Edit token for the zone"
-              autoComplete="off"
-            />
-          </Field>
-        </div>
+        <CloudflareFields
+          domain={domain}
+          onDomainChange={setDomain}
+          token={token}
+          onTokenChange={setToken}
+        />
       )}
 
       {formError && (
@@ -326,21 +248,28 @@ export default function Step7RemoteAccess() {
       )}
 
       <div className="flex flex-col gap-2">
-        {provider === "bridge" ? (
-          <Button
-            onClick={handleEnableBridge}
-            disabled={bridgeDisabled}
-            className="w-full"
-          >
-            {register.isPending ? "Registering…" : "Enable remote access"}
-          </Button>
+        {provider === "wardnet" ? (
+          <WardnetActions
+            step={wardnetStep}
+            slugDisabled={slugDisabled}
+            sending={pending.sendCode}
+            verifying={pending.verify}
+            registering={pending.register}
+            emailValid={email.includes("@")}
+            codeValid={code.trim().length > 0}
+            onSendCode={enrollment.sendCode}
+            onVerifyCode={enrollment.verifyCode}
+            onRegister={enrollment.registerWardnet}
+          />
         ) : (
           <Button
-            onClick={handleEnableCloudflare}
-            disabled={busy || domain.length === 0 || token.length === 0}
+            onClick={enrollment.enableCloudflare}
+            disabled={
+              pending.configureCf || domain.length === 0 || token.length === 0
+            }
             className="w-full"
           >
-            {configureCf.isPending ? "Configuring…" : "Enable remote access"}
+            {pending.configureCf ? "Configuring…" : "Enable remote access"}
           </Button>
         )}
         <Button
@@ -357,69 +286,55 @@ export default function Step7RemoteAccess() {
   );
 }
 
-function ProviderOption({
-  label,
-  description,
-  selected,
-  onSelect,
+/** The wardnet action button(s), one per step. Each gates only on its own mutation. */
+function WardnetActions({
+  step,
+  slugDisabled,
+  sending,
+  verifying,
+  registering,
+  emailValid,
+  codeValid,
+  onSendCode,
+  onVerifyCode,
+  onRegister,
 }: {
-  label: string;
-  description: string;
-  selected: boolean;
-  onSelect: () => void;
+  step: WardnetStep;
+  slugDisabled: boolean;
+  sending: boolean;
+  verifying: boolean;
+  registering: boolean;
+  emailValid: boolean;
+  codeValid: boolean;
+  onSendCode: () => void;
+  onVerifyCode: () => void;
+  onRegister: () => void;
 }) {
-  return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
-      <input
-        type="radio"
-        name="ddns-provider"
-        checked={selected}
-        onChange={onSelect}
-        className="mt-1"
-      />
-      <span className="flex flex-col gap-0.5">
-        <Text as="span" size="sm" weight="medium" className="text-ink">
-          {label}
-        </Text>
-        <Text as="span" size="xs" className="text-ink-3">
-          {description}
-        </Text>
-      </span>
-    </label>
-  );
-}
-
-function AvailabilityHint({
-  availability,
-  name,
-}: {
-  availability: Availability;
-  name: string;
-}) {
-  switch (availability) {
-    case "invalid":
-      return (
-        <span className="text-ink-3">
-          {name.length < 3
-            ? "At least 3 characters."
-            : isReservedName(name)
-              ? "This name is reserved — try another."
-              : "Use lowercase letters, digits, and hyphens only."}
-        </span>
-      );
-    case "checking":
-      return <span className="text-ink-3">Checking availability…</span>;
-    case "available":
-      return <span className="text-ink-2">✓ {name} is available</span>;
-    case "taken":
-      return <span className="text-danger">{name} is taken — try another</span>;
-    case "error":
-      return (
-        <span className="text-ink-3">
-          Couldn't check availability — you can still continue or try again.
-        </span>
-      );
-    default:
-      return <span className="text-ink-3">&nbsp;</span>;
+  if (step === "email") {
+    return (
+      <Button
+        onClick={onSendCode}
+        disabled={sending || !emailValid}
+        className="w-full"
+      >
+        {sending ? "Sending…" : "Send code"}
+      </Button>
+    );
   }
+  if (step === "code") {
+    return (
+      <Button
+        onClick={onVerifyCode}
+        disabled={verifying || !codeValid}
+        className="w-full"
+      >
+        {verifying ? "Verifying…" : "Verify code"}
+      </Button>
+    );
+  }
+  return (
+    <Button onClick={onRegister} disabled={slugDisabled} className="w-full">
+      {registering ? "Registering…" : "Enable remote access"}
+    </Button>
+  );
 }

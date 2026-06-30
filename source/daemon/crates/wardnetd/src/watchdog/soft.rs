@@ -58,25 +58,24 @@ impl SdNotifier {
     /// which case the caller falls back to a config-derived interval.
     #[must_use]
     pub fn recommended_interval() -> Option<Duration> {
-        let mut usec: u64 = 0;
-        if sd_notify::watchdog_enabled(false, &mut usec) && usec > 0 {
-            Some(Duration::from_micros(usec / 2))
-        } else {
-            None
-        }
+        // sd-notify 0.5 returns the configured `WATCHDOG_USEC` as a `Duration`
+        // (or `None` when unsupervised), replacing the 0.4 out-param form.
+        sd_notify::watchdog_enabled()
+            .filter(|d| !d.is_zero())
+            .map(|d| d / 2)
     }
 }
 
 impl Notifier for SdNotifier {
     fn notify_ready(&self) {
-        match sd_notify::notify(false, &[NotifyState::Ready]) {
+        match sd_notify::notify(&[NotifyState::Ready]) {
             Ok(()) => tracing::info!("sd_notify READY=1 sent (listeners bound)"),
             Err(e) => tracing::warn!(error = %e, "sd_notify READY=1 failed: {e}"),
         }
     }
 
     fn ping_watchdog(&self) {
-        if let Err(e) = sd_notify::notify(false, &[NotifyState::Watchdog]) {
+        if let Err(e) = sd_notify::notify(&[NotifyState::Watchdog]) {
             tracing::warn!(error = %e, "sd_notify WATCHDOG=1 failed: {e}");
         }
     }

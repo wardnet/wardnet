@@ -64,7 +64,7 @@ sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "uuid", "chrono
 # https://crates.io/crates/tower
 tower = { version = "0.5", features = ["util"] }
 # https://crates.io/crates/tower-http
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["catch-panic", "cors", "trace"] }
 
 # https://crates.io/crates/rust-embed
 rust-embed = { version = "8", features = ["axum"] }
@@ -185,7 +185,7 @@ netlink-sys = "0.8"
 # CLI). build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
 # BUILD env needs clang/libclang + kernel uapi headers; nothing C links at
 # runtime. Replaces the former `nft` shell-out (issue #307).
-rustables = "0.8.7"
+rustables = "0.8.8"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.32"
@@ -226,7 +226,7 @@ rustls = { version = "0.23", features = ["aws_lc_rs"] }
 # WATCHDOG=1 for the Type=notify unit and the health-gated soft watchdog
 # (issue #214). No libsystemd C dependency; a graceful no-op when
 # NOTIFY_SOCKET is unset (dev / mock).
-sd-notify = "0.4"
+sd-notify = "0.5"
 
 # https://crates.io/crates/tempfile
 tempfile = "=3.27"
