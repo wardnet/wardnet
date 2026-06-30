@@ -86,7 +86,12 @@ function RoutingForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <RoutingSelector value={target} onChange={setTarget} tunnels={tunnels} />
+      <RoutingSelector
+        value={target}
+        onChange={setTarget}
+        tunnels={tunnels}
+        data-testid="routing-select"
+      />
 
       {setMyRule.isError && (
         <ApiErrorAlert
@@ -99,6 +104,7 @@ function RoutingForm({
         onClick={handleSave}
         disabled={!hasChanges || setMyRule.isPending}
         className="w-full"
+        data-testid="routing-save"
       >
         {setMyRule.isPending ? "Saving…" : "Save"}
       </Button>
@@ -342,14 +348,14 @@ export default function Home() {
         <CardHeader>
           <CardTitle>Internet route</CardTitle>
           {activeTunnel && (
-            <span className="ml-auto">
+            <span className="ml-auto" data-testid="route-status">
               <TunnelStatusPill status={activeTunnel.status} />
             </span>
           )}
         </CardHeader>
         <CardContent>
           {adminLocked ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3" data-testid="routing-locked">
               <Text as="p" size="sm" className="text-ink">
                 {routingLabel(currentRule, tunnels)}
               </Text>

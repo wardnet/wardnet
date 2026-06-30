@@ -21,7 +21,7 @@ export function AppHeader({ connState, version }: AppHeaderProps) {
         <Logo height={22} variant="dark" />
         {version && <span className="app-header__version">{version}</span>}
       </div>
-      <div className="app-header__status">
+      <div className="app-header__status" data-testid="conn-status">
         {connState === "online" && (
           <>
             <span className="app-header__dot app-header__dot--online" />

@@ -15,7 +15,10 @@ alongside its feature specs — `admin-site/` carries the desktop SPA
 coverage (dashboard, devices, DHCP, login, setup, layout, not-found) and
 `admin-app/pwa-shell.spec.ts` covers the mobile PWA shell (manifest +
 installability, the service-worker offline shell, tab-bar nav, and
-`/admin-app/login` + shared admin-session reuse).
+`/admin-app/login` + shared admin-session reuse). The `user-app/` specs
+cover the device-keyed PWA shell + identity (`pwa-shell`, `identity`, C1
+#626) and the device flows (`routing`, `status`, `stats`, `settings`, C2
+#627).
 
 ## Run
 

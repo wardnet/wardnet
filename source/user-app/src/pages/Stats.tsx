@@ -189,7 +189,10 @@ export default function Stats() {
 
   if (!device) {
     return (
-      <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
+      <div
+        data-testid="stats-no-device"
+        className="flex flex-col items-center gap-4 px-5 py-16 text-center"
+      >
         <WifiOffIcon className="size-12 text-ink-3/50" />
         <Text as="h1" size="lg" weight="semibold" className="text-ink">
           Device not detected
@@ -203,7 +206,10 @@ export default function Stats() {
 
   if (!device.dns_capture_enabled) {
     return (
-      <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
+      <div
+        data-testid="stats-capture-off"
+        className="flex flex-col items-center gap-4 px-5 py-16 text-center"
+      >
         <ShieldOffIcon className="size-12 text-ink-3/50" strokeWidth={1.5} />
         <Text as="h1" size="lg" weight="semibold" className="text-ink">
           DNS capture is off
@@ -214,6 +220,7 @@ export default function Stats() {
         </Text>
         <Link
           to="/settings"
+          data-testid="stats-settings-link"
           className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink"
         >
           Go to Settings
@@ -224,7 +231,10 @@ export default function Stats() {
 
   if (!stats.hasData) {
     return (
-      <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
+      <div
+        data-testid="stats-waiting"
+        className="flex flex-col items-center gap-4 px-5 py-16 text-center"
+      >
         <ChartColumnIcon className="size-12 text-ink-3/50" strokeWidth={1.5} />
         <Text as="h1" size="lg" weight="semibold" className="text-ink">
           Waiting for DNS activity…
@@ -241,7 +251,7 @@ export default function Stats() {
   const blockedPct = pct(headline.blocked, headline.total);
 
   return (
-    <div className="flex flex-col gap-6 p-5">
+    <div data-testid="stats-content" className="flex flex-col gap-6 p-5">
       <Text as="h1" size="lg" weight="semibold" className="text-ink">
         DNS stats
       </Text>

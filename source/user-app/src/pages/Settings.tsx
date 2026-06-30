@@ -26,7 +26,7 @@ function MyRequests() {
         <CardTitle>My requests</CardTitle>
       </CardHeader>
       <CardContent>
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-2" data-testid="my-requests">
           {data.map((r) => (
             <li key={r.id} className="flex items-center justify-between gap-3">
               <span className="min-w-0">
@@ -103,6 +103,7 @@ export default function Settings() {
               onCheckedChange={(next) => setCapture.mutate(next)}
               disabled={setCapture.isPending}
               aria-label="Enable DNS capture"
+              data-testid="capture-toggle"
             />
           </span>
         </CardHeader>
