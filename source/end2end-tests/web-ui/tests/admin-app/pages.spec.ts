@@ -182,20 +182,29 @@ test.describe("dns", () => {
     await expect(statusPill).toBeVisible();
     await expect(statusPill).toHaveText(/Running|Stopped/);
 
+    // Confirm the open dialog, then wait for it to fully unmount before the
+    // next flip. The Drawer keeps the closing dialog mounted through its
+    // slide-out animation, so opening the next one too soon would leave two
+    // confirm buttons in the DOM (strict-mode violation).
+    const confirmDialog = async () => {
+      await page.getByTestId("confirm-dialog-confirm").click();
+      await expect(page.getByTestId("confirm-dialog")).toHaveCount(0);
+    };
+
     // DNS server toggle — each flip goes through a confirm dialog. Normalise
     // to enabled, disable, then re-enable, leaving the server enabled.
     const dnsToggle = page.getByTestId("dns-toggle");
     if ((await dnsToggle.getAttribute("aria-checked")) !== "true") {
       await dnsToggle.click();
-      await page.getByTestId("confirm-dialog-confirm").click();
+      await confirmDialog();
       await expect(dnsToggle).toHaveAttribute("aria-checked", "true");
     }
     await dnsToggle.click();
     await expect(page.getByText("Disable DNS server?", { exact: true })).toBeVisible();
-    await page.getByTestId("confirm-dialog-confirm").click();
+    await confirmDialog();
     await expect(dnsToggle).toHaveAttribute("aria-checked", "false");
     await dnsToggle.click();
-    await page.getByTestId("confirm-dialog-confirm").click();
+    await confirmDialog();
     await expect(dnsToggle).toHaveAttribute("aria-checked", "true");
 
     // Filtering toggle — flip and flip back to the original state.
@@ -203,10 +212,10 @@ test.describe("dns", () => {
     const initial = await filterToggle.getAttribute("aria-checked");
     const flipped = initial === "true" ? "false" : "true";
     await filterToggle.click();
-    await page.getByTestId("confirm-dialog-confirm").click();
+    await confirmDialog();
     await expect(filterToggle).toHaveAttribute("aria-checked", flipped);
     await filterToggle.click();
-    await page.getByTestId("confirm-dialog-confirm").click();
+    await confirmDialog();
     await expect(filterToggle).toHaveAttribute("aria-checked", initial ?? "false");
 
     // Top-blocked section renders (list or empty state).
