@@ -6,8 +6,9 @@ name: Deploy Site
 # publishes it. No build step here — deploy-site.yml is strictly about
 # shipping, so `bundle-artifact` is a required input.
 #
-# Callers: ci.yml (on push to main, when site changed), release.yml
-# (on every tag). Manual redeploy: `gh workflow run ci.yml`.
+# Callers: release.yml (on every tag) and deploy-site-manual.yml
+# (off-cycle, on demand). Manual redeploy:
+# `gh workflow run deploy-site-manual.yml`.
 
 on:
   workflow_call:

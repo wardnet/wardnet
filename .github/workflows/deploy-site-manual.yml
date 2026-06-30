@@ -1,0 +1,57 @@
+name: Deploy Site (manual)
+
+# Manual GitHub Pages deploy for the marketing site.
+#
+# The normal deploy path is release.yml on a tag push — marketing
+# content ships in lockstep with daemon releases. This workflow exists
+# for the off-cycle case: shipping a marketing-content change to Pages
+# without cutting a release.
+#
+# It composes the same reusable leaves as the release path:
+#   build-site   — lint + release build + `site-dist` artifact
+#   deploy-site  — wrap `site-dist` into a pages-artifact and publish
+#
+# Note: unlike release.yml this does NOT run the release-manifest
+# refresh. The bundle's /releases/{stable,beta}.json are whatever
+# `make build-site` generated from the GitHub Releases API at build
+# time — correct for a content-only deploy, since no new release is
+# being cut here.
+#
+# Run it with: `gh workflow run deploy-site-manual.yml` (or the
+# "Run workflow" button on the Actions tab).
+
+on:
+  workflow_dispatch:
+
+# Workflow-level permissions stay read-only. Each leaf elevates to the
+# writes it actually needs via its own `permissions:` block — Scorecard's
+# Token-Permissions check rewards this scoping.
+permissions:
+  contents: read
+
+# No top-level `concurrency` here: the deploy-site.yml leaf already
+# pins the shared `pages` group, so a manual run and a release deploy
+# still serialize at the publish step. Mirroring release.yml, which
+# also leaves the caller-level concurrency unset.
+
+jobs:
+  build-site:
+    name: Build Site
+    # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-site.yml
+    secrets: inherit
+
+  deploy-site:
+    name: Deploy Site
+    needs: build-site
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      bundle-artifact: site-dist
+    secrets: inherit
