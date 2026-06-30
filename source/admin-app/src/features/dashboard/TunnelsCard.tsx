@@ -15,7 +15,7 @@ export function TunnelsCard({ tunnelCount, tunnelActiveCount, tunnels }: Props) 
   const primary = activeTunnels[0];
 
   return (
-    <Link to="/tunnels" className="block">
+    <Link to="/tunnels" className="block" data-testid="dashboard-tunnels-card">
       <Card className="card--flush">
       <div className="flex items-center gap-3 px-2 py-3">
         <div

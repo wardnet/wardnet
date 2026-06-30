@@ -11,7 +11,7 @@ interface Props {
 
 export function DnsQueriesCard({ data, isLoading }: Props) {
   return (
-    <Link to="/dns" className="block">
+    <Link to="/dns" className="block" data-testid="dashboard-dns-queries-card">
       <Card className="card--flush">
         <div className="flex items-center gap-3 px-2 py-3">
           <div
@@ -51,7 +51,7 @@ export function BlockedCard({ data, isLoading }: Props) {
       : undefined;
 
   return (
-    <Link to="/dns" className="block">
+    <Link to="/dns" className="block" data-testid="dashboard-blocked-card">
       <Card className="card--flush">
         <div className="flex items-center gap-3 px-2 py-3">
           <div

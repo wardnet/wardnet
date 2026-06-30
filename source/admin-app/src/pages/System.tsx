@@ -120,7 +120,7 @@ export default function System() {
                 />
                 <Text as="span" size="lg" weight="semibold" className="text-ink">Wardnet</Text>
                 <div className="ml-auto">
-                  <Pill variant={daemonStatus?.reachable ? "ok" : "warn"}>
+                  <Pill variant={daemonStatus?.reachable ? "ok" : "warn"} data-testid="system-status-pill">
                     <span className="mr-1" aria-hidden>●</span>
                     {daemonStatus?.reachable ? "Running" : "Unreachable"}
                   </Pill>
@@ -233,6 +233,7 @@ export default function System() {
             <SectionLabel>Power</SectionLabel>
             <div className="flex flex-col gap-2">
               <button
+                data-testid="system-restart-daemon"
                 onClick={() => setConfirmAction("restart")}
                 className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-4 py-3.5 text-left active:bg-sunken"
               >
@@ -247,6 +248,7 @@ export default function System() {
               </button>
 
               <button
+                data-testid="system-reboot-device"
                 onClick={() => setConfirmAction("reboot")}
                 className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-4 py-3.5 text-left active:bg-sunken"
               >
@@ -270,6 +272,7 @@ export default function System() {
         <div className="flex flex-col gap-2">
           <a
             href="/admin/"
+            data-testid="system-open-desktop"
             className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-4 py-3.5 active:bg-sunken"
           >
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sunken">
@@ -282,6 +285,7 @@ export default function System() {
             <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
           </a>
           <button
+            data-testid="system-logout"
             onClick={() => {
               logout();
               biometric.unregister();

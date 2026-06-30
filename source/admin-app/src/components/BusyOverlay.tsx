@@ -24,7 +24,10 @@ export function BusyOverlay({ phase, action }: Props) {
   const { title, subtitle } = COPY[action][phase];
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-5 bg-side text-white">
+    <div
+      data-testid="system-busy-overlay"
+      className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-5 bg-side text-white"
+    >
       {phase === "working" ? (
         <div className="h-[46px] w-[46px] animate-spin rounded-full border-[3px] border-white/15 border-t-accent" />
       ) : (

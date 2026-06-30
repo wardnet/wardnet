@@ -38,8 +38,9 @@ export function ConfirmDialog({
         </div>
 
         {/* Buttons */}
-        <div className="flex flex-col gap-2 px-4 pb-10">
+        <div data-testid="confirm-dialog" className="flex flex-col gap-2 px-4 pb-10">
           <button
+            data-testid="confirm-dialog-confirm"
             onClick={onConfirm}
             className={`w-full rounded-2xl py-[15px] text-[15px] font-semibold tracking-tight ${
               variant === "danger"

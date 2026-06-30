@@ -10,6 +10,7 @@ export function StatusCard({ reachable, uptimeSeconds }: Props) {
 
   return (
     <div
+      data-testid="dashboard-status-card"
       className="rounded-xl px-4 py-4 flex flex-col gap-4"
       style={{
         background: `radial-gradient(ellipse at 75% 40%, color-mix(in srgb, ${statusColor} 18%, transparent) 0%, transparent 60%), var(--color-side)`,

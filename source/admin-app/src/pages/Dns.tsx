@@ -83,7 +83,7 @@ export default function Dns() {
                 />
                 <Text as="span" size="lg" weight="semibold" className="text-ink">DNS Server</Text>
                 <div className="ml-auto">
-                  <Pill variant={isRunning ? "ok" : "down"}>
+                  <Pill variant={isRunning ? "ok" : "down"} data-testid="dns-status-pill">
                     <span className="mr-1" aria-hidden>●</span>
                     {isRunning ? "Running" : "Stopped"}
                   </Pill>
@@ -148,6 +148,7 @@ export default function Dns() {
               {/* Flush cache action */}
               <div className="mt-4 flex justify-end border-t border-line pt-4">
                 <button
+                  data-testid="dns-flush-cache"
                   onClick={() => flushCache.mutate()}
                   disabled={flushCache.isPending}
                   className="flex items-center gap-1.5 text-[13px] font-medium text-ink-3 disabled:opacity-40 active:text-ink"
@@ -180,6 +181,7 @@ export default function Dns() {
                   onCheckedChange={() => setDnsToggleConfirmOpen(true)}
                   disabled={toggleDns.isPending}
                   aria-label="Toggle DNS server"
+                  data-testid="dns-toggle"
                 />
               </div>
 
@@ -196,6 +198,7 @@ export default function Dns() {
                   onCheckedChange={() => setFilterToggleConfirmOpen(true)}
                   disabled={updateConfig.isPending}
                   aria-label="Toggle DNS filtering"
+                  data-testid="dns-filter-toggle"
                 />
               </div>
             </div>
@@ -204,7 +207,7 @@ export default function Dns() {
           {/* ── Top blocked domains ── */}
           <div>
             <SectionLabel>Top Blocked Domains · 24h</SectionLabel>
-            <div className="rounded-xl border border-line bg-card">
+            <div data-testid="dns-top-blocked" className="rounded-xl border border-line bg-card">
               {topEntries.length === 0 ? (
                 <Text as="p" size="sm" className="py-8 text-center text-ink-3">
                   No blocked queries in the last 24 hours.
