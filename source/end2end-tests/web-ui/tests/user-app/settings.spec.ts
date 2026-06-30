@@ -57,7 +57,7 @@ test("the notifications placeholder advertises push as coming soon", async ({
 }) => {
   await page.goto("./settings");
 
-  await expect(page.getByText("Notifications")).toBeVisible();
+  await expect(page.getByText("Notifications", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Push notifications about your device are coming soon."),
   ).toBeVisible();
