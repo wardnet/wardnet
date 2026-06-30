@@ -4,7 +4,15 @@ import {
   STORAGE_STATE,
   UI_BASE_URL,
   UI_FRESH_BASE_URL,
+  UI_LAN_BASE_URL,
 } from "./fixtures/seed.js";
+
+// Two runners share one bind-mounted `reports/` dir; the LAN runner sets
+// REPORT_SUBDIR=lan so its JUnit/HTML report lands in `reports/lan/` and
+// doesn't clobber the mgmt runner's.
+const REPORT_DIR = process.env.REPORT_SUBDIR
+  ? `reports/${process.env.REPORT_SUBDIR}`
+  : "reports";
 
 /**
  * Playwright harness for Wardnet's three web surfaces, each embedded in
@@ -58,10 +66,10 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [
     ["list"],
-    ["junit", { outputFile: "reports/junit.xml" }],
+    ["junit", { outputFile: `${REPORT_DIR}/junit.xml` }],
     // `open:'never'` — the HTML reporter otherwise spawns a server and
     // hangs the container/CI run on completion.
-    ["html", { outputFolder: "reports/html", open: "never" }],
+    ["html", { outputFolder: `${REPORT_DIR}/html`, open: "never" }],
   ],
   use: {
     // Trust the proxy's self-signed cert.
@@ -73,6 +81,9 @@ export default defineConfig({
     // Runs first: seeds the admin via the SDK and writes the admin
     // session into STORAGE_STATE for the authed surfaces to reuse.
     { name: "setup", testMatch: "fixtures/global.setup.ts" },
+    // Discovers the LAN proxy's IP as a device so the user-app's
+    // source-IP-classified `devices/me` resolves non-null (C1, #626).
+    { name: "seed-lan-device", testMatch: "fixtures/lan-device.setup.ts" },
     {
       name: "admin-site",
       testMatch: "tests/admin-site/**/*.spec.ts",
@@ -111,16 +122,19 @@ export default defineConfig({
       },
     },
     {
-      // Device-keyed, no login. From the mgmt-side runner the source IP
-      // is not a discovered LAN device, so the app renders its
-      // no-device state. Real device flows arrive with the LAN-side
-      // runner in C1 (#626).
+      // Device-keyed, no login (C1, #626). Driven by `ui_runner_lan`
+      // through the LAN-side TLS proxy, whose IP `seed-lan-device` seeds
+      // as a discovered device — so `devices/me` (classified by source
+      // IP) resolves non-null and the app renders the device. The
+      // null/no-device case is exercised within identity.spec by
+      // navigating to the mgmt proxy origin (UI_BASE_URL), whose IP is
+      // not a device.
       name: "user-app",
       testMatch: "tests/user-app/**/*.spec.ts",
-      dependencies: ["setup"],
+      dependencies: ["seed-lan-device"],
       use: {
         ...devices["Pixel 7"],
-        baseURL: `${UI_BASE_URL}/`,
+        baseURL: `${UI_LAN_BASE_URL}/`,
         launchOptions: { args: CHROMIUM_ARGS },
       },
     },

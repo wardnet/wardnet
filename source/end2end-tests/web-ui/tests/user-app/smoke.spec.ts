@@ -1,12 +1,11 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Scaffold smoke: the user-app PWA shell loads without throwing. Driven
- * from the mgmt-side runner, whose source IP is not a discovered LAN
- * device, so the daemon's `/api/devices/me` returns `{device:null}` and
- * the app shows its no-device state — we only assert the shell mounts.
- * Real device-keyed flows (and the LAN-side runner) arrive in C1/C2
- * (#626/#627).
+ * Smoke canary: the user-app PWA shell loads without throwing. Driven from
+ * the LAN-side runner over the `tls_proxy_lan` origin (C1, #626), so the
+ * daemon resolves a device — but this spec only asserts the shell mounts.
+ * Manifest/offline and device-identity coverage live in `pwa-shell.spec.ts`
+ * and `identity.spec.ts`.
  */
 test("user-app shell renders", async ({ page }) => {
   const pageErrors: string[] = [];

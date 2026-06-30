@@ -1,12 +1,17 @@
 # Web-UI end-to-end test topology (Playwright).
 #
 # A dedicated, self-seeded daemon (`wardnetd-ui`) built with the real
-# embedded frontends (`WEB_DIST=real`), plus a Playwright runner on
-# wardnet_mgmt that drives the three surfaces over HTTP. Deliberately
-# separate from the API/kernel Vitest stack (../daemon/compose.yaml):
-# different project name + its own daemon + its own seeded state, so the
-# two suites never couple. The LAN-side runner for the device-keyed
-# user-app arrives in C1 (#626).
+# embedded frontends (`WEB_DIST=real`), driven by two Playwright runners:
+#   - `ui_runner` on wardnet_mgmt — the admin-site + admin-app projects.
+#   - `ui_runner_lan` on wardnet_lan + wardnet_mgmt — the device-keyed
+#     user-app project (C1, #626). It reaches the daemon through a
+#     LAN-side TLS proxy (`tls_proxy_lan`) whose own LAN IP is seeded as a
+#     discovered device, so `GET /api/devices/me` (classified by source
+#     IP) resolves non-null; the null case is exercised by navigating to
+#     the mgmt proxy origin.
+# Deliberately separate from the API/kernel Vitest stack
+# (../daemon/compose.yaml): different project name + its own daemon + its
+# own seeded state, so the two suites never couple.
 #
 # Networks mirror the daemon stack; `make` runs the two suites
 # sequentially (each tears its stack down), so the shared subnets don't
@@ -174,6 +179,41 @@ services:
       retries: 30
       start_period: 10s
 
+  # LAN-side TLS proxy for the device-keyed user-app (C1, #626). Lives
+  # ONLY on wardnet_lan with a fixed IP and reverse-proxies to the
+  # daemon's pinned LAN IP (10.91.0.1) — see Caddyfile.lan. The harness
+  # seeds THIS proxy's LAN IP as a discovered device, so the user-app's
+  # `GET /api/devices/me` (classified by source IP, no XFF trust) resolves
+  # non-null while still being served over a real HTTPS origin (required
+  # for service-worker registration). The static IP sits OUTSIDE the
+  # wardnet_lan IPAM ip_range (10.91.0.0/28 → .0-.15) so it never collides
+  # with auto-assigned containers, and inside the /24 so discovery's
+  # subnet filter accepts it.
+  tls_proxy_lan:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    depends_on:
+      wardnetd-ui:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile.lan:/etc/caddy/Caddyfile:ro
+    networks:
+      wardnet_lan:
+        # The browser/seed reach the proxy by this hostname (the Caddyfile
+        # vhost + WARDNET_UI_LAN_BASE_URL); it differs from the service name,
+        # so it must be a network alias or DNS won't resolve it — mirrors
+        # tls_proxy's `wardnetd-ui-tls` alias.
+        aliases:
+          - wardnetd-ui-lan-tls
+        ipv4_address: 10.91.0.20
+    healthcheck:
+      # BusyBox wget in the Caddy Alpine image has no HTTPS support; check
+      # the TLS port is accepting connections instead (mirrors tls_proxy).
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
   # Real LAN client used by the DHCP-leases spec (A3, #618). Runs the
   # wardnet-test-agent HTTP server on :3001; the spec drives its
   # /dhcp/renew to make `wardnetd-ui`'s DHCP server hand out a lease,
@@ -272,6 +312,19 @@ services:
       WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
       WARDNET_TEST_DEBIAN_AGENT: "http://test_debian:3001"
       WARDNET_BLOCKLIST_FIXTURE_URL: "http://10.90.0.20/hosts.txt"
+    # The mgmt runner drives the admin surfaces only; the device-keyed
+    # user-app moved to `ui_runner_lan` (C1, #626). `--project` is
+    # include-only, so the mgmt projects are listed explicitly (the
+    # `setup` project runs automatically as their dependency).
+    command:
+      - yarn
+      - test
+      - --project
+      - admin-site
+      - --project
+      - admin-site-setup
+      - --project
+      - admin-app
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.
@@ -280,8 +333,46 @@ services:
     networks:
       wardnet_mgmt:
         ipv4_address: 10.90.0.10
-      # Attached now (no static IP) to keep the topology stable for the
-      # LAN-side user-app runner added in C1.
+      # Also on wardnet_lan to reach the `test_debian` LAN client agent
+      # (http://test_debian:3001) used by the DHCP-leases spec.
+      wardnet_lan: {}
+
+  # LAN-side runner for the device-keyed user-app (C1, #626). On BOTH
+  # networks: it drives the user-app over the LAN proxy
+  # (`wardnetd-ui-lan-tls`, source IP → seeded device → non-null
+  # `devices/me`) and, for the null/no-device case, navigates to the mgmt
+  # proxy origin (`wardnetd-ui-tls`, source IP not a device). Runs only
+  # the `user-app` project; Playwright auto-runs its `seed-lan-device`
+  # dependency first (warms the LAN proxy so discovery observes
+  # 10.91.0.20, then polls until that device exists). Writes its report
+  # under reports/lan so it doesn't clobber the mgmt runner's report.
+  ui_runner_lan:
+    build:
+      context: ../../..
+      dockerfile: source/end2end-tests/web-ui/Dockerfile.ui-runner
+    image: wardnet-e2e-ui-runner:dev
+    depends_on:
+      wardnetd-ui:
+        condition: service_healthy
+      tls_proxy:
+        condition: service_healthy
+      tls_proxy_lan:
+        condition: service_healthy
+    environment:
+      WARDNET_UI_LAN_BASE_URL: "https://wardnetd-ui-lan-tls"
+      WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
+      WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
+      # Keep this runner's JUnit + HTML report out of the mgmt runner's.
+      REPORT_SUBDIR: "lan"
+    command:
+      - yarn
+      - test
+      - --project
+      - user-app
+    volumes:
+      - ./reports:/work/source/end2end-tests/web-ui/reports
+    networks:
+      wardnet_mgmt: {}
       wardnet_lan: {}
 
 volumes:

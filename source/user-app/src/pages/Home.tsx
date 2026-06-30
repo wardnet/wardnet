@@ -308,7 +308,10 @@ export default function Home() {
 
   if (!device) {
     return (
-      <div className="flex flex-col items-center gap-4 px-5 py-16 text-center">
+      <div
+        data-testid="no-device"
+        className="flex flex-col items-center gap-4 px-5 py-16 text-center"
+      >
         <WifiOffIcon className="size-12 text-ink-3/50" />
         <Text as="h1" size="lg" weight="semibold" className="text-ink">
           Device not detected
@@ -324,7 +327,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col gap-6 p-5">
-      <div className="flex items-center gap-3">
+      <div data-testid="device-identity" className="flex items-center gap-3">
         <DeviceIcon
           type={device.device_type}
           size={28}

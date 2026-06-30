@@ -36,6 +36,24 @@ export const UI_FRESH_BASE_URL =
   process.env.WARDNET_UI_FRESH_BASE_URL ?? "https://wardnetd-ui-fresh-tls";
 
 /**
+ * Browser base URL of the LAN-side TLS proxy (`tls_proxy_lan`) used by the
+ * device-keyed user-app (C1, #626). The proxy lives on wardnet_lan and
+ * forwards to the daemon's LAN IP, so the daemon classifies requests from
+ * this origin as coming from `LAN_PROXY_IP` — seeded as a discovered
+ * device so `GET /api/devices/me` resolves non-null.
+ */
+export const UI_LAN_BASE_URL =
+  process.env.WARDNET_UI_LAN_BASE_URL ?? "https://wardnetd-ui-lan-tls";
+
+/**
+ * The LAN-side proxy's fixed wardnet_lan IP (compose `tls_proxy_lan`).
+ * This is the source IP the daemon sees for user-app requests over the
+ * LAN proxy, and the IP the harness seeds as a discovered device. Outside
+ * the wardnet_lan IPAM `ip_range` (10.91.0.0/28) and inside the /24.
+ */
+export const LAN_PROXY_IP = "10.91.0.20";
+
+/**
  * API base for Node-side seeding (global.setup). Hits the daemon's
  * plain-HTTP port DIRECTLY (not through the proxy): seeding reads the
  * login token from the response body, never relies on the cookie, and
