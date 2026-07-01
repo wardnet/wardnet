@@ -215,6 +215,83 @@ async fn update_zone_applies_partial_fields() {
 }
 
 #[tokio::test]
+async fn update_zone_promotes_default_flags() {
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("Promote")))
+        .await
+        .unwrap();
+    let req = UpdateNetworkZoneRequest {
+        is_default: Some(true),
+        is_default_for_new: Some(true),
+        ..Default::default()
+    };
+    let updated = as_admin(h.svc.update_zone(zone.id, req)).await.unwrap();
+    assert!(updated.is_default);
+    assert!(updated.is_default_for_new);
+    // Exclusivity: no other zone still holds either flag.
+    let zones = as_admin(h.svc.list_zones()).await.unwrap();
+    assert_eq!(zones.iter().filter(|z| z.zone.is_default).count(), 1);
+    assert_eq!(
+        zones.iter().filter(|z| z.zone.is_default_for_new).count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn update_zone_sets_then_clears_subnet() {
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("Subnetted")))
+        .await
+        .unwrap();
+    let set = UpdateNetworkZoneRequest {
+        subnet: Some(Some(ZoneSubnet {
+            cidr: "10.44.0.0/24".to_owned(),
+        })),
+        ..Default::default()
+    };
+    let with_subnet = as_admin(h.svc.update_zone(zone.id, set)).await.unwrap();
+    assert_eq!(with_subnet.subnet.as_ref().unwrap().cidr, "10.44.0.0/24");
+
+    let clear = UpdateNetworkZoneRequest {
+        subnet: Some(None),
+        ..Default::default()
+    };
+    let cleared = as_admin(h.svc.update_zone(zone.id, clear)).await.unwrap();
+    assert!(cleared.subnet.is_none());
+}
+
+#[tokio::test]
+async fn update_zone_rejects_bad_subnet_cidr() {
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("BadUpdate")))
+        .await
+        .unwrap();
+    let req = UpdateNetworkZoneRequest {
+        subnet: Some(Some(ZoneSubnet {
+            cidr: "999.999/8".to_owned(),
+        })),
+        ..Default::default()
+    };
+    assert!(matches!(
+        as_admin(h.svc.update_zone(zone.id, req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
+async fn assign_device_same_zone_is_noop() {
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    insert_device(&h.devices, device_id, GUEST).await;
+    // Assigning to the zone it is already in returns Ok without emitting.
+    let mut rx = h.events.subscribe();
+    as_admin(h.svc.assign_device(device_id, GUEST.parse().unwrap()))
+        .await
+        .unwrap();
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn update_zone_rejects_clearing_default_flag() {
     let h = build().await;
     let req = UpdateNetworkZoneRequest {
