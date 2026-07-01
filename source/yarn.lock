@@ -5030,20 +5030,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wardnet/ui@npm:^0.1.0":
-  version: 0.1.1
-  resolution: "@wardnet/ui@npm:0.1.1::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40wardnet%2Fui%2F0.1.1%2Fafa19b7747127984491d8af5aed84d02b286593f"
+"@wardnet/ui@npm:^0.2.0":
+  version: 0.2.0
+  resolution: "@wardnet/ui@npm:0.2.0::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40wardnet%2Fui%2F0.2.0%2Ffc92ca9a57dfa3f63539bf4734d187d58239dfa6"
   dependencies:
     "@wardnet/styles": "npm:^0.1.0"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
     cmdk: "npm:1.1.1"
     radix-ui: "npm:1.5.0"
+    sonner: "npm:2.0.7"
   peerDependencies:
     lucide-react: ">=1.0.0"
     react: ^19.0.0
     react-dom: ^19.0.0
-  checksum: 10c0/ad37165f8bbc3bdb225b9ea17822d0c8927dc7e19d1bee98469def34d062c06e7f9ffc28ca9caa91ab3efbb6bb442e17ee252e6b8282c7c000f4f0e8fd33cebc
+  checksum: 10c0/1b158502f6bfeadea737c1bef118a2e671245c1021ebe836fa31c33071e98ebe1333c20ea2b4f8645d497c1f79157870ac8d3c3c333b6b338decdb1626029ff2
   languageName: node
   linkType: hard
 
@@ -5084,7 +5085,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/web@workspace:web"
   dependencies:
-    "@wardnet/ui": "npm:^0.1.0"
+    "@wardnet/ui": "npm:^0.2.0"
     clsx: "npm:2.1.1"
     cronstrue: "npm:3.21.0"
     prettier: "npm:3.8.4"

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -131,30 +131,15 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
               />
             )}
           </CardContent>
-          <CardFooter className="gap-2">
-            {reservation && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleRemove}
-                disabled={busy}
-                className="mr-auto"
-              >
-                Remove reservation
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              onClick={cancelEdit}
-              disabled={busy}
-              className="ml-auto"
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={busy}>
-              {busy ? "Saving…" : "Save"}
-            </Button>
-          </CardFooter>
+          <FormActions
+            tertiaryLabel={reservation ? "Remove reservation" : undefined}
+            tertiaryVariant="destructive"
+            tertiaryProps={{ onClick: handleRemove, disabled: busy }}
+            secondaryLabel="Cancel"
+            secondaryProps={{ onClick: cancelEdit, disabled: busy }}
+            primaryLabel={busy ? "Saving…" : "Save"}
+            primaryProps={{ onClick: handleSave, disabled: busy }}
+          />
         </>
       ) : (
         <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4">

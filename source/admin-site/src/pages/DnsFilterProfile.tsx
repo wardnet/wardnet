@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -202,33 +202,26 @@ function ProfileIdentityCard({
               />
             )}
           </CardContent>
-          <CardFooter className="justify-between gap-2">
-            <Button
-              variant="ghost"
-              className="text-danger hover:text-danger"
-              onClick={() => setConfirmDelete(true)}
-              disabled={builtin || update.isPending || del.isPending}
-              data-testid="profile-delete"
-            >
-              Delete profile
-            </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setEditing(false)}
-                disabled={update.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={saveDisabled}
-                data-testid="profile-save"
-              >
-                {update.isPending ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </CardFooter>
+          <FormActions
+            tertiaryLabel="Delete profile"
+            tertiaryVariant="destructive"
+            tertiaryProps={{
+              onClick: () => setConfirmDelete(true),
+              disabled: builtin || update.isPending || del.isPending,
+              "data-testid": "profile-delete",
+            }}
+            secondaryLabel="Cancel"
+            secondaryProps={{
+              onClick: () => setEditing(false),
+              disabled: update.isPending,
+            }}
+            primaryLabel={update.isPending ? "Saving…" : "Save"}
+            primaryProps={{
+              onClick: handleSave,
+              disabled: saveDisabled,
+              "data-testid": "profile-save",
+            }}
+          />
         </>
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
@@ -454,26 +447,25 @@ function BlocklistForm({
           </div>
         )}
       </CardContent>
-      <CardFooter className="justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={isSaving}>
-          Cancel
-        </Button>
-        <Button
-          data-testid="blocklist-submit"
-          onClick={() =>
-            onSubmit({ name, url, cron_schedule: schedule, enabled })
-          }
-          disabled={isSaving || !canSave}
-        >
-          {isSaving
+      <FormActions
+        secondaryLabel="Cancel"
+        secondaryProps={{ onClick: onCancel, disabled: isSaving }}
+        primaryLabel={
+          isSaving
             ? mode === "edit"
               ? "Saving…"
               : "Adding…"
             : mode === "edit"
               ? "Save changes"
-              : "Add blocklist"}
-        </Button>
-      </CardFooter>
+              : "Add blocklist"
+        }
+        primaryProps={{
+          "data-testid": "blocklist-submit",
+          onClick: () =>
+            onSubmit({ name, url, cron_schedule: schedule, enabled }),
+          disabled: isSaving || !canSave,
+        }}
+      />
     </Card>
   );
 }
@@ -552,22 +544,19 @@ function AllowlistCard({ profileId }: SubSectionProps) {
                 </div>
               )}
             </CardContent>
-            <CardFooter className="justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setAdding(false)}
-                disabled={create.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                data-testid="allowlist-submit"
-                disabled={create.isPending || domain.trim() === ""}
-              >
-                {create.isPending ? "Adding…" : "Allow domain"}
-              </Button>
-            </CardFooter>
+            <FormActions
+              secondaryLabel="Cancel"
+              secondaryProps={{
+                onClick: () => setAdding(false),
+                disabled: create.isPending,
+              }}
+              primaryLabel={create.isPending ? "Adding…" : "Allow domain"}
+              primaryProps={{
+                onClick: handleSave,
+                "data-testid": "allowlist-submit",
+                disabled: create.isPending || domain.trim() === "",
+              }}
+            />
           </Card>
         )}
 
@@ -684,22 +673,19 @@ function CustomRulesCard({ profileId }: SubSectionProps) {
                 </div>
               )}
             </CardContent>
-            <CardFooter className="justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setAdding(false)}
-                disabled={create.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                data-testid="rule-submit"
-                disabled={create.isPending || ruleText.trim() === ""}
-              >
-                {create.isPending ? "Adding…" : "Add rule"}
-              </Button>
-            </CardFooter>
+            <FormActions
+              secondaryLabel="Cancel"
+              secondaryProps={{
+                onClick: () => setAdding(false),
+                disabled: create.isPending,
+              }}
+              primaryLabel={create.isPending ? "Adding…" : "Add rule"}
+              primaryProps={{
+                onClick: handleSave,
+                "data-testid": "rule-submit",
+                disabled: create.isPending || ruleText.trim() === "",
+              }}
+            />
           </Card>
         )}
 

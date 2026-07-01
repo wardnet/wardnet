@@ -4,10 +4,10 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
@@ -256,26 +256,22 @@ export default function Dns() {
                     />
                   </Field>
                 </CardContent>
-                <CardFooter className="justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={cancelRetentionEdit}
-                    disabled={updateConfig.isPending}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={saveRetention}
-                    disabled={
+                <FormActions
+                  secondaryLabel="Cancel"
+                  secondaryProps={{
+                    onClick: cancelRetentionEdit,
+                    disabled: updateConfig.isPending,
+                  }}
+                  primaryLabel={updateConfig.isPending ? "Saving…" : "Save"}
+                  primaryProps={{
+                    onClick: saveRetention,
+                    disabled:
                       updateConfig.isPending ||
                       retentionDraft === config.query_log_retention_days ||
                       retentionDraft < 1 ||
-                      retentionDraft > 30
-                    }
-                  >
-                    {updateConfig.isPending ? "Saving…" : "Save"}
-                  </Button>
-                </CardFooter>
+                      retentionDraft > 30,
+                  }}
+                />
               </>
             ) : (
               <CardContent>
