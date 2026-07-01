@@ -42,6 +42,12 @@ impl VapidKey {
 
     /// Reconstruct a key pair from the raw bytes produced by [`Self::to_bytes`].
     pub fn from_bytes(raw: &[u8]) -> Result<Self, anyhow::Error> {
+        // The raw P-256 private scalar is 32 bytes; `ES256KeyPair::from_bytes`
+        // *panics* on a shorter slice, so reject a corrupt/truncated stored
+        // secret here instead of crashing the daemon.
+        if raw.len() != 32 {
+            anyhow::bail!("VAPID key must be 32 bytes, got {}", raw.len());
+        }
         let key_pair = ES256KeyPair::from_bytes(raw)
             .map_err(|e| anyhow::anyhow!("invalid stored VAPID key: {e}"))?;
         Ok(Self { key_pair })
@@ -199,6 +205,96 @@ impl WebPushSender for ReqwestWebPushSender {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A valid subscriber target: a real P-256 point + 16-byte auth secret.
+    fn valid_target(endpoint: &str) -> (String, String, String) {
+        let p256dh = VapidKey::generate().public_key_base64url();
+        let auth = URL_SAFE_NO_PAD.encode([9u8; 16]);
+        (endpoint.to_owned(), p256dh, auth)
+    }
+
+    async fn send_to(status: u16) -> SendOutcome {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(status))
+            .mount(&server)
+            .await;
+
+        let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+        let vapid = VapidKey::generate();
+        let (endpoint, p256dh, auth) = valid_target(&server.uri());
+        sender
+            .send(
+                &vapid,
+                PushTarget {
+                    endpoint: &endpoint,
+                    p256dh: &p256dh,
+                    auth: &auth,
+                },
+                b"{\"title\":\"hi\"}".to_vec(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn send_classifies_http_responses() {
+        assert_eq!(send_to(201).await, SendOutcome::Delivered);
+        assert_eq!(send_to(200).await, SendOutcome::Delivered);
+        assert_eq!(send_to(410).await, SendOutcome::Gone);
+        assert_eq!(send_to(404).await, SendOutcome::Gone);
+        assert_eq!(send_to(500).await, SendOutcome::TransientFailure);
+        assert_eq!(send_to(429).await, SendOutcome::TransientFailure);
+    }
+
+    #[tokio::test]
+    async fn send_maps_unbuildable_subscription_to_gone() {
+        // A malformed p256dh can never encrypt -> pruned as Gone.
+        let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+        let vapid = VapidKey::generate();
+        let outcome = sender
+            .send(
+                &vapid,
+                PushTarget {
+                    endpoint: "https://push.example.com/x",
+                    p256dh: "not-a-valid-point",
+                    auth: "YXV0aA",
+                },
+                b"{}".to_vec(),
+            )
+            .await;
+        assert_eq!(outcome, SendOutcome::Gone);
+    }
+
+    #[tokio::test]
+    async fn send_maps_network_error_to_transient() {
+        // Nothing is listening on this port -> connection refused.
+        let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+        let vapid = VapidKey::generate();
+        let (endpoint, p256dh, auth) = valid_target("http://127.0.0.1:1/push");
+        let outcome = sender
+            .send(
+                &vapid,
+                PushTarget {
+                    endpoint: &endpoint,
+                    p256dh: &p256dh,
+                    auth: &auth,
+                },
+                b"{}".to_vec(),
+            )
+            .await;
+        assert_eq!(outcome, SendOutcome::TransientFailure);
+    }
+
+    #[test]
+    fn from_bytes_rejects_wrong_length_without_panicking() {
+        let Err(err) = VapidKey::from_bytes(b"too-short") else {
+            panic!("expected a length error");
+        };
+        assert!(err.to_string().contains("32 bytes"), "got {err}");
+    }
 
     #[test]
     fn vapid_public_key_is_stable_across_reload() {
