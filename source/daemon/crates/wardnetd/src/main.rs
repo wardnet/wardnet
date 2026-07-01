@@ -32,6 +32,7 @@ use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
+use wardnetd::push_listener::PushNotificationListener;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::system::{
@@ -327,6 +328,10 @@ async fn run(
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
         secret_store: secret_store.clone(),
+        web_push_sender: Arc::new(wardnetd_services::push::sender::ReqwestWebPushSender::new(
+            reqwest::Client::new(),
+            wardnetd_services::push::VAPID_CONTACT.to_owned(),
+        )),
         blocklist_fetcher: blocklist_fetcher.clone(),
         update: update_backends,
         config_path: config_path.clone(),
@@ -454,6 +459,11 @@ async fn run(
     let routing_listener = RoutingListener::start(
         &services.event_publisher,
         services.routing.clone(),
+        &root_span,
+    );
+    let push_listener = PushNotificationListener::start(
+        &services.event_publisher,
+        services.push.clone(),
         &root_span,
     );
     let route_monitor = RouteMonitor::start(services.event_publisher.clone(), &root_span)
@@ -765,6 +775,7 @@ async fn run(
         services.stats.clone(),
         services.rule_request.clone(),
     )
+    .with_push_service(services.push.clone())
     .with_health_monitor(health_monitor.clone())
     // Inject the live entitlement handle (the same one the DDNS cloud clients
     // flip) so the serving layer can gate the premium app surfaces while
@@ -915,6 +926,7 @@ async fn run(
     }
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
+    push_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;

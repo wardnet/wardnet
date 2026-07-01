@@ -54,6 +54,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "jobs", description = "Background job status"),
         (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),
         (name = "update", description = "Auto-update and rollback"),
+        (name = "push", description = "Web Push subscriptions and VAPID key"),
     )
 )]
 pub struct ApiDoc;

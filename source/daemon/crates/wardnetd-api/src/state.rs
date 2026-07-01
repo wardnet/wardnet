@@ -7,8 +7,8 @@ use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
     DnsFilterService, DnsLocalService, DnsService, HealthMonitor, JobService, LogService,
-    NetworkZoneService, RoutingService, RuleRequestService, StatsService, SystemService,
-    TlsService, TunnelService, UpdateService, VpnProviderService,
+    NetworkZoneService, PushService, RoutingService, RuleRequestService, StatsService,
+    SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -44,6 +44,7 @@ struct Inner {
     job_service: Arc<dyn JobService>,
     stats_service: Arc<dyn StatsService>,
     rule_request_service: Arc<dyn RuleRequestService>,
+    push_service: Arc<dyn PushService>,
     health_monitor: Arc<HealthMonitor>,
     /// Process-wide entitlement state. Read by the serving layer to gate the
     /// premium app surfaces (user PWA + admin mobile app) while suspended, and
@@ -109,6 +110,9 @@ impl AppState {
                 job_service,
                 stats_service,
                 rule_request_service,
+                // Defaults to a no-op; production and the mock inject the live
+                // service via `with_push_service`.
+                push_service: Arc::new(NoopPushService),
                 // Defaults to an empty monitor (initial snapshot is UP with no
                 // components). Production and the mock inject the live monitor
                 // — wired to the runners — via `with_health_monitor`.
@@ -118,6 +122,17 @@ impl AppState {
                 entitlement: Entitlement::shared(),
             }),
         }
+    }
+
+    /// Inject the live [`PushService`]. Defaults to a no-op in [`Self::new`];
+    /// production and the mock wire the real one. Must be called before the
+    /// state is cloned or shared.
+    #[must_use]
+    pub fn with_push_service(mut self, push_service: Arc<dyn PushService>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_push_service must be called before AppState is cloned")
+            .push_service = push_service;
+        self
     }
 
     /// Inject the live [`Entitlement`] handle the DDNS cloud clients flip on
@@ -303,6 +318,12 @@ impl AppState {
         self.inner.rule_request_service.as_ref()
     }
 
+    /// Access the push-notification service.
+    #[must_use]
+    pub fn push_service(&self) -> &dyn PushService {
+        self.inner.push_service.as_ref()
+    }
+
     /// Access the health monitor for the unauthenticated `GET /health`
     /// endpoint (issue #214).
     #[must_use]
@@ -324,5 +345,36 @@ impl AppState {
     #[must_use]
     pub fn entitlement(&self) -> Arc<Entitlement> {
         self.inner.entitlement.clone()
+    }
+}
+
+/// No-op [`PushService`] used as the [`AppState::new`] default before the live
+/// service is injected via [`AppState::with_push_service`]. Never delivers.
+struct NoopPushService;
+
+#[async_trait::async_trait]
+impl PushService for NoopPushService {
+    async fn vapid_public_key(&self) -> Result<String, wardnetd_services::error::AppError> {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("push service not configured"),
+        ))
+    }
+    async fn subscribe(
+        &self,
+        _sub: wardnet_common::api::WebPushSubscription,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn unsubscribe(
+        &self,
+        _endpoint: Option<String>,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn handle_event(
+        &self,
+        _event: &wardnet_common::event::WardnetEvent,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
     }
 }

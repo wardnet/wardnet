@@ -17,6 +17,7 @@ pub mod middleware;
 pub mod network;
 pub mod network_zone;
 pub mod providers;
+pub mod push;
 pub mod responses;
 pub mod rule_requests;
 pub mod setup;
@@ -127,6 +128,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = jobs::register(r);
     r = stats::register(r);
     r = rule_requests::register(r);
+    r = push::register(r);
     r = update::register(r);
     r = backup::register(r);
     r

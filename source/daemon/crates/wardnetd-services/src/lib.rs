@@ -25,6 +25,7 @@ pub mod health;
 pub mod logging;
 pub mod maintenance;
 pub mod network_zone;
+pub mod push;
 pub mod routing;
 pub mod rule_request;
 pub mod system;
@@ -86,6 +87,7 @@ pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::network_zone::NetworkZoneService;
+pub use crate::push::PushService;
 pub use crate::routing::RoutingService;
 pub use crate::rule_request::RuleRequestService;
 pub use crate::stats::{
@@ -125,6 +127,9 @@ pub struct Backends {
     pub packet_capture: Arc<dyn device::PacketCapture>,
     pub hostname_resolver: Arc<dyn device::HostnameResolver>,
     pub secret_store: Arc<dyn wardnetd_data::secret_store::SecretStore>,
+    /// Delivers Web Push notifications. Wired to a reqwest-backed
+    /// implementation in production and to a no-op recorder in `wardnetd-mock`.
+    pub web_push_sender: Arc<dyn push::sender::WebPushSender>,
     pub blocklist_fetcher: Arc<dyn dns_filter::blocklist_downloader::BlocklistFetcher>,
     pub update: UpdateBackends,
     /// Path to the operator-supplied `wardnet.toml` — threaded through
@@ -200,6 +205,9 @@ pub struct Services {
     pub vpn_provider: Arc<dyn VpnProviderService>,
     pub routing: Arc<dyn RoutingService>,
     pub rule_request: Arc<dyn RuleRequestService>,
+    /// Push notifications: VAPID keys, subscription CRUD, and event-driven Web
+    /// Push delivery. Driven by `PushNotificationListener`.
+    pub push: Arc<dyn PushService>,
     /// Network Zones: device policy buckets (epic #244, issue #735).
     pub network_zone: Arc<dyn NetworkZoneService>,
     pub system: Arc<dyn SystemService>,
@@ -464,6 +472,15 @@ fn create_services(
         device_service.clone(),
     ));
 
+    let push_service: Arc<dyn PushService> = Arc::new(crate::push::PushServiceImpl::new(
+        repo_factory.push(),
+        device_repo.clone(),
+        tunnel_repo.clone(),
+        system_config_repo.clone(),
+        backends.secret_store.clone(),
+        backends.web_push_sender.clone(),
+    ));
+
     let dhcp_service: Arc<dyn DhcpService> = Arc::new(DhcpServiceImpl::new(
         dhcp_repo.clone(),
         system_config_repo.clone(),
@@ -614,6 +631,7 @@ fn create_services(
         routing: routing_service,
         network_zone: network_zone_service,
         rule_request: rule_request_service,
+        push: push_service,
         system: system_service,
         tunnel: tunnel_service,
         update: update_service,
