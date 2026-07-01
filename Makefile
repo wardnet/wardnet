@@ -184,9 +184,9 @@ build-web: check-sdk
 
 check-web: check-sdk
 	cd source && yarn install --immutable
-	cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/user-app --filter=@wardnet/admin-app
-	cd $(WEBUI_DIR) && yarn lint
-	cd $(WEBUI_DIR) && yarn format:check
+	cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/user-app --filter=@wardnet/admin-app --filter=@wardnet/web
+	cd source && yarn turbo run lint --filter=@wardnet/admin-site --filter=@wardnet/web
+	cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web
 
 # ---------- Public Site ----------
 

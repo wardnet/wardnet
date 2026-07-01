@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import { dnsLocalService } from "../lib/sdk";
 import type {
   ListZonesResponse,

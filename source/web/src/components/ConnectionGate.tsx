@@ -21,9 +21,15 @@ export function ConnectionGate({ children }: { children: React.ReactNode }) {
   const { data, isLoading, isFetching, refetch } = useDaemonStatus();
   const hasConnected = useRef(false);
 
+  // Latch ref: once we've seen a reachable daemon, stay unblocked forever.
+  // Writing and reading the ref in render is deliberate (the latch flips on
+  // the same render the query resolves), so opt these two lines out of the
+  // render-time ref rule.
+  // eslint-disable-next-line react-hooks/refs
   if (data?.reachable) hasConnected.current = true;
 
   // Reached the daemon at least once — never block again.
+  // eslint-disable-next-line react-hooks/refs
   if (hasConnected.current) return <>{children}</>;
 
   // First probe still in flight — show a quiet splash, not a flash of error.

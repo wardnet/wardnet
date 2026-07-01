@@ -1,12 +1,14 @@
 name: Build Admin Web
 
-# Reusable leaf for admin-site (and its shared dep @wardnet/web) type-check
-# and production build.
+# Reusable leaf for admin-site (and its shared dep @wardnet/web) type-check,
+# lint, format check, and production build.
 #
 # Callers: ci.yml (push to main), pr.yml (PRs).
 # Triggered by changes to source/web/**, source/admin-site/**, or
-# source/sdk/wardnet-js/** — @wardnet/web is a portal dep of admin-site, so
-# the admin-site type-check and build implicitly validates @wardnet/web too.
+# source/sdk/wardnet-js/**. @wardnet/web is a portal dep of admin-site, so its
+# build is validated transitively — but it also carries its own type-check and
+# lint scripts, run here directly so the shared library is gated on its own
+# tsconfig strictness and ESLint rules, not just as consumed by admin-site.
 
 on:
   workflow_call:
@@ -39,10 +41,13 @@ jobs:
         run: cd source && yarn install --immutable
 
       - name: Type check
-        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-site
+        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/web
+
+      - name: Lint
+        run: cd source && yarn turbo run lint --filter=@wardnet/admin-site --filter=@wardnet/web
 
       - name: Format check
-        run: cd source/admin-site && yarn format:check
+        run: cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web
 
   build:
     name: Build admin-web bundle

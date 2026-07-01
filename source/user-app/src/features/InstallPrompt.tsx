@@ -2,7 +2,7 @@ import { useState } from "react";
 import { DownloadIcon } from "lucide-react";
 import { Text, useInstallPrompt } from "@wardnet/web";
 import { useLocation } from "react-router";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 
 import appIcon from "@/assets/wardnet-icon.svg";
 

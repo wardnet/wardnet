@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import { dnsFilterService, jobsService } from "../lib/sdk";
 import { JobProgressDescription } from "../components/JobProgressDescription";
 import type {
@@ -147,7 +147,7 @@ export function useDeleteBlocklist(profileId: string | undefined) {
   });
 }
 
-/** Trigger a blocklist refresh and surface progress in a sonner toast.
+/** Trigger a blocklist refresh and surface progress in a toast.
  *
  *  The server dispatches a background job and returns immediately with its
  *  id; this hook polls the job and updates the toast through its lifecycle
@@ -392,8 +392,8 @@ export function useUpdateDnsFilterConfig() {
     onSuccess: () => {
       // Stable `id` collapses rapid successive calls (e.g. clicking
       // a default-profile toggle on and off quickly) into a single
-      // toast slot. Without it sonner sometimes renders the second
-      // toast with an empty body for a frame.
+      // toast slot. Without it the toast surface sometimes renders the
+      // second toast with an empty body for a frame.
       toast.success("DNS filter configuration updated", {
         id: "dns-filter-config-update",
       });

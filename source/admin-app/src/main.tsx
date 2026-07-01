@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { Toaster } from "@wardnet/ui";
 import { ConnectionGate, registerSW } from "@wardnet/web";
 import App from "./App";
 import "./index.css";
@@ -24,7 +24,7 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter basename="/admin-app">
         <ConnectionGate>
           <App />
-          <Toaster richColors />
+          <Toaster />
         </ConnectionGate>
       </BrowserRouter>
     </QueryClientProvider>
