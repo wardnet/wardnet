@@ -298,7 +298,7 @@ function RecordForm({
             >
               <Input
                 id="rec-domain"
-                data-testid="rec-domain"
+                data-testid="local-record-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="printer.lan"
@@ -338,7 +338,7 @@ function RecordForm({
             >
               <Input
                 id="rec-value"
-                data-testid="rec-value"
+                data-testid="local-record-value"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="192.168.1.50"
@@ -358,7 +358,7 @@ function RecordForm({
             >
               <Input
                 id="rec-ttl"
-                data-testid="rec-ttl"
+                data-testid="local-record-ttl"
                 type="number"
                 min={0}
                 value={ttl}
