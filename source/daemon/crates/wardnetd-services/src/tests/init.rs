@@ -149,6 +149,20 @@ impl FirewallManager for StubFirewall {
     async fn remove_tcp_reset_reject(&self, _device_ip: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn apply_zone_rules(
+        &self,
+        _device_ip: &str,
+        _rules: crate::routing::firewall::ZoneRules,
+        _lan_interface: &str,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_zone_rules(&self, _device_ip: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
+        unimplemented!()
+    }
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         unimplemented!()
     }

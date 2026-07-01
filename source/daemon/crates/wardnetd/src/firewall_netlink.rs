@@ -15,21 +15,38 @@
 //! matches on the decoded comment, and deletes by kernel handle — surviving
 //! daemon restarts without tracking handles in memory.
 
-use std::net::Ipv4Addr;
+use std::collections::HashSet;
+use std::net::{IpAddr, Ipv4Addr};
 
 use async_trait::async_trait;
 use rustables::expr::{Bitwise, Cmp, CmpOp, Meta, MetaType, Payload, Register, Reject, RejectType};
 use rustables::{
-    Batch, Chain, ChainPolicy, ChainType, Hook, HookClass, MsgType, ProtocolFamily, Rule, Table,
-    list_rules_for_chain,
+    Batch, Chain, ChainPolicy, ChainType, Hook, HookClass, MsgType, Protocol, ProtocolFamily, Rule,
+    Table, list_rules_for_chain,
 };
 
-use wardnetd_services::routing::firewall::FirewallManager;
+use wardnetd_services::routing::firewall::{FirewallManager, ZoneRules};
 
 const TABLE_NAME: &str = "wardnet";
 const POSTROUTING: &str = "postrouting";
 const PREROUTING: &str = "prerouting";
 const FORWARD: &str = "forward";
+/// Filter chain on the `input` hook — device→Pi traffic. Carries the Network-Zone
+/// admin-UI reject rules (issue #736); DNS/DHCP pass because the chain policy is
+/// accept and only :443/:7411 are rejected.
+const INPUT: &str = "input";
+
+/// nftables interface-name field width (`IFNAMSIZ`); `meta oifname` loads this
+/// many bytes into the comparison register, so masks/values are this length.
+const IFNAMSIZ: usize = 16;
+/// Wardnet tunnel interface-name prefix. A forwarded packet leaving via a
+/// `wg_ward*` interface is taking the tunnel egress path (issue #736).
+const TUNNEL_IFACE_PREFIX: &[u8] = b"wg_ward";
+/// Pi admin surfaces a zone may deny (issue #736): the HTTPS admin site (:443)
+/// and the plain-HTTP API (:7411). Both are TCP, so denial is a TCP reset.
+const ADMIN_UI_PORTS: [u16; 2] = [443, 7411];
+/// Comment-UDATA prefix shared by every Network-Zone rule, keyed by device IP.
+const ZONE_COMMENT_PREFIX: &str = "wardnet:zone:";
 
 /// nftables comment UDATA TLV type (`NFTNL_UDATA_RULE_COMMENT`).
 const UDATA_TYPE_COMMENT: u8 = 0;
@@ -169,6 +186,34 @@ fn delete_rules_where(
     Ok(removed)
 }
 
+/// Build the `(mask, value)` pair that matches `meta oifname` against the
+/// `wg_ward*` tunnel prefix: the mask keeps only the prefix bytes, and the
+/// comparison value is the prefix zero-padded to `IFNAMSIZ`. Combined with a
+/// [`Bitwise`] (mask, then compare) this is the netlink equivalent of the CLI's
+/// `oifname "wg_ward*"`, so it matches any tunnel index without enumerating live
+/// interfaces.
+fn tunnel_oifname_mask_and_value() -> (Vec<u8>, Vec<u8>) {
+    let mut mask = vec![0u8; IFNAMSIZ];
+    let mut value = vec![0u8; IFNAMSIZ];
+    for (i, &b) in TUNNEL_IFACE_PREFIX.iter().enumerate() {
+        mask[i] = 0xff;
+        value[i] = b;
+    }
+    (mask, value)
+}
+
+/// The device IP a zone rule is keyed on: the final `:`-delimited segment of a
+/// `wardnet:zone:<kind>:<ip>` comment. IPv4 only (no `:` in the address), which
+/// matches the daemon's IPv4-only device model.
+fn zone_rule_ip(comment: &str) -> Option<&str> {
+    comment.starts_with(ZONE_COMMENT_PREFIX).then(|| {
+        comment
+            .rsplit(':')
+            .next()
+            .expect("rsplit always yields at least one element")
+    })
+}
+
 #[async_trait]
 impl FirewallManager for NetlinkFirewallManager {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
@@ -202,6 +247,13 @@ impl FirewallManager for NetlinkFirewallManager {
                 &base_chain(&table, FORWARD, HookClass::Forward, 0, ChainType::Filter),
                 MsgType::Add,
             );
+            // Input filter chain (device→Pi) for the Network-Zone admin-UI gate
+            // (issue #736). Accept policy: only explicit :443/:7411 reject rules
+            // bite; DNS/DHCP to the Pi still pass.
+            batch.add(
+                &base_chain(&table, INPUT, HookClass::In, 0, ChainType::Filter),
+                MsgType::Add,
+            );
             batch
                 .send()
                 .map_err(|e| anyhow::anyhow!("init wardnet table: {e}"))?;
@@ -220,7 +272,7 @@ impl FirewallManager for NetlinkFirewallManager {
             // itself intact. Each chain is flushed in its own batch so an absent
             // or already-empty chain (which the kernel may reject) doesn't abort
             // the flush of the others — flushing is best-effort cleanup.
-            for name in [POSTROUTING, PREROUTING, FORWARD] {
+            for name in [POSTROUTING, PREROUTING, FORWARD, INPUT] {
                 let chain = chain_ref(&table, name);
                 let mut batch = Batch::new();
                 batch.add(&Rule::new(&chain)?, MsgType::Del);
@@ -373,6 +425,168 @@ impl FirewallManager for NetlinkFirewallManager {
             );
         }
         Ok(())
+    }
+
+    async fn apply_zone_rules(
+        &self,
+        device_ip: &str,
+        rules: ZoneRules,
+        lan_interface: &str,
+    ) -> anyhow::Result<()> {
+        let ip: Ipv4Addr = device_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid device IP {device_ip}: {e}"))?;
+        let egress_comment = format!("wardnet:zone:egress:{device_ip}");
+        let adminui_comment = format!("wardnet:zone:adminui:{device_ip}");
+        let suffix = format!(":{device_ip}");
+        let lan = lan_interface.to_owned();
+        run_blocking(move || {
+            let table = wardnet_table();
+            let forward = chain_ref(&table, FORWARD);
+            let input = chain_ref(&table, INPUT);
+            let mut batch = Batch::new();
+            let mut ops = 0usize;
+
+            // 1. Delete this IP's existing zone rules in both chains so the apply
+            //    is a clean replace. Both delete and add ride the same batch, so
+            //    the swap lands in one atomic netlink transaction.
+            for chain_name in [FORWARD, INPUT] {
+                let chain = chain_ref(&table, chain_name);
+                let existing = list_rules_for_chain(&chain)
+                    .map_err(|e| anyhow::anyhow!("list chain {chain_name}: {e}"))?;
+                for rule in existing {
+                    if let Some(comment) = rule_comment(&rule)
+                        && comment.starts_with(ZONE_COMMENT_PREFIX)
+                        && comment.ends_with(&suffix)
+                    {
+                        batch.add(&rule, MsgType::Del);
+                        ops += 1;
+                    }
+                }
+            }
+
+            // 2. Egress gate: drop forwarded packets leaving via a forbidden
+            //    path. `allowed_targets` is never empty, so at most one applies.
+            if !rules.allow_tunnel {
+                // ip saddr <ip> oifname "wg_ward*" drop
+                let (mask, value) = tunnel_oifname_mask_and_value();
+                Rule::new(&forward)?
+                    .saddr(IpAddr::V4(ip))
+                    .with_expr(Meta::new(MetaType::OifName))
+                    .with_expr(Bitwise::new(mask, vec![0u8; IFNAMSIZ])?)
+                    .with_expr(Cmp::new(CmpOp::Eq, value))
+                    .drop()
+                    .with_userdata(comment_udata(&egress_comment))
+                    .add_to_batch(&mut batch);
+                ops += 1;
+            }
+            if !rules.allow_direct {
+                // ip saddr <ip> oifname <lan_interface> drop
+                Rule::new(&forward)?
+                    .saddr(IpAddr::V4(ip))
+                    .oiface(&lan)?
+                    .drop()
+                    .with_userdata(comment_udata(&egress_comment))
+                    .add_to_batch(&mut batch);
+                ops += 1;
+            }
+
+            // 3. Admin-UI gate: refuse device→Pi :443/:7411 with a TCP reset so
+            //    the client sees "connection refused", not a silent hang. DNS
+            //    (:53) and DHCP are untouched — the accept-policy input chain
+            //    passes them.
+            if !rules.admin_ui_reachable {
+                for port in ADMIN_UI_PORTS {
+                    Rule::new(&input)?
+                        .saddr(IpAddr::V4(ip))
+                        .dport(port, Protocol::TCP)
+                        .with_expr(Reject::default().with_type(RejectType::TcpRst))
+                        .with_userdata(comment_udata(&adminui_comment))
+                        .add_to_batch(&mut batch);
+                    ops += 1;
+                }
+            }
+
+            // An empty batch (no prior rules, nothing to add) would be a wasted
+            // — and possibly rejected — netlink round-trip; skip it.
+            if ops > 0 {
+                batch
+                    .send()
+                    .map_err(|e| anyhow::anyhow!("apply zone rules for {ip}: {e}"))?;
+            }
+            Ok(())
+        })
+        .await?;
+        tracing::debug!(
+            device_ip,
+            allow_direct = rules.allow_direct,
+            allow_tunnel = rules.allow_tunnel,
+            admin_ui_reachable = rules.admin_ui_reachable,
+            "nftables: applied zone rules for {device_ip}"
+        );
+        Ok(())
+    }
+
+    async fn remove_zone_rules(&self, device_ip: &str) -> anyhow::Result<()> {
+        let suffix = format!(":{device_ip}");
+        let removed = run_blocking(move || {
+            let mut all = Vec::new();
+            for chain_name in [FORWARD, INPUT] {
+                let r = delete_rules_where(chain_name, |c| {
+                    c.starts_with(ZONE_COMMENT_PREFIX) && c.ends_with(&suffix)
+                })?;
+                all.extend(r);
+            }
+            Ok(all)
+        })
+        .await?;
+        if removed.is_empty() {
+            tracing::debug!(
+                device_ip,
+                "nftables: no zone rules for {device_ip} to remove"
+            );
+        } else {
+            tracing::debug!(
+                device_ip,
+                count = removed.len(),
+                "nftables: removed {} zone rule(s) for {device_ip}",
+                removed.len()
+            );
+        }
+        Ok(())
+    }
+
+    async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
+        run_blocking(|| {
+            let table = wardnet_table();
+            let mut ips: HashSet<String> = HashSet::new();
+            for chain_name in [FORWARD, INPUT] {
+                let chain = chain_ref(&table, chain_name);
+                let rules = match list_rules_for_chain(&chain) {
+                    Ok(rules) => rules,
+                    Err(e) => {
+                        // An absent chain (table not yet initialised) is the
+                        // expected steady state on a fresh install — skip it
+                        // rather than fail the reconcile.
+                        tracing::debug!(
+                            chain = chain_name,
+                            error = %e,
+                            "nftables: listing zone rules in {chain_name} skipped: {e}"
+                        );
+                        continue;
+                    }
+                };
+                for rule in rules {
+                    if let Some(comment) = rule_comment(&rule)
+                        && let Some(ip) = zone_rule_ip(&comment)
+                    {
+                        ips.insert(ip.to_owned());
+                    }
+                }
+            }
+            Ok(ips.into_iter().collect())
+        })
+        .await
     }
 
     async fn check_tools_available(&self) -> anyhow::Result<()> {

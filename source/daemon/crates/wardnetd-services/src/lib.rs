@@ -33,6 +33,7 @@ pub mod tls;
 pub mod tunnel;
 pub mod update;
 pub mod vpn;
+pub mod zone_enforcement;
 
 #[cfg(test)]
 mod tests;
@@ -71,6 +72,7 @@ use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
+use crate::zone_enforcement::ZoneEnforcementServiceImpl;
 
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
@@ -100,6 +102,7 @@ pub use crate::tls::{CertActivator, TlsService, TlsStatus};
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
 pub use crate::vpn::VpnProviderService;
+pub use crate::zone_enforcement::ZoneEnforcementService;
 
 /// Backends provided by the caller (real or mock).
 ///
@@ -210,6 +213,9 @@ pub struct Services {
     pub push: Arc<dyn PushService>,
     /// Network Zones: device policy buckets (epic #244, issue #735).
     pub network_zone: Arc<dyn NetworkZoneService>,
+    /// Network-Zone packet enforcer: per-zone nftables egress + admin-UI gating
+    /// (epic #244, issue #736). Driven by `ZoneEnforcementListener`.
+    pub zone_enforcement: Arc<dyn ZoneEnforcementService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub update: Arc<dyn UpdateService>,
@@ -591,10 +597,25 @@ fn create_services(
         device_repo.clone(),
         tunnel_repo.clone(),
         tunnel_service.clone(),
-        backends.policy_router,
-        backends.firewall,
+        backends.policy_router.clone(),
+        backends.firewall.clone(),
         repo_factory.system_config(),
+        event_publisher.clone(),
         initial_default_policy,
+        config,
+    );
+
+    // The Network-Zone enforcer (#736) shares the same firewall + policy-router
+    // backends as the routing service (they cooperate on the `wardnet` nftables
+    // table and per-device conntrack) and calls back into the routing service to
+    // unbind tunnel bindings a device's zone forbids after a default-policy flip.
+    let zone_enforcement_service = build_zone_enforcement_service(
+        network_zone_repo.clone(),
+        device_repo.clone(),
+        repo_factory.system_config(),
+        backends.firewall,
+        backends.policy_router,
+        routing_service.clone(),
         config,
     );
 
@@ -630,6 +651,7 @@ fn create_services(
         vpn_provider: vpn_provider_service,
         routing: routing_service,
         network_zone: network_zone_service,
+        zone_enforcement: zone_enforcement_service,
         rule_request: rule_request_service,
         push: push_service,
         system: system_service,
@@ -686,6 +708,7 @@ fn build_routing_service(
     policy_router: Arc<dyn routing::PolicyRouter>,
     firewall: Arc<dyn routing::FirewallManager>,
     system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+    events: Arc<dyn EventPublisher>,
     initial_default_policy: String,
     config: &ApplicationConfiguration,
 ) -> Arc<dyn RoutingService> {
@@ -696,7 +719,33 @@ fn build_routing_service(
         policy_router,
         firewall,
         system_config,
+        events,
         initial_default_policy,
+        config.network.lan_interface.clone(),
+    ))
+}
+
+/// Build the Network-Zone enforcer (#736) from its repository + backend
+/// dependencies. It shares the firewall + policy-router backends with the
+/// routing service and holds a handle to the routing service so it can unbind
+/// tunnel bindings a device's zone forbids after a default-policy flip.
+#[allow(clippy::too_many_arguments)]
+fn build_zone_enforcement_service(
+    network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
+    device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+    system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+    firewall: Arc<dyn routing::FirewallManager>,
+    policy_router: Arc<dyn routing::PolicyRouter>,
+    routing_service: Arc<dyn RoutingService>,
+    config: &ApplicationConfiguration,
+) -> Arc<dyn ZoneEnforcementService> {
+    Arc::new(ZoneEnforcementServiceImpl::new(
+        network_zone_repo,
+        device_repo,
+        system_config,
+        firewall,
+        policy_router,
+        routing_service,
         config.network.lan_interface.clone(),
     ))
 }

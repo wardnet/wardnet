@@ -2,6 +2,7 @@
 //! mock server.
 
 use async_trait::async_trait;
+use wardnetd_services::routing::firewall::ZoneRules;
 use wardnetd_services::routing::{FirewallManager, PolicyRouter};
 
 /// A firewall manager that performs no nftables operations.
@@ -55,6 +56,35 @@ impl FirewallManager for NoopFirewallManager {
             "mock firewall remove_tcp_reset_reject: device_ip={device_ip}",
         );
         Ok(())
+    }
+
+    async fn apply_zone_rules(
+        &self,
+        device_ip: &str,
+        rules: ZoneRules,
+        lan_interface: &str,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            device_ip,
+            allow_direct = rules.allow_direct,
+            allow_tunnel = rules.allow_tunnel,
+            admin_ui_reachable = rules.admin_ui_reachable,
+            lan_interface,
+            "mock firewall apply_zone_rules: device_ip={device_ip}",
+        );
+        Ok(())
+    }
+
+    async fn remove_zone_rules(&self, device_ip: &str) -> anyhow::Result<()> {
+        tracing::debug!(
+            device_ip,
+            "mock firewall remove_zone_rules: device_ip={device_ip}",
+        );
+        Ok(())
+    }
+
+    async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
     }
 
     async fn check_tools_available(&self) -> anyhow::Result<()> {

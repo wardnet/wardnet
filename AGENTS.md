@@ -52,6 +52,16 @@ you're about to make, rather than the whole set.
   restart) → **ungated** hard watchdog (`/dev/watchdog` ⇒ kernel host reboot). Plus
   unauthenticated `GET /health`, `Type=notify` + `READY=1`, and the `WatchdogOps`
   trait. Invariant: the hardware pet is never health-gated.
+- **[Network-Zone enforcement subsystem](.agents/architecture.md#network-zone-enforcement-subsystem-issue-736)** —
+  per-zone nftables **egress gate** (forward-chain drop of `wg_ward*`/WAN egress a
+  zone forbids) + **admin-UI gate** (input-chain TCP-reset of device→Pi :443/:7411
+  when a zone is not admin-reachable; DNS/DHCP pass). A dedicated
+  `ZoneEnforcementService` + `ZoneEnforcementListener`, separate from the routing
+  listener, keyed by device IP via comment UDATA (restart-survivable), live-reloaded
+  on zone/device events with conntrack flush, reconciled on startup. Closes the
+  global-default-policy caveat via a new `DefaultPolicyChanged` event + a callback
+  that unbinds forbidden tunnel bindings to direct. Honest limit: same-subnet peer
+  traffic is unaffected (the AP's job).
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

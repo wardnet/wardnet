@@ -232,6 +232,17 @@ pub enum WardnetEvent {
         new_zone_id: Uuid,
         timestamp: DateTime<Utc>,
     },
+    /// The global default routing policy changed (e.g. `"direct"` → a tunnel
+    /// UUID). Emitted by `RoutingService::set_default_policy`. The Network-Zone
+    /// enforcer (issue #736) consumes this to re-validate every `Default`-ruled
+    /// device against its zone: a policy flip can silently resolve a device's
+    /// `Default` rule to a target its zone forbids (the one edge the #735
+    /// write-time gate cannot catch), so the enforcer unbinds any now-forbidden
+    /// tunnel binding back to direct.
+    DefaultPolicyChanged {
+        policy: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

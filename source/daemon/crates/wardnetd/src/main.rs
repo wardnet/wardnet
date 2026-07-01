@@ -46,6 +46,7 @@ use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd::tunnel_throughput_tester::HttpThroughputTester;
 use wardnetd::watchdog::{HardwareWatchdogRunner, Notifier, SdNotifier, SoftWatchdogRunner};
+use wardnetd::zone_enforcement_listener::ZoneEnforcementListener;
 use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
@@ -387,6 +388,23 @@ async fn run(
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // Reconcile Network-Zone packet enforcement (#736) *after* routing: routing's
+    // reconcile (re)creates + flushes the shared `wardnet` nftables table
+    // (including the zone input chain) and applies stored routing rules, so the
+    // enforcer starts from a clean slate and can clamp any forbidden default
+    // binding routing just installed. A failure here must not block startup —
+    // enforcement is best-effort layered on top of routing.
+    if let Err(e) = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        services.zone_enforcement.reconcile(),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "network-zone enforcement reconcile failed on startup: {e}");
+    }
+
     // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
     // can reach the Pi by a friendly name (and `http://wardnet` works via the
     // search-domain hop + `:80` redirect). Cert-independent, so seeded at boot;
@@ -459,6 +477,11 @@ async fn run(
     let routing_listener = RoutingListener::start(
         &services.event_publisher,
         services.routing.clone(),
+        &root_span,
+    );
+    let zone_enforcement_listener = ZoneEnforcementListener::start(
+        &services.event_publisher,
+        services.zone_enforcement.clone(),
         &root_span,
     );
     let push_listener = PushNotificationListener::start(
@@ -926,6 +949,7 @@ async fn run(
     }
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
+    zone_enforcement_listener.shutdown().await;
     push_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
