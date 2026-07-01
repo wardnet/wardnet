@@ -51,6 +51,7 @@ const DeviceRow = memo(function DeviceRow({
 }) {
   return (
     <button
+      data-testid="device-row"
       onClick={() => onSelect(device.id)}
       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-snap active:bg-sunken first:rounded-t-xl last:rounded-b-xl"
     >
@@ -163,6 +164,7 @@ export default function Devices() {
           {(["all", "online", "vpn"] as Filter[]).map((id) => (
             <button
               key={id}
+              data-testid={`device-filter-${id}`}
               onClick={() => setFilter(id)}
               className={[
                 "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-snap",

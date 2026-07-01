@@ -176,7 +176,7 @@ const TunnelCard = memo(function TunnelCard({
 
   return (
     <Card className="card--flush">
-      <div className="flex flex-col gap-3 p-4">
+      <div data-testid="tunnel-card" className="flex flex-col gap-3 p-4">
         {/* Header row */}
         <div className="flex items-start gap-2">
           <Text as="span" size="2xl" className="leading-none" aria-hidden>
@@ -191,6 +191,7 @@ const TunnelCard = memo(function TunnelCard({
           <div className="flex shrink-0 items-center gap-2">
             <TunnelStatusPill status={tunnel.status} />
             <button
+              data-testid="tunnel-rebuild"
               onClick={() => onRebuild(tunnel.id)}
               disabled={isRebuilding}
               className="flex h-7 w-7 items-center justify-center rounded-lg bg-sunken text-ink-3 transition-colors duration-snap active:bg-line disabled:opacity-40"
@@ -294,7 +295,7 @@ export default function Tunnels() {
 
       {/* Summary header */}
       <Card className="card--flush">
-        <div className="flex items-center gap-3 p-4">
+        <div data-testid="tunnels-summary" className="flex items-center gap-3 p-4">
           <div className="min-w-0 shrink-0">
             <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
               Tunnels Up

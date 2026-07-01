@@ -31,19 +31,21 @@ function tunnelSublabel(status: Tunnel["status"]): { label: string; tone: Tunnel
   }
 }
 
-function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect }: {
+function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect, testId }: {
   label: string;
   sublabel?: string;
   sublabelTone?: TunnelTone;
   active: boolean;
   disabled: boolean;
   onSelect: () => void;
+  testId?: string;
 }) {
   const sublabelClass =
     sublabelTone === "danger" ? "text-danger" :
     sublabelTone === "warn"   ? "text-warn"   : "text-ink-3";
   return (
     <button
+      data-testid={testId}
       onClick={onSelect}
       disabled={disabled}
       className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors duration-snap active:bg-sunken disabled:pointer-events-none disabled:opacity-40"
@@ -89,16 +91,22 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
         <DrawerTitle className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
           Route: {deviceLabel}
         </DrawerTitle>
-        <div className="flex flex-col" style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+        <div
+          data-testid="device-routing-sheet"
+          className="flex flex-col"
+          style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
+        >
           <OptionRow
             label="Default" sublabel="Follow gateway policy"
             active={current === "default"} disabled={updateDevice.isPending}
             onSelect={() => handleSelect({ type: "default" })}
+            testId="device-routing-default"
           />
           <OptionRow
             label="Direct" sublabel="No VPN"
             active={current === "direct"} disabled={updateDevice.isPending}
             onSelect={() => handleSelect({ type: "direct" })}
+            testId="device-routing-direct"
           />
           {tunnels.length > 0 && <div className="mx-4 my-2 h-px bg-line" />}
           {tunnels.map((tunnel) => {

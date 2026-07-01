@@ -22,7 +22,7 @@ export function DevicesCard({ deviceCount, devices, defaultPolicy }: Props) {
     }).length ?? null;
 
   return (
-    <Link to="/devices" className="block">
+    <Link to="/devices" className="block" data-testid="dashboard-devices-card">
       <Card className="card--flush">
         <div className="flex items-center gap-3 px-2 py-3">
           <div
