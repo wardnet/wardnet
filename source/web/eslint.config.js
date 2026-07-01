@@ -17,15 +17,12 @@ export default tseslint.config(
       "react-hooks": reactHooks,
     },
     rules: {
+      // The v7 `refs` rule flags two intentional idioms this library uses —
+      // the "latest ref" (`useUpdateDevice`) and the "latch ref"
+      // (`ConnectionGate`). Those are silenced with scoped
+      // `eslint-disable-next-line react-hooks/refs` at their call sites so the
+      // rule stays active for the rest of the package.
       ...reactHooks.configs.recommended.rules,
-      // `@wardnet/web` is a hooks/component library that leans on two
-      // intentional ref idioms the v7 `refs` rule flags: the "latest ref"
-      // (assign `ref.current = latest` in render so a later callback reads the
-      // freshest value, e.g. `useUpdateDevice`) and the "latch ref" (read a
-      // ref in render to permanently unblock, e.g. `ConnectionGate`). Both are
-      // documented React patterns, so keep `rules-of-hooks`/`exhaustive-deps`
-      // on but silence `refs`.
-      "react-hooks/refs": "off",
     },
   },
 );

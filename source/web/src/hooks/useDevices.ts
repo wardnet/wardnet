@@ -65,6 +65,9 @@ export function useSetMyCaptureEnabled() {
 export function useUpdateDevice(options?: { successMessage?: string }) {
   const qc = useQueryClient();
   const optionsRef = useRef(options);
+  // Latest ref: capture the freshest options in render so the async
+  // onSuccess callback below reads the current successMessage.
+  // eslint-disable-next-line react-hooks/refs
   optionsRef.current = options;
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: UpdateDeviceRequest }) =>
