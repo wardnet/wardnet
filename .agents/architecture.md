@@ -365,3 +365,62 @@ keep-alive + `'V'` magic-close disarm) in production, `NoopWatchdog` in the mock
 `shutdown()` disarms first so a clean stop never reboots. **Invariant: the
 hardware pet is never health-gated** — that is the whole point of having a
 third layer below the health-gated soft restart.
+
+## Network-Zone enforcement subsystem (issue #736)
+
+Phase 1 / CI-2 of epic #244. Turns a device's [`NetworkZone`] into nftables
+rules so a zone bites on a flat shared subnet, live-reloaded with no restart.
+Design rationale, verdict choices, and the default-policy caveat are in
+[`docs/adr-network-zone-enforcement.md`](../docs/adr-network-zone-enforcement.md);
+domain terms in [`CONTEXT.md`](../CONTEXT.md) ("Zone packet enforcement").
+
+### Shape
+
+`ZoneEnforcementService` (`wardnetd-services/src/zone_enforcement/`) is a
+**separate** event-bus subscriber from the routing service — driven by
+`ZoneEnforcementListener` (`wardnetd/src/zone_enforcement_listener.rs`, span
+`zone_enforcement_listener{}`). It shares the `FirewallManager` + `PolicyRouter`
+backends with the routing service (they cooperate on the one `wardnet` nftables
+table + per-device conntrack) but owns its own rules. The two listeners are
+independent: routing manages kernel policy routing, the enforcer manages packet
+gating, and neither blocks the other.
+
+### Two gates, keyed by device IP (comment UDATA, restart-survivable)
+
+- **Egress gate** — forward-chain `drop` (`wardnet:zone:egress:<ip>`). Tunnel
+  forbidden ⇒ drop `oifname wg_ward*` (a `meta oifname` + bitwise-mask + compare
+  prefix match, so it matches any tunnel index without enumerating interfaces).
+  Direct forbidden ⇒ drop `oifname <lan_interface>`. A packet function of the
+  zone's `allowed_targets` alone — never the device's current routing target.
+- **Admin-UI gate** — a new `input` base chain (accept policy) carries
+  reject-with-tcp-reset rules (`wardnet:zone:adminui:<ip>`) for device→Pi :443
+  and :7411 when `admin_ui_reachable = false`; DNS/DHCP pass untouched. "Connection
+  refused" ⇒ TCP reset, not a silent drop. `init_wardnet_table` /
+  `flush_wardnet_table` gained this `input` chain.
+
+### Live reload + reconcile
+
+The listener maps events to per-device recomputes, each followed by a conntrack
+flush so open flows re-evaluate at once: `NetworkZoneChanged`→`apply_zone`,
+`DeviceZoneChanged`/`DeviceDiscovered`→`apply_device`, `DeviceIpChanged`→
+`handle_ip_change` (re-key old→new IP), `DeviceGone`→`remove_device`. Startup
+`reconcile` re-applies every device's rules and drops orphaned rules for IPs no
+longer backed by a device, and runs **after** `RoutingService::reconcile` (which
+(re)creates + flushes the shared table).
+
+### Closing the default-policy caveat (event + callback)
+
+`RoutingService::set_default_policy` now emits
+`WardnetEvent::DefaultPolicyChanged` (RoutingServiceImpl gained an
+`EventPublisher` dep). The enforcer subscribes and, for each `Default`-ruled
+device whose zone forbids the newly-resolved kind, calls back into
+`RoutingService::apply_rule_for_device(id, Direct)` to unbind it — the one edge
+the #735 write-time gate cannot catch. The routing engine stays zone-free; the
+tradeoff (stored `Default` vs applied `Direct` divergence, re-derived each boot)
+is recorded in the ADR.
+
+**Honest limit:** same-subnet peer↔peer traffic is not affected — the daemon
+never sees it on a flat L2 segment (the AP's job, or the isolate-members rung
+#737).
+
+[`NetworkZone`]: ../source/daemon/crates/wardnet-common/src/network_zone.rs

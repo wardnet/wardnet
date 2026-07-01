@@ -222,8 +222,11 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::DnsEventInserted { .. }
         // Network Zones (#735) record intent only in Phase 1; the routing
         // listener does not react to zone changes. The CI-2/CI-3 enforcers
-        // (#736/#737) subscribe separately.
+        // (#736/#737) subscribe separately. `DefaultPolicyChanged` is likewise
+        // consumed by the zone enforcer (#736), not here — the routing engine
+        // already re-applies `Default`-ruled devices inside `set_default_policy`.
         | WardnetEvent::NetworkZoneChanged { .. }
-        | WardnetEvent::DeviceZoneChanged { .. } => {}
+        | WardnetEvent::DeviceZoneChanged { .. }
+        | WardnetEvent::DefaultPolicyChanged { .. } => {}
     }
 }

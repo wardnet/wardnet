@@ -574,6 +574,35 @@ impl FirewallManager for MockNftables {
         Ok(())
     }
 
+    async fn apply_zone_rules(
+        &self,
+        device_ip: &str,
+        rules: crate::routing::firewall::ZoneRules,
+        lan_interface: &str,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "apply_zone_rules:{device_ip}:direct={}:tunnel={}:adminui={}:lan={lan_interface}",
+            rules.allow_direct, rules.allow_tunnel, rules.admin_ui_reachable
+        ));
+        Ok(())
+    }
+
+    async fn remove_zone_rules(&self, device_ip: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("remove_zone_rules:{device_ip}"));
+        Ok(())
+    }
+
+    async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
+        self.calls
+            .lock()
+            .await
+            .push("list_zone_rule_ips".to_owned());
+        Ok(Vec::new())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -754,6 +783,7 @@ fn setup_with_devices_and_tunnel(
         netlink,
         nftables,
         system_config,
+        Arc::new(crate::event::BroadcastEventBus::new(16)),
         default_policy,
         "eth0".to_owned(),
     );
@@ -827,6 +857,7 @@ fn setup_with_orphaned_rules(
         netlink,
         nftables,
         system_config,
+        Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
     );
@@ -891,6 +922,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         netlink,
         nftables,
         system_config,
+        Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
     );

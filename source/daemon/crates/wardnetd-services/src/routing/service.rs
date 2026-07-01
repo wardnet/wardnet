@@ -9,12 +9,14 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use wardnet_common::device::Device;
 use wardnet_common::dns::UpstreamId;
+use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingRule, RoutingTarget};
 use wardnet_common::tunnel::TunnelStatus;
 
 use crate::TunnelService;
 use crate::auth_context;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
 use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
@@ -170,6 +172,10 @@ pub struct RoutingServiceImpl {
     netlink: Arc<dyn PolicyRouter>,
     nftables: Arc<dyn FirewallManager>,
     system_config: Arc<dyn SystemConfigRepository>,
+    /// Event bus, used to announce a default-policy change so the Network-Zone
+    /// enforcer (#736) can re-validate `Default`-ruled devices against their
+    /// zones — the one edge the #735 write-time gate cannot catch.
+    events: Arc<dyn EventPublisher>,
     /// Global default routing policy (e.g. `"direct"` or a tunnel UUID).
     /// Held in a `RwLock` so [`Self::set_default_policy`] can update it
     /// at runtime without restarting the daemon.
@@ -194,6 +200,7 @@ impl RoutingServiceImpl {
         netlink: Arc<dyn PolicyRouter>,
         nftables: Arc<dyn FirewallManager>,
         system_config: Arc<dyn SystemConfigRepository>,
+        events: Arc<dyn EventPublisher>,
         default_policy: String,
         lan_interface: String,
     ) -> Self {
@@ -204,6 +211,7 @@ impl RoutingServiceImpl {
             netlink,
             nftables,
             system_config,
+            events,
             default_policy: Arc::new(RwLock::new(default_policy)),
             lan_interface,
             state: Mutex::new(RoutingState {
@@ -1439,6 +1447,17 @@ impl RoutingService for RoutingServiceImpl {
         }
 
         tracing::info!(policy, "default routing policy updated");
+
+        // Announce the change so the Network-Zone enforcer (#736) can
+        // re-validate `Default`-ruled devices against their zones and unbind
+        // any tunnel binding a device's zone now forbids. Published *before*
+        // the re-apply sweep below so the enforcer never observes a stale
+        // policy; the enforcer only reads zones + devices, so ordering against
+        // the re-apply is benign.
+        self.events.publish(WardnetEvent::DefaultPolicyChanged {
+            policy: policy.to_owned(),
+            timestamp: chrono::Utc::now(),
+        });
 
         // Re-apply every device whose *stored DB rule* is
         // RoutingTarget::Default. The cached `applied` entry holds the

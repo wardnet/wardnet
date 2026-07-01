@@ -36,6 +36,7 @@ pub mod route_monitor;
 pub mod routing_listener;
 pub mod tunnel_idle;
 pub mod tunnel_monitor;
+pub mod zone_enforcement_listener;
 
 // Three-layer watchdog (issue #214): the health-gated soft sd_notify restart
 // and the ungated hardware /dev/watchdog reboot backstop.
