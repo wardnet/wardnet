@@ -73,7 +73,10 @@ test("filter profile: create, list, edit, set default, delete", async ({
   await expect(defaultToggle).toHaveAttribute("aria-checked", "true");
 
   // ── Delete it ──────────────────────────────────────────────────────
+  // "Delete profile" lives in the identity card's edit mode, so open the
+  // profile and enter edit before deleting.
   await renamedRow.click();
+  await page.getByTestId("profile-edit").click();
   await page.getByTestId("profile-delete").click();
   await page.getByTestId("confirm-dialog-confirm").click();
   await expect(page).toHaveURL(/\/admin\/dns\/filter$/);
