@@ -27,6 +27,8 @@ export interface Device {
   last_seen: string;
   last_ip: string;
   admin_locked: boolean;
+  /** The Network Zone this device belongs to (exactly one). See issue #735. */
+  zone_id: string;
   dns_capture_enabled: boolean;
   dns_capture_cap_count: number;
   dns_capture_cap_days: number;

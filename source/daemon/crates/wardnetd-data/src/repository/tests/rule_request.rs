@@ -8,8 +8,8 @@ const DEV2: &str = "00000000-0000-0000-0000-000000000002";
 async fn insert_device(pool: &sqlx::SqlitePool, id: &str, mac: &str, ip: &str) {
     let now = "2026-03-07T00:00:00Z";
     sqlx::query(
-        "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen) \
-         VALUES (?, ?, ?, 'unknown', ?, ?)",
+        "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
+         VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
     )
     .bind(id)
     .bind(mac)

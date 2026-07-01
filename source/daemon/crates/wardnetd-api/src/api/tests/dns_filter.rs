@@ -36,8 +36,8 @@ use wardnet_common::jobs::JobDispatchedResponse;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
+    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -410,6 +410,7 @@ fn build_state() -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

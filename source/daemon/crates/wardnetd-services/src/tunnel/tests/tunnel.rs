@@ -749,6 +749,9 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        Ok(true)
+    }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)
     }
@@ -827,6 +830,9 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
     }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
+    }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        Ok(true)
     }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(0)

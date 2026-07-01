@@ -7,6 +7,7 @@ pub mod dns_events;
 pub mod dns_filter;
 pub mod dns_local;
 pub mod maintenance;
+pub mod network_zone;
 pub mod rule_request;
 pub mod session;
 pub mod sqlite;
@@ -31,14 +32,16 @@ pub use dns_local::{
     ZoneUpdate,
 };
 pub use maintenance::MaintenanceRepository;
+pub use network_zone::NetworkZoneRepository;
 pub use rule_request::RuleRequestRepository;
 pub use session::SessionRepository;
 pub use sqlite::{
     SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
     SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteMaintenanceRepository, SqliteRuleRequestRepository,
-    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
+    SqliteDnsRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
+    SqliteRuleRequestRepository, SqliteSessionRepository, SqliteStatsRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteTunnelSpeedTestRepository,
+    SqliteUpdateRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};

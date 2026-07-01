@@ -6,8 +6,8 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
-    ApiError, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus, ListDevicesResponse,
-    SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest,
+    ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus,
+    ListDevicesResponse, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -24,6 +24,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(get_me))
         .routes(routes!(set_my_rule))
         .routes(routes!(get_device, update_device))
+        .routes(routes!(assign_device_zone))
 }
 
 const TAG: &str = "devices";
@@ -306,6 +307,55 @@ pub async fn update_device(
         .ok()
         .and_then(|r| r.current_rule);
 
+    let dhcp_map = build_dhcp_status_map(&state).await?;
+    let device = enrich_device(device, &dhcp_map, rule.clone());
+    Ok(Json(DeviceDetailResponse {
+        device,
+        current_rule: rule,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/devices/{id}/zone",
+    tag = TAG,
+    description = "Reassign a device to a different Network Zone (epic #244, \
+                   issue #735). Membership is otherwise sticky (set once at \
+                   discovery). Returns the updated device detail. Admin only.",
+    params(("id" = Uuid, Path, description = "Device ID")),
+    request_body = AssignDeviceZoneRequest,
+    responses(
+        (status = 200, description = "Updated device detail", body = DeviceDetailResponse),
+        AuthErrors,
+        NotFound,
+        BadRequest,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn assign_device_zone(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<String>,
+    Json(body): Json<AssignDeviceZoneRequest>,
+) -> Result<Json<DeviceDetailResponse>, AppError> {
+    let uuid: Uuid = id
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
+    state
+        .network_zone_service()
+        .assign_device(uuid, body.zone_id)
+        .await?;
+
+    let device = state.discovery_service().get_device_by_id(uuid).await?;
+    let rule = state
+        .device_service()
+        .get_device_for_ip(&device.last_ip)
+        .await
+        .ok()
+        .and_then(|r| r.current_rule);
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {

@@ -106,6 +106,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             first_seen,
             last_seen,
             last_ip: ip.to_owned(),
+            // Seeded demo devices are the owner's known devices → Trusted zone
+            // (seeded by the network_zones migration; allows direct + tunnel).
+            zone_id: "00000000-0000-0000-0000-000000000201".to_owned(),
         };
         device_repo.insert(&row).await?;
         device_ids.push(id);

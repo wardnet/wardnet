@@ -7,8 +7,8 @@ use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
     DnsFilterService, DnsLocalService, DnsService, HealthMonitor, JobService, LogService,
-    RoutingService, RuleRequestService, StatsService, SystemService, TlsService, TunnelService,
-    UpdateService, VpnProviderService,
+    NetworkZoneService, RoutingService, RuleRequestService, StatsService, SystemService,
+    TlsService, TunnelService, UpdateService, VpnProviderService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -34,6 +34,7 @@ struct Inner {
     log_service: Arc<dyn LogService>,
     provider_service: Arc<dyn VpnProviderService>,
     routing_service: Arc<dyn RoutingService>,
+    network_zone_service: Arc<dyn NetworkZoneService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
     update_service: Arc<dyn UpdateService>,
@@ -72,6 +73,7 @@ impl AppState {
         log_service: Arc<dyn LogService>,
         provider_service: Arc<dyn VpnProviderService>,
         routing_service: Arc<dyn RoutingService>,
+        network_zone_service: Arc<dyn NetworkZoneService>,
         system_service: Arc<dyn SystemService>,
         tunnel_service: Arc<dyn TunnelService>,
         update_service: Arc<dyn UpdateService>,
@@ -97,6 +99,7 @@ impl AppState {
                 log_service,
                 provider_service,
                 routing_service,
+                network_zone_service,
                 system_service,
                 tunnel_service,
                 update_service,
@@ -232,6 +235,12 @@ impl AppState {
     #[must_use]
     pub fn routing_service(&self) -> &dyn RoutingService {
         self.inner.routing_service.as_ref()
+    }
+
+    /// Access the Network Zones service (device policy buckets — issue #735).
+    #[must_use]
+    pub fn network_zone_service(&self) -> &dyn NetworkZoneService {
+        self.inner.network_zone_service.as_ref()
     }
 
     #[must_use]

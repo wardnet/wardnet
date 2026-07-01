@@ -44,6 +44,10 @@ pub struct Device {
     pub last_seen: DateTime<Utc>,
     pub last_ip: String,
     pub admin_locked: bool,
+    /// The Network Zone this device belongs to (exactly one). Sticky: set from
+    /// the default-for-new zone at discovery-insert time; never resolved at read
+    /// time. See [`crate::network_zone`] and epic #244.
+    pub zone_id: Uuid,
     pub dns_capture_enabled: bool,
     pub dns_capture_cap_count: i64,
     pub dns_capture_cap_days: i64,

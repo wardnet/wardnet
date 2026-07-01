@@ -18,6 +18,7 @@ use crate::event::EventPublisher;
 use wardnetd_data::oui;
 use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::DhcpRepository;
+use wardnetd_data::repository::NetworkZoneRepository;
 use wardnetd_data::repository::device::DeviceRow;
 
 /// In-memory tracking state for a device.
@@ -107,6 +108,7 @@ pub trait DeviceDiscoveryService: Send + Sync {
 /// Default implementation of [`DeviceDiscoveryService`].
 pub struct DeviceDiscoveryServiceImpl {
     devices: Arc<dyn DeviceRepository>,
+    zones: Arc<dyn NetworkZoneRepository>,
     dhcp: Arc<dyn DhcpRepository>,
     events: Arc<dyn EventPublisher>,
     resolver: Arc<dyn HostnameResolver>,
@@ -121,6 +123,7 @@ impl DeviceDiscoveryServiceImpl {
     /// Create a new discovery service with the given dependencies.
     pub fn new(
         devices: Arc<dyn DeviceRepository>,
+        zones: Arc<dyn NetworkZoneRepository>,
         dhcp: Arc<dyn DhcpRepository>,
         events: Arc<dyn EventPublisher>,
         resolver: Arc<dyn HostnameResolver>,
@@ -128,6 +131,7 @@ impl DeviceDiscoveryServiceImpl {
     ) -> Self {
         Self {
             devices,
+            zones,
             dhcp,
             events,
             resolver,
@@ -208,6 +212,14 @@ impl DeviceDiscoveryServiceImpl {
             .map_or(DeviceType::Unknown, oui::guess_device_type);
         let now = chrono::Utc::now().to_rfc3339();
 
+        // Freshly-discovered devices land in the default-for-new zone (Guest).
+        // Membership is sticky: it is set once here and never re-resolved.
+        let zone = self
+            .zones
+            .find_default_for_new()
+            .await
+            .map_err(AppError::Internal)?;
+
         let row = DeviceRow {
             id: device_id.to_string(),
             mac: obs.mac.clone(),
@@ -218,6 +230,7 @@ impl DeviceDiscoveryServiceImpl {
             first_seen: now.clone(),
             last_seen: now,
             last_ip: obs.ip.clone(),
+            zone_id: zone.id.to_string(),
         };
 
         self.devices

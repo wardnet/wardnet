@@ -64,8 +64,8 @@ async fn device_count_with_data() {
     let now = "2026-03-07T00:00:00Z";
     for i in 0..3 {
         sqlx::query(
-            "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen) \
-             VALUES (?, ?, ?, 'unknown', ?, ?)",
+            "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
+             VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
         )
         .bind(format!("00000000-0000-0000-0000-00000000000{i}"))
         .bind(format!("aa:bb:cc:dd:ee:{i:02x}"))

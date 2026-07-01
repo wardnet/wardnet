@@ -30,6 +30,20 @@
 
 **Default policy** — The gateway-wide fallback applied to a device that has **no** routing rule of its own. A device following the default policy is distinct from one whose rule's target is explicitly *default*: the former has no rule (its current routing target is absent/`null`), the latter has a rule that names *default* as the target. Both ultimately follow the gateway policy, but only the latter is a persisted choice.
 
+## Network Zones
+
+**Network Zone** — A named policy bucket a device belongs to (**exactly one**) that gates the device's allowed **routing targets**, its reachability of the Pi's admin surfaces, and (Phase 2+) its network isolation. Deliberately **not** the DNS *authoritative local zone*: unrelated concept, hence the qualifier "network." Three are seeded by the daemon — **Trusted**, **IoT**, **Guest**. Zones *constrain* the routing choice (via `allowed_targets`, a coarse list of `direct` / `tunnel` kinds) but do not make it — a device in a tunnel-only zone is rejected (409) when someone tries to set its target to direct. See epic #244 and [adr-network-zone-isolation.md](docs/adr-network-zone-isolation.md).
+
+**Zone isolation stance** — The **cross-zone** rung of the guarantee ladder a zone sits on: **shared subnet** (nftables egress + admin-UI gating only; peer isolation delegated to the AP) or **isolate members** (per-device `/32` + proxy-ARP; requires Wardnet-owned DHCP). Only rungs with backing issues exist; **VLAN is a non-goal**, not a variant. Recorded-only in Phase 1 (#735) — no packet enforcement yet.
+
+**Member isolation** — An **orthogonal** toggle (independent of the isolation stance): within an isolate-members zone, also isolate **same-zone peers** from each other. Recorded-only in Phase 1.
+
+**Default zone** — The protected **anchor** ("home") zone — full trust, deletion-guarded. Exactly one. It is **Trusted**. Distinct from the *default zone for new devices*.
+
+**Default zone for new devices** — Where a freshly-discovered device is assigned at discovery time. Exactly one. It is **Guest** — nothing is auto-trusted. Membership is **sticky**: set once at insert from this flag and never re-resolved, so re-pointing the flag later does not move existing devices. Both default flags move only by *promoting* another zone (you cannot clear a default, only relocate it).
+
+**Cross-zone exception** — (Forward reference, CI-3 #737.) A future admin-granted allowance for one specific device or flow to cross an otherwise-isolated zone boundary (e.g. a phone casting to a TV in the IoT zone). Not modelled in Phase 1; named here so the isolation vocabulary is complete.
+
 ## Local DNS
 
 **Authoritative local zone** — A named DNS domain (e.g. `lan`, `home`) the gateway answers for directly rather than forwarding upstream. Single-label names are valid. Zones group custom records; deleting a zone keeps its records but unlinks them.

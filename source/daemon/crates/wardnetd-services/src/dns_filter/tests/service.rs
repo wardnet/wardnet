@@ -98,6 +98,7 @@ impl MemoryDeviceRepository {
                 last_seen: now,
                 last_ip: last_ip.to_owned(),
                 admin_locked: false,
+                zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
                 dns_capture_enabled: false,
                 dns_capture_cap_count: 1000,
                 dns_capture_cap_days: 7,
@@ -178,6 +179,9 @@ impl DeviceRepository for MemoryDeviceRepository {
         unimplemented!()
     }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
         unimplemented!()
     }
     async fn count(&self) -> anyhow::Result<i64> {
@@ -275,8 +279,8 @@ impl Harness {
     /// repository (so `find_by_id` returns it for context materialisation).
     async fn add_device(&self, id: Uuid, last_ip: &str) {
         sqlx::query(
-            "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen) \
-             VALUES (?, ?, ?, 'unknown', ?, ?)",
+            "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
+             VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
         )
         .bind(id.to_string())
         .bind(format!(
