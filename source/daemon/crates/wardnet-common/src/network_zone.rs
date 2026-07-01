@@ -2,12 +2,37 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::routing::RoutingTarget;
+
 /// A permitted routing-target *kind* a zone allows. Coarse: any tunnel, or direct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AllowedTargetKind {
     Direct,
     Tunnel,
+}
+
+impl AllowedTargetKind {
+    /// The coarse kind of a *concrete* routing target. `Default` is not
+    /// concrete (it resolves through the global policy first) and yields
+    /// `None` — callers resolve it via [`RoutingTarget::from_default_policy`].
+    #[must_use]
+    pub fn of_target(target: &RoutingTarget) -> Option<Self> {
+        match target {
+            RoutingTarget::Direct => Some(Self::Direct),
+            RoutingTarget::Tunnel { .. } => Some(Self::Tunnel),
+            RoutingTarget::Default => None,
+        }
+    }
+
+    /// The `snake_case` wire string, for log/error messages.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Tunnel => "tunnel",
+        }
+    }
 }
 
 /// Cross-zone isolation rung of the guarantee ladder (epic #244). Only the rungs

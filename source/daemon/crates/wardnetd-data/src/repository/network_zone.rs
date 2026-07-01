@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use wardnet_common::network_zone::NetworkZone;
 
@@ -42,4 +44,10 @@ pub trait NetworkZoneRepository: Send + Sync {
 
     /// Count the devices currently assigned to the given zone.
     async fn count_members(&self, zone_id: &str) -> anyhow::Result<i64>;
+
+    /// Member counts for every zone in a single query (`zone_id` → count).
+    /// Zones with zero members are absent from the map. Batched companion to
+    /// [`count_members`](Self::count_members) for the list view (avoids an
+    /// N+1 COUNT per zone).
+    async fn member_counts(&self) -> anyhow::Result<HashMap<String, i64>>;
 }

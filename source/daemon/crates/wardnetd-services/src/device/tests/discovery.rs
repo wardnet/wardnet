@@ -360,6 +360,9 @@ impl NetworkZoneRepository for MockNetworkZoneRepo {
     async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
         Ok(0)
     }
+    async fn member_counts(&self) -> anyhow::Result<std::collections::HashMap<String, i64>> {
+        Ok(std::collections::HashMap::new())
+    }
 }
 
 struct MockDhcpRepository {

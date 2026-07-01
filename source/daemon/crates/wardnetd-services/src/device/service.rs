@@ -151,29 +151,27 @@ impl DeviceServiceImpl {
         }
     }
 
-    /// Resolve the global default routing policy into a concrete target kind.
-    ///
-    /// Mirrors [`RoutingServiceImpl::resolve_target`](crate::routing) without a
-    /// service→service dependency: reads the persisted `default_policy` string
-    /// (`"direct"` or a tunnel UUID) directly from `system_config`. Absent or
-    /// unparseable config resolves to `Direct`.
-    async fn resolve_default_kind(&self) -> Result<AllowedTargetKind, AppError> {
+    /// Resolve a routing target into the coarse [`AllowedTargetKind`] a zone
+    /// gates on. `Default` is resolved through the persisted global
+    /// `default_policy` (read from `system_config`, avoiding a service→service
+    /// cycle) using the shared [`RoutingTarget::from_default_policy`] — the same
+    /// classifier the routing engine uses, so the two never disagree.
+    async fn resolve_target_kind(
+        &self,
+        target: &RoutingTarget,
+    ) -> Result<AllowedTargetKind, AppError> {
+        if let Some(kind) = AllowedTargetKind::of_target(target) {
+            return Ok(kind);
+        }
+        // `Default` — resolve via the global policy.
         let policy = self
             .system_config
             .get_default_policy()
             .await
             .map_err(AppError::Internal)?
             .unwrap_or_else(|| "direct".to_owned());
-        Ok(if policy == "direct" {
-            AllowedTargetKind::Direct
-        } else {
-            // Any non-"direct" value is a tunnel selector (validated on write by
-            // the routing service); treat unparseable legacy values as Direct.
-            match policy.parse::<Uuid>() {
-                Ok(_) => AllowedTargetKind::Tunnel,
-                Err(_) => AllowedTargetKind::Direct,
-            }
-        })
+        let concrete = RoutingTarget::from_default_policy(&policy);
+        Ok(AllowedTargetKind::of_target(&concrete).unwrap_or(AllowedTargetKind::Direct))
     }
 
     /// Reject a routing target that the device's Network Zone does not permit.
@@ -187,11 +185,7 @@ impl DeviceServiceImpl {
         device: &Device,
         target: &RoutingTarget,
     ) -> Result<(), AppError> {
-        let kind = match target {
-            RoutingTarget::Direct => AllowedTargetKind::Direct,
-            RoutingTarget::Tunnel { .. } => AllowedTargetKind::Tunnel,
-            RoutingTarget::Default => self.resolve_default_kind().await?,
-        };
+        let kind = self.resolve_target_kind(target).await?;
 
         let zone = self
             .zones
@@ -207,12 +201,9 @@ impl DeviceServiceImpl {
             })?;
 
         if !zone.permits_kind(kind) {
-            let kind_str = match kind {
-                AllowedTargetKind::Direct => "direct",
-                AllowedTargetKind::Tunnel => "tunnel",
-            };
             return Err(AppError::Conflict(format!(
-                "routing target '{kind_str}' is not permitted by this device's zone '{}'",
+                "routing target '{}' is not permitted by this device's zone '{}'",
+                kind.as_str(),
                 zone.name
             )));
         }

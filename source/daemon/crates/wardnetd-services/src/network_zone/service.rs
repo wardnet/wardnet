@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::api::{CreateNetworkZoneRequest, NetworkZoneView, UpdateNetworkZoneRequest};
 use wardnet_common::event::WardnetEvent;
-use wardnet_common::network_zone::{NetworkZone, ZoneProvenance};
-use wardnetd_data::repository::{DeviceRepository, NetworkZoneRepository};
+use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance};
+use wardnet_common::routing::RoutingTarget;
+use wardnetd_data::repository::{DeviceRepository, NetworkZoneRepository, SystemConfigRepository};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -55,6 +56,7 @@ pub trait NetworkZoneService: Send + Sync {
 pub struct NetworkZoneServiceImpl {
     zones: Arc<dyn NetworkZoneRepository>,
     devices: Arc<dyn DeviceRepository>,
+    system_config: Arc<dyn SystemConfigRepository>,
     events: Arc<dyn EventPublisher>,
 }
 
@@ -64,13 +66,102 @@ impl NetworkZoneServiceImpl {
     pub fn new(
         zones: Arc<dyn NetworkZoneRepository>,
         devices: Arc<dyn DeviceRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self {
             zones,
             devices,
+            system_config,
             events,
         }
+    }
+
+    /// Resolve a device's *current* routing-rule kind (if it has a rule),
+    /// resolving `Default` through the global policy — the same classification
+    /// the write-time zone gate in `DeviceService` uses. `Ok(None)` means the
+    /// device has no rule of its own (it follows the gateway default, which is
+    /// itself already zone-checked at write time only — see the ADR caveat).
+    async fn current_rule_kind(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<AllowedTargetKind>, AppError> {
+        let Some(rule) = self
+            .devices
+            .find_rule_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(None);
+        };
+        let concrete = match rule.target {
+            RoutingTarget::Default => {
+                let policy = self
+                    .system_config
+                    .get_default_policy()
+                    .await
+                    .map_err(AppError::Internal)?
+                    .unwrap_or_else(|| "direct".to_owned());
+                RoutingTarget::from_default_policy(&policy)
+            }
+            other => other,
+        };
+        Ok(Some(
+            AllowedTargetKind::of_target(&concrete).unwrap_or(AllowedTargetKind::Direct),
+        ))
+    }
+
+    /// Reject if any device in `zone_id` holds a routing rule whose resolved
+    /// kind is not in `allowed` — used when a zone's `allowed_targets` is about
+    /// to change. Batched: two queries total (all devices + all rules) plus one
+    /// policy read, regardless of member count.
+    async fn assert_members_conform(
+        &self,
+        zone_id: Uuid,
+        allowed: &[AllowedTargetKind],
+    ) -> Result<(), AppError> {
+        let members: std::collections::HashSet<String> = self
+            .devices
+            .find_all()
+            .await
+            .map_err(AppError::Internal)?
+            .into_iter()
+            .filter(|d| d.zone_id == zone_id)
+            .map(|d| d.id.to_string())
+            .collect();
+        if members.is_empty() {
+            return Ok(());
+        }
+        let policy = self
+            .system_config
+            .get_default_policy()
+            .await
+            .map_err(AppError::Internal)?
+            .unwrap_or_else(|| "direct".to_owned());
+        let rules = self
+            .devices
+            .find_all_rules()
+            .await
+            .map_err(AppError::Internal)?;
+        for rule in rules {
+            if !members.contains(&rule.device_id.to_string()) {
+                continue;
+            }
+            let concrete = match rule.target {
+                RoutingTarget::Default => RoutingTarget::from_default_policy(&policy),
+                other => other,
+            };
+            let kind = AllowedTargetKind::of_target(&concrete).unwrap_or(AllowedTargetKind::Direct);
+            if !allowed.contains(&kind) {
+                return Err(AppError::Conflict(format!(
+                    "cannot narrow allowed_targets: device {} has a '{}' rule the new set forbids; \
+                     change or clear its rule first",
+                    rule.device_id,
+                    kind.as_str()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Fetch a zone by id or return `NotFound`.
@@ -148,10 +239,19 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
     async fn list_zones(&self) -> Result<Vec<NetworkZoneView>, AppError> {
         auth_context::require_admin()?;
         let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
-        let mut views = Vec::with_capacity(zones.len());
-        for zone in zones {
-            views.push(self.view_of(zone).await?);
-        }
+        // One GROUP BY instead of an N+1 COUNT per zone.
+        let counts = self
+            .zones
+            .member_counts()
+            .await
+            .map_err(AppError::Internal)?;
+        let views = zones
+            .into_iter()
+            .map(|zone| {
+                let member_count = counts.get(&zone.id.to_string()).copied().unwrap_or(0);
+                NetworkZoneView { zone, member_count }
+            })
+            .collect();
         Ok(views)
     }
 
@@ -211,6 +311,7 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
         if let Some(stance) = req.isolation_stance {
             zone.isolation_stance = stance;
         }
+        let targets_changed = req.allowed_targets.is_some();
         if let Some(allowed_targets) = req.allowed_targets {
             zone.allowed_targets = allowed_targets;
         }
@@ -226,16 +327,26 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
 
         Self::validate_targets_and_subnet(&zone.allowed_targets, zone.subnet.as_ref())?;
 
+        // If the permitted target kinds change, no existing member may be left
+        // holding a rule the new set forbids — the same invariant the write-time
+        // gate enforces, applied from the zone-config side.
+        if targets_changed {
+            self.assert_members_conform(id, &zone.allowed_targets)
+                .await?;
+        }
+
         zone.updated_at = chrono::Utc::now();
         self.zones.update(&zone).await.map_err(AppError::Internal)?;
 
-        if req.is_default == Some(true) {
+        let promoted_default = req.is_default == Some(true);
+        let promoted_default_for_new = req.is_default_for_new == Some(true);
+        if promoted_default {
             self.zones
                 .set_default(&id.to_string())
                 .await
                 .map_err(AppError::Internal)?;
         }
-        if req.is_default_for_new == Some(true) {
+        if promoted_default_for_new {
             self.zones
                 .set_default_for_new(&id.to_string())
                 .await
@@ -243,8 +354,13 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
         }
 
         self.emit_zone_changed(id);
-        // Re-fetch so any default-flag flips are reflected in the response.
-        self.require_zone(id).await
+        // Re-fetch only when a default flag was moved out-of-band; otherwise the
+        // already-mutated local `zone` is authoritative.
+        if promoted_default || promoted_default_for_new {
+            self.require_zone(id).await
+        } else {
+            Ok(zone)
+        }
     }
 
     async fn delete_zone(&self, id: Uuid) -> Result<(), AppError> {
@@ -259,6 +375,14 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
         if zone.is_default {
             return Err(AppError::Conflict(
                 "the default (anchor) zone cannot be deleted".to_owned(),
+            ));
+        }
+        if zone.is_default_for_new {
+            // Deleting the sole default-for-new zone would orphan the pointer
+            // (`find_default_for_new` would then error, breaking device
+            // discovery). Promote another zone first.
+            return Err(AppError::Conflict(
+                "the default-for-new zone cannot be deleted; promote another zone first".to_owned(),
             ));
         }
         let members = self
@@ -313,11 +437,24 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
             .ok_or_else(|| AppError::NotFound(format!("device {device_id} not found")))?;
 
         // Validate the target zone exists (also enforced by the FK).
-        self.require_zone(zone_id).await?;
+        let target_zone = self.require_zone(zone_id).await?;
 
         let old_zone_id = device.zone_id;
         if old_zone_id == zone_id {
             return Ok(());
+        }
+
+        // Don't strand the device with a routing rule its new zone forbids —
+        // the write-time gate would have rejected that target, so reject the
+        // move too rather than persist contradictory state.
+        if let Some(kind) = self.current_rule_kind(&device_id.to_string()).await?
+            && !target_zone.permits_kind(kind)
+        {
+            return Err(AppError::Conflict(format!(
+                "device's current routing target '{}' is not permitted by zone '{}'; change or clear its rule first",
+                kind.as_str(),
+                target_zone.name
+            )));
         }
 
         let updated = self

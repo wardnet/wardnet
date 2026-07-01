@@ -15,9 +15,11 @@ use wardnet_common::api::{CreateNetworkZoneRequest, UpdateNetworkZoneRequest};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::network_zone::{AllowedTargetKind, ZoneProvenance, ZoneStance, ZoneSubnet};
+use wardnet_common::routing::RoutingTarget;
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::{
     DeviceRepository, SqliteDeviceRepository, SqliteNetworkZoneRepository,
+    SqliteSystemConfigRepository,
 };
 
 use crate::auth_context;
@@ -50,9 +52,10 @@ struct Harness {
 async fn build() -> Harness {
     let pool = test_pool().await;
     let zones = Arc::new(SqliteNetworkZoneRepository::new(pool.clone()));
-    let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool));
+    let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool.clone()));
+    let system_config = Arc::new(SqliteSystemConfigRepository::new(pool));
     let events = Arc::new(BroadcastEventBus::new(16));
-    let svc = NetworkZoneServiceImpl::new(zones, devices.clone(), events.clone());
+    let svc = NetworkZoneServiceImpl::new(zones, devices.clone(), system_config, events.clone());
     Harness {
         svc,
         devices,
@@ -352,6 +355,21 @@ async fn delete_rejects_default_zone() {
 }
 
 #[tokio::test]
+async fn delete_rejects_default_for_new_zone() {
+    // A manual, empty zone that has been promoted to default-for-new must not
+    // be deletable — doing so would orphan the pointer and break discovery.
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("Landing")))
+        .await
+        .unwrap();
+    as_admin(h.svc.set_default_for_new(zone.id)).await.unwrap();
+    assert!(matches!(
+        as_admin(h.svc.delete_zone(zone.id)).await,
+        Err(AppError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
 async fn delete_rejects_zone_with_members() {
     let h = build().await;
     let zone = as_admin(h.svc.create_zone(create_req("Temp")))
@@ -413,6 +431,69 @@ async fn assign_device_moves_zone_and_emits_event() {
         }
         other => panic!("expected DeviceZoneChanged, got {other:?}"),
     }
+}
+
+async fn give_tunnel_rule(devices: &Arc<dyn DeviceRepository>, device_id: Uuid) {
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: Uuid::new_v4(),
+    };
+    let json = serde_json::to_string(&target).unwrap();
+    devices
+        .upsert_user_rule(
+            &device_id.to_string(),
+            &json,
+            &chrono::Utc::now().to_rfc3339(),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn assign_device_rejects_move_that_would_violate_new_zone() {
+    // Device has a Tunnel rule; moving it into a direct-only zone is rejected
+    // rather than persisting a rule the zone forbids.
+    let h = build().await;
+    let direct_only = as_admin(h.svc.create_zone(CreateNetworkZoneRequest {
+        name: "DirectOnly".to_owned(),
+        isolation_stance: ZoneStance::SharedSubnet,
+        allowed_targets: vec![AllowedTargetKind::Direct],
+        member_isolation: false,
+        admin_ui_reachable: true,
+        subnet: None,
+    }))
+    .await
+    .unwrap();
+
+    let device_id = Uuid::new_v4();
+    insert_device(&h.devices, device_id, GUEST).await;
+    give_tunnel_rule(&h.devices, device_id).await;
+
+    assert!(matches!(
+        as_admin(h.svc.assign_device(device_id, direct_only.id)).await,
+        Err(AppError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+async fn update_zone_rejects_narrowing_that_strands_a_member() {
+    // A member holds a Tunnel rule; narrowing the zone to direct-only is
+    // rejected until the rule is changed.
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("Mixed")))
+        .await
+        .unwrap();
+    let device_id = Uuid::new_v4();
+    insert_device(&h.devices, device_id, &zone.id.to_string()).await;
+    give_tunnel_rule(&h.devices, device_id).await;
+
+    let req = UpdateNetworkZoneRequest {
+        allowed_targets: Some(vec![AllowedTargetKind::Direct]),
+        ..Default::default()
+    };
+    assert!(matches!(
+        as_admin(h.svc.update_zone(zone.id, req)).await,
+        Err(AppError::Conflict(_))
+    ));
 }
 
 #[tokio::test]
