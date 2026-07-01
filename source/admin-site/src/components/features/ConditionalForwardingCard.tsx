@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardContent,
-  CardFooter,
   CardHeader,
   CardSubtitle,
   CardTitle,
@@ -252,19 +251,20 @@ function RuleForm({
             />
           </div>
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSaving} data-testid="fwd-submit">
-            {rule ? "Save changes" : "Add rule"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            type: "button",
+            onClick: onCancel,
+            disabled: isSaving,
+          }}
+          primaryLabel={rule ? "Save changes" : "Add rule"}
+          primaryProps={{
+            type: "submit",
+            disabled: isSaving,
+            "data-testid": "fwd-submit",
+          }}
+        />
       </Form>
     </Card>
   );

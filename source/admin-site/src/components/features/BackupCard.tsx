@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { WardnetApiError, type RestorePreviewResponse } from "@wardnet/js";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -275,30 +275,29 @@ export function BackupCard({
                 />
               )}
             </CardContent>
-            <CardFooter className="justify-end gap-2">
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={exitExport}
-                disabled={isExporting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isExporting}
-                data-testid="backup-export-submit"
-              >
-                {isExporting ? (
+            <FormActions
+              secondaryLabel="Cancel"
+              secondaryProps={{
+                type: "button",
+                onClick: exitExport,
+                disabled: isExporting,
+              }}
+              primaryLabel={
+                isExporting ? (
                   <>
                     <Loader2 className="animate-spin" />
                     Exporting…
                   </>
                 ) : (
                   "Download"
-                )}
-              </Button>
-            </CardFooter>
+                )
+              }
+              primaryProps={{
+                type: "submit",
+                disabled: isExporting,
+                "data-testid": "backup-export-submit",
+              }}
+            />
           </Form>
         )}
       </Card>
@@ -410,30 +409,29 @@ export function BackupCard({
                 />
               )}
             </CardContent>
-            <CardFooter className="justify-end gap-2">
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={exitRestore}
-                disabled={isPreviewing}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isPreviewing}
-                data-testid="backup-preview-submit"
-              >
-                {isPreviewing ? (
+            <FormActions
+              secondaryLabel="Cancel"
+              secondaryProps={{
+                type: "button",
+                onClick: exitRestore,
+                disabled: isPreviewing,
+              }}
+              primaryLabel={
+                isPreviewing ? (
                   <>
                     <Loader2 className="animate-spin" />
                     Decrypting…
                   </>
                 ) : (
                   "Preview"
-                )}
-              </Button>
-            </CardFooter>
+                )
+              }
+              primaryProps={{
+                type: "submit",
+                disabled: isPreviewing,
+                "data-testid": "backup-preview-submit",
+              }}
+            />
           </Form>
         ) : (
           <>
@@ -449,30 +447,26 @@ export function BackupCard({
                 />
               )}
             </CardContent>
-            <CardFooter className="justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={exitRestore}
-                disabled={isApplying}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleApply}
-                disabled={!preview.compatible || isApplying}
-                data-testid="backup-apply-submit"
-              >
-                {isApplying ? (
+            <FormActions
+              secondaryLabel="Cancel"
+              secondaryProps={{ onClick: exitRestore, disabled: isApplying }}
+              primaryVariant="destructive"
+              primaryLabel={
+                isApplying ? (
                   <>
                     <Loader2 className="animate-spin" />
                     Restoring…
                   </>
                 ) : (
                   "Restore"
-                )}
-              </Button>
-            </CardFooter>
+                )
+              }
+              primaryProps={{
+                onClick: handleApply,
+                disabled: !preview.compatible || isApplying,
+                "data-testid": "backup-apply-submit",
+              }}
+            />
           </>
         )}
       </Card>

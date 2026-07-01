@@ -2,11 +2,11 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -318,23 +318,20 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
             </>
           )}
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            data-testid="upstream-submit"
-            disabled={isSaving}
-          >
-            Add server
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            type: "button",
+            onClick: onCancel,
+            disabled: isSaving,
+          }}
+          primaryLabel="Add server"
+          primaryProps={{
+            type: "submit",
+            "data-testid": "upstream-submit",
+            disabled: isSaving,
+          }}
+        />
       </Form>
     </Card>
   );

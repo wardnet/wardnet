@@ -1,11 +1,6 @@
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wardnet/web";
 import { ManualTunnelTab } from "./ManualTunnelTab";
@@ -74,11 +69,10 @@ export function CreateTunnelInline({
         <CardTitle>Add WireGuard tunnel</CardTitle>
       </CardHeader>
       <CardContent>{body}</CardContent>
-      <CardFooter className="justify-end">
-        <Button variant="ghost" onClick={onClose}>
-          Cancel
-        </Button>
-      </CardFooter>
+      <FormActions
+        secondaryLabel="Cancel"
+        secondaryProps={{ onClick: onClose }}
+      />
     </Card>
   );
 }

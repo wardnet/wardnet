@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -138,19 +138,18 @@ export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
           </div>
           {update.isError && <ApiErrorAlert error={update.error} />}
         </CardContent>
-        <CardFooter className="gap-2">
-          <Button
-            variant="ghost"
-            onClick={cancelEdit}
-            disabled={update.isPending}
-            className="ml-auto"
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={update.isPending}>
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            onClick: cancelEdit,
+            disabled: update.isPending,
+          }}
+          primaryLabel={update.isPending ? "Saving…" : "Save"}
+          primaryProps={{
+            onClick: handleSave,
+            disabled: update.isPending,
+          }}
+        />
       </Card>
     );
   }

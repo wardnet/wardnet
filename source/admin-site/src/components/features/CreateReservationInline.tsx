@@ -1,12 +1,6 @@
 import { useState } from "react";
-import { Button } from "@wardnet/web";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
@@ -139,23 +133,22 @@ export function CreateReservationInline({
           />
         )}
       </CardContent>
-      <CardFooter className="justify-end gap-2">
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          disabled={createReservation.isPending}
-          data-testid="dhcp-reservation-cancel"
-        >
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSave}
-          disabled={createReservation.isPending}
-          data-testid="dhcp-reservation-submit"
-        >
-          {createReservation.isPending ? "Creating…" : "Create reservation"}
-        </Button>
-      </CardFooter>
+      <FormActions
+        secondaryLabel="Cancel"
+        secondaryProps={{
+          onClick: onClose,
+          disabled: createReservation.isPending,
+          "data-testid": "dhcp-reservation-cancel",
+        }}
+        primaryLabel={
+          createReservation.isPending ? "Creating…" : "Create reservation"
+        }
+        primaryProps={{
+          onClick: handleSave,
+          disabled: createReservation.isPending,
+          "data-testid": "dhcp-reservation-submit",
+        }}
+      />
     </Card>
   );
 }

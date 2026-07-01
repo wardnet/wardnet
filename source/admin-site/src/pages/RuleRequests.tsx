@@ -75,10 +75,15 @@ function RequestRow({
       {pending && (
         <FormActions
           secondaryLabel="Reject"
-          onSecondary={() => decide.mutate({ id: req.id, status: "rejected" })}
+          secondaryProps={{
+            onClick: () => decide.mutate({ id: req.id, status: "rejected" }),
+            disabled: decide.isPending,
+          }}
           primaryLabel="Approve"
-          onPrimary={() => decide.mutate({ id: req.id, status: "approved" })}
-          disabled={decide.isPending}
+          primaryProps={{
+            onClick: () => decide.mutate({ id: req.id, status: "approved" }),
+            disabled: decide.isPending,
+          }}
         />
       )}
     </Card>

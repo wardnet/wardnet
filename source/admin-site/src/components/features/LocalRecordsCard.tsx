@@ -1,14 +1,8 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/web";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
@@ -388,23 +382,20 @@ function RecordForm({
             </Select>
           </Field>
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={isSaving}
-            data-testid="local-record-submit"
-          >
-            {record ? "Save changes" : "Add record"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            type: "button",
+            onClick: onCancel,
+            disabled: isSaving,
+          }}
+          primaryLabel={record ? "Save changes" : "Add record"}
+          primaryProps={{
+            type: "submit",
+            disabled: isSaving,
+            "data-testid": "local-record-submit",
+          }}
+        />
       </Form>
     </Card>
   );
