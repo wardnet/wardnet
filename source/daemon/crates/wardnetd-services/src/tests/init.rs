@@ -238,6 +238,7 @@ fn stub_backends() -> Backends {
         packet_capture: Arc::new(StubPacketCapture),
         hostname_resolver: Arc::new(StubHostnameResolver),
         secret_store: Arc::new(StubSecretStore),
+        web_push_sender: Arc::new(StubWebPushSender),
         blocklist_fetcher: Arc::new(StubBlocklistFetcher),
         update: crate::UpdateBackends {
             release_source: Arc::new(StubReleaseSource),
@@ -253,6 +254,20 @@ fn stub_backends() -> Backends {
         garp_ops: Arc::new(StubGarpOps),
         cert_activator: Arc::new(StubCertActivator),
         watchdog_ops: Arc::new(StubWatchdog),
+    }
+}
+
+struct StubWebPushSender;
+
+#[async_trait::async_trait]
+impl crate::push::sender::WebPushSender for StubWebPushSender {
+    async fn send(
+        &self,
+        _vapid: &crate::push::sender::VapidKey,
+        _target: crate::push::sender::PushTarget<'_>,
+        _payload: Vec<u8>,
+    ) -> crate::push::sender::SendOutcome {
+        crate::push::sender::SendOutcome::Delivered
     }
 }
 

@@ -338,6 +338,25 @@ impl TunnelServiceImpl {
             return Ok(());
         }
 
+        // On any failure to configure the interface, emit `TunnelStartFailed`
+        // (drives the admin-PWA "failed to start" push) before propagating.
+        let interface_name = tunnel.interface_name.clone();
+        if let Err(error) = self.bring_up_configure(id, tunnel).await {
+            self.events.publish(WardnetEvent::TunnelStartFailed {
+                tunnel_id: id,
+                interface_name,
+                error: error.to_string(),
+                timestamp: chrono::Utc::now(),
+            });
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The fallible interface-configuration work of [`Self::bring_up_core`],
+    /// split out so the caller can wrap any failure into a `TunnelStartFailed`
+    /// event. `tunnel` is the already-loaded, confirmed-`Down` record.
+    async fn bring_up_configure(&self, id: Uuid, tunnel: Tunnel) -> Result<(), AppError> {
         // Load stored `WireGuard` configuration.
         let tunnel_config = self
             .tunnels

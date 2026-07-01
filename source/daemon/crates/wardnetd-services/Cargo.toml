@@ -93,6 +93,10 @@ instant-acme.workspace = true
 rcgen.workspace = true
 # https://crates.io/crates/x509-parser — parse cert `not_after` for renewal scheduling
 x509-parser.workspace = true
+# https://crates.io/crates/web-push-native — Web Push encryption + VAPID signing
+web-push-native.workspace = true
+# https://crates.io/crates/http — name the http::Request web-push-native returns
+http.workspace = true
 
 [dev-dependencies]
 # https://crates.io/crates/tokio

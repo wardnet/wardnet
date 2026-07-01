@@ -23,3 +23,4 @@ pub mod noop_routing;
 pub mod noop_throughput_tester;
 pub mod noop_tunnel;
 pub mod noop_watchdog;
+pub mod noop_web_push;

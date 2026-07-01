@@ -19,7 +19,7 @@
     "@tanstack/react-table": "8.21.3",
     "@wardnet/js": "workspace:*",
     "@wardnet/styles": "^0.1.0",
-    "@wardnet/ui": "^0.2.0",
+    "@wardnet/ui": "^0.3.0",
     "@wardnet/web": "workspace:*",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

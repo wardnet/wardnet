@@ -378,7 +378,17 @@ impl DeviceService for DeviceServiceImpl {
         self.devices
             .update_admin_locked(device_id, locked)
             .await
-            .map_err(AppError::Internal)
+            .map_err(AppError::Internal)?;
+
+        // Notify the affected device (push): its routing was locked/unlocked.
+        if let Ok(id) = uuid::Uuid::parse_str(device_id) {
+            self.events.publish(WardnetEvent::DeviceAdminLocked {
+                device_id: id,
+                locked,
+                timestamp: chrono::Utc::now(),
+            });
+        }
+        Ok(())
     }
 
     async fn get_dns_capture_settings(

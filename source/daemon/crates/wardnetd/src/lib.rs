@@ -32,6 +32,7 @@ pub mod heartbeat;
 pub mod mdns_advertiser;
 pub mod metrics_collector;
 pub mod profiling;
+pub mod push_listener;
 pub mod route_monitor;
 pub mod routing_listener;
 pub mod tunnel_idle;

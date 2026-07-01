@@ -1,0 +1,700 @@
+//! Service-level tests for the push subsystem. Delivery crypto is covered in
+//! [`super::sender`]; here we exercise the audience/label mapping, Gone-pruning,
+//! subscription ownership, and VAPID idempotency over real in-memory `SQLite`
+//! repositories (same migration set as the rest of the workspace) plus a
+//! recording [`WebPushSender`].
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use chrono::Utc;
+use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
+use uuid::Uuid;
+use wardnet_common::api::{WebPushKeys, WebPushSubscription};
+use wardnet_common::auth::AuthContext;
+use wardnet_common::event::WardnetEvent;
+use wardnet_common::routing::{RoutingTarget, RuleCreator};
+use wardnetd_data::repository::device::DeviceRow;
+use wardnetd_data::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
+use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_data::repository::{
+    DeviceRepository, NewPushSubscription, PushRepository, SqliteDeviceRepository,
+    SqlitePushRepository, SqliteSystemConfigRepository, SqliteTunnelRepository, TunnelRepository,
+};
+use wardnetd_data::secret_store::SecretStore;
+
+use crate::auth_context;
+use crate::push::sender::{PushTarget, SendOutcome, VapidKey, WebPushSender};
+use crate::push::{PushService, PushServiceImpl};
+
+/// The daemon-seeded Guest zone (default-for-new); used as a valid `zone_id` FK
+/// when inserting test devices.
+const GUEST_ZONE: &str = "00000000-0000-0000-0000-000000000203";
+
+async fn test_pool() -> SqlitePool {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("../wardnetd-data/migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
+// ── in-memory secret store (persists across a service's lifetime) ─────────────
+
+#[derive(Default)]
+struct InMemorySecretStore {
+    map: Mutex<HashMap<String, Vec<u8>>>,
+}
+
+#[async_trait]
+impl SecretStore for InMemorySecretStore {
+    async fn put(&self, path: &str, value: &[u8]) -> anyhow::Result<()> {
+        self.map
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), value.to_vec());
+        Ok(())
+    }
+    async fn get(&self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.map.lock().unwrap().get(path).cloned())
+    }
+    async fn delete(&self, path: &str) -> anyhow::Result<()> {
+        self.map.lock().unwrap().remove(path);
+        Ok(())
+    }
+    async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .map
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect())
+    }
+}
+
+// ── recording sender ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SentPush {
+    endpoint: String,
+    payload: String,
+}
+
+struct RecordingSender {
+    outcome: SendOutcome,
+    sent: Mutex<Vec<SentPush>>,
+}
+
+impl RecordingSender {
+    fn new(outcome: SendOutcome) -> Self {
+        Self {
+            outcome,
+            sent: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl WebPushSender for RecordingSender {
+    async fn send(
+        &self,
+        _vapid: &VapidKey,
+        target: PushTarget<'_>,
+        payload: Vec<u8>,
+    ) -> SendOutcome {
+        self.sent.lock().unwrap().push(SentPush {
+            endpoint: target.endpoint.to_owned(),
+            payload: String::from_utf8(payload).unwrap(),
+        });
+        self.outcome
+    }
+}
+
+// ── harness ──────────────────────────────────────────────────────────────────
+
+struct Harness {
+    service: PushServiceImpl,
+    push_repo: Arc<dyn PushRepository>,
+    devices: Arc<dyn DeviceRepository>,
+    tunnels: Arc<dyn TunnelRepository>,
+    sender: Arc<RecordingSender>,
+    secrets: Arc<InMemorySecretStore>,
+}
+
+async fn build(outcome: SendOutcome) -> Harness {
+    let pool = test_pool().await;
+    let push_repo: Arc<dyn PushRepository> = Arc::new(SqlitePushRepository::new(pool.clone()));
+    let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool.clone()));
+    let tunnels: Arc<dyn TunnelRepository> = Arc::new(SqliteTunnelRepository::new(pool.clone()));
+    let system_config = Arc::new(SqliteSystemConfigRepository::new(pool));
+    let sender = Arc::new(RecordingSender::new(outcome));
+    let secrets = Arc::new(InMemorySecretStore::default());
+    let service = PushServiceImpl::new(
+        push_repo.clone(),
+        devices.clone(),
+        tunnels.clone(),
+        system_config,
+        secrets.clone(),
+        sender.clone(),
+    );
+    Harness {
+        service,
+        push_repo,
+        devices,
+        tunnels,
+        sender,
+        secrets,
+    }
+}
+
+async fn insert_device(
+    devices: &Arc<dyn DeviceRepository>,
+    id: Uuid,
+    mac: &str,
+    name: Option<&str>,
+) {
+    let now = Utc::now().to_rfc3339();
+    devices
+        .insert(&DeviceRow {
+            id: id.to_string(),
+            mac: mac.to_owned(),
+            hostname: None,
+            manufacturer: None,
+            device_type: "unknown".to_owned(),
+            first_seen: now.clone(),
+            last_seen: now,
+            last_ip: "192.168.1.50".to_owned(),
+            zone_id: GUEST_ZONE.to_owned(),
+        })
+        .await
+        .unwrap();
+    if let Some(name) = name {
+        devices
+            .update_name_and_type(&id.to_string(), Some(name), "unknown")
+            .await
+            .unwrap();
+    }
+}
+
+async fn insert_tunnel(tunnels: &Arc<dyn TunnelRepository>, id: Uuid, label: &str) {
+    tunnels
+        .insert(&TunnelRow {
+            id: id.to_string(),
+            label: label.to_owned(),
+            country_code: "us".to_owned(),
+            provider: None,
+            interface_name: "wg_ward0".to_owned(),
+            endpoint: "1.2.3.4:51820".to_owned(),
+            status: "up".to_owned(),
+            address: "[]".to_owned(),
+            dns: "[]".to_owned(),
+            peer_config: "{}".to_owned(),
+            listen_port: None,
+            override_default_dns: false,
+            server_selector_country: None,
+            resolved_server_name: None,
+            endpoint_resolved_at: None,
+        })
+        .await
+        .unwrap();
+}
+
+/// Dispatch an event the way the daemon listener does: under an admin context.
+async fn handle(service: &PushServiceImpl, event: WardnetEvent) {
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        service.handle_event(&event),
+    )
+    .await
+    .unwrap();
+}
+
+async fn seed(repo: &Arc<dyn PushRepository>, owner_kind: &str, owner_key: &str, endpoint: &str) {
+    repo.upsert(NewPushSubscription {
+        id: &Uuid::new_v4().to_string(),
+        owner_kind,
+        owner_key,
+        endpoint,
+        p256dh: "p256dh",
+        auth: "auth",
+        created_at: "2026-07-01T00:00:00Z",
+    })
+    .await
+    .unwrap();
+}
+
+// ── tests ────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn admin_lock_notifies_the_target_device_only() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:00", Some("Kid's iPad")).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:00",
+        "https://push/device",
+    )
+    .await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::DeviceAdminLocked {
+            device_id,
+            locked: true,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].endpoint, "https://push/device");
+    assert!(sent[0].payload.contains("Routing locked"));
+    assert!(sent[0].payload.contains("locked your routing"));
+}
+
+#[tokio::test]
+async fn admin_routing_change_targets_device_user_change_targets_admins() {
+    let device_id = Uuid::new_v4();
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:01", Some("Laptop")).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "Sweden #12").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:01",
+        "https://push/device",
+    )
+    .await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    // Admin-initiated change -> the device is told.
+    handle(
+        &h.service,
+        WardnetEvent::RoutingRuleChanged {
+            device_id,
+            target: RoutingTarget::Tunnel { tunnel_id },
+            previous_target: None,
+            changed_by: RuleCreator::Admin,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+    // Device-initiated change -> the admins are told, with the device name.
+    handle(
+        &h.service,
+        WardnetEvent::RoutingRuleChanged {
+            device_id,
+            target: RoutingTarget::Direct,
+            previous_target: None,
+            changed_by: RuleCreator::User,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    // First push: to the device, mentioning the tunnel label.
+    assert_eq!(sent[0].endpoint, "https://push/device");
+    assert!(
+        sent[0].payload.contains("Sweden #12"),
+        "got {}",
+        sent[0].payload
+    );
+    // Second push: to the admin, mentioning the device name + target.
+    assert_eq!(sent[1].endpoint, "https://push/admin");
+    assert!(
+        sent[1].payload.contains("Laptop"),
+        "got {}",
+        sent[1].payload
+    );
+    assert!(sent[1].payload.contains("direct (no tunnel)"));
+}
+
+#[tokio::test]
+async fn tunnel_down_notifies_admins_only_when_interface_absent() {
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    // A deliberate teardown must NOT notify.
+    handle(
+        &h.service,
+        WardnetEvent::TunnelDown {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            reason: "manual".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+
+    // The kernel interface vanishing DOES notify.
+    handle(
+        &h.service,
+        WardnetEvent::TunnelDown {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            reason: "interface absent".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].endpoint, "https://push/admin");
+    assert!(sent[0].payload.contains("USA #8"));
+    assert!(sent[0].payload.contains("went offline"));
+}
+
+#[tokio::test]
+async fn gone_subscriptions_are_pruned() {
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Gone).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "T").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/dead",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    // The push was attempted, and the dead subscription was removed.
+    assert_eq!(h.sender.sent.lock().unwrap().len(), 1);
+    assert!(h.push_repo.list_admins().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn subscribe_picks_owner_from_auth_context() {
+    let h = build(SendOutcome::Delivered).await;
+    let sub = WebPushSubscription {
+        endpoint: "https://push/x".to_owned(),
+        keys: WebPushKeys {
+            p256dh: "pk".to_owned(),
+            auth: "au".to_owned(),
+        },
+    };
+
+    let admin_id = Uuid::new_v4();
+    auth_context::with_context(
+        AuthContext::Admin { admin_id },
+        h.service.subscribe(sub.clone()),
+    )
+    .await
+    .unwrap();
+
+    let admins = h.push_repo.list_admins().await.unwrap();
+    assert_eq!(admins.len(), 1);
+    assert_eq!(admins[0].owner_key, admin_id.to_string());
+
+    let device_sub = WebPushSubscription {
+        endpoint: "https://push/y".to_owned(),
+        keys: WebPushKeys {
+            p256dh: "pk".to_owned(),
+            auth: "au".to_owned(),
+        },
+    };
+    auth_context::with_context(
+        AuthContext::Device {
+            mac: "aa:bb:cc:02".to_owned(),
+        },
+        h.service.subscribe(device_sub),
+    )
+    .await
+    .unwrap();
+
+    let device_subs = h
+        .push_repo
+        .list_by_owner(OWNER_KIND_DEVICE, "aa:bb:cc:02")
+        .await
+        .unwrap();
+    assert_eq!(device_subs.len(), 1);
+}
+
+#[tokio::test]
+async fn subscribe_rejects_non_https_endpoint() {
+    let h = build(SendOutcome::Delivered).await;
+    let sub = WebPushSubscription {
+        endpoint: "http://push/x".to_owned(),
+        keys: WebPushKeys {
+            p256dh: "pk".to_owned(),
+            auth: "au".to_owned(),
+        },
+    };
+    let result = auth_context::with_context(
+        AuthContext::Device {
+            mac: "aa:bb:cc:03".to_owned(),
+        },
+        h.service.subscribe(sub),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn unsubscribe_by_endpoint_cannot_remove_another_owners_subscription() {
+    let h = build(SendOutcome::Delivered).await;
+    // An admin owns a subscription.
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    // A device, knowing the admin's endpoint, tries to unsubscribe it.
+    auth_context::with_context(
+        AuthContext::Device {
+            mac: "aa:bb:cc:99".to_owned(),
+        },
+        h.service.unsubscribe(Some("https://push/admin".to_owned())),
+    )
+    .await
+    .unwrap();
+
+    // The admin's subscription survives — the delete was scoped to the caller.
+    let admins = h.push_repo.list_admins().await.unwrap();
+    assert_eq!(admins.len(), 1);
+    assert_eq!(admins[0].endpoint, "https://push/admin");
+}
+
+#[tokio::test]
+async fn unsubscribe_without_endpoint_removes_all_caller_subscriptions() {
+    let h = build(SendOutcome::Delivered).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:aa",
+        "https://push/1",
+    )
+    .await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:aa",
+        "https://push/2",
+    )
+    .await;
+
+    auth_context::with_context(
+        AuthContext::Device {
+            mac: "aa:bb:cc:aa".to_owned(),
+        },
+        h.service.unsubscribe(None),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        h.push_repo
+            .list_by_owner(OWNER_KIND_DEVICE, "aa:bb:cc:aa")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn subscribe_rejects_anonymous_caller() {
+    let h = build(SendOutcome::Delivered).await;
+    let sub = WebPushSubscription {
+        endpoint: "https://push/x".to_owned(),
+        keys: WebPushKeys {
+            p256dh: "pk".to_owned(),
+            auth: "au".to_owned(),
+        },
+    };
+    let result = auth_context::with_context(AuthContext::Anonymous, h.service.subscribe(sub)).await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn vapid_public_key_is_generated_once_and_stable() {
+    let h = build(SendOutcome::Delivered).await;
+    let first = h.service.vapid_public_key().await.unwrap();
+    let second = h.service.vapid_public_key().await.unwrap();
+    assert_eq!(first, second);
+
+    // Persisted to the secret store, so a fresh service instance over the same
+    // store returns the same key rather than minting a new one.
+    let pool = test_pool().await;
+    let reloaded = PushServiceImpl::new(
+        Arc::new(SqlitePushRepository::new(pool.clone())),
+        Arc::new(SqliteDeviceRepository::new(pool.clone())),
+        Arc::new(SqliteTunnelRepository::new(pool.clone())),
+        Arc::new(SqliteSystemConfigRepository::new(pool)),
+        h.secrets.clone(),
+        Arc::new(RecordingSender::new(SendOutcome::Delivered)),
+    );
+    assert_eq!(reloaded.vapid_public_key().await.unwrap(), first);
+}
+
+#[tokio::test]
+async fn user_change_with_unknown_device_and_default_target_notifies_admins() {
+    // Unknown device -> "A device"; Default target -> "default routing".
+    let h = build(SendOutcome::Delivered).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::RoutingRuleChanged {
+            device_id: Uuid::new_v4(),
+            target: RoutingTarget::Default,
+            previous_target: None,
+            changed_by: RuleCreator::User,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert!(
+        sent[0].payload.contains("A device"),
+        "got {}",
+        sent[0].payload
+    );
+    assert!(sent[0].payload.contains("default routing"));
+}
+
+#[tokio::test]
+async fn offline_notification_falls_back_when_tunnel_unknown() {
+    // No tunnel record -> label falls back to "A tunnel".
+    let h = build(SendOutcome::Delivered).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelReconnecting {
+            tunnel_id: Uuid::new_v4(),
+            interface_name: "wg_ward0".to_owned(),
+            last_handshake: None,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert!(
+        sent[0].payload.contains("A tunnel"),
+        "got {}",
+        sent[0].payload
+    );
+}
+
+#[tokio::test]
+async fn admin_lock_with_no_device_subscription_delivers_nothing() {
+    // The device exists but has no push subscription -> deliver() early-returns.
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:77", Some("Phone")).await;
+
+    handle(
+        &h.service,
+        WardnetEvent::DeviceAdminLocked {
+            device_id,
+            locked: false,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn delivery_is_dropped_when_vapid_key_is_corrupt() {
+    // A corrupt stored VAPID key makes `ensure_vapid` fail; delivery is dropped
+    // rather than panicking.
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "T").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+    h.secrets
+        .put(crate::push::SECRET_VAPID_KEY, b"not-a-valid-key")
+        .await
+        .unwrap();
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    // No push was sent (VAPID load failed) and the subscription is untouched.
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+    assert_eq!(h.push_repo.list_admins().await.unwrap().len(), 1);
+}

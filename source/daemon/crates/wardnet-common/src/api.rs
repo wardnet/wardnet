@@ -1689,6 +1689,38 @@ pub struct DnsEventsAckRequest {
     pub up_to_id: i64,
 }
 
+/// Standard Web Push subscription object as produced in-browser by
+/// `PushManager.subscribe()`. Body of `POST /api/push/subscriptions`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct WebPushSubscription {
+    /// Push service endpoint the daemon POSTs encrypted payloads to.
+    pub endpoint: String,
+    pub keys: WebPushKeys,
+}
+
+/// The subscriber's encryption keys, carried inside [`WebPushSubscription`].
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct WebPushKeys {
+    /// Base64url (unpadded) P-256 ECDH public key of the subscriber (`p256dh`).
+    pub p256dh: String,
+    /// Base64url (unpadded) shared authentication secret (`auth`).
+    pub auth: String,
+}
+
+/// Response of `GET /api/push/vapid-public-key`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct VapidPublicKeyResponse {
+    /// Base64url (unpadded) uncompressed P-256 application server key, passed
+    /// to `PushManager.subscribe({ applicationServerKey })` in the browser.
+    pub key: String,
+}
+
+/// Response of the push subscription mutation endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PushSubscriptionResponse {
+    pub message: String,
+}
+
 // --- Network Zones (epic #244, issue #735) ---------------------------------
 
 /// A Network Zone plus its current member count. Enriched view returned by the
