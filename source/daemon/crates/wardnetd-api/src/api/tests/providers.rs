@@ -23,7 +23,7 @@ use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
     StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
-    StubRoutingService, StubSystemService, StubTunnelService,
+    StubNetworkZoneService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -195,6 +195,7 @@ fn build_state(provider_svc: impl VpnProviderService + 'static) -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(provider_svc),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

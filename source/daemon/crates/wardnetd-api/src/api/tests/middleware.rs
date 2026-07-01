@@ -25,7 +25,8 @@ use wardnetd_services::{AuthService, DeviceService};
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
     StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
-    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubSystemService,
+    StubTunnelService,
 };
 use wardnetd_services::auth_context;
 
@@ -100,6 +101,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),
@@ -471,6 +473,7 @@ fn make_state_with_device(
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),
@@ -586,6 +589,7 @@ async fn resolve_auth_context_known_device_ip() {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.42".to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

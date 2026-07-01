@@ -12,6 +12,9 @@ pub struct DeviceRow {
     pub first_seen: String,
     pub last_seen: String,
     pub last_ip: String,
+    /// The Network Zone the device is assigned to at insert time (sticky).
+    /// Resolved from the default-for-new zone by the discovery service.
+    pub zone_id: String,
 }
 
 /// Data access for devices and their routing rules.
@@ -95,6 +98,12 @@ pub trait DeviceRepository: Send + Sync {
 
     /// Update the `admin_locked` flag for a device.
     async fn update_admin_locked(&self, id: &str, locked: bool) -> anyhow::Result<()>;
+
+    /// Reassign a device to a different Network Zone.
+    ///
+    /// Returns `true` if a row was updated, `false` if the device was not
+    /// found. The `zone_id` FK (`ON DELETE RESTRICT`) rejects unknown zones.
+    async fn assign_zone(&self, device_id: &str, zone_id: &str) -> anyhow::Result<bool>;
 
     /// Return the total number of devices.
     async fn count(&self) -> anyhow::Result<i64>;

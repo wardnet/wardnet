@@ -6,14 +6,15 @@ use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
 use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use crate::auth_context;
 use crate::event::EventPublisher;
 use crate::{DeviceService, DeviceServiceImpl};
-use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
+use wardnetd_data::repository::{DeviceRepository, NetworkZoneRepository, SystemConfigRepository};
 
 // -- Mock repository ------------------------------------------------------
 
@@ -77,6 +78,9 @@ impl DeviceRepository for MockDeviceRepo {
     }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
         Ok(())
+    }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        Ok(true)
     }
     async fn find_devices_for_tunnel(
         &self,
@@ -171,6 +175,98 @@ impl EventPublisher for MockEventPublisher {
     }
 }
 
+// -- Mock network-zone repository -----------------------------------------
+
+/// The Trusted zone UUID seeded by the schema.
+const TRUSTED_ZONE_ID: &str = "00000000-0000-0000-0000-000000000201";
+
+/// A permissive zone that allows both `Direct` and `Tunnel` targets, so
+/// existing routing tests never hit the zone `Conflict` guard.
+fn permissive_zone() -> NetworkZone {
+    NetworkZone {
+        id: Uuid::parse_str(TRUSTED_ZONE_ID).unwrap(),
+        name: "Trusted".to_owned(),
+        provenance: ZoneProvenance::System,
+        isolation_stance: ZoneStance::SharedSubnet,
+        allowed_targets: vec![AllowedTargetKind::Direct, AllowedTargetKind::Tunnel],
+        member_isolation: false,
+        subnet: None,
+        admin_ui_reachable: false,
+        is_default: false,
+        is_default_for_new: false,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+/// Permissive zone repo: every lookup resolves to [`permissive_zone`].
+struct MockNetworkZoneRepo;
+
+#[async_trait]
+impl NetworkZoneRepository for MockNetworkZoneRepo {
+    async fn find_all(&self) -> anyhow::Result<Vec<NetworkZone>> {
+        Ok(vec![permissive_zone()])
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<NetworkZone>> {
+        Ok(Some(permissive_zone()))
+    }
+    async fn find_default(&self) -> anyhow::Result<NetworkZone> {
+        Ok(permissive_zone())
+    }
+    async fn find_default_for_new(&self) -> anyhow::Result<NetworkZone> {
+        Ok(permissive_zone())
+    }
+    async fn insert(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default_for_new(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
+// -- Mock system-config repository ----------------------------------------
+
+/// Minimal system-config repo whose `get_default_policy` resolves to
+/// `"direct"`, matching the routing behaviour these tests assume.
+struct MockSystemConfigRepo;
+
+#[async_trait]
+impl SystemConfigRepository for MockSystemConfigRepo {
+    async fn get(&self, _key: &str) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    async fn set(&self, _key: &str, _value: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _key: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn get_default_policy(&self) -> anyhow::Result<Option<String>> {
+        Ok(Some("direct".to_owned()))
+    }
+}
+
 // -- Helpers --------------------------------------------------------------
 
 fn sample_device(locked: bool) -> Device {
@@ -185,6 +281,7 @@ fn sample_device(locked: bool) -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: locked,
+        zone_id: TRUSTED_ZONE_ID.parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -219,6 +316,8 @@ fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     )
 }
@@ -231,6 +330,8 @@ fn make_svc_no_device() -> DeviceServiceImpl {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     )
 }
@@ -243,6 +344,8 @@ fn make_svc_with_rules(all_rules: Vec<RoutingRule>) -> DeviceServiceImpl {
             all_rules,
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     )
 }
@@ -631,6 +734,8 @@ async fn update_dns_capture_settings_publishes_event() {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::clone(&publisher) as Arc<dyn crate::event::EventPublisher>,
     );
     let device_id = "00000000-0000-0000-0000-000000000001";
@@ -661,6 +766,7 @@ async fn update_dns_capture_settings_publishes_event() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn update_dns_capture_settings_returns_404_for_unknown() {
     // Repo returns false from update_dns_capture_settings when the row is not found.
     struct NotFoundDeviceRepo;
@@ -722,6 +828,9 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
         async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
             Ok(())
         }
+        async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+            Ok(true)
+        }
         async fn find_devices_for_tunnel(&self, _tid: &str) -> anyhow::Result<Vec<Device>> {
             Ok(vec![])
         }
@@ -752,6 +861,8 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
     let svc = DeviceServiceImpl::new(
         Arc::new(NotFoundDeviceRepo),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
     let unknown_id = "00000000-0000-0000-0000-000000000099";
@@ -778,6 +889,8 @@ async fn update_dns_capture_settings_with_enabled_none_reads_db_value() {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::clone(&publisher) as Arc<dyn crate::event::EventPublisher>,
     );
     let device_id = "00000000-0000-0000-0000-000000000001";
@@ -880,6 +993,8 @@ async fn fetch_pending_maps_rows_to_items() {
             all_rules: vec![],
         }),
         Arc::new(RowsDnsEventsRepo { rows }),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
 
@@ -911,6 +1026,8 @@ async fn ack_dns_events_delegates_to_repo() {
             all_rules: vec![],
         }),
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
 
@@ -936,6 +1053,8 @@ async fn list_capture_enabled_device_ids_delegates_to_repo() {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
     let ids = svc
@@ -957,6 +1076,8 @@ async fn get_device_capture_settings_returns_settings_when_device_found() {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
     let result = svc
@@ -978,6 +1099,8 @@ async fn get_device_capture_settings_returns_none_for_unknown_device() {
             all_rules: vec![],
         }),
         Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
     let result = svc

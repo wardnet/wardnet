@@ -328,6 +328,7 @@ async fn run(
         log_service.clone(),
         services.vpn_provider.clone(),
         services.routing.clone(),
+        services.network_zone.clone(),
         services.system.clone(),
         services.tunnel.clone(),
         services.update.clone(),

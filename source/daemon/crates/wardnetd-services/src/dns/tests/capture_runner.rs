@@ -302,6 +302,7 @@ fn sample_device(capture_enabled: bool) -> Device {
         last_seen: "2026-01-01T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: capture_enabled,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

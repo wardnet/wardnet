@@ -19,9 +19,9 @@ use crate::state::AppState;
 use crate::tests::stubs::{
     StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
     StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubJobService, StubLogService, StubProviderService, StubRoutingService,
-    StubRuleRequestService, StubStatsService, StubSystemService, StubTunnelService,
-    StubUpdateService,
+    StubJobService, StubLogService, StubNetworkZoneService, StubProviderService,
+    StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
+    StubTunnelService, StubUpdateService,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +89,7 @@ fn make_state() -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubUpdateService),

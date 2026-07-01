@@ -20,8 +20,8 @@ const MALWARE: &str = "00000000-0000-0000-0000-000000000102";
 
 async fn insert_device(pool: &sqlx::SqlitePool, id: &str, ip: &str) {
     sqlx::query(
-        "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen) \
-         VALUES (?, ?, ?, 'unknown', ?, ?)",
+        "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
+         VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
     )
     .bind(id)
     .bind(format!(

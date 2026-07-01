@@ -10,6 +10,7 @@ use crate::dns::{
     DnsResolutionMode, DnsZone, UpstreamDns,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
+use crate::network_zone::{AllowedTargetKind, NetworkZone, ZoneStance, ZoneSubnet};
 use crate::routing::RoutingTarget;
 use crate::tunnel::{BestServerSelector, Tunnel, TunnelStatus};
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
@@ -1686,4 +1687,89 @@ pub struct DnsEventItem {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DnsEventsAckRequest {
     pub up_to_id: i64,
+}
+
+// --- Network Zones (epic #244, issue #735) ---------------------------------
+
+/// A Network Zone plus its current member count. Enriched view returned by the
+/// zone list/detail endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NetworkZoneView {
+    #[serde(flatten)]
+    pub zone: NetworkZone,
+    /// Number of devices currently assigned to this zone.
+    pub member_count: i64,
+}
+
+/// Response for GET /api/network/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListNetworkZonesResponse {
+    pub zones: Vec<NetworkZoneView>,
+}
+
+/// Response for GET /api/network/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetNetworkZoneResponse {
+    pub zone: NetworkZoneView,
+}
+
+/// Request body for POST /api/network/zones. `provenance` is forced to `Manual`
+/// server-side; default flags are never set on create (use PUT to promote).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateNetworkZoneRequest {
+    pub name: String,
+    pub isolation_stance: ZoneStance,
+    pub allowed_targets: Vec<AllowedTargetKind>,
+    pub member_isolation: bool,
+    pub admin_ui_reachable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet: Option<ZoneSubnet>,
+}
+
+/// Response for POST /api/network/zones.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateNetworkZoneResponse {
+    pub zone: NetworkZone,
+}
+
+/// Request body for PUT /api/network/zones/{id} (partial update). Every field
+/// is optional. `is_default`/`is_default_for_new` set to `Some(true)` promote
+/// this zone to the anchor / default-for-new; `Some(false)` is rejected (flags
+/// only move by promoting another zone). `subnet: Some(None)` clears the subnet.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateNetworkZoneRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isolation_stance: Option<ZoneStance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_targets: Option<Vec<AllowedTargetKind>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_isolation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_ui_reachable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet: Option<Option<ZoneSubnet>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_default_for_new: Option<bool>,
+}
+
+/// Response for PUT /api/network/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateNetworkZoneResponse {
+    pub zone: NetworkZone,
+}
+
+/// Response for DELETE /api/network/zones/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteNetworkZoneResponse {
+    pub deleted: bool,
+}
+
+/// Request body for PUT /api/devices/{id}/zone.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AssignDeviceZoneRequest {
+    pub zone_id: Uuid,
 }

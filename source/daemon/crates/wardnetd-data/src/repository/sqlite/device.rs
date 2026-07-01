@@ -39,6 +39,7 @@ struct DeviceRow {
     last_seen: String,
     last_ip: String,
     admin_locked: i32,
+    zone_id: String,
     dns_capture_enabled: i32,
     dns_capture_cap_count: i64,
     dns_capture_cap_days: i64,
@@ -59,6 +60,7 @@ impl DeviceRow {
             last_seen: self.last_seen.parse()?,
             last_ip: self.last_ip,
             admin_locked: self.admin_locked != 0,
+            zone_id: self.zone_id.parse()?,
             dns_capture_enabled: self.dns_capture_enabled != 0,
             dns_capture_cap_count: self.dns_capture_cap_count,
             dns_capture_cap_days: self.dns_capture_cap_days,
@@ -74,7 +76,7 @@ struct RuleRow {
     created_by: String,
 }
 
-const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days";
+const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days";
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
@@ -119,8 +121,8 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn insert(&self, device: &InsertDeviceRow) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, zone_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&device.id)
         .bind(device.mac.to_lowercase())
@@ -130,6 +132,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(&device.first_seen)
         .bind(&device.last_seen)
         .bind(&device.last_ip)
+        .bind(&device.zone_id)
         .execute(&self.pools.write)
         .await?;
         Ok(())
@@ -271,7 +274,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         // which would otherwise raise SQLite's ambiguous-column error.
         let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
         let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, d.device_type, \
-             d.first_seen, d.last_seen, d.last_ip, d.admin_locked, \
+             d.first_seen, d.last_seen, d.last_ip, d.admin_locked, d.zone_id, \
              d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days \
              FROM devices d \
              JOIN routing_rules r ON r.device_id = d.id \
@@ -321,6 +324,15 @@ impl DeviceRepository for SqliteDeviceRepository {
             .execute(&self.pools.write)
             .await?;
         Ok(())
+    }
+
+    async fn assign_zone(&self, device_id: &str, zone_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("UPDATE devices SET zone_id = ? WHERE id = ?")
+            .bind(zone_id)
+            .bind(device_id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn count(&self) -> anyhow::Result<i64> {

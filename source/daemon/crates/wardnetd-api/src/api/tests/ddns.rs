@@ -23,7 +23,8 @@ use crate::state::AppState;
 use crate::tests::stubs::{
     StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
     StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubLogService, StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
+    StubSystemService, StubTunnelService,
 };
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::ddns::{DdnsRegistration, DdnsService, DdnsStatus};
@@ -181,6 +182,7 @@ fn make_state(ddns: Arc<dyn DdnsService>, tls: Arc<dyn TlsService>) -> AppState 
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

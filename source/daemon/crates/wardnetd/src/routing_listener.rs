@@ -219,6 +219,11 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::UpdateCompleted { .. }
         | WardnetEvent::UpdateFailed { .. }
         | WardnetEvent::DeviceCaptureSettingsChanged { .. }
-        | WardnetEvent::DnsEventInserted { .. } => {}
+        | WardnetEvent::DnsEventInserted { .. }
+        // Network Zones (#735) record intent only in Phase 1; the routing
+        // listener does not react to zone changes. The CI-2/CI-3 enforcers
+        // (#736/#737) subscribe separately.
+        | WardnetEvent::NetworkZoneChanged { .. }
+        | WardnetEvent::DeviceZoneChanged { .. } => {}
     }
 }

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use wardnet_common::api::*;
 use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
 use wardnet_common::routing::RoutingTarget;
 use wardnet_common::tunnel::Tunnel;
 
@@ -27,8 +28,9 @@ use wardnetd_services::logging::error_notifier::ErrorEntry;
 use wardnetd_services::logging::service::{LogFileInfo, LogService};
 use wardnetd_services::logging::stream::LogEntry;
 use wardnetd_services::{
-    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService, RoutingService,
-    StatsService, SystemService, TunnelService, VpnProviderService,
+    AuthService, DeviceDiscoveryService, DeviceService, DhcpService, DnsService,
+    NetworkZoneService, RoutingService, StatsService, SystemService, TunnelService,
+    VpnProviderService,
 };
 
 use crate::state::AppState;
@@ -654,6 +656,64 @@ impl RoutingService for StubRoutingService {
     }
 }
 
+pub struct StubNetworkZoneService;
+
+impl StubNetworkZoneService {
+    /// A Trusted-like zone used to satisfy the return types of the create /
+    /// update / get stubs.
+    fn stub_zone() -> NetworkZone {
+        NetworkZone {
+            id: Uuid::parse_str("00000000-0000-0000-0000-000000000201").unwrap(),
+            name: "Trusted".to_owned(),
+            provenance: ZoneProvenance::System,
+            isolation_stance: ZoneStance::SharedSubnet,
+            allowed_targets: vec![AllowedTargetKind::Direct, AllowedTargetKind::Tunnel],
+            member_isolation: false,
+            subnet: None,
+            admin_ui_reachable: false,
+            is_default: false,
+            is_default_for_new: false,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+}
+
+#[async_trait]
+impl NetworkZoneService for StubNetworkZoneService {
+    async fn list_zones(&self) -> Result<Vec<NetworkZoneView>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_zone(&self, _id: Uuid) -> Result<NetworkZoneView, AppError> {
+        Ok(NetworkZoneView {
+            zone: Self::stub_zone(),
+            member_count: 0,
+        })
+    }
+    async fn create_zone(&self, _req: CreateNetworkZoneRequest) -> Result<NetworkZone, AppError> {
+        Ok(Self::stub_zone())
+    }
+    async fn update_zone(
+        &self,
+        _id: Uuid,
+        _req: UpdateNetworkZoneRequest,
+    ) -> Result<NetworkZone, AppError> {
+        Ok(Self::stub_zone())
+    }
+    async fn delete_zone(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn set_default(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn set_default_for_new(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+}
+
 pub struct StubSystemService;
 #[async_trait]
 impl SystemService for StubSystemService {
@@ -1122,6 +1182,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubUpdateService),
