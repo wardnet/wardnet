@@ -1,4 +1,4 @@
-import { Button, Text } from "@wardnet/web";
+import { Button, Heading, Text } from "@wardnet/web";
 import { WardnetApiError } from "@wardnet/js";
 import { useAdvanceWizard, useTlsStatus } from "@wardnet/web";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
@@ -106,11 +106,13 @@ export default function Step7RemoteAccess() {
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h2 className="h-title">Remote access</h2>
-          <p className="h-sub">
+          <Heading level={2} size="3xl" className="text-ink">
+            Remote access
+          </Heading>
+          <Text as="p" size="sm" className="mt-1 text-ink-3">
             Your hostname is registered. The certificate is being issued in the
             background — you can wait here or finish setup; it'll keep going.
-          </p>
+          </Text>
         </div>
 
         {tlsStatus ? (
@@ -153,10 +155,12 @@ export default function Step7RemoteAccess() {
     return (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h2 className="h-title">Remote access (HTTPS)</h2>
-          <p className="h-sub">
+          <Heading level={2} size="3xl" className="text-ink">
+            Remote access (HTTPS)
+          </Heading>
+          <Text as="p" size="sm" className="mt-1 text-ink-3">
             Wardnet couldn't reach the {serviceName} right now.
-          </p>
+          </Text>
         </div>
 
         <Text
@@ -196,12 +200,14 @@ export default function Step7RemoteAccess() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">Remote access (HTTPS)</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          Remote access (HTTPS)
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Give Wardnet a public hostname and a valid certificate so you can
           reach it securely from anywhere. This step is optional, you can skip
           and set this up later from Settings.
-        </p>
+        </Text>
       </div>
 
       <div className="flex flex-col gap-2">

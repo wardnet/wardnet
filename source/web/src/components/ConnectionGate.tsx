@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { RefreshCw } from "lucide-react";
-import { Button } from "@wardnet/ui";
+import { Button, Heading, Text } from "@wardnet/ui";
 import { useDaemonStatus } from "../hooks/useDaemonStatus";
 
 /**
@@ -65,11 +65,13 @@ interface ConnectionErrorProps {
 function ConnectionError({ onRetry, retrying }: ConnectionErrorProps) {
   return (
     <div role="alert" className="empty col items-center justify-center gap-4">
-      <h2 className="h-title">Can&rsquo;t reach Wardnet</h2>
-      <p className="h-sub max-w-md">
+      <Heading level={2} size="3xl" className="text-ink">
+        Can&rsquo;t reach Wardnet
+      </Heading>
+      <Text as="p" size="sm" className="mt-1 max-w-md text-ink-3">
         The Wardnet daemon isn&rsquo;t responding. Make sure it&rsquo;s running
         and that you&rsquo;re on the same network, then try again.
-      </p>
+      </Text>
       <Button variant="outline" onClick={onRetry} disabled={retrying}>
         <RefreshCw
           size={15}

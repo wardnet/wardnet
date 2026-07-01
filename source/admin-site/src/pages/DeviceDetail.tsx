@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { DeviceIcon } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard";
@@ -35,7 +36,9 @@ export default function DeviceDetail() {
   if (isLoading) {
     return (
       <div className="col gap-20">
-        <p className="text-ink-3">Loading…</p>
+        <Text as="p" className="text-ink-3">
+          Loading…
+        </Text>
       </div>
     );
   }
@@ -43,10 +46,12 @@ export default function DeviceDetail() {
   if (isError || !data) {
     return (
       <div className="col gap-8">
-        <h1 className="h-title">Device not found</h1>
-        <p className="h-sub">
+        <Heading level={1} size="3xl" className="text-ink">
+          Device not found
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           The device you're looking for may have been removed.
-        </p>
+        </Text>
         <Link to="/devices" className="text-accent">
           Back to Devices
         </Link>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
@@ -47,11 +47,13 @@ export default function Step4RouterMac() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">Router MAC</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          Router MAC
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Wardnet uses the upstream router's MAC address for diagnostics and
           packet-capture filtering.
-        </p>
+        </Text>
       </div>
 
       {probe.isPending && !probedMac && (
@@ -69,7 +71,9 @@ export default function Step4RouterMac() {
           <Text as="p" weight="medium" className="text-ink">
             {probedSource === "arp" ? "Discovered via ARP" : "Recorded"}
           </Text>
-          <p className="mono mt-1">{probedMac}</p>
+          <Text as="p" className="mono mt-1">
+            {probedMac}
+          </Text>
         </Text>
       )}
 

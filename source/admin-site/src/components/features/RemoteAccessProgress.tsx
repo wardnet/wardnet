@@ -24,7 +24,7 @@ export function RemoteAccessProgress({
         <Text as="p" weight="medium" className="text-ink">
           Issuing certificate…
         </Text>
-        <p className="mt-1 text-ink-3">
+        <Text as="p" className="mt-1 text-ink-3">
           {domain ? (
             <>
               Provisioning HTTPS for <span className="font-mono">{domain}</span>
@@ -34,7 +34,7 @@ export function RemoteAccessProgress({
           ) : (
             "Provisioning HTTPS. This can take a minute."
           )}
-        </p>
+        </Text>
       </Text>
     );
   }
@@ -49,7 +49,7 @@ export function RemoteAccessProgress({
         <Text as="p" weight="medium" className="text-accent-soft-ink">
           Remote access is live
         </Text>
-        <p className="mt-1 text-ink-2">
+        <Text as="p" className="mt-1 text-ink-2">
           {domain && (
             <>
               <span className="font-mono">{domain}</span> has a valid
@@ -57,7 +57,7 @@ export function RemoteAccessProgress({
               {not_after && <> until {formatDate(not_after)}</>}.
             </>
           )}
-        </p>
+        </Text>
       </Text>
     );
   }
@@ -72,10 +72,10 @@ export function RemoteAccessProgress({
         <Text as="p" weight="medium" className="text-danger-soft-ink">
           Certificate issuance failed
         </Text>
-        <p className="mt-1 text-ink-2">
+        <Text as="p" className="mt-1 text-ink-2">
           {error ?? "The daemon could not issue a certificate."} You can retry
           later from Settings — the daemon also retries automatically.
-        </p>
+        </Text>
       </Text>
     );
   }

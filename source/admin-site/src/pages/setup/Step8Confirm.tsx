@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { Button } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 
 /**
  * Step 8 — wizard finished.
@@ -15,11 +16,13 @@ export default function Step8Confirm() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">All set</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          All set
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Wardnet is configured. You can manage devices, tunnels, DHCP, and DNS
           filtering from the dashboard.
-        </p>
+        </Text>
       </div>
       <Button
         onClick={() => navigate("/")}

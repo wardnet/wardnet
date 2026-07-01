@@ -103,11 +103,11 @@ export function LogViewer({
         </div>
       )}
       {entries.length === 0 ? (
-        <p className="logrow is-info">
+        <div className="logrow is-info">
           <span className="m">
             {connected ? "Waiting for log entries…" : "Not connected"}
           </span>
-        </p>
+        </div>
       ) : (
         entries.map((entry, i) => (
           <div key={i} className={`logrow is-${levelModifier(entry.level)}`}>

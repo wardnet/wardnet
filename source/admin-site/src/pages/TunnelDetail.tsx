@@ -5,7 +5,7 @@ import { Button } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { TunnelDevicesTable } from "@/components/features/TunnelDevicesTable";
@@ -125,10 +125,12 @@ export default function TunnelDetail() {
   if (isError || !data) {
     return (
       <div className="col gap-8">
-        <h1 className="h-title">Tunnel not found</h1>
-        <p className="h-sub">
+        <Heading level={1} size="3xl" className="text-ink">
+          Tunnel not found
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           The tunnel you're looking for may have been deleted.
-        </p>
+        </Text>
       </div>
     );
   }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Heading, Text } from "@wardnet/web";
 
 interface PageHeaderProps {
   title: string;
@@ -12,10 +13,19 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <div className="row mb-6 justify-between">
       <div>
-        <h2 className="h-title" data-testid="page-title">
+        <Heading
+          level={2}
+          size="3xl"
+          className="text-ink"
+          data-testid="page-title"
+        >
           {title}
-        </h2>
-        {description && <p className="h-sub">{description}</p>}
+        </Heading>
+        {description && (
+          <Text as="p" size="sm" className="mt-1 text-ink-3">
+            {description}
+          </Text>
+        )}
       </div>
       {actions && <div className="row gap-8">{actions}</div>}
     </div>

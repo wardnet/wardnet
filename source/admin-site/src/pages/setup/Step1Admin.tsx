@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { WardnetApiError } from "@wardnet/js";
 import { Button } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
@@ -64,11 +65,13 @@ export default function Step1Admin() {
   return (
     <div>
       <div className="mb-5 flex flex-col gap-1">
-        <h2 className="h-title">Create admin account</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          Create admin account
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Set up your administrator credentials. You'll use these to sign in to
           Wardnet.
-        </p>
+        </Text>
       </div>
       <Form
         values={{ username, password, confirmPassword }}
@@ -142,9 +145,9 @@ export default function Step1Admin() {
         />
 
         {formError && (
-          <p role="alert" className="text-sm text-danger">
+          <Text as="p" role="alert" size="sm" className="text-danger">
             {formError}
-          </p>
+          </Text>
         )}
         <Button
           type="submit"

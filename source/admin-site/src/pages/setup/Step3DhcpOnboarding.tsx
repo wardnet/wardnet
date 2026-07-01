@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { WizardMode } from "@wardnet/js";
 import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import {
   Select,
@@ -59,8 +59,12 @@ export default function Step3DhcpOnboarding({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">DHCP onboarding</h2>
-        <p className="h-sub">Choose how Wardnet handles DHCP on your LAN.</p>
+        <Heading level={2} size="3xl" className="text-ink">
+          DHCP onboarding
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
+          Choose how Wardnet handles DHCP on your LAN.
+        </Text>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -181,15 +185,15 @@ export default function Step3DhcpOnboarding({
           size="sm"
           className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-ink-3"
         >
-          <p>
+          <Text as="p">
             Configure each opted-in device's network settings to use Wardnet as
             its gateway and DNS server. Other devices on the LAN keep their
             normal connectivity.
-          </p>
-          <p>
+          </Text>
+          <Text as="p">
             On the next page Wardnet will show a live counter of devices it sees
             using it as a gateway.
-          </p>
+          </Text>
         </Text>
       )}
 
