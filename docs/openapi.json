@@ -3092,6 +3092,217 @@
         ]
       }
     },
+    "/api/devices/{id}/zone": {
+      "put": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Reassign a device to a different Network Zone (epic #244, issue #735). Membership is otherwise sticky (set once at discovery). Returns the updated device detail. Admin only.",
+        "operationId": "assign_device_zone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignDeviceZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated device detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/dhcp/config": {
       "get": {
         "tags": [
@@ -12603,6 +12814,871 @@
         ]
       }
     },
+    "/api/network/zones": {
+      "get": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "List every Network Zone with its current member count. Admin only.",
+        "operationId": "list_zones",
+        "responses": {
+          "200": {
+            "description": "Zones list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListNetworkZonesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Create a Network Zone. `provenance` is forced to manual and default flags are never set on create (use PUT to promote). Admin only.",
+        "operationId": "create_zone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNetworkZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Zone created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateNetworkZoneResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Name already in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/network/zones/{id}": {
+      "get": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Fetch a single Network Zone with its member count. Admin only.",
+        "operationId": "get_zone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Zone id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetNetworkZoneResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Partially update a Network Zone. Setting `is_default` or `is_default_for_new` to true promotes this zone; false is rejected (flags only move by promoting another zone). System zones are editable but not deletable. Admin only.",
+        "operationId": "update_zone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Zone id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNetworkZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateNetworkZoneResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Name already in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Delete a Network Zone. Rejected for system zones, the anchor (default) zone, or zones that still have member devices. Admin only.",
+        "operationId": "delete_zone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Zone id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zone deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteNetworkZoneResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "System / default / non-empty zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/providers": {
       "get": {
         "tags": [
@@ -18392,6 +19468,14 @@
           }
         }
       },
+      "AllowedTargetKind": {
+        "type": "string",
+        "description": "A permitted routing-target *kind* a zone allows. Coarse: any tunnel, or direct.",
+        "enum": [
+          "direct",
+          "tunnel"
+        ]
+      },
       "AllowlistEntry": {
         "type": "object",
         "description": "An allowlist entry, scoped to a DNS filter profile, that overrides\nblocklist matches.",
@@ -18505,6 +19589,19 @@
               "$ref": "#/components/schemas/LocalSnapshot"
             },
             "description": "`.bak-<timestamp>` snapshots of the files that were replaced.\nRetained by the background cleanup task for 24 h."
+          }
+        }
+      },
+      "AssignDeviceZoneRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/devices/{id}/zone.",
+        "required": [
+          "zone_id"
+        ],
+        "properties": {
+          "zone_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -18977,6 +20074,59 @@
           },
           "rule": {
             "$ref": "#/components/schemas/ConditionalForwardingRule"
+          }
+        }
+      },
+      "CreateNetworkZoneRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/network/zones. `provenance` is forced to `Manual`\nserver-side; default flags are never set on create (use PUT to promote).",
+        "required": [
+          "name",
+          "isolation_stance",
+          "allowed_targets",
+          "member_isolation",
+          "admin_ui_reachable"
+        ],
+        "properties": {
+          "admin_ui_reachable": {
+            "type": "boolean"
+          },
+          "allowed_targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AllowedTargetKind"
+            }
+          },
+          "isolation_stance": {
+            "$ref": "#/components/schemas/ZoneStance"
+          },
+          "member_isolation": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "subnet": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ZoneSubnet"
+              }
+            ]
+          }
+        }
+      },
+      "CreateNetworkZoneResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/zones.",
+        "required": [
+          "zone"
+        ],
+        "properties": {
+          "zone": {
+            "$ref": "#/components/schemas/NetworkZone"
           }
         }
       },
@@ -19508,6 +20658,18 @@
           }
         }
       },
+      "DeleteNetworkZoneResponse": {
+        "type": "object",
+        "description": "Response for DELETE /api/network/zones/{id}.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
       "DeleteProfileResponse": {
         "type": "object",
         "description": "Response for DELETE /api/dns/filter/profiles/{id}.",
@@ -19567,6 +20729,7 @@
           "last_seen",
           "last_ip",
           "admin_locked",
+          "zone_id",
           "dns_capture_enabled",
           "dns_capture_cap_count",
           "dns_capture_cap_days"
@@ -19624,6 +20787,11 @@
               "string",
               "null"
             ]
+          },
+          "zone_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Network Zone this device belongs to (exactly one). Sticky: set from\nthe default-for-new zone at discovery-insert time; never resolved at read\ntime. See [`crate::network_zone`] and epic #244."
           }
         }
       },
@@ -20564,6 +21732,18 @@
           }
         }
       },
+      "GetNetworkZoneResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/zones/{id}.",
+        "required": [
+          "zone"
+        ],
+        "properties": {
+          "zone": {
+            "$ref": "#/components/schemas/NetworkZoneView"
+          }
+        }
+      },
       "GetProfileResponse": {
         "type": "object",
         "description": "Response for GET /api/dns/filter/profiles/{id}.",
@@ -21128,6 +22308,21 @@
           }
         }
       },
+      "ListNetworkZonesResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/zones.",
+        "required": [
+          "zones"
+        ],
+        "properties": {
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetworkZoneView"
+            }
+          }
+        }
+      },
       "ListProfilesResponse": {
         "type": "object",
         "description": "Response for GET /api/dns/filter/profiles.",
@@ -21370,6 +22565,101 @@
             "type": "string"
           }
         }
+      },
+      "NetworkZone": {
+        "type": "object",
+        "description": "A Network Zone: a named policy bucket a device belongs to (exactly one) that\ngates the device's allowed routing targets, its reachability of the Pi's\nadmin surfaces, and (Phase 2+) its network isolation. See epic #244 and the\n`adr-network-zone-isolation` ADR.",
+        "required": [
+          "id",
+          "name",
+          "provenance",
+          "isolation_stance",
+          "allowed_targets",
+          "member_isolation",
+          "admin_ui_reachable",
+          "is_default",
+          "is_default_for_new",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "admin_ui_reachable": {
+            "type": "boolean",
+            "description": "May devices in this zone reach the Pi's admin surfaces? (intent-only in Phase 1)"
+          },
+          "allowed_targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AllowedTargetKind"
+            },
+            "description": "Routing-target kinds a device in this zone may pick. Empty is rejected on write."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "The protected \"home\"/anchor zone. Exactly one true. Deletion-guarded."
+          },
+          "is_default_for_new": {
+            "type": "boolean",
+            "description": "Where freshly-discovered devices are assigned. Exactly one true."
+          },
+          "isolation_stance": {
+            "$ref": "#/components/schemas/ZoneStance"
+          },
+          "member_isolation": {
+            "type": "boolean",
+            "description": "Within an isolate-members zone, also isolate same-zone peers. (CI-3 #737)"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ZoneProvenance"
+          },
+          "subnet": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ZoneSubnet",
+                "description": "Per-zone subnet (CI-3 #737). None for all seeds."
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NetworkZoneView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NetworkZone"
+          },
+          {
+            "type": "object",
+            "required": [
+              "member_count"
+            ],
+            "properties": {
+              "member_count": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Number of devices currently assigned to this zone."
+              }
+            }
+          }
+        ],
+        "description": "A Network Zone plus its current member count. Enriched view returned by the\nzone list/detail endpoints."
       },
       "ProviderAuthMethod": {
         "type": "string",
@@ -22995,6 +24285,83 @@
           "rolled_back"
         ]
       },
+      "UpdateNetworkZoneRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/network/zones/{id} (partial update). Every field\nis optional. `is_default`/`is_default_for_new` set to `Some(true)` promote\nthis zone to the anchor / default-for-new; `Some(false)` is rejected (flags\nonly move by promoting another zone). `subnet: Some(None)` clears the subnet.",
+        "properties": {
+          "admin_ui_reachable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "allowed_targets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AllowedTargetKind"
+            }
+          },
+          "is_default": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_default_for_new": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "isolation_stance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ZoneStance"
+              }
+            ]
+          },
+          "member_isolation": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subnet": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ZoneSubnet"
+              }
+            ]
+          }
+        }
+      },
+      "UpdateNetworkZoneResponse": {
+        "type": "object",
+        "description": "Response for PUT /api/network/zones/{id}.",
+        "required": [
+          "zone"
+        ],
+        "properties": {
+          "zone": {
+            "$ref": "#/components/schemas/NetworkZone"
+          }
+        }
+      },
       "UpdateProfileRequest": {
         "type": "object",
         "description": "Request body for PUT /api/dns/filter/profiles/{id}.\n\nAll fields are partial-update: omitting them from JSON leaves the stored\nvalue unchanged. Pass `description: null` to clear an existing description.",
@@ -23361,6 +24728,35 @@
           "remote_access",
           "completed"
         ]
+      },
+      "ZoneProvenance": {
+        "type": "string",
+        "description": "Whether a zone was seeded by the daemon or created by an admin.\nMirrors the existing DNS \"Zone provenance\" (system | manual).",
+        "enum": [
+          "system",
+          "manual"
+        ]
+      },
+      "ZoneStance": {
+        "type": "string",
+        "description": "Cross-zone isolation rung of the guarantee ladder (epic #244). Only the rungs\nwe have issues for exist; VLAN is a documented non-goal (ADR), not a variant.",
+        "enum": [
+          "shared_subnet",
+          "isolate_members"
+        ]
+      },
+      "ZoneSubnet": {
+        "type": "object",
+        "description": "A per-zone subnet (Phase 2 / DHCP-mode). Recorded-only in #735; always None on seeds.",
+        "required": [
+          "cidr"
+        ],
+        "properties": {
+          "cidr": {
+            "type": "string",
+            "description": "CIDR, e.g. \"10.44.0.0/24\". Validated when set; unused by any Phase-1 code path."
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -23392,6 +24788,10 @@
     {
       "name": "devices",
       "description": "Device discovery and routing"
+    },
+    {
+      "name": "network_zones",
+      "description": "Network Zones: device policy buckets"
     },
     {
       "name": "tunnels",
