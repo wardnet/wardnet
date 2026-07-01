@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import type { CreateRuleRequestRequest, RuleRequestStatus } from "@wardnet/js";
 
 import { ruleRequestService } from "../lib/sdk";

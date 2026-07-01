@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import { dnsFilterService, jobsService } from "../lib/sdk";
 import { JobProgressDescription } from "../components/JobProgressDescription";
 import type {

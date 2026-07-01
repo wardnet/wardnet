@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import { RefreshCcwIcon, PowerIcon, LogOutIcon, MonitorIcon, ChevronRightIcon } from "lucide-react";
 import { Pill, Text, Heading } from "@wardnet/web";
 import {

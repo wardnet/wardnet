@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import type { CreateTunnelRequest, Job } from "@wardnet/js";
 import { isJobTerminal } from "@wardnet/js";
 import { jobsService, tunnelService } from "../lib/sdk";

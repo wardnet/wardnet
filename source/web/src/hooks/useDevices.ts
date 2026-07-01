@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import type {
   RoutingTarget,
   UpdateDeviceRequest,

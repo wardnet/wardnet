@@ -4891,12 +4891,12 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
+    "@wardnet/ui": "npm:^0.2.0"
     "@wardnet/web": "workspace:*"
     lucide-react: "npm:1.21.0"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     react-router: "npm:7.17.0"
-    sonner: "npm:2.0.7"
     tailwindcss: "npm:4.3.0"
     typescript: "npm:6.0.3"
     vite: "npm:8.1.0"
@@ -4924,6 +4924,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
+    "@wardnet/ui": "npm:^0.2.0"
     "@wardnet/web": "workspace:*"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
@@ -4943,7 +4944,6 @@ __metadata:
     react-is: "npm:^19.2.7"
     react-router: "npm:7.17.0"
     recharts: "npm:^3.8.1"
-    sonner: "npm:2.0.7"
     tailwind-merge: "npm:3.6.0"
     tailwindcss: "npm:4.3.0"
     typescript: "npm:6.0.3"
@@ -5063,6 +5063,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
+    "@wardnet/ui": "npm:^0.2.0"
     "@wardnet/web": "workspace:*"
     leaflet: "npm:^1.9.4"
     lucide-react: "npm:1.21.0"
@@ -5070,7 +5071,6 @@ __metadata:
     react-dom: "npm:19.2.7"
     react-leaflet: "npm:^5.0.0"
     react-router: "npm:7.17.0"
-    sonner: "npm:2.0.7"
     tailwindcss: "npm:4.3.0"
     typescript: "npm:6.0.3"
     vite: "npm:8.1.0"
@@ -5097,7 +5097,6 @@ __metadata:
     lucide-react: ">=1.0.0"
     react: ^19.0.0
     react-dom: ^19.0.0
-    sonner: ">=2.0.0"
     zustand: ">=5.0.0"
   languageName: unknown
   linkType: soft

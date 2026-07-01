@@ -4,7 +4,7 @@ import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectionGate } from "@wardnet/web";
 import App from "./App";
-import { Toaster } from "@/components/core/ui/toaster";
+import { Toaster } from "@wardnet/ui";
 import { LogStreamManager } from "@/services/LogStreamManager";
 import { DnsLogStreamManager } from "@/services/DnsLogStreamManager";
 import "./index.css";

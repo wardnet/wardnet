@@ -19,7 +19,7 @@ import {
   AlertModalHeader,
   AlertModalTitle,
 } from "@wardnet/web";
-import { toast } from "sonner";
+import { toast } from "@wardnet/ui";
 import { WardnetApiError } from "@wardnet/js";
 import {
   useDdnsStatus,
