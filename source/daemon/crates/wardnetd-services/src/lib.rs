@@ -455,6 +455,7 @@ fn create_services(
     let network_zone_service: Arc<dyn NetworkZoneService> = Arc::new(NetworkZoneServiceImpl::new(
         network_zone_repo.clone(),
         device_repo.clone(),
+        system_config_repo.clone(),
         event_publisher.clone(),
     ));
 

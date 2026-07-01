@@ -267,17 +267,9 @@ impl RoutingServiceImpl {
         match target {
             RoutingTarget::Default => {
                 let policy = self.current_default_policy();
-                let resolved = if policy == "direct" {
-                    RoutingTarget::Direct
-                } else if let Ok(tunnel_id) = policy.parse::<Uuid>() {
-                    RoutingTarget::Tunnel { tunnel_id }
-                } else {
-                    tracing::warn!(
-                        policy = %policy,
-                        "unknown default policy, falling back to direct"
-                    );
-                    RoutingTarget::Direct
-                };
+                // Shared classifier — the single source of truth also used by
+                // the Network-Zone gate in `DeviceService`.
+                let resolved = RoutingTarget::from_default_policy(&policy);
                 tracing::debug!(
                     policy = %policy,
                     ?resolved,

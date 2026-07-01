@@ -59,15 +59,28 @@ routing choice; they do not make it. `admin_locked` remains a separate gate
 governing *who* may change a rule.
 
 **`RoutingTarget::Default` is resolve-then-check.** Validation resolves `Default`
-to a concrete kind via the global default policy (read directly from
-`system_config`'s `default_policy` key, mirroring `RoutingService` — a
-service→service call would introduce a cycle), then checks the *resolved* kind.
-`Default` is never itself an entry in `allowed_targets`.
+to a concrete kind via the global default policy, then checks the *resolved*
+kind. The `"direct"`-vs-tunnel-UUID classification is a single shared function
+(`RoutingTarget::from_default_policy` in `wardnet-common`) used by both the
+routing engine (`RoutingService::resolve_target`) and the zone gate, so the two
+can never disagree about what `Default` means. The zone gate reads the persisted
+`default_policy` from `system_config` directly (a `RoutingService` call would
+introduce a service→service cycle). `Default` is never itself an entry in
+`allowed_targets`.
 
-**Known caveat:** already-stored `Default` rules are validated at write time
-only. If the global policy later flips (e.g. `direct` → a tunnel) a stored
-`Default` rule is not retro-validated here. Reconciling stored rules against a
-changed policy belongs to the CI-2 enforcer (#736), not to this write-time gate.
+**The invariant "a device's stored rule kind is permitted by its zone" is
+enforced on every edge that can create a contradiction:** the two rule-write
+paths (`set_rule` / `set_rule_for_ip`), **device→zone reassignment**
+(`assign_device` rejects a move that would strand a device holding a rule its
+new zone forbids), and **zone-config narrowing** (`update_zone` rejects an
+`allowed_targets` change that any current member's rule would violate — a
+batched two-query check).
+
+**Known caveat:** the one edge *not* re-validated is a change to the **global
+default policy** itself (e.g. `direct` → a tunnel), which can flip the resolved
+kind of every stored `Default` rule at once. Reconciling stored rules against a
+changed policy is a fleet-wide reconciliation that belongs to the CI-2 enforcer
+(#736), not to a per-write gate.
 
 ### 3. Two default flags, not one
 

@@ -212,4 +212,13 @@ impl NetworkZoneRepository for SqliteNetworkZoneRepository {
             .await?;
         Ok(count)
     }
+
+    async fn member_counts(&self) -> anyhow::Result<std::collections::HashMap<String, i64>> {
+        let rows = sqlx::query_as::<_, (String, i64)>(
+            "SELECT zone_id, COUNT(*) FROM devices GROUP BY zone_id",
+        )
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(rows.into_iter().collect())
+    }
 }
