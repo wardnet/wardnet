@@ -1,7 +1,9 @@
 import type { TunnelStatus } from "@wardnet/js";
 import type { PillProps } from "@wardnet/ui";
 
-export function tunnelStatusVariant(status: TunnelStatus): PillProps["variant"] {
+export function tunnelStatusVariant(
+  status: TunnelStatus,
+): PillProps["variant"] {
   switch (status) {
     case "up":
       return "ok";
@@ -34,4 +36,3 @@ export function tunnelStatusLabel(status: TunnelStatus): string {
     }
   }
 }
-
