@@ -36,8 +36,8 @@ test("local DNS: create, edit, toggle, and delete a custom record", async ({
 
   // ── Create an A record ─────────────────────────────────────────────
   await page.getByTestId("local-record-add").click();
-  await page.getByTestId("rec-domain").fill(TEST_RECORD_DOMAIN);
-  await page.getByTestId("rec-value").fill("192.168.1.50");
+  await page.getByTestId("local-record-domain").fill(TEST_RECORD_DOMAIN);
+  await page.getByTestId("local-record-value").fill("192.168.1.50");
   await page.getByTestId("local-record-submit").click();
 
   const row = page.getByRole("row").filter({ hasText: TEST_RECORD_DOMAIN });
@@ -47,7 +47,7 @@ test("local DNS: create, edit, toggle, and delete a custom record", async ({
   // ── Edit its value ─────────────────────────────────────────────────
   await row.getByTestId("local-record-row-menu").click();
   await page.getByTestId("local-record-edit").click();
-  await page.getByTestId("rec-value").fill("192.168.1.51");
+  await page.getByTestId("local-record-value").fill("192.168.1.51");
   await page.getByTestId("local-record-submit").click();
   await expect(row).toContainText("192.168.1.51");
 
