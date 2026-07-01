@@ -4891,7 +4891,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
-    "@wardnet/ui": "npm:^0.2.0"
+    "@wardnet/ui": "npm:^0.3.0"
     "@wardnet/web": "workspace:*"
     lucide-react: "npm:1.21.0"
     react: "npm:19.2.7"
@@ -4924,7 +4924,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
-    "@wardnet/ui": "npm:^0.2.0"
+    "@wardnet/ui": "npm:^0.3.0"
     "@wardnet/web": "workspace:*"
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
@@ -5030,9 +5030,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wardnet/ui@npm:^0.2.0":
-  version: 0.2.0
-  resolution: "@wardnet/ui@npm:0.2.0::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40wardnet%2Fui%2F0.2.0%2Ffc92ca9a57dfa3f63539bf4734d187d58239dfa6"
+"@wardnet/ui@npm:^0.3.0":
+  version: 0.3.0
+  resolution: "@wardnet/ui@npm:0.3.0::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40wardnet%2Fui%2F0.3.0%2F1a3035fed039ce856849123364bc07ddd9d7da81"
   dependencies:
     "@wardnet/styles": "npm:^0.1.0"
     class-variance-authority: "npm:0.7.1"
@@ -5044,7 +5044,7 @@ __metadata:
     lucide-react: ">=1.0.0"
     react: ^19.0.0
     react-dom: ^19.0.0
-  checksum: 10c0/1b158502f6bfeadea737c1bef118a2e671245c1021ebe836fa31c33071e98ebe1333c20ea2b4f8645d497c1f79157870ac8d3c3c333b6b338decdb1626029ff2
+  checksum: 10c0/bb8364e21777ec0a3b097f8d1b98f96f2d052d89559361cee9ea30fd319761a9ed6ec43077ab28c9ec5594e62aca526a76d120419ad53569363e4d5c0ca204d8
   languageName: node
   linkType: hard
 
@@ -5063,7 +5063,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:6.0.3"
     "@wardnet/js": "workspace:*"
     "@wardnet/styles": "npm:^0.1.0"
-    "@wardnet/ui": "npm:^0.2.0"
+    "@wardnet/ui": "npm:^0.3.0"
     "@wardnet/web": "workspace:*"
     leaflet: "npm:^1.9.4"
     lucide-react: "npm:1.21.0"
@@ -5086,7 +5086,7 @@ __metadata:
   resolution: "@wardnet/web@workspace:web"
   dependencies:
     "@eslint/js": "npm:10.0.1"
-    "@wardnet/ui": "npm:^0.2.0"
+    "@wardnet/ui": "npm:^0.3.0"
     clsx: "npm:2.1.1"
     cronstrue: "npm:3.21.0"
     eslint: "npm:10.4.1"
