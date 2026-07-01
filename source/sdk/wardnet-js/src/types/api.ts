@@ -1,4 +1,11 @@
 import type { Device, DeviceType, RoutingTarget } from "./device.js";
+import type {
+  AllowedTargetKind,
+  NetworkZone,
+  NetworkZoneView,
+  ZoneStance,
+  ZoneSubnet,
+} from "./network-zone.js";
 import type { TunnelStatus } from "./tunnel.js";
 import type {
   CountryInfo,
@@ -273,4 +280,58 @@ export interface DnsEventItem {
 
 export interface DnsEventsAckRequest {
   up_to_id: number;
+}
+
+// --- Network Zones (epic #244, issue #735) ---------------------------------
+
+export interface ListNetworkZonesResponse {
+  zones: NetworkZoneView[];
+}
+
+export interface GetNetworkZoneResponse {
+  zone: NetworkZoneView;
+}
+
+/**
+ * `provenance` is forced to manual server-side; default flags are never set on
+ * create (promote via PUT).
+ */
+export interface CreateNetworkZoneRequest {
+  name: string;
+  isolation_stance: ZoneStance;
+  allowed_targets: AllowedTargetKind[];
+  member_isolation: boolean;
+  admin_ui_reachable: boolean;
+  subnet?: ZoneSubnet | null;
+}
+
+export interface CreateNetworkZoneResponse {
+  zone: NetworkZone;
+}
+
+/**
+ * Partial update. `is_default`/`is_default_for_new: true` promote this zone;
+ * `false` is rejected. `subnet: null` clears the subnet.
+ */
+export interface UpdateNetworkZoneRequest {
+  name?: string;
+  isolation_stance?: ZoneStance;
+  allowed_targets?: AllowedTargetKind[];
+  member_isolation?: boolean;
+  admin_ui_reachable?: boolean;
+  subnet?: ZoneSubnet | null;
+  is_default?: boolean;
+  is_default_for_new?: boolean;
+}
+
+export interface UpdateNetworkZoneResponse {
+  zone: NetworkZone;
+}
+
+export interface DeleteNetworkZoneResponse {
+  deleted: boolean;
+}
+
+export interface AssignDeviceZoneRequest {
+  zone_id: string;
 }

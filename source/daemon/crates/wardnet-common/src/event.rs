@@ -217,6 +217,21 @@ pub enum WardnetEvent {
         captured_at: String,
         timestamp: DateTime<Utc>,
     },
+    /// A Network Zone was created, updated, deleted, or had a default flag
+    /// moved. Phase 1 (issue #735) has no consumer; the CI-2/CI-3 enforcers
+    /// (issues #736/#737) subscribe to rebuild their nftables/subnet state.
+    NetworkZoneChanged {
+        zone_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
+    /// A device was reassigned from one Network Zone to another. Phase 1 has no
+    /// consumer; later epic children rebuild per-device enforcement.
+    DeviceZoneChanged {
+        device_id: Uuid,
+        old_zone_id: Uuid,
+        new_zone_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

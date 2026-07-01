@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardContent,
-  CardFooter,
   CardHeader,
   CardSubtitle,
   CardTitle,
@@ -128,11 +127,14 @@ export function ConditionalForwardingCard() {
           emptyMessage="No forwarding rules yet."
           addLabel="Add rule"
           onAdd={openCreate}
+          addTestId="fwd-add"
+          rowActionsTestId="fwd-row-menu"
           rowActions={(row) => (
             <>
               <RowAction
                 onSelect={() => openEdit(row)}
                 icon={<Pencil aria-hidden />}
+                testId="fwd-edit"
               >
                 Edit
               </RowAction>
@@ -140,6 +142,7 @@ export function ConditionalForwardingCard() {
                 onSelect={() => setDeleteId(row.id)}
                 destructive
                 icon={<Trash2 aria-hidden />}
+                testId="fwd-delete"
               >
                 Delete
               </RowAction>
@@ -215,6 +218,7 @@ function RuleForm({
             >
               <Input
                 id="fwd-domain"
+                data-testid="fwd-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="corp.internal"
@@ -234,6 +238,7 @@ function RuleForm({
             >
               <Input
                 id="fwd-upstream"
+                data-testid="fwd-upstream"
                 value={upstream}
                 onChange={(e) => setUpstream(e.target.value)}
                 placeholder="10.0.0.1"
@@ -246,19 +251,20 @@ function RuleForm({
             />
           </div>
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSaving}>
-            {rule ? "Save changes" : "Add rule"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            type: "button",
+            onClick: onCancel,
+            disabled: isSaving,
+          }}
+          primaryLabel={rule ? "Save changes" : "Add rule"}
+          primaryProps={{
+            type: "submit",
+            disabled: isSaving,
+            "data-testid": "fwd-submit",
+          }}
+        />
       </Form>
     </Card>
   );

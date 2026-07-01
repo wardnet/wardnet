@@ -17,8 +17,8 @@ use wardnet_common::routing::RoutingTarget;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
-    StubTunnelService,
+    StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::DeviceService;
 use wardnetd_services::LogService;
@@ -227,6 +227,7 @@ fn build_state(device_svc: impl DeviceService + 'static) -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

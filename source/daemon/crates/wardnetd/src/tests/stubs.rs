@@ -37,8 +37,8 @@ use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DeviceDiscoveryService, DeviceService, DhcpService,
-    ObservationResult, RoutingService, StatsService, SystemService, TunnelService,
-    VpnProviderService,
+    NetworkZoneService, ObservationResult, RoutingService, StatsService, SystemService,
+    TunnelService, VpnProviderService,
 };
 
 use wardnetd_api::state::AppState;
@@ -493,6 +493,48 @@ impl RoutingService for StubRoutingService {
         ))
     }
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubNetworkZoneService
+// ---------------------------------------------------------------------------
+
+/// Stub network-zone service — all methods panic with `unimplemented!()`.
+pub struct StubNetworkZoneService;
+
+#[async_trait]
+impl NetworkZoneService for StubNetworkZoneService {
+    async fn list_zones(&self) -> Result<Vec<wardnet_common::api::NetworkZoneView>, AppError> {
+        unimplemented!()
+    }
+    async fn get_zone(&self, _id: Uuid) -> Result<wardnet_common::api::NetworkZoneView, AppError> {
+        unimplemented!()
+    }
+    async fn create_zone(
+        &self,
+        _req: wardnet_common::api::CreateNetworkZoneRequest,
+    ) -> Result<wardnet_common::network_zone::NetworkZone, AppError> {
+        unimplemented!()
+    }
+    async fn update_zone(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateNetworkZoneRequest,
+    ) -> Result<wardnet_common::network_zone::NetworkZone, AppError> {
+        unimplemented!()
+    }
+    async fn delete_zone(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_default(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_default_for_new(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
 }
@@ -1235,6 +1277,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubLogService),
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(StubUpdateService),

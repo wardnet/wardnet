@@ -43,6 +43,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "setup", description = "First-run setup wizard"),
         (name = "info", description = "Unauthenticated daemon info"),
         (name = "devices", description = "Device discovery and routing"),
+        (name = "network_zones", description = "Network Zones: device policy buckets"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),
         (name = "providers", description = "VPN provider integration"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),

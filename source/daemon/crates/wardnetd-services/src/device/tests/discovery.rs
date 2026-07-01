@@ -9,6 +9,7 @@ use uuid::Uuid;
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
 use wardnet_common::routing::RoutingRule;
 
 use wardnet_common::auth::AuthContext;
@@ -20,10 +21,10 @@ use crate::device::hostname_resolver::HostnameResolver;
 use crate::device::packet_capture::{ObservedDevice, PacketSource};
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::{
-    DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+    DeviceRepository, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+    NetworkZoneRepository,
 };
 
 /// Helper to create an admin auth context for tests.
@@ -109,6 +110,7 @@ impl DeviceRepository for MockDeviceRepo {
             first_seen: device.first_seen.clone(),
             last_seen: device.last_seen.clone(),
             last_ip: device.last_ip.clone(),
+            zone_id: device.zone_id.clone(),
         });
 
         // Also add to the devices list so subsequent find_by_id works.
@@ -125,6 +127,7 @@ impl DeviceRepository for MockDeviceRepo {
             last_seen: device.last_seen.parse().unwrap(),
             last_ip: device.last_ip.clone(),
             admin_locked: false,
+            zone_id: device.zone_id.parse().unwrap(),
             dns_capture_enabled: false,
             dns_capture_cap_count: 1000,
             dns_capture_cap_days: 7,
@@ -225,6 +228,9 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(vec![])
     }
 
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        Ok(true)
+    }
     async fn count(&self) -> anyhow::Result<i64> {
         Ok(i64::try_from(self.devices.lock().unwrap().len()).unwrap_or(0))
     }
@@ -301,6 +307,61 @@ impl EventPublisher for MockEventPublisher {
 /// Minimal `DhcpRepository` mock that returns a configurable hostname per MAC
 /// from the active-lease lookup. Other methods are unused by the discovery
 /// service and panic if called.
+/// Zone repo whose `find_default_for_new` returns the seeded Trusted zone, so
+/// discovered devices are inserted with the Trusted zone id.
+struct MockNetworkZoneRepo;
+
+fn trusted_zone() -> NetworkZone {
+    NetworkZone {
+        id: Uuid::parse_str("00000000-0000-0000-0000-000000000201").unwrap(),
+        name: "Trusted".to_owned(),
+        provenance: ZoneProvenance::System,
+        isolation_stance: ZoneStance::SharedSubnet,
+        allowed_targets: vec![AllowedTargetKind::Direct, AllowedTargetKind::Tunnel],
+        member_isolation: false,
+        subnet: None,
+        admin_ui_reachable: false,
+        is_default: true,
+        is_default_for_new: true,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+#[async_trait]
+impl NetworkZoneRepository for MockNetworkZoneRepo {
+    async fn find_all(&self) -> anyhow::Result<Vec<NetworkZone>> {
+        Ok(vec![trusted_zone()])
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<NetworkZone>> {
+        Ok(Some(trusted_zone()))
+    }
+    async fn find_default(&self) -> anyhow::Result<NetworkZone> {
+        Ok(trusted_zone())
+    }
+    async fn find_default_for_new(&self) -> anyhow::Result<NetworkZone> {
+        Ok(trusted_zone())
+    }
+    async fn insert(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default_for_new(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
 struct MockDhcpRepository {
     leases_by_mac: HashMap<String, Option<String>>,
 }
@@ -408,6 +469,7 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: ip.to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -439,6 +501,7 @@ fn build_harness_with_devices(devices: Vec<Device>) -> TestHarness {
     let resolver = Arc::new(MockHostnameResolver::new());
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
+        Arc::new(MockNetworkZoneRepo),
         dhcp,
         events.clone(),
         resolver,
@@ -465,6 +528,7 @@ fn build_harness_with_resolver_and_dhcp(
     let resolver = Arc::new(MockHostnameResolver::with_mappings(resolver_mappings));
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
+        Arc::new(MockNetworkZoneRepo),
         Arc::new(dhcp),
         events.clone(),
         resolver,

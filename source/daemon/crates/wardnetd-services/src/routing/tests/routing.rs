@@ -132,6 +132,10 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
     async fn count(&self) -> anyhow::Result<i64> {
         #[allow(clippy::cast_possible_wrap)]
         Ok(self.devices.len() as i64)
@@ -629,6 +633,7 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: ip.to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

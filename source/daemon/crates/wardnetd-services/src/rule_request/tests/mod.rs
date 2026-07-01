@@ -111,6 +111,7 @@ fn sample_device() -> Device {
         last_seen: chrono::Utc::now(),
         last_ip: "192.168.1.100".to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

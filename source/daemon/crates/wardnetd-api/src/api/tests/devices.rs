@@ -19,8 +19,8 @@ use wardnet_common::routing::RoutingTarget;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsLocalService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubLogService, StubProviderService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
+    StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -461,6 +461,7 @@ fn sample_device() -> Device {
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -500,6 +501,7 @@ fn build_state_with_dhcp(
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),
@@ -531,6 +533,7 @@ fn build_state_with_tunnel_svc(
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(tunnel_svc),
         Arc::new(crate::tests::stubs::StubUpdateService),

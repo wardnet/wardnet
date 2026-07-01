@@ -13,6 +13,7 @@ mod jobs;
 mod logs_ws;
 mod middleware;
 mod network;
+mod network_zone;
 mod openapi;
 mod panic_isolation;
 mod providers;

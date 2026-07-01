@@ -13,6 +13,7 @@ export { TunnelService } from "./services/tunnels.js";
 export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
 export { NetworkService } from "./services/network.js";
+export { NetworkZonesService } from "./services/network-zones.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
@@ -38,6 +39,16 @@ export type {
   RuleCreator,
   RoutingRule,
 } from "./types/device.js";
+
+// Types — network zones
+export type {
+  NetworkZone,
+  NetworkZoneView,
+  ZoneStance,
+  ZoneProvenance,
+  AllowedTargetKind,
+  ZoneSubnet,
+} from "./types/network-zone.js";
 
 // Types — tunnels
 export type { Tunnel, TunnelStatus } from "./types/tunnel.js";
@@ -145,6 +156,14 @@ export type {
   DnsCaptureSettingsResponse,
   DnsEventItem,
   DnsEventsAckRequest,
+  ListNetworkZonesResponse,
+  GetNetworkZoneResponse,
+  CreateNetworkZoneRequest,
+  CreateNetworkZoneResponse,
+  UpdateNetworkZoneRequest,
+  UpdateNetworkZoneResponse,
+  DeleteNetworkZoneResponse,
+  AssignDeviceZoneRequest,
 } from "./types/api.js";
 
 // Services — DNS

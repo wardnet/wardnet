@@ -24,7 +24,7 @@ use crate::state::AppState;
 use crate::tests::stubs::{
     StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
     StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
-    StubProviderService, StubRoutingService, StubTunnelService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubTunnelService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
@@ -242,6 +242,7 @@ fn make_state(auth: impl AuthService + 'static, system: Arc<MockSystemService>) 
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         system,
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Button } from "@wardnet/web";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
@@ -77,22 +71,19 @@ export default function DnsFilterProfileNew() {
             />
           )}
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={handleCancel}
-            disabled={create.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            data-testid="profile-create-submit"
-            disabled={create.isPending || name.trim() === ""}
-          >
-            {create.isPending ? "Creating…" : "Create profile"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            onClick: handleCancel,
+            disabled: create.isPending,
+          }}
+          primaryLabel={create.isPending ? "Creating…" : "Create profile"}
+          primaryProps={{
+            onClick: handleSave,
+            "data-testid": "profile-create-submit",
+            disabled: create.isPending || name.trim() === "",
+          }}
+        />
       </Card>
     </div>
   );

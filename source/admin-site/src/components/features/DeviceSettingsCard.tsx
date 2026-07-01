@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
@@ -185,22 +185,19 @@ export function DeviceSettingsCard({
               </div>
             )}
           </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={cancelEdit}
-              disabled={updateDevice.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={updateDevice.isPending}
-              data-testid="device-settings-save"
-            >
-              {updateDevice.isPending ? savingLabel : saveLabel}
-            </Button>
-          </CardFooter>
+          <FormActions
+            secondaryLabel="Cancel"
+            secondaryProps={{
+              onClick: cancelEdit,
+              disabled: updateDevice.isPending,
+            }}
+            primaryLabel={updateDevice.isPending ? savingLabel : saveLabel}
+            primaryProps={{
+              onClick: handleSave,
+              disabled: updateDevice.isPending,
+              "data-testid": "device-settings-save",
+            }}
+          />
         </>
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">

@@ -1,13 +1,12 @@
 import { useState } from "react";
 
 import {
-  Button,
   Card,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
   Field,
+  FormActions,
   Input,
   Toggle,
   useDnsConfig,
@@ -96,26 +95,19 @@ export function SecuritySettingsCard() {
         </Field>
       </CardContent>
       {rateDirty && (
-        <CardFooter>
-          <Button
-            variant="outline"
-            onClick={() => setRate(null)}
-            disabled={busy}
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !rateValid}
-            onClick={() =>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{ onClick: () => setRate(null), disabled: busy }}
+          primaryLabel="Save"
+          primaryProps={{
+            disabled: busy || !rateValid,
+            onClick: () =>
               update.mutate(
                 { rate_limit_per_second: rateParsed },
                 { onSuccess: () => setRate(null) },
-              )
-            }
-          >
-            Save
-          </Button>
-        </CardFooter>
+              ),
+          }}
+        />
       )}
     </Card>
   );

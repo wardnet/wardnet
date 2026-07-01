@@ -24,6 +24,7 @@ pub mod garp;
 pub mod health;
 pub mod logging;
 pub mod maintenance;
+pub mod network_zone;
 pub mod push;
 pub mod routing;
 pub mod rule_request;
@@ -62,6 +63,7 @@ use crate::dns_filter::DnsFilterServiceImpl;
 use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::JobServiceImpl;
+use crate::network_zone::NetworkZoneServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::rule_request::RuleRequestServiceImpl;
 use crate::system::SystemServiceImpl;
@@ -84,6 +86,7 @@ pub use crate::health::{
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
+pub use crate::network_zone::NetworkZoneService;
 pub use crate::push::PushService;
 pub use crate::routing::RoutingService;
 pub use crate::rule_request::RuleRequestService;
@@ -205,6 +208,8 @@ pub struct Services {
     /// Push notifications: VAPID keys, subscription CRUD, and event-driven Web
     /// Push delivery. Driven by `PushNotificationListener`.
     pub push: Arc<dyn PushService>,
+    /// Network Zones: device policy buckets (epic #244, issue #735).
+    pub network_zone: Arc<dyn NetworkZoneService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub update: Arc<dyn UpdateService>,
@@ -417,6 +422,7 @@ fn create_services(
     let session_repo = repo_factory.session();
     let api_key_repo = repo_factory.api_key();
     let device_repo = repo_factory.device();
+    let network_zone_repo = repo_factory.network_zone();
     let system_config_repo = repo_factory.system_config();
     let dhcp_repo = repo_factory.dhcp();
     let dns_repo = repo_factory.dns();
@@ -449,6 +455,14 @@ fn create_services(
     let device_service: Arc<dyn DeviceService> = Arc::new(DeviceServiceImpl::new(
         device_repo.clone(),
         dns_events_repo.clone(),
+        network_zone_repo.clone(),
+        system_config_repo.clone(),
+        event_publisher.clone(),
+    ));
+
+    let network_zone_service: Arc<dyn NetworkZoneService> = Arc::new(NetworkZoneServiceImpl::new(
+        network_zone_repo.clone(),
+        device_repo.clone(),
         event_publisher.clone(),
     ));
 
@@ -565,6 +579,7 @@ fn create_services(
 
     let discovery_service = build_discovery_service(
         device_repo.clone(),
+        network_zone_repo.clone(),
         dhcp_repo,
         event_publisher.clone(),
         backends.hostname_resolver,
@@ -613,6 +628,7 @@ fn create_services(
         discovery: discovery_service,
         vpn_provider: vpn_provider_service,
         routing: routing_service,
+        network_zone: network_zone_service,
         rule_request: rule_request_service,
         push: push_service,
         system: system_service,
@@ -639,6 +655,7 @@ fn create_services(
 /// from `lan_ip` (falls back to a `/24` on invalid inputs).
 fn build_discovery_service(
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+    network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
     dhcp_repo: Arc<dyn wardnetd_data::repository::DhcpRepository>,
     event_publisher: Arc<dyn EventPublisher>,
     hostname_resolver: Arc<dyn device::HostnameResolver>,
@@ -650,6 +667,7 @@ fn build_discovery_service(
     });
     Arc::new(DeviceDiscoveryServiceImpl::new(
         device_repo,
+        network_zone_repo,
         dhcp_repo,
         event_publisher,
         hostname_resolver,

@@ -6,6 +6,7 @@ mod dns;
 mod dns_events;
 mod dns_filter;
 mod dns_local;
+mod network_zone;
 mod push;
 mod rule_request;
 mod session;

@@ -20,8 +20,8 @@ use wardnet_common::routing::RoutingTarget;
 use crate::state::AppState;
 use crate::tests::stubs::{
     StubDhcpServer, StubDhcpService, StubDnsFilterService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubLogService, StubProviderService, StubRoutingService, StubSystemService,
-    StubTunnelService,
+    StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
 use tokio::sync::broadcast;
 use wardnet_common::event::WardnetEvent;
@@ -112,6 +112,7 @@ fn sample_device() -> Device {
         last_seen: chrono::Utc::now(),
         last_ip: "192.168.1.100".to_owned(),
         admin_locked: false,
+        zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
         dns_capture_enabled: true,
         dns_capture_cap_count: 500,
         dns_capture_cap_days: 14,
@@ -308,6 +309,7 @@ fn build_state_with_publisher(
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

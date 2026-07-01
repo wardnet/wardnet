@@ -4,10 +4,10 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Text } from "@wardnet/web";
@@ -226,23 +226,20 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               />
             )}
           </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={cancelEdit}
-              disabled={updateConfig.isPending}
-              data-testid="dhcp-config-cancel"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={updateConfig.isPending || validationError !== null}
-              data-testid="dhcp-config-save"
-            >
-              {updateConfig.isPending ? "Saving…" : "Save"}
-            </Button>
-          </CardFooter>
+          <FormActions
+            secondaryLabel="Cancel"
+            secondaryProps={{
+              onClick: cancelEdit,
+              disabled: updateConfig.isPending,
+              "data-testid": "dhcp-config-cancel",
+            }}
+            primaryLabel={updateConfig.isPending ? "Saving…" : "Save"}
+            primaryProps={{
+              onClick: handleSave,
+              disabled: updateConfig.isPending || validationError !== null,
+              "data-testid": "dhcp-config-save",
+            }}
+          />
         </>
       ) : (
         <CardContent>

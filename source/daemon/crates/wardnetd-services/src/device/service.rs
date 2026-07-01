@@ -8,13 +8,17 @@ use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
 use wardnet_common::auth::AuthContext;
+use wardnet_common::device::Device;
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::network_zone::AllowedTargetKind;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
 
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
-use wardnetd_data::repository::{DeviceRepository, DnsEventsRepository};
+use wardnetd_data::repository::{
+    DeviceRepository, DnsEventsRepository, NetworkZoneRepository, SystemConfigRepository,
+};
 
 /// Device lookup and self-service routing management.
 ///
@@ -124,6 +128,8 @@ pub trait DeviceService: Send + Sync {
 pub struct DeviceServiceImpl {
     devices: Arc<dyn DeviceRepository>,
     dns_events: Arc<dyn DnsEventsRepository>,
+    zones: Arc<dyn NetworkZoneRepository>,
+    system_config: Arc<dyn SystemConfigRepository>,
     events: Arc<dyn EventPublisher>,
 }
 
@@ -132,13 +138,85 @@ impl DeviceServiceImpl {
     pub fn new(
         devices: Arc<dyn DeviceRepository>,
         dns_events: Arc<dyn DnsEventsRepository>,
+        zones: Arc<dyn NetworkZoneRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self {
             devices,
             dns_events,
+            zones,
+            system_config,
             events,
         }
+    }
+
+    /// Resolve the global default routing policy into a concrete target kind.
+    ///
+    /// Mirrors [`RoutingServiceImpl::resolve_target`](crate::routing) without a
+    /// service→service dependency: reads the persisted `default_policy` string
+    /// (`"direct"` or a tunnel UUID) directly from `system_config`. Absent or
+    /// unparseable config resolves to `Direct`.
+    async fn resolve_default_kind(&self) -> Result<AllowedTargetKind, AppError> {
+        let policy = self
+            .system_config
+            .get_default_policy()
+            .await
+            .map_err(AppError::Internal)?
+            .unwrap_or_else(|| "direct".to_owned());
+        Ok(if policy == "direct" {
+            AllowedTargetKind::Direct
+        } else {
+            // Any non-"direct" value is a tunnel selector (validated on write by
+            // the routing service); treat unparseable legacy values as Direct.
+            match policy.parse::<Uuid>() {
+                Ok(_) => AllowedTargetKind::Tunnel,
+                Err(_) => AllowedTargetKind::Direct,
+            }
+        })
+    }
+
+    /// Reject a routing target that the device's Network Zone does not permit.
+    ///
+    /// `Default` is resolve-then-check: it is resolved to a concrete kind via
+    /// the global default policy, then that kind is checked against the zone's
+    /// `allowed_targets`. Returns `Conflict` when disallowed. Applies to both
+    /// admin and self-service rule writes.
+    async fn validate_target_against_zone(
+        &self,
+        device: &Device,
+        target: &RoutingTarget,
+    ) -> Result<(), AppError> {
+        let kind = match target {
+            RoutingTarget::Direct => AllowedTargetKind::Direct,
+            RoutingTarget::Tunnel { .. } => AllowedTargetKind::Tunnel,
+            RoutingTarget::Default => self.resolve_default_kind().await?,
+        };
+
+        let zone = self
+            .zones
+            .find_by_id(&device.zone_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "device {} references unknown zone {}",
+                    device.id,
+                    device.zone_id
+                ))
+            })?;
+
+        if !zone.permits_kind(kind) {
+            let kind_str = match kind {
+                AllowedTargetKind::Direct => "direct",
+                AllowedTargetKind::Tunnel => "tunnel",
+            };
+            return Err(AppError::Conflict(format!(
+                "routing target '{kind_str}' is not permitted by this device's zone '{}'",
+                zone.name
+            )));
+        }
+        Ok(())
     }
 
     /// Check whether the current auth context authorises a mutation on the
@@ -210,6 +288,8 @@ impl DeviceService for DeviceServiceImpl {
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         Self::check_device_mutation_auth(&ctx, &device.mac, device.admin_locked)?;
 
+        self.validate_target_against_zone(&device, &target).await?;
+
         let previous = self
             .devices
             .find_rule_for_device(&device.id.to_string())
@@ -253,6 +333,8 @@ impl DeviceService for DeviceServiceImpl {
 
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         Self::check_device_mutation_auth(&ctx, &device.mac, device.admin_locked)?;
+
+        self.validate_target_against_zone(&device, &target).await?;
 
         let previous = self
             .devices

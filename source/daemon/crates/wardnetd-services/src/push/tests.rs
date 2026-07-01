@@ -266,6 +266,9 @@ impl DeviceRepository for StubDeviceRepo {
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
         unimplemented!()
     }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        unimplemented!()
+    }
 }
 
 struct StubTunnelRepo {
@@ -380,6 +383,7 @@ fn test_device(id: Uuid, mac: &str, name: Option<&str>) -> Device {
         hostname: None,
         manufacturer: None,
         device_type: DeviceType::Unknown,
+        zone_id: Uuid::nil(),
         first_seen: Utc::now(),
         last_seen: Utc::now(),
         last_ip: "192.168.1.10".to_owned(),

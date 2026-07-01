@@ -15,7 +15,8 @@ use crate::state::AppState;
 use crate::tests::stubs::{
     StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
     StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubLogService, StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
+    StubSystemService, StubTunnelService,
 };
 use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
@@ -112,6 +113,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         Arc::new(StubLogService) as Arc<dyn LogService>,
         Arc::new(StubProviderService),
         Arc::new(StubRoutingService),
+        Arc::new(StubNetworkZoneService),
         Arc::new(StubSystemService),
         Arc::new(StubTunnelService),
         Arc::new(crate::tests::stubs::StubUpdateService),

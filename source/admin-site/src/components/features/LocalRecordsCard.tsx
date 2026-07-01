@@ -1,14 +1,8 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@wardnet/web";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@wardnet/web";
+import { FormActions } from "@wardnet/web";
+import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
@@ -183,11 +177,14 @@ export function LocalRecordsCard() {
           emptyMessage="No custom records yet."
           addLabel="Add record"
           onAdd={openCreate}
+          addTestId="local-record-add"
+          rowActionsTestId="local-record-row-menu"
           rowActions={(row) => (
             <>
               <RowAction
                 onSelect={() => openEdit(row)}
                 icon={<Pencil aria-hidden />}
+                testId="local-record-edit"
               >
                 Edit
               </RowAction>
@@ -195,6 +192,7 @@ export function LocalRecordsCard() {
                 onSelect={() => setDeleteId(row.id)}
                 destructive
                 icon={<Trash2 aria-hidden />}
+                testId="local-record-delete"
               >
                 Delete
               </RowAction>
@@ -294,6 +292,7 @@ function RecordForm({
             >
               <Input
                 id="rec-domain"
+                data-testid="local-record-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="printer.lan"
@@ -333,6 +332,7 @@ function RecordForm({
             >
               <Input
                 id="rec-value"
+                data-testid="local-record-value"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="192.168.1.50"
@@ -352,6 +352,7 @@ function RecordForm({
             >
               <Input
                 id="rec-ttl"
+                data-testid="local-record-ttl"
                 type="number"
                 min={0}
                 value={ttl}
@@ -381,19 +382,20 @@ function RecordForm({
             </Select>
           </Field>
         </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSaving}>
-            {record ? "Save changes" : "Add record"}
-          </Button>
-        </CardFooter>
+        <FormActions
+          secondaryLabel="Cancel"
+          secondaryProps={{
+            type: "button",
+            onClick: onCancel,
+            disabled: isSaving,
+          }}
+          primaryLabel={record ? "Save changes" : "Add record"}
+          primaryProps={{
+            type: "submit",
+            disabled: isSaving,
+            "data-testid": "local-record-submit",
+          }}
+        />
       </Form>
     </Card>
   );
