@@ -163,7 +163,12 @@ function ProfileIdentityCard({
         <CardTitle>Identity</CardTitle>
         {!editing && !builtin && (
           <CardAction>
-            <Button variant="outline" size="sm" onClick={startEdit}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startEdit}
+              data-testid="profile-edit"
+            >
               Edit
             </Button>
           </CardAction>
@@ -176,6 +181,7 @@ function ProfileIdentityCard({
             <Field label="Name" htmlFor="profile-name">
               <Input
                 id="profile-name"
+                data-testid="profile-edit-name"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
@@ -183,6 +189,7 @@ function ProfileIdentityCard({
             <Field label="Description (optional)" htmlFor="profile-desc">
               <Input
                 id="profile-desc"
+                data-testid="profile-edit-desc"
                 value={draftDesc}
                 onChange={(e) => setDraftDesc(e.target.value)}
                 placeholder="e.g. Strict — for kids' devices"
@@ -201,6 +208,7 @@ function ProfileIdentityCard({
               className="text-danger hover:text-danger"
               onClick={() => setConfirmDelete(true)}
               disabled={builtin || update.isPending || del.isPending}
+              data-testid="profile-delete"
             >
               Delete profile
             </Button>
@@ -212,7 +220,11 @@ function ProfileIdentityCard({
               >
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saveDisabled}>
+              <Button
+                onClick={handleSave}
+                disabled={saveDisabled}
+                data-testid="profile-save"
+              >
                 {update.isPending ? "Saving…" : "Save"}
               </Button>
             </div>

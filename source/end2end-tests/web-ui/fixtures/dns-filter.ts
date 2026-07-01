@@ -24,6 +24,21 @@ export const BLOCKLIST_FIXTURE_URL =
 /** Name of the profile the ad-blocking spec creates through the UI. */
 export const TEST_PROFILE_NAME = "e2e-adblock";
 
+/**
+ * Name of the profile the filter-lifecycle spec (A5, #620) creates, edits, and
+ * deletes. Distinct from `TEST_PROFILE_NAME` so the two DNS-filter specs never
+ * collide on the daemon's UNIQUE profile-name constraint when they share a
+ * persisted state volume.
+ */
+export const PROFILE_MGMT_NAME = "e2e-profile-mgmt";
+
+/**
+ * The name the lifecycle spec renames the profile to during its edit step.
+ * Cleaned up alongside `PROFILE_MGMT_NAME` so a mid-test failure (which could
+ * leave the profile under either name) doesn't wedge the next run.
+ */
+export const PROFILE_MGMT_RENAMED = "e2e-profile-mgmt-renamed";
+
 interface FilterProfile {
   id: string;
   name: string;

@@ -142,11 +142,14 @@ export function DnsZonesCard() {
           emptyMessage="No zones yet."
           addLabel="Add zone"
           onAdd={openCreate}
+          addTestId="zone-add"
+          rowActionsTestId="zone-row-menu"
           rowActions={(row) => (
             <>
               <RowAction
                 onSelect={() => openEdit(row)}
                 icon={<Pencil aria-hidden />}
+                testId="zone-edit"
               >
                 Edit
               </RowAction>
@@ -157,6 +160,7 @@ export function DnsZonesCard() {
                   onSelect={() => setDeleteId(row.id)}
                   destructive
                   icon={<Trash2 aria-hidden />}
+                  testId="zone-delete"
                 >
                   Delete
                 </RowAction>
@@ -225,6 +229,7 @@ function ZoneForm({
           >
             <Input
               id="zone-name"
+              data-testid="zone-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="home"
@@ -253,7 +258,7 @@ function ZoneForm({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSaving}>
+          <Button type="submit" disabled={isSaving} data-testid="zone-submit">
             {zone ? "Save changes" : "Add zone"}
           </Button>
         </CardFooter>

@@ -70,7 +70,10 @@ fail only the leases spec, not abort the whole suite. The IPAM range
 (`.2–.15`) sits below the pool the spec sets (`.100–.150`), so any `.100+`
 address is unambiguously daemon-issued. Agent helpers in `fixtures/dhcp.ts`
 are ported from `source/end2end-tests/daemon/tests/helpers.ts` because this
-harness deliberately avoids importing the daemon package.
+harness deliberately avoids importing the daemon package. The DNS query-log
+spec (`dns-logs.spec.ts`) also drives it — `fixtures/dns-logs.ts:resolveViaAgent`
+calls `/dns/resolve` against the daemon's LAN IP (`10.91.0.1`) so the daemon
+resolves and therefore logs the query.
 
 ### Blocklist fixture server (`blocklist_server`)
 

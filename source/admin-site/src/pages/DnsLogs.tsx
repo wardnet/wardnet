@@ -227,7 +227,10 @@ export default function DnsLogs() {
           setPage(0);
         }}
       >
-        <SelectTrigger className="select-trigger--md w-40">
+        <SelectTrigger
+          className="select-trigger--md w-40"
+          data-testid="dns-log-result-filter"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -248,7 +251,12 @@ export default function DnsLogs() {
   const liveTailAction = (
     <Text as="label" size="sm" className="flex items-center gap-2 text-ink-3">
       <span>Live tail{liveConnected ? "" : " (offline)"}</span>
-      <Toggle id="live-tail" checked={liveTail} onCheckedChange={setLiveTail} />
+      <Toggle
+        id="live-tail"
+        data-testid="live-tail"
+        checked={liveTail}
+        onCheckedChange={setLiveTail}
+      />
     </Text>
   );
 
