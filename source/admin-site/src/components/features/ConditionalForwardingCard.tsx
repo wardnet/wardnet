@@ -128,11 +128,14 @@ export function ConditionalForwardingCard() {
           emptyMessage="No forwarding rules yet."
           addLabel="Add rule"
           onAdd={openCreate}
+          addTestId="fwd-add"
+          rowActionsTestId="fwd-row-menu"
           rowActions={(row) => (
             <>
               <RowAction
                 onSelect={() => openEdit(row)}
                 icon={<Pencil aria-hidden />}
+                testId="fwd-edit"
               >
                 Edit
               </RowAction>
@@ -140,6 +143,7 @@ export function ConditionalForwardingCard() {
                 onSelect={() => setDeleteId(row.id)}
                 destructive
                 icon={<Trash2 aria-hidden />}
+                testId="fwd-delete"
               >
                 Delete
               </RowAction>
@@ -215,6 +219,7 @@ function RuleForm({
             >
               <Input
                 id="fwd-domain"
+                data-testid="fwd-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="corp.internal"
@@ -234,6 +239,7 @@ function RuleForm({
             >
               <Input
                 id="fwd-upstream"
+                data-testid="fwd-upstream"
                 value={upstream}
                 onChange={(e) => setUpstream(e.target.value)}
                 placeholder="10.0.0.1"
@@ -255,7 +261,7 @@ function RuleForm({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSaving}>
+          <Button type="submit" disabled={isSaving} data-testid="fwd-submit">
             {rule ? "Save changes" : "Add rule"}
           </Button>
         </CardFooter>

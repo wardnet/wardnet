@@ -183,11 +183,14 @@ export function LocalRecordsCard() {
           emptyMessage="No custom records yet."
           addLabel="Add record"
           onAdd={openCreate}
+          addTestId="local-record-add"
+          rowActionsTestId="local-record-row-menu"
           rowActions={(row) => (
             <>
               <RowAction
                 onSelect={() => openEdit(row)}
                 icon={<Pencil aria-hidden />}
+                testId="local-record-edit"
               >
                 Edit
               </RowAction>
@@ -195,6 +198,7 @@ export function LocalRecordsCard() {
                 onSelect={() => setDeleteId(row.id)}
                 destructive
                 icon={<Trash2 aria-hidden />}
+                testId="local-record-delete"
               >
                 Delete
               </RowAction>
@@ -294,6 +298,7 @@ function RecordForm({
             >
               <Input
                 id="rec-domain"
+                data-testid="rec-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="printer.lan"
@@ -333,6 +338,7 @@ function RecordForm({
             >
               <Input
                 id="rec-value"
+                data-testid="rec-value"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="192.168.1.50"
@@ -352,6 +358,7 @@ function RecordForm({
             >
               <Input
                 id="rec-ttl"
+                data-testid="rec-ttl"
                 type="number"
                 min={0}
                 value={ttl}
@@ -390,7 +397,11 @@ function RecordForm({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSaving}>
+          <Button
+            type="submit"
+            disabled={isSaving}
+            data-testid="local-record-submit"
+          >
             {record ? "Save changes" : "Add record"}
           </Button>
         </CardFooter>
