@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
+import { SegmentedTabs } from "@wardnet/web";
 import { cn } from "@wardnet/web";
 
 declare module "@tanstack/react-table" {
@@ -194,29 +195,18 @@ export function DataTable<TData, TValue>({
         <div className="tbl-toolbar">
           {groups && groups.length > 0 && (
             <>
-              {/* Desktop wrapper — segmented pill control. Wrapped in
-                  a plain div because Forge's unlayered `.tabs {
-                  display: inline-flex }` would otherwise beat
-                  Tailwind's layered `.hidden { display: none }`. */}
+              {/* Desktop wrapper — shared segmented pill control. Wrapped
+                  in a plain div because Forge's unlayered `.tabs {
+                  display: inline-flex }` would otherwise beat Tailwind's
+                  layered `.hidden { display: none }`. `DataTableGroup` is
+                  structurally a `SegmentedTab` (id/label/count/testId), so
+                  the groups pass straight through. */}
               <div className="hidden md:block">
-                <div className="tabs" role="tablist">
-                  {groups.map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={g.id === activeGroup}
-                      data-state={g.id === activeGroup ? "active" : "inactive"}
-                      data-testid={g.testId}
-                      onClick={() => onGroupChange?.(g.id)}
-                    >
-                      {g.label}
-                      {g.count !== undefined && (
-                        <span className="count">{g.count}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedTabs
+                  tabs={groups}
+                  activeId={activeGroup ?? ""}
+                  onChange={(id) => onGroupChange?.(id)}
+                />
               </div>
               {/* Mobile wrapper — same data as a Select that collapses
                   long group lists to a single 34px trigger. Same
