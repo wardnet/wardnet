@@ -18,8 +18,12 @@ export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
 export { RuleRequestService } from "./services/rule-requests.js";
+export { PushService } from "./services/push.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
+
+// Types — push
+export type { WebPushKeys, WebPushSubscription, VapidPublicKeyResponse } from "./types/push.js";
 
 // Types — jobs
 export type { Job, JobKind, JobStatus, JobDispatchedResponse } from "./types/jobs.js";

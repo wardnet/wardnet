@@ -12,7 +12,7 @@
 
 **Device-keyed** — Identified by MAC address / LAN IP. Non-admin users have no credentials; their identity is their device on the network. Push subscriptions and self-service routing rules are device-keyed.
 
-**Admin session** — Credential-based (username + password). Required for any admin surface. Push subscriptions on the admin mobile PWA are admin-session-keyed.
+**Admin session** — Credential-based (username + password). Required for any admin surface. Push subscriptions on the admin mobile PWA are **admin-account-keyed** (to the admin account UUID, not the ephemeral session token, so they survive session rotation and logout).
 
 **Admin lock** — Flag set by an admin on a device that prevents the device owner from changing their own routing rule. Read-only state visible in the user PWA.
 
@@ -21,6 +21,8 @@
 **Route verification** — User PWA feature. Makes a client-side request to an external IP geolocation API to show the device's current public IP and inferred country/location. Used to confirm that a VPN routing rule is working as intended. Client-side call is correct: the browser request travels through the Pi's per-device routing, so the result reflects the device's actual egress path.
 
 **Device-keyed push subscription** — A Web Push subscription (VAPID) stored in the daemon's database keyed to a device record (MAC/IP). Allows the daemon to notify a specific device's browser even when the PWA is not open.
+
+**Admin-account-keyed push subscription** — A Web Push subscription stored keyed to the admin account UUID. Admin-PWA notifications (tunnel offline, a device changing its own routing) fan out to every admin-account subscription. Keyed to the account rather than the session so a subscription outlives session rotation/logout; an explicit unsubscribe (or a 404/410 from the push service) is what removes it.
 
 ## Routing
 

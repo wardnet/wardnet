@@ -30,6 +30,13 @@ pub enum WardnetEvent {
         last_ip: String,
         timestamp: DateTime<Utc>,
     },
+    /// An admin toggled a device's `admin_locked` flag. Drives the user-PWA
+    /// "routing locked/unlocked" push to that device's subscriptions.
+    DeviceAdminLocked {
+        device_id: Uuid,
+        locked: bool,
+        timestamp: DateTime<Utc>,
+    },
     /// Bring-up succeeded; kernel interface is configured. No handshake has
     /// been observed yet — the tunnel is awaiting its first peer reply.
     TunnelConnecting {
@@ -62,6 +69,16 @@ pub enum WardnetEvent {
         tunnel_id: Uuid,
         interface_name: String,
         reason: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// Bring-up failed: the kernel interface could not be configured or the
+    /// first handshake never arrived within the start deadline. Drives the
+    /// admin-PWA "tunnel failed to start" push. Distinct from `TunnelDown`,
+    /// which covers an already-running tunnel going away.
+    TunnelStartFailed {
+        tunnel_id: Uuid,
+        interface_name: String,
+        error: String,
         timestamp: DateTime<Utc>,
     },
     TunnelStatsUpdated {

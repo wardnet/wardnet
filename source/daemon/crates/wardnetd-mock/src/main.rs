@@ -256,6 +256,7 @@ async fn run(
         packet_capture: Arc::new(NoopPacketCapture),
         hostname_resolver: Arc::new(NoopHostnameResolver),
         secret_store,
+        web_push_sender: Arc::new(wardnetd_mock::backends::noop_web_push::NoopWebPushSender),
         blocklist_fetcher: Arc::new(HttpBlocklistFetcher::new()),
         update: update_backends,
         config_path: mock_config_path,
@@ -338,6 +339,7 @@ async fn run(
         services.stats.clone(),
         services.rule_request.clone(),
     )
+    .with_push_service(services.push.clone())
     .with_health_monitor(health_monitor);
 
     // Drain the DNS query log persistence channel into SQLite so the

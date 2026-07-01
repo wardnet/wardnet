@@ -15,14 +15,15 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 use crate::db::DbPools;
 use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
-    DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository,
+    DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository, PushRepository,
     RuleRequestRepository, SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository,
     SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
     SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
-    SqliteMaintenanceRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, StatsRepository,
-    SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository, UpdateRepository,
+    SqliteMaintenanceRepository, SqlitePushRepository, SqliteRuleRequestRepository,
+    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
+    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
+    StatsRepository, SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository,
+    UpdateRepository,
 };
 use sqlx::SqlitePool;
 
@@ -46,6 +47,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn update(&self) -> Arc<dyn UpdateRepository>;
     fn maintenance(&self) -> Arc<dyn MaintenanceRepository>;
     fn rule_request(&self) -> Arc<dyn RuleRequestRepository>;
+    fn push(&self) -> Arc<dyn PushRepository>;
 
     /// Provider-specific database dumper for backup/restore.
     ///
@@ -192,6 +194,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn rule_request(&self) -> Arc<dyn RuleRequestRepository> {
         Arc::new(SqliteRuleRequestRepository::new_pools(self.pools.clone()))
+    }
+
+    fn push(&self) -> Arc<dyn PushRepository> {
+        Arc::new(SqlitePushRepository::new_pools(self.pools.clone()))
     }
 
     fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper> {

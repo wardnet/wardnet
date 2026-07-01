@@ -202,6 +202,8 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         // continue to apply and no rebuild is needed.
         WardnetEvent::TunnelConnecting { .. }
         | WardnetEvent::TunnelReconnecting { .. }
+        | WardnetEvent::TunnelStartFailed { .. }
+        | WardnetEvent::DeviceAdminLocked { .. }
         | WardnetEvent::TunnelStatsUpdated { .. }
         | WardnetEvent::DhcpLeaseAssigned { .. }
         | WardnetEvent::DhcpLeaseRenewed { .. }
