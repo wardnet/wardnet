@@ -1748,7 +1748,14 @@ pub struct UpdateNetworkZoneRequest {
     pub member_isolation: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_ui_reachable: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Three-state: absent → `None` (leave as-is); `null` → `Some(None)` (clear);
+    // a value → `Some(Some(..))` (set). Needs `nullable_field` because plain
+    // serde maps JSON `null` on `Option<Option<T>>` to the outer `None`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_field"
+    )]
     pub subnet: Option<Option<ZoneSubnet>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_default: Option<bool>,

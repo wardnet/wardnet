@@ -176,10 +176,15 @@ impl NetworkZoneRepository for SqliteNetworkZoneRepository {
         sqlx::query("UPDATE network_zones SET is_default = 0 WHERE is_default = 1")
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE network_zones SET is_default = 1 WHERE id = ?")
+        let set = sqlx::query("UPDATE network_zones SET is_default = 1 WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
+        // Guard against clearing the flag from every row but setting it on none
+        // (unknown id) — that would orphan the anchor. Roll back by not committing.
+        if set.rows_affected() == 0 {
+            anyhow::bail!("cannot set default: no network zone with id {id}");
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -189,10 +194,13 @@ impl NetworkZoneRepository for SqliteNetworkZoneRepository {
         sqlx::query("UPDATE network_zones SET is_default_for_new = 0 WHERE is_default_for_new = 1")
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE network_zones SET is_default_for_new = 1 WHERE id = ?")
+        let set = sqlx::query("UPDATE network_zones SET is_default_for_new = 1 WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
+        if set.rows_affected() == 0 {
+            anyhow::bail!("cannot set default-for-new: no network zone with id {id}");
+        }
         tx.commit().await?;
         Ok(())
     }

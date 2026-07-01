@@ -352,6 +352,21 @@ async fn delete_rejects_default_zone() {
 }
 
 #[tokio::test]
+async fn delete_rejects_default_for_new_zone() {
+    // A manual, empty zone that has been promoted to default-for-new must not
+    // be deletable — doing so would orphan the pointer and break discovery.
+    let h = build().await;
+    let zone = as_admin(h.svc.create_zone(create_req("Landing")))
+        .await
+        .unwrap();
+    as_admin(h.svc.set_default_for_new(zone.id)).await.unwrap();
+    assert!(matches!(
+        as_admin(h.svc.delete_zone(zone.id)).await,
+        Err(AppError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
 async fn delete_rejects_zone_with_members() {
     let h = build().await;
     let zone = as_admin(h.svc.create_zone(create_req("Temp")))

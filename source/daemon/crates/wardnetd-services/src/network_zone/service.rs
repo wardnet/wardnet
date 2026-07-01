@@ -261,6 +261,14 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
                 "the default (anchor) zone cannot be deleted".to_owned(),
             ));
         }
+        if zone.is_default_for_new {
+            // Deleting the sole default-for-new zone would orphan the pointer
+            // (`find_default_for_new` would then error, breaking device
+            // discovery). Promote another zone first.
+            return Err(AppError::Conflict(
+                "the default-for-new zone cannot be deleted; promote another zone first".to_owned(),
+            ));
+        }
         let members = self
             .zones
             .count_members(&id.to_string())

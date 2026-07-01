@@ -71,3 +71,21 @@ fn export_backup_request_debug_redacts_passphrase() {
     assert!(rendered.contains("[REDACTED]"));
     assert!(!rendered.contains("correct-horse-battery-staple"));
 }
+
+#[test]
+fn update_network_zone_request_subnet_is_three_state() {
+    use crate::api::UpdateNetworkZoneRequest;
+
+    // Absent → None (leave as-is).
+    let absent: UpdateNetworkZoneRequest = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.subnet, None);
+
+    // Explicit null → Some(None) (clear).
+    let cleared: UpdateNetworkZoneRequest = serde_json::from_str(r#"{"subnet":null}"#).unwrap();
+    assert_eq!(cleared.subnet, Some(None));
+
+    // A value → Some(Some(..)) (set).
+    let set: UpdateNetworkZoneRequest =
+        serde_json::from_str(r#"{"subnet":{"cidr":"10.44.0.0/24"}}"#).unwrap();
+    assert_eq!(set.subnet.unwrap().unwrap().cidr, "10.44.0.0/24");
+}
