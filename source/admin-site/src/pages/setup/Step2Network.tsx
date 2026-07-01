@@ -1,6 +1,6 @@
 import { AlertTriangleIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useNetworkStatus } from "@wardnet/web";
 
@@ -19,11 +19,13 @@ export default function Step2Network() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">Confirm network</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          Confirm network
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Wardnet should have a stable LAN IP so opted-in devices keep pointing
           at it across reboots.
-        </p>
+        </Text>
       </div>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-line bg-sunken p-4 text-sm">
@@ -63,14 +65,14 @@ export default function Step2Network() {
             <Text as="p" weight="medium">
               Your IP isn't pinned
             </Text>
-            <p>
+            <Text as="p">
               The router is currently leasing this address — it may change on
               the next reboot. Re-run <code>install.sh</code> with{" "}
               <code>--static-ip {data?.ip ?? "&lt;cidr&gt;"}/24</code> (or
               another IP from your subnet) to write{" "}
               <code>/etc/dhcpcd.conf.d/wardnet.conf</code> and pin it. You can
               continue without this, but devices may need reconfiguring later.
-            </p>
+            </Text>
           </Text>
         </div>
       )}

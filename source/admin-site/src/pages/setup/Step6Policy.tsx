@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { RoutingSelector } from "@wardnet/web";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@wardnet/web";
@@ -49,11 +49,13 @@ export default function Step6Policy() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">Default routing</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          Default routing
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Pick how new devices route by default. You can override per-device
           later from the Devices page.
-        </p>
+        </Text>
       </div>
 
       <div className="flex flex-col gap-2">

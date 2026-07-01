@@ -4,6 +4,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Text,
 } from "@wardnet/ui";
 import { Link } from "react-router";
 import { WifiOffIcon } from "lucide-react";
@@ -72,7 +73,7 @@ export function RoutingSelector({
             </SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-sm text-ink-3">
+        <Text as="p" size="sm" className="text-ink-3">
           No tunnels configured.{" "}
           {isAdmin ? (
             <Link to="/tunnels" className="text-accent underline">
@@ -81,7 +82,7 @@ export function RoutingSelector({
           ) : (
             "Contact your network admin."
           )}
-        </p>
+        </Text>
       </div>
     );
   }

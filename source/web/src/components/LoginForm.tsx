@@ -4,6 +4,7 @@ import { Button } from "@wardnet/ui";
 import { Field } from "@wardnet/ui";
 import { Form, Validator } from "@wardnet/ui";
 import { Input } from "@wardnet/ui";
+import { Text } from "@wardnet/ui";
 
 interface LoginFormProps {
   /** Injected login action — callers supply this from their auth store or hook. */
@@ -112,9 +113,14 @@ export function LoginForm({
       )}
 
       {formError && (
-        <p role="alert" data-testid="login-error" className="login-form__error">
+        <Text
+          as="p"
+          role="alert"
+          data-testid="login-error"
+          className="login-form__error"
+        >
           {formError}
-        </p>
+        </Text>
       )}
       <Button
         type="submit"
@@ -124,9 +130,9 @@ export function LoginForm({
       >
         {loading ? "Signing in…" : "Log in"}
       </Button>
-      <p className="login-form__hint">
+      <Text as="p" className="login-form__hint">
         Credentials are set during initial daemon setup.
-      </p>
+      </Text>
     </Form>
   );
 }

@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 
 interface DetailPageHeaderProps {
   /** The resource list label (e.g. "Tunnels"). */
@@ -25,7 +25,7 @@ interface DetailPageHeaderProps {
  * Established by the tunnel detail page; other detail pages should adopt
  * this header as part of the routed-detail refactor (issue #316).
  *
- * Forge mapping (T3-δ): title uses `.h-title`, meta line uses `.h-sub`,
+ * Forge mapping (T3-δ): title is a `<Heading>`, meta line a `<Text>`,
  * layout rows use `.row`/`.col` helpers. Breadcrumb mirrors the
  * `.topbar__crumbs` pattern (ink-3 trail, ink current segment) without
  * the topbar chrome, since this lives in the page body, not the chrome.
@@ -55,10 +55,16 @@ export function DetailPageHeader({
             {icon}
           </span>
         ) : null}
-        <h1 className="h-title">{itemLabel}</h1>
+        <Heading level={1} size="3xl" className="text-ink">
+          {itemLabel}
+        </Heading>
         {status}
       </div>
-      {meta ? <p className="h-sub">{meta}</p> : null}
+      {meta ? (
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
+          {meta}
+        </Text>
+      ) : null}
     </header>
   );
 }

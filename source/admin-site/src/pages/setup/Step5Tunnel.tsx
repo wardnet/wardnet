@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
-import { Text } from "@wardnet/web";
+import { Heading, Text } from "@wardnet/web";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import { useAdvanceWizard } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
@@ -31,12 +31,14 @@ export default function Step5Tunnel() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 className="h-title">First VPN tunnel</h2>
-        <p className="h-sub">
+        <Heading level={2} size="3xl" className="text-ink">
+          First VPN tunnel
+        </Heading>
+        <Text as="p" size="sm" className="mt-1 text-ink-3">
           Optional — connect a VPN provider so opted-in devices can route
           through it. You can add more from the Tunnels page once setup is
           complete.
-        </p>
+        </Text>
       </div>
 
       {hasTunnel ? (
