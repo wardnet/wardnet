@@ -18,3 +18,4 @@ mod tunnel_interface_wireguard;
 mod tunnel_monitor;
 mod watchdog_hard;
 mod watchdog_soft;
+mod zone_enforcement_listener;

@@ -352,7 +352,92 @@ async fn calls(h: &Harness) -> Vec<String> {
     h.fw_calls.lock().await.clone()
 }
 
+/// The manual tunnel-only zone (forbids direct egress) used to exercise the
+/// "no valid fallback" clamp branch.
+const TUNNEL_ONLY: &str = "00000000-0000-0000-0000-0000000009b2";
+
 // -- Tests -------------------------------------------------------------------
+
+#[tokio::test]
+async fn apply_zone_reapplies_only_its_members() {
+    let h = build().await;
+    insert_zone(
+        &h.zones,
+        DIRECT_ONLY,
+        "DirectOnly",
+        vec![AllowedTargetKind::Direct],
+        true,
+    )
+    .await;
+    let _m1 = insert_device(&h.devices, "192.168.1.200", DIRECT_ONLY).await;
+    let _m2 = insert_device(&h.devices, "192.168.1.201", DIRECT_ONLY).await;
+    let _other = insert_device(&h.devices, "192.168.1.202", GUEST).await;
+
+    as_admin(h.svc.apply_zone(DIRECT_ONLY.parse().unwrap()))
+        .await
+        .unwrap();
+
+    let c = calls(&h).await;
+    assert!(
+        c.contains(
+            &"apply:192.168.1.200:direct=true:tunnel=false:adminui=true:lan=eth0".to_owned()
+        ),
+        "member 1 re-applied: {c:?}"
+    );
+    assert!(
+        c.contains(
+            &"apply:192.168.1.201:direct=true:tunnel=false:adminui=true:lan=eth0".to_owned()
+        ),
+        "member 2 re-applied: {c:?}"
+    );
+    assert!(
+        !c.iter().any(|x| x.starts_with("apply:192.168.1.202:")),
+        "a device in a different zone is left alone: {c:?}"
+    );
+}
+
+#[tokio::test]
+async fn apply_zone_unknown_zone_is_noop() {
+    let h = build().await;
+    let _dev = insert_device(&h.devices, "192.168.1.210", GUEST).await;
+
+    as_admin(h.svc.apply_zone(Uuid::new_v4())).await.unwrap();
+
+    assert!(
+        calls(&h).await.is_empty(),
+        "a deleted/unknown zone installs nothing"
+    );
+}
+
+#[tokio::test]
+async fn default_policy_flip_leaves_tunnel_only_zone_unclamped() {
+    let h = build().await;
+    // A tunnel-only zone forbids direct, so a `direct` policy has no valid
+    // fallback: the enforcer leaves the binding for the packet-layer drop.
+    insert_zone(
+        &h.zones,
+        TUNNEL_ONLY,
+        "TunnelOnly",
+        vec![AllowedTargetKind::Tunnel],
+        true,
+    )
+    .await;
+    let dev = insert_device(&h.devices, "192.168.1.220", TUNNEL_ONLY).await;
+    let default_json = serde_json::to_string(&RoutingTarget::Default).unwrap();
+    h.devices
+        .upsert_user_rule(&dev.to_string(), &default_json, "2026-07-01T00:00:00Z")
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_default_policy_changed("direct"))
+        .await
+        .unwrap();
+
+    assert!(
+        h.clamps.lock().await.is_empty(),
+        "tunnel-only zone under a direct policy has no direct fallback, so nothing is clamped"
+    );
+}
 
 #[tokio::test]
 async fn apply_device_maps_seed_zone_to_packet_policy() {
