@@ -14602,6 +14602,160 @@
         ]
       }
     },
+    "/api/push/subscriptions": {
+      "post": {
+        "tags": [
+          "push"
+        ],
+        "description": "Register a Web Push subscription for the calling context. Admin callers (session cookie present) are keyed to their account; LAN devices are keyed to their MAC. Accessible to both — the caller must be a known device or an admin.",
+        "operationId": "subscribe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebPushSubscription"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller could not be identified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      },
+      "delete": {
+        "tags": [
+          "push"
+        ],
+        "description": "Remove the caller's push subscription(s). Used when the user revokes notification permission in the app.",
+        "operationId": "unsubscribe",
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "query",
+            "description": "When set, only the subscription with this endpoint is removed; otherwise\nevery subscription owned by the caller is removed.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscription(s) removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller could not be identified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/push/vapid-public-key": {
+      "get": {
+        "tags": [
+          "push"
+        ],
+        "description": "The VAPID application server public key (base64url). Unauthenticated — the browser needs it to build a push subscription before any identity exists.",
+        "operationId": "get_vapid_public_key",
+        "responses": {
+          "200": {
+            "description": "The VAPID public key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VapidPublicKeyResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/rule-requests": {
       "get": {
         "tags": [
@@ -22766,6 +22920,18 @@
           }
         }
       },
+      "PushSubscriptionResponse": {
+        "type": "object",
+        "description": "Response of the push subscription mutation endpoints.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "RebuildTunnelResponse": {
         "type": "object",
         "description": "Response for POST /api/tunnels/:id/rebuild.",
@@ -24707,6 +24873,54 @@
           }
         }
       },
+      "VapidPublicKeyResponse": {
+        "type": "object",
+        "description": "Response of `GET /api/push/vapid-public-key`.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Base64url (unpadded) uncompressed P-256 application server key, passed\nto `PushManager.subscribe({ applicationServerKey })` in the browser."
+          }
+        }
+      },
+      "WebPushKeys": {
+        "type": "object",
+        "description": "The subscriber's encryption keys, carried inside [`WebPushSubscription`].",
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "properties": {
+          "auth": {
+            "type": "string",
+            "description": "Base64url (unpadded) shared authentication secret (`auth`)."
+          },
+          "p256dh": {
+            "type": "string",
+            "description": "Base64url (unpadded) P-256 ECDH public key of the subscriber (`p256dh`)."
+          }
+        }
+      },
+      "WebPushSubscription": {
+        "type": "object",
+        "description": "Standard Web Push subscription object as produced in-browser by\n`PushManager.subscribe()`. Body of `POST /api/push/subscriptions`.",
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "description": "Push service endpoint the daemon POSTs encrypted payloads to."
+          },
+          "keys": {
+            "$ref": "#/components/schemas/WebPushKeys"
+          }
+        }
+      },
       "WizardMode": {
         "type": "string",
         "description": "Branch of the DHCP onboarding flow chosen at step 3.\n\n`Primary` runs Wardnet's built-in DHCP server. `LockedRouter` keeps the\nupstream ISP router as the LAN's DHCP server and configures opted-in\ndevices statically with Wardnet as their gateway/DNS.",
@@ -24832,6 +25046,10 @@
     {
       "name": "update",
       "description": "Auto-update and rollback"
+    },
+    {
+      "name": "push",
+      "description": "Web Push subscriptions and VAPID key"
     }
   ]
 }
