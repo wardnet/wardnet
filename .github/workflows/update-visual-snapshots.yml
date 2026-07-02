@@ -1,0 +1,104 @@
+name: Update Visual Snapshots
+
+# Regenerates the Playwright visual-regression baselines (V1, #628) and commits
+# them back to the branch it runs on.
+#
+# Baselines must be rendered in the pinned Linux Playwright runner container —
+# the exact environment `make e2e-ui` compares against — so they can't be
+# produced on a dev's host (font rendering differs). This workflow IS that
+# environment: on an ubuntu-latest runner with Docker it runs
+# `make e2e-ui-update-snapshots` (which sets PW_UPDATE_SNAPSHOTS=1 → Playwright
+# `updateSnapshots:"all"`), then commits the regenerated
+# `source/end2end-tests/web-ui/snapshots/` back to the selected branch and
+# also uploads it as an artifact.
+#
+# Use it to (a) bootstrap the initial baselines and (b) refresh them after an
+# intentional UI change: from the Actions tab pick "Run workflow" and select
+# the target branch (e.g. the feature branch whose UI changed). Requires this
+# file to be on the default branch to be dispatchable, and on the selected
+# branch to run against it — so rebase the target branch onto main first.
+#
+# NOTE: the baseline commit is pushed with GITHUB_TOKEN, which by design does
+# NOT re-trigger other workflows — re-run the "E2E Tests" checks on the PR
+# afterwards to see them go green against the fresh baselines.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  # Commit the regenerated baselines back to the branch.
+  contents: write
+  # `make build-web` pulls @wardnet/{ui,styles,brand} from GitHub Packages.
+  packages: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  update-snapshots:
+    name: Regenerate visual baselines
+    runs-on: ubuntu-latest
+    # Matches the e2e-ui job: a real-asset wardnetd-ui image is compiled in
+    # Docker (~7-10 min cold) before the Playwright run.
+    timeout-minutes: 40
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/yarn.lock
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Generate visual baselines
+        # Rewrites every baseline into source/end2end-tests/web-ui/snapshots/.
+        # Tolerate a non-zero exit: a flaky functional spec must not block the
+        # commit — the `@visual` specs run first (`_visual` filename prefix)
+        # and still write their PNGs. CONTAINER_RT=docker forces BuildKit (the
+        # daemon Dockerfile.test uses heredocs podman's classic builder
+        # rejects — see tests-e2e.yml).
+        run: make e2e-ui-update-snapshots CONTAINER_RT=$(command -v docker) || true
+
+      - name: Ensure Yarn cache directory exists
+        # actions/setup-node saves the Yarn cache in its post-step; guarantee
+        # the path exists even if make build-web exited early (mirrors
+        # tests-e2e.yml).
+        if: always()
+        run: |
+          CACHE_DIR=$(cd source/admin-site && yarn config get cacheFolder 2>/dev/null \
+            || echo "$HOME/.yarn/berry/cache")
+          mkdir -p "$CACHE_DIR"
+
+      - name: Upload generated baselines
+        # A copy of the regenerated snapshots (and reports) as an artifact, so
+        # they can be inspected or committed by hand if the auto-commit below
+        # is undesirable for a given branch.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-snapshots
+          path: |
+            source/end2end-tests/web-ui/snapshots/
+            source/end2end-tests/web-ui/reports/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Commit regenerated baselines
+        run: |
+          set -euo pipefail
+          SNAP=source/end2end-tests/web-ui/snapshots
+          if [ -z "$(git status --porcelain -- "$SNAP")" ]; then
+            echo "No baseline changes — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$SNAP"
+          git commit -m "test(e2e): regenerate visual-regression baselines (#628)"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
