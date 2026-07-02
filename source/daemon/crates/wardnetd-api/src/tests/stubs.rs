@@ -73,6 +73,9 @@ impl AuthService for StubAuthService {
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubDeviceService;
@@ -161,6 +164,14 @@ impl DhcpService for StubDhcpService {
         _r: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
@@ -954,6 +965,7 @@ impl DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 pub struct StubDnsServer;

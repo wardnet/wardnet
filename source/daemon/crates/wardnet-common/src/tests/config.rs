@@ -10,7 +10,10 @@ fn defaults_when_file_missing() {
         .expect("should return defaults");
     assert_eq!(config.server.host, "0.0.0.0");
     assert_eq!(config.server.port, 7411);
-    assert_eq!(config.database.connection_string, "./wardnet.db");
+    assert_eq!(
+        config.database.connection_string,
+        "/var/lib/wardnet/wardnet.db"
+    );
     assert_eq!(config.logging.format, LogFormat::Console);
     assert_eq!(config.logging.level, "info");
     assert_eq!(
@@ -94,11 +97,94 @@ path = "/var/lib/wardnet/secrets"
 }
 
 #[test]
+fn unknown_top_level_key_is_rejected() {
+    let dir = std::env::temp_dir().join("wardnet-config-unknown-top-level-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-unknown-top-level.toml");
+    // `databse` is a typo of the `[database]` section: it must fail loudly,
+    // naming the offending key, rather than being silently dropped.
+    std::fs::write(
+        &path,
+        r#"
+[server]
+port = 8080
+
+[databse]
+connection_string = "/tmp/x.db"
+"#,
+    )
+    .unwrap();
+
+    let err =
+        ApplicationConfiguration::load(&path).expect_err("unknown top-level key must be rejected");
+    assert!(
+        err.to_string().contains("databse"),
+        "error should name the offending key, got: {err}"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn unknown_nested_key_is_rejected() {
+    let dir = std::env::temp_dir().join("wardnet-config-unknown-nested-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-unknown-nested.toml");
+    // `porrt` is a typo of `port` inside an otherwise-valid section.
+    std::fs::write(
+        &path,
+        r"
+[server]
+porrt = 8080
+",
+    )
+    .unwrap();
+
+    let err =
+        ApplicationConfiguration::load(&path).expect_err("unknown nested key must be rejected");
+    assert!(
+        err.to_string().contains("porrt"),
+        "error should name the offending key, got: {err}"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn is_provider_enabled_default_true() {
     let config = ApplicationConfiguration::default();
     // Providers not in the map should default to enabled.
     assert!(config.is_vpn_provider_enabled("nordvpn"));
     assert!(config.is_vpn_provider_enabled("unknown_provider"));
+}
+
+#[test]
+fn nordvpn_api_url_defaults_to_none() {
+    let config = ApplicationConfiguration::default();
+    assert!(config.vpn_providers.nordvpn_api_url.is_none());
+}
+
+#[test]
+fn load_nordvpn_api_url_override() {
+    let dir = std::env::temp_dir().join("wardnet-config-nordvpn-url-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-nordvpn-url.toml");
+    std::fs::write(
+        &path,
+        r#"
+[vpn_providers]
+nordvpn_api_url = "http://10.92.0.52:8080"
+"#,
+    )
+    .unwrap();
+
+    let config = ApplicationConfiguration::load(&path).unwrap();
+    assert_eq!(
+        config.vpn_providers.nordvpn_api_url.as_deref(),
+        Some("http://10.92.0.52:8080")
+    );
+
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]

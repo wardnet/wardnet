@@ -293,6 +293,29 @@ async fn is_setup_completed_delegates() {
 }
 
 #[tokio::test]
+async fn cleanup_expired_sessions_requires_admin() {
+    // No auth context → require_admin rejects before touching the repo.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = svc.cleanup_expired_sessions().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn cleanup_expired_sessions_delegates_under_admin_context() {
+    // Under an admin context it delegates to SessionRepository::delete_expired
+    // and returns the row count (MockSessionRepo returns 0).
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.cleanup_expired_sessions().await },
+    )
+    .await;
+    assert_eq!(result.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn refresh_session_success() {
     // Session exists and was created as remember_me=true → rotates token and extends expiry.
     let admin_uuid = "00000000-0000-0000-0000-000000000001";

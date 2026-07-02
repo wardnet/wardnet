@@ -81,6 +81,14 @@ impl DhcpService for MockDhcp {
     ) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
     }
+    async fn preview_config(
+        &self,
+        _req: wardnet_common::api::PreviewDhcpConfigRequest,
+    ) -> Result<wardnet_common::api::PreviewDhcpConfigResponse, AppError> {
+        Ok(wardnet_common::api::PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
+    }
     async fn toggle(
         &self,
         _req: wardnet_common::api::ToggleDhcpRequest,

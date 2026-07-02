@@ -73,6 +73,9 @@ impl AuthService for MockAuthService {
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock `DeviceService` returning configurable responses.
@@ -331,6 +334,14 @@ impl DhcpService for MockDhcpService {
         _r: wardnet_common::api::UpdateDhcpConfigRequest,
     ) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: wardnet_common::api::PreviewDhcpConfigRequest,
+    ) -> Result<wardnet_common::api::PreviewDhcpConfigResponse, AppError> {
+        Ok(wardnet_common::api::PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
     async fn toggle(
         &self,

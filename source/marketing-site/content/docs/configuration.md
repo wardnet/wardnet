@@ -11,7 +11,7 @@ the file keeps its defaults.
 ```toml
 # /etc/wardnet/wardnet.toml — minimal file written by the installer
 [database]
-path = "/var/lib/wardnet/wardnet.db"
+connection_string = "/var/lib/wardnet/wardnet.db"
 
 [logging]
 path = "/var/log/wardnet/wardnetd.log"
@@ -48,7 +48,7 @@ writable by the `wardnet` user.
 | Key | Default | Notes |
 | --- | --- | --- |
 | `provider` | `"sqlite"` | Only `sqlite` is supported. |
-| `connection_string` | `"./wardnet.db"` | Installer overrides this to `/var/lib/wardnet/wardnet.db`. |
+| `connection_string` | `"/var/lib/wardnet/wardnet.db"` | Absolute path. Relative paths are resolved against the daemon's working directory. |
 
 ## `[logging]`
 

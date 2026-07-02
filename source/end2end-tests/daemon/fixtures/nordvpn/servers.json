@@ -1,0 +1,27 @@
+[
+  {
+    "id": 100001,
+    "name": "United States #999",
+    "hostname": "10.92.0.53",
+    "load": 8,
+    "station": "10.92.0.53",
+    "locations": [
+      {
+        "country": {
+          "id": 228,
+          "code": "US",
+          "city": { "name": "New York" }
+        }
+      }
+    ],
+    "technologies": [
+      {
+        "id": 35,
+        "identifier": "wireguard_udp",
+        "metadata": [
+          { "name": "public_key", "value": "ess2cB3fECqk9i1BfHjS9myRnokuZwWS1RjT5vmmsgU=" }
+        ]
+      }
+    ]
+  }
+]

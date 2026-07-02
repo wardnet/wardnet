@@ -232,6 +232,7 @@ export {
   useDhcpReservations,
   useToggleDhcp,
   useUpdateDhcpConfig,
+  usePreviewDhcpConfig,
   useCreateReservation,
   useDeleteReservation,
   useRevokeLease,

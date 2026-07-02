@@ -11,7 +11,8 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpScope};
 
@@ -139,6 +140,14 @@ impl DhcpService for MockDhcpService {
         _r: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
@@ -561,6 +570,48 @@ async fn handle_request_calls_renew_lease_and_returns_ack() {
 }
 
 #[tokio::test]
+async fn handle_request_naks_when_assigned_ip_differs_from_requested() {
+    // Client renews from an out-of-range address (ciaddr) but the service
+    // hands back a different, in-range lease — meaning the requested IP is no
+    // longer valid. The server must NAK, not ACK a surprise IP (issue #227).
+    let lease = test_lease(); // ip 192.168.1.100
+    let mock = Arc::new(MockDhcpService::new(lease.clone()));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock) as Arc<dyn DhcpService>;
+
+    let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.set_ciaddr(Ipv4Addr::new(192, 168, 1, 50)); // old, now out-of-range IP
+    let config = test_config();
+
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+        .await
+        .unwrap();
+
+    assert_eq!(response.opts().msg_type(), Some(MessageType::Nak));
+    // A NAK carries no address assignment.
+    assert_eq!(response.yiaddr(), Ipv4Addr::UNSPECIFIED);
+}
+
+#[tokio::test]
+async fn handle_request_acks_when_requested_ip_matches_assigned() {
+    // A normal renewal: the client asks to keep exactly the IP the service
+    // returns, so the server ACKs it.
+    let lease = test_lease(); // ip 192.168.1.100
+    let mock = Arc::new(MockDhcpService::new(lease.clone()));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock) as Arc<dyn DhcpService>;
+
+    let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.set_ciaddr(lease.ip_address);
+    let config = test_config();
+
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+        .await
+        .unwrap();
+
+    assert_eq!(response.opts().msg_type(), Some(MessageType::Ack));
+    assert_eq!(response.yiaddr(), lease.ip_address);
+}
+
+#[tokio::test]
 async fn handle_request_preserves_xid() {
     let lease = test_lease();
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
@@ -589,6 +640,14 @@ async fn handle_discover_returns_error_when_service_fails() {
             _r: UpdateDhcpConfigRequest,
         ) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
+        }
+        async fn preview_config(
+            &self,
+            _req: PreviewDhcpConfigRequest,
+        ) -> Result<PreviewDhcpConfigResponse, AppError> {
+            Ok(PreviewDhcpConfigResponse {
+                affected: Vec::new(),
+            })
         }
         async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
@@ -667,6 +726,14 @@ async fn handle_request_returns_error_when_service_fails() {
             _r: UpdateDhcpConfigRequest,
         ) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
+        }
+        async fn preview_config(
+            &self,
+            _req: PreviewDhcpConfigRequest,
+        ) -> Result<PreviewDhcpConfigResponse, AppError> {
+            Ok(PreviewDhcpConfigResponse {
+                affected: Vec::new(),
+            })
         }
         async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
@@ -1192,6 +1259,14 @@ async fn server_loop_handles_discover_error_gracefully() {
         ) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
         }
+        async fn preview_config(
+            &self,
+            _req: PreviewDhcpConfigRequest,
+        ) -> Result<PreviewDhcpConfigResponse, AppError> {
+            Ok(PreviewDhcpConfigResponse {
+                affected: Vec::new(),
+            })
+        }
         async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
         }
@@ -1279,6 +1354,14 @@ async fn server_loop_handles_request_error_gracefully() {
             _r: UpdateDhcpConfigRequest,
         ) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
+        }
+        async fn preview_config(
+            &self,
+            _req: PreviewDhcpConfigRequest,
+        ) -> Result<PreviewDhcpConfigResponse, AppError> {
+            Ok(PreviewDhcpConfigResponse {
+                affected: Vec::new(),
+            })
         }
         async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()

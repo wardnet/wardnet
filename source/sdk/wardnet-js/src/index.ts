@@ -119,6 +119,8 @@ export type {
   DhcpReservation,
   DhcpConfigResponse,
   UpdateDhcpConfigRequest,
+  PreviewDhcpConfigRequest,
+  PreviewDhcpConfigResponse,
   ToggleDhcpRequest,
   ListDhcpLeasesResponse,
   ListDhcpReservationsResponse,

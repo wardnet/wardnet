@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Loaded from a TOML file by the daemon, or constructed with defaults
 /// by the mock server. All sub-crates receive this via dependency injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ApplicationConfiguration {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -107,7 +107,7 @@ impl ApplicationConfiguration {
 
 /// HTTP server configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
     pub host: String,
     /// Plain-HTTP port — the pre-provisioning fallback surface and the LAN admin
@@ -142,11 +142,17 @@ pub enum DatabaseProvider {
 
 /// Database configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
     /// Database provider. Only `sqlite` is supported for now.
     pub provider: DatabaseProvider,
     /// Connection string. For `SQLite` this is the file path.
+    ///
+    /// Defaults to the absolute `/var/lib/wardnet/wardnet.db` (matching the
+    /// systemd `ReadWritePaths=/var/lib/wardnet` and what `deploy/install.sh`
+    /// writes) so a zero-config daemon under `WorkingDirectory=/` doesn't try
+    /// to create `/wardnet.db`. Explicit relative paths are still honoured and
+    /// resolved against the working directory via [`Self::to_file_path`].
     pub connection_string: String,
 }
 
@@ -154,7 +160,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             provider: DatabaseProvider::Sqlite,
-            connection_string: "./wardnet.db".to_owned(),
+            connection_string: "/var/lib/wardnet/wardnet.db".to_owned(),
         }
     }
 }
@@ -203,7 +209,7 @@ pub enum LogRotation {
 
 /// Logging configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LoggingConfig {
     /// Log output format (console or json).
     pub format: LogFormat,
@@ -265,7 +271,7 @@ impl LoggingConfig {
 
 /// Network / LAN configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub lan_interface: String,
     pub default_policy: String,
@@ -282,7 +288,7 @@ impl Default for NetworkConfig {
 
 /// Authentication settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
     pub session_expiry_hours: u64,
     /// Session lifetime when `remember_me = true` (default 30 days = 720 h).
@@ -303,6 +309,7 @@ impl Default for AuthConfig {
 /// Optional in the TOML file. When present, `bootstrap_admin` uses these
 /// instead of generating random credentials.
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminConfig {
     pub username: String,
     pub password: String,
@@ -325,7 +332,7 @@ impl std::fmt::Debug for AdminConfig {
 /// top-level [`SecretStoreConfig`]. Tunnel creation refuses to operate
 /// when no secret store is configured.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct TunnelConfig {
     pub idle_timeout_secs: u64,
     pub health_check_interval_secs: u64,
@@ -383,6 +390,10 @@ impl Default for TunnelConfig {
 /// provider = "file_system"
 /// path = "/var/lib/wardnet/secrets"
 /// ```
+// NOTE: no `deny_unknown_fields` here — serde rejects it on internally-tagged
+// enums (`tag = "provider"`) at compile time. Unknown keys *inside* a variant
+// (e.g. a stray field under `[secret_store]`) are therefore not caught; unknown
+// top-level sections still are, via `ApplicationConfiguration`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "provider", rename_all = "snake_case")]
 pub enum SecretStoreConfig {
@@ -396,7 +407,7 @@ pub enum SecretStoreConfig {
 
 /// Device detection settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DetectionConfig {
     pub enabled: bool,
     pub departure_timeout_secs: u64,
@@ -419,7 +430,7 @@ impl Default for DetectionConfig {
 
 /// OpenTelemetry OTLP export configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OtelConfig {
     pub enabled: bool,
     pub endpoint: String,
@@ -446,7 +457,7 @@ impl Default for OtelConfig {
 
 /// `OTel` trace export settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OtelTracesConfig {
     pub enabled: bool,
 }
@@ -459,7 +470,7 @@ impl Default for OtelTracesConfig {
 
 /// `OTel` log export settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OtelLogsConfig {
     pub enabled: bool,
 }
@@ -480,16 +491,22 @@ impl Default for OtelLogsConfig {
 /// nordvpn = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct VpnProvidersConfig {
     /// Map of provider ID to enabled flag. Providers not listed here are
     /// treated as enabled.
     pub enabled: std::collections::HashMap<String, bool>,
+    /// Override for the `NordVPN` API base URL. Unset in production (the
+    /// provider talks to `https://api.nordvpn.com`); the end-to-end test
+    /// harness points this at the `nordvpn_mock` container so the daemon
+    /// never reaches the real API. See issue #248 (E2E Stage 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nordvpn_api_url: Option<String>,
 }
 
 /// OpenTelemetry metrics collection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OtelMetricsConfig {
     pub enabled: bool,
     pub enabled_metrics: EnabledMetrics,
@@ -507,7 +524,7 @@ impl Default for OtelMetricsConfig {
 /// Per-metric enable/disable toggles for the metrics collector.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct EnabledMetrics {
     pub system_cpu_utilization: bool,
     pub system_memory_usage: bool,
@@ -545,7 +562,7 @@ impl Default for EnabledMetrics {
 /// here are the deploy-time knobs: where to fetch releases from, how often
 /// to check, and the binary layout paths.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct UpdateConfig {
     /// HTTPS base URL for the release manifest server.
     ///
@@ -589,7 +606,7 @@ impl Default for UpdateConfig {
 /// without knowing the LAN IP. Disable via `enabled = false` if the
 /// LAN already has another mDNS responder owning the name.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MdnsConfig {
     /// When `false`, the daemon does not start the mDNS advertiser.
     pub enabled: bool,
@@ -618,7 +635,7 @@ impl Default for MdnsConfig {
 /// All three fields are `serde` defaults so an existing `wardnet.toml` needs
 /// no `[health]` section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct HealthConfig {
     /// How often the monitor re-runs every check, in seconds.
     pub refresh_interval_secs: u64,
@@ -647,7 +664,7 @@ impl Default for HealthConfig {
 /// Covers both the hardware `/dev/watchdog` (ungated kernel-reboot backstop)
 /// and the health-gated soft restart driven by `sd_notify(WATCHDOG=1)`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WatchdogConfig {
     /// Master switch for the hardware `/dev/watchdog` runner. When `false`
     /// the daemon never opens the device (e.g. boards without a watchdog).
@@ -680,7 +697,7 @@ impl Default for WatchdogConfig {
 
 /// Pyroscope continuous profiling agent configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PyroscopeConfig {
     pub enabled: bool,
     pub endpoint: String,

@@ -27,7 +27,8 @@ use wardnet_common::tunnel::Tunnel;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::api::{WizardMode, WizardStep};
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpScope};
@@ -118,6 +119,9 @@ impl AuthService for StubAuthService {
         unimplemented!()
     }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
         unimplemented!()
     }
 }
@@ -594,6 +598,14 @@ impl DhcpService for StubDhcpService {
         _r: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
@@ -1110,6 +1122,7 @@ impl wardnetd_services::dhcp::server::DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------

@@ -50,6 +50,7 @@ use wardnetd::zone_enforcement_listener::ZoneEnforcementListener;
 use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
+use wardnetd_services::auth::SessionCleanupRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
@@ -606,6 +607,10 @@ async fn run(
         &root_span,
     );
 
+    // Periodically purge expired admin-session rows (reads already filter on
+    // expiry; this reclaims the dead storage). Hourly cadence.
+    let session_cleanup_runner = SessionCleanupRunner::start(services.auth.clone(), &root_span);
+
     // Drain the DNS query log persistence channel into SQLite and trim the
     // table once a day. The receiver is taken out of `Services` exactly
     // once at startup; the sink stays in `Services` so the API layer can
@@ -789,12 +794,20 @@ async fn run(
     )
     .parse()?;
 
+    // Show the *resolved absolute* database path (relative paths joined onto
+    // the working directory) so a misconfigured path is obvious in journalctl.
+    // The `:memory:` sentinel has no on-disk path, so fall back to the raw
+    // connection string there.
+    let database_display = config.database.to_file_path().map_or_else(
+        || config.database.connection_string.clone(),
+        |p| p.display().to_string(),
+    );
     println!(
         "\n  Wardnet daemon v{}\n  Listening on http://{} (plain) and https://{} (TLS)\n  Database: {}\n",
         env!("WARDNET_VERSION"),
         addr,
         https_addr,
-        config.database.connection_string,
+        database_display,
     );
 
     let _pidfile = match wardnetd::pidfile::PidfileGuard::write(&config.pidfile_path) {
@@ -931,6 +944,7 @@ async fn run(
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
     dhcp_lan_runner.shutdown().await;
+    session_cleanup_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;

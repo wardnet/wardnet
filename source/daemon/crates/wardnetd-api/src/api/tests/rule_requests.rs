@@ -35,6 +35,9 @@ impl wardnetd_services::AuthService for MockAuthService {
     async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
         Ok(Some(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),

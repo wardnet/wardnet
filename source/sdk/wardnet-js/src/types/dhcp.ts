@@ -59,6 +59,20 @@ export interface ToggleDhcpRequest {
   enabled: boolean;
 }
 
+/** Request body for POST /api/dhcp/config/preview. */
+export interface PreviewDhcpConfigRequest {
+  pool_start: string;
+  pool_end: string;
+}
+
+/**
+ * Response for POST /api/dhcp/config/preview: the active leases that would be
+ * revoked (IP outside the proposed pool, not pinned by a reservation).
+ */
+export interface PreviewDhcpConfigResponse {
+  affected: DhcpLease[];
+}
+
 /** Response for GET /api/dhcp/leases. */
 export interface ListDhcpLeasesResponse {
   leases: DhcpLease[];

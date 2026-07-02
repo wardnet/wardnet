@@ -71,6 +71,9 @@ impl AuthService for AlwaysAuthService {
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 struct NeverAuthService;
@@ -104,6 +107,9 @@ impl AuthService for NeverAuthService {
         unimplemented!()
     }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
         unimplemented!()
     }
 }

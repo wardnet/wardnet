@@ -578,7 +578,10 @@ fn create_services(
         config.database.to_file_path(),
     ));
 
-    let registry = Arc::new(VpnProviderRegistry::new(&config.vpn_providers.enabled));
+    let registry = Arc::new(VpnProviderRegistry::new(
+        &config.vpn_providers.enabled,
+        config.vpn_providers.nordvpn_api_url.as_deref(),
+    ));
 
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
         tunnel_repo.clone(),

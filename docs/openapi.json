@@ -3593,6 +3593,173 @@
         ]
       }
     },
+    "/api/dhcp/config/preview": {
+      "post": {
+        "tags": [
+          "dhcp"
+        ],
+        "description": "Dry-run a pool-range change: report the active leases that would be revoked because their IP would fall outside the proposed pool (and are not pinned by a reservation). Mutates nothing — used to warn the admin before saving. Admin only.",
+        "operationId": "preview_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewDhcpConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Leases that would be revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewDhcpConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/dhcp/config/toggle": {
       "post": {
         "tags": [
@@ -22814,6 +22981,38 @@
           }
         ],
         "description": "A Network Zone plus its current member count. Enriched view returned by the\nzone list/detail endpoints."
+      },
+      "PreviewDhcpConfigRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/dhcp/config/preview.\n\nA dry-run that reports which active leases would be revoked if the pool\nwere changed to `pool_start`–`pool_end`, so the admin can be warned before\nsaving. Mutates nothing.",
+        "required": [
+          "pool_start",
+          "pool_end"
+        ],
+        "properties": {
+          "pool_end": {
+            "type": "string"
+          },
+          "pool_start": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewDhcpConfigResponse": {
+        "type": "object",
+        "description": "Response for POST /api/dhcp/config/preview.",
+        "required": [
+          "affected"
+        ],
+        "properties": {
+          "affected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DhcpLease"
+            },
+            "description": "Active leases whose IP would fall outside the proposed pool and are not\npinned by a reservation. These devices would be forced to re-acquire an\nin-range lease on their next renewal."
+          }
+        }
       },
       "ProviderAuthMethod": {
         "type": "string",
