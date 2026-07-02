@@ -338,7 +338,7 @@ fn test_enabled_providers() -> EnabledProviders {
 /// Build a harness with no providers registered.
 fn build_empty_harness() -> TestHarness {
     let enabled = test_enabled_providers();
-    let registry = Arc::new(VpnProviderRegistry::new(&enabled));
+    let registry = Arc::new(VpnProviderRegistry::new(&enabled, None));
     let tunnel_service = Arc::new(MockTunnelService::new());
 
     let svc = VpnProviderServiceImpl::new(registry, tunnel_service.clone());
@@ -351,7 +351,7 @@ fn build_empty_harness() -> TestHarness {
 /// Build a harness with one mock provider registered.
 fn build_harness_with_provider(provider: MockVpnProvider) -> TestHarness {
     let enabled = test_enabled_providers();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
     registry.register(Arc::new(provider));
     let registry = Arc::new(registry);
     let tunnel_service = Arc::new(MockTunnelService::new());
@@ -368,7 +368,7 @@ fn build_harness_with_provider(provider: MockVpnProvider) -> TestHarness {
 #[tokio::test]
 async fn list_providers_returns_registered_providers() {
     let enabled = test_enabled_providers();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
     registry.register(Arc::new(MockVpnProvider::new("alpha", "Alpha VPN")));
     registry.register(Arc::new(MockVpnProvider::new("beta", "Beta VPN")));
     let registry = Arc::new(registry);

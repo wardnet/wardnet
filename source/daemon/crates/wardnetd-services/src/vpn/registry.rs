@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use wardnet_common::tunnel::BestServerSelector;
 use wardnet_common::vpn_provider::{ProviderCredentials, ProviderInfo, ServerFilter};
 
-use crate::vpn::nordvpn::{HttpNordVpnApi, NordVpnProvider};
+use crate::vpn::nordvpn::{HttpNordVpnApi, NordVpnApi, NordVpnProvider};
 use crate::vpn::provider::VpnProvider;
 use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 
@@ -25,15 +25,23 @@ impl VpnProviderRegistry {
     ///
     /// `enabled` maps provider IDs to enabled/disabled flags. Providers not
     /// listed are treated as enabled.
+    ///
+    /// `nordvpn_api_url` overrides the `NordVPN` API base URL. It is `None` in
+    /// production (the provider talks to `https://api.nordvpn.com`); the e2e
+    /// harness sets it so the daemon reaches the `nordvpn_mock` container
+    /// instead of the real API (issue #248).
     #[must_use]
-    pub fn new(enabled: &EnabledProviders) -> Self {
+    pub fn new(enabled: &EnabledProviders, nordvpn_api_url: Option<&str>) -> Self {
         let mut registry = Self {
             providers: HashMap::new(),
         };
 
         // Register NordVPN provider.
         if Self::is_enabled(enabled, "nordvpn") {
-            let api = Arc::new(HttpNordVpnApi::new());
+            let api: Arc<dyn NordVpnApi> = match nordvpn_api_url {
+                Some(url) => Arc::new(HttpNordVpnApi::with_base_url(url.to_owned())),
+                None => Arc::new(HttpNordVpnApi::new()),
+            };
             registry.register(Arc::new(NordVpnProvider::new(api)));
         }
 
