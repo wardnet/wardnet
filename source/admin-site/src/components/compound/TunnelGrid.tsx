@@ -39,6 +39,7 @@ export function TunnelGrid({
         hint="Add a WireGuard tunnel to route device traffic through a VPN provider."
         actionLabel={onAdd ? "Add tunnel" : undefined}
         onAction={onAdd}
+        actionTestId="tunnel-add"
       />
     );
   }

@@ -35,8 +35,12 @@ export function CreateTunnelInline({
   const body = (
     <Tabs defaultValue="manual">
       <TabsList>
-        <TabsTrigger value="manual">Manual</TabsTrigger>
-        <TabsTrigger value="provider">Provider</TabsTrigger>
+        <TabsTrigger value="manual" data-testid="tunnel-tab-manual">
+          Manual
+        </TabsTrigger>
+        <TabsTrigger value="provider" data-testid="tunnel-tab-provider">
+          Provider
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="manual" className="mt-4">
         <ManualTunnelTab onSuccess={onClose} />

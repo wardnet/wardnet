@@ -32,7 +32,9 @@ export default function Tunnels() {
         description="WireGuard tunnels you can route device traffic through, e.g. to a VPN provider or your own server."
         actions={
           hasTunnels && !creating ? (
-            <Button onClick={() => setCreating(true)}>Add tunnel</Button>
+            <Button data-testid="tunnel-add" onClick={() => setCreating(true)}>
+              Add tunnel
+            </Button>
           ) : undefined
         }
       />

@@ -216,7 +216,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
   else if (tunnel.provider) subParts.push(tunnel.provider);
 
   return (
-    <div className="tcard">
+    <div className="tcard" data-testid="tunnel-card">
       <Link
         to={`/tunnels/${tunnel.id}`}
         className="col gap-16 rounded-[var(--radius-lg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -384,6 +384,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         <Button
           size="sm"
           variant="destructive"
+          data-testid="tunnel-delete"
           onClick={(e) => {
             // Card is wrapped in <Link>; don't navigate when clicking delete.
             e.preventDefault();
