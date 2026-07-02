@@ -17,18 +17,24 @@ export function buildDeviceIndex(devices: Device[]): Map<string, Device> {
  * an icon on the left, then a primary identifier with a smaller secondary
  * line beneath. Keeps tabular layouts visually consistent.
  *
- * `extra` is rendered under the secondary line — useful for collapsing a
- * sibling column into this cell on narrow viewports (e.g. DHCP's IP
- * column dropping into the Host cell on mobile via `md:hidden`).
+ * `note` is an optional muted annotation rendered under the secondary line —
+ * DHCP uses it to surface a reservation's description ("why this reservation
+ * exists") directly in the row.
+ *
+ * `extra` is rendered under the note — useful for collapsing a sibling column
+ * into this cell on narrow viewports (e.g. DHCP's IP column dropping into the
+ * Host cell on mobile via `md:hidden`).
  */
 export function HostCell({
   primary,
   secondary,
+  note,
   extra,
   icon,
 }: {
   primary: string;
   secondary: string | null;
+  note?: string | null;
   extra?: React.ReactNode;
   icon: React.ReactNode;
 }) {
@@ -38,6 +44,7 @@ export function HostCell({
       <div className="col">
         <div className="name">{primary}</div>
         {secondary && <div className="mac mono">{secondary}</div>}
+        {note && <div className="text-ink-3 text-xs">{note}</div>}
         {extra}
       </div>
     </div>
