@@ -80,6 +80,9 @@ impl AuthService for MockAuthService {
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock auth service for refresh endpoint tests.
@@ -128,6 +131,9 @@ impl AuthService for MockRefreshAuthService {
                 "session not found or not refreshable".to_owned(),
             )),
         }
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
     }
 }
 

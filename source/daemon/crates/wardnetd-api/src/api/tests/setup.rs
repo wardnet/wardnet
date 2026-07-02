@@ -92,6 +92,9 @@ impl AuthService for MockSetupAuthService {
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

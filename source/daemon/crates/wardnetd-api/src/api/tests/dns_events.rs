@@ -65,6 +65,9 @@ impl wardnetd_services::AuthService for MockAuthService {
             max_age_seconds: 3600,
         })
     }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
     async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
         Ok(Some(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),

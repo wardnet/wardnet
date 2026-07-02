@@ -50,6 +50,7 @@ use wardnetd::zone_enforcement_listener::ZoneEnforcementListener;
 use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
+use wardnetd_services::auth::SessionCleanupRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
@@ -634,6 +635,10 @@ async fn run(
         &root_span,
     );
 
+    // Periodically purge expired admin-session rows (reads already filter on
+    // expiry; this reclaims the dead storage). Hourly cadence.
+    let session_cleanup_runner = SessionCleanupRunner::start(services.auth.clone(), &root_span);
+
     // Drain the DNS query log persistence channel into SQLite and trim the
     // table once a day. The receiver is taken out of `Services` exactly
     // once at startup; the sink stays in `Services` so the API layer can
@@ -958,6 +963,7 @@ async fn run(
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
     dhcp_lan_runner.shutdown().await;
+    session_cleanup_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
