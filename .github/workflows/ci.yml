@@ -134,12 +134,20 @@ jobs:
     if: >
       needs.preflight.outputs.daemon == 'true' ||
       needs.preflight.outputs.site == 'true' ||
+      needs.preflight.outputs['admin-web'] == 'true' ||
+      needs.preflight.outputs['admin-app'] == 'true' ||
+      needs.preflight.outputs['user-app'] == 'true' ||
       needs.preflight.outputs.ci == 'true'
     # site-coverage reads @wardnet/{brand,styles} from GitHub Packages.
     permissions:
       contents: read
       packages: read
     uses: ./.github/workflows/coverage.yml
+    # Gate each coverage job on the relevant change bucket (see pr.yml).
+    with:
+      run-daemon: ${{ needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-frontend: ${{ needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
 
   tests-e2e:

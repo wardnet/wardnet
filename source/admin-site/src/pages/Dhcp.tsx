@@ -101,6 +101,7 @@ export default function Dhcp() {
               // initial state whenever it's reopened with new defaults.
               key={JSON.stringify(reservationCreate.defaults ?? {})}
               defaults={reservationCreate.defaults}
+              devices={devices}
               onClose={() => setReservationCreate({ open: false })}
               onSuccess={() => setGroup("reservations")}
             />

@@ -13,6 +13,42 @@ export function deviceDisplayName(
   return device.name ?? device.hostname ?? device.mac;
 }
 
+/** Strip a MAC to its 12 lowercase hex digits, or `null` if it isn't a
+ *  full 6-octet address. Lets us compare MACs across formats
+ *  (`AA:BB:..`, `aa-bb-..`, `aabb..`) without caring about case or
+ *  separators. */
+function normalizeMac(mac: string): string | null {
+  const clean = mac.replace(/[^0-9a-f]/gi, "").toLowerCase();
+  return clean.length === 12 ? clean : null;
+}
+
+/**
+ * Hostname to auto-suggest for a reservation whose MAC matches a managed
+ * device (issue #85). Returns the device's display name for the unique
+ * match, or `undefined` when there is no usable suggestion:
+ *
+ * - the MAC isn't yet a complete address,
+ * - zero devices match, or more than one does (ambiguous — shouldn't
+ *   happen, but we don't guess),
+ * - the only "name" we'd offer is the MAC itself (device has neither an
+ *   explicit name nor a discovered hostname) — filling the hostname field
+ *   with the MAC helps no one.
+ */
+export function suggestHostnameForMac(
+  devices: Pick<Device, "name" | "hostname" | "mac">[],
+  mac: string,
+): string | undefined {
+  const target = normalizeMac(mac);
+  if (!target) return undefined;
+
+  const matches = devices.filter((d) => normalizeMac(d.mac) === target);
+  if (matches.length !== 1) return undefined;
+
+  const name = deviceDisplayName(matches[0]);
+  // deviceDisplayName falls back to the raw MAC; skip that case.
+  return normalizeMac(name) === target ? undefined : name;
+}
+
 /** Format bytes into a human-readable string (e.g. "1.2 GB"). */
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";

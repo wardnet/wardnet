@@ -49,6 +49,9 @@ jobs:
       - name: Format check
         run: cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web
 
+      - name: Test
+        run: cd source && yarn turbo run test --filter=@wardnet/admin-site --filter=@wardnet/web
+
   build:
     name: Build admin-web bundle
     runs-on: ubuntu-latest

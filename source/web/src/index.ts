@@ -42,6 +42,7 @@ export {
   apiErrorMessage,
   apiRequestId,
   deviceDisplayName,
+  suggestHostnameForMac,
 } from "./lib/utils";
 
 // Country / device helpers

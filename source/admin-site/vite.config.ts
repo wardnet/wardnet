@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -34,5 +35,30 @@ export default defineConfig({
     // the cache is force-cleared. Excluding them makes Vite read their source
     // directly every time (and keeps HMR working across the workspace).
     exclude: ["@wardnet/web", "@wardnet/js"],
+  },
+  test: {
+    globals: true,
+    // CI runners are slower and coverage instrumentation adds load; give
+    // userEvent-driven interaction tests headroom over the 5s default.
+    testTimeout: 20000,
+    environment: "jsdom",
+    setupFiles: "./tests/setup.ts",
+    css: false,
+    reporters: ["default", "junit"],
+    outputFile: {
+      junit: "./test-results/junit.xml",
+    },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "cobertura"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+        "src/**/*.d.ts",
+        "src/sw.ts",
+      ],
+    },
   },
 });
