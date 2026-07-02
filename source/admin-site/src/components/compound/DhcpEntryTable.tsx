@@ -198,20 +198,33 @@ export function DhcpEntryTable({
     return [...fromReservations, ...fromLeases];
   }, [leases, reservations, reservationIndex]);
 
+  // A reserved MAC gets both a static reservation and (while the device
+  // is online) a dynamic lease. In the "All" view we collapse those to a
+  // single row — the reservation — so the device isn't listed twice; the
+  // Leases tab still shows the underlying lease.
+  const reservedLeaseCount = useMemo(
+    () =>
+      leases.filter((l) => reservationIndex.has(l.mac_address.toLowerCase()))
+        .length,
+    [leases, reservationIndex],
+  );
+
   const counts = useMemo(
     () => ({
-      all: entries.length,
+      all: entries.length - reservedLeaseCount,
       reservations: reservations.length,
       leases: leases.length,
     }),
-    [entries.length, reservations.length, leases.length],
+    [entries.length, reservedLeaseCount, reservations.length, leases.length],
   );
 
   const filtered = useMemo(() => {
     const byGroup = entries.filter((e) => {
       if (activeGroup === "reservations") return e.kind === "reservation";
       if (activeGroup === "leases") return e.kind === "lease";
-      return true;
+      // "all": hide a lease whose MAC already has a reservation so the
+      // reserved device appears once, as its static reservation.
+      return !(e.kind === "lease" && reservationIndex.has(e.mac.toLowerCase()));
     });
     const q = searchValue.trim().toLowerCase();
     if (!q) return byGroup;
@@ -222,7 +235,7 @@ export function DhcpEntryTable({
         e.ip.toLowerCase().includes(q) ||
         (e.description ?? "").toLowerCase().includes(q),
     );
-  }, [entries, activeGroup, searchValue]);
+  }, [entries, activeGroup, searchValue, reservationIndex]);
 
   const columns = useMemo(() => buildColumns(deviceIndex), [deviceIndex]);
 
