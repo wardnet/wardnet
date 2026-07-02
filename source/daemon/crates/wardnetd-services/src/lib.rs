@@ -831,9 +831,10 @@ fn build_backup_service(
 
 /// Fresh handle to the `system_config` repo for the update service.
 ///
-/// `system_config_repo` has already been moved into `SystemService`, so we
-/// ask the factory for another instance. Each repo trait object wraps an
-/// `Arc<SqlitePool>`, so this is cheap.
+/// `system_config_repo` has already been consumed upstream (cloned into
+/// `SystemService`, moved into the discovery service), so we ask the factory
+/// for another instance. Each repo trait object wraps an `Arc<SqlitePool>`, so
+/// this is cheap.
 fn system_config_for_update(
     repo_factory: &dyn RepositoryFactory,
 ) -> Arc<dyn wardnetd_data::repository::SystemConfigRepository> {
