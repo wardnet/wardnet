@@ -50,6 +50,13 @@ pub trait NetworkZoneService: Send + Sync {
 
     /// Reassign a device to a different zone.
     async fn assign_device(&self, device_id: Uuid, zone_id: Uuid) -> Result<(), AppError>;
+
+    /// Read the new-device quarantine toggle (issue #738). When on, a
+    /// freshly-discovered device triggers an admin push to approve it.
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError>;
+
+    /// Enable or disable new-device quarantine (issue #738).
+    async fn set_quarantine_new_devices(&self, enabled: bool) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`NetworkZoneService`].
@@ -476,5 +483,21 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
             timestamp: chrono::Utc::now(),
         });
         Ok(())
+    }
+
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .is_quarantine_new_devices()
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn set_quarantine_new_devices(&self, enabled: bool) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .set_quarantine_new_devices(enabled)
+            .await
+            .map_err(AppError::Internal)
     }
 }

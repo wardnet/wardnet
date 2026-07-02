@@ -568,7 +568,7 @@ fn create_services(
         Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
-        system_config_repo,
+        system_config_repo.clone(),
         tunnel_repo.clone(),
         started_at,
         backends.shutdown_token.clone(),
@@ -608,6 +608,7 @@ fn create_services(
         device_repo.clone(),
         network_zone_repo.clone(),
         dhcp_repo,
+        system_config_repo,
         event_publisher.clone(),
         backends.hostname_resolver,
         lan_ip,
@@ -704,6 +705,7 @@ fn build_discovery_service(
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
     dhcp_repo: Arc<dyn wardnetd_data::repository::DhcpRepository>,
+    system_config_repo: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
     event_publisher: Arc<dyn EventPublisher>,
     hostname_resolver: Arc<dyn device::HostnameResolver>,
     lan_ip: std::net::Ipv4Addr,
@@ -716,6 +718,7 @@ fn build_discovery_service(
         device_repo,
         network_zone_repo,
         dhcp_repo,
+        system_config_repo,
         event_publisher,
         hostname_resolver,
         lan_subnet,

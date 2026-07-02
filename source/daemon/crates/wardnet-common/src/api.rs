@@ -1834,6 +1834,19 @@ pub struct AssignDeviceZoneRequest {
     pub zone_id: Uuid,
 }
 
+/// Response for GET /api/network/quarantine-new-devices (issue #738).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct QuarantineNewDevicesResponse {
+    /// Whether new-device quarantine is on. Off by default.
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/network/quarantine-new-devices (issue #738).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetQuarantineNewDevicesRequest {
+    pub enabled: bool,
+}
+
 // --- Zone Exceptions (epic #244, issue #737) -------------------------------
 
 /// Response for GET /api/network/zones/exceptions.

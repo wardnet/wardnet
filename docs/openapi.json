@@ -12856,6 +12856,296 @@
         ]
       }
     },
+    "/api/network/quarantine-new-devices": {
+      "get": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Read the new-device quarantine toggle (issue #738). When on, a freshly-discovered device lands in the default-for-new zone (as always) and admins get a push to approve it. Off by default. Admin only.",
+        "operationId": "get_quarantine_new_devices",
+        "responses": {
+          "200": {
+            "description": "Current toggle state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineNewDevicesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "network_zones"
+        ],
+        "description": "Enable or disable new-device quarantine (issue #738). Placement is unchanged either way (new devices always land in the default-for-new zone); the toggle only controls whether admins are notified to approve. Admin only.",
+        "operationId": "set_quarantine_new_devices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetQuarantineNewDevicesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated toggle state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineNewDevicesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/network/status": {
       "get": {
         "tags": [
@@ -24098,6 +24388,19 @@
           }
         }
       },
+      "QuarantineNewDevicesResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/quarantine-new-devices (issue #738).",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether new-device quarantine is on. Off by default."
+          }
+        }
+      },
       "RebuildTunnelResponse": {
         "type": "object",
         "description": "Response for POST /api/tunnels/:id/rebuild.",
@@ -24536,6 +24839,18 @@
           },
           "target": {
             "$ref": "#/components/schemas/RoutingTarget"
+          }
+        }
+      },
+      "SetQuarantineNewDevicesRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/network/quarantine-new-devices (issue #738).",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },

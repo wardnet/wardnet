@@ -12,8 +12,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateNetworkZoneRequest, CreateNetworkZoneResponse, DeleteNetworkZoneResponse,
-    GetNetworkZoneResponse, ListNetworkZonesResponse, UpdateNetworkZoneRequest,
-    UpdateNetworkZoneResponse,
+    GetNetworkZoneResponse, ListNetworkZonesResponse, QuarantineNewDevicesResponse,
+    SetQuarantineNewDevicesRequest, UpdateNetworkZoneRequest, UpdateNetworkZoneResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -24,6 +24,10 @@ use wardnetd_services::error::AppError;
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(list_zones, create_zone))
+        .routes(routes!(
+            get_quarantine_new_devices,
+            set_quarantine_new_devices
+        ))
         .routes(routes!(get_zone, update_zone, delete_zone))
 }
 
@@ -149,4 +153,59 @@ pub async fn delete_zone(
 ) -> Result<Json<DeleteNetworkZoneResponse>, AppError> {
     state.network_zone_service().delete_zone(id).await?;
     Ok(Json(DeleteNetworkZoneResponse { deleted: true }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/network/quarantine-new-devices",
+    tag = "network_zones",
+    description = "Read the new-device quarantine toggle (issue #738). When on, a \
+                   freshly-discovered device lands in the default-for-new zone (as \
+                   always) and admins get a push to approve it. Off by default. \
+                   Admin only.",
+    responses(
+        (status = 200, description = "Current toggle state", body = QuarantineNewDevicesResponse),
+        AuthErrors,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn get_quarantine_new_devices(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<QuarantineNewDevicesResponse>, AppError> {
+    let enabled = state
+        .network_zone_service()
+        .get_quarantine_new_devices()
+        .await?;
+    Ok(Json(QuarantineNewDevicesResponse { enabled }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/network/quarantine-new-devices",
+    tag = "network_zones",
+    description = "Enable or disable new-device quarantine (issue #738). Placement \
+                   is unchanged either way (new devices always land in the \
+                   default-for-new zone); the toggle only controls whether admins \
+                   are notified to approve. Admin only.",
+    request_body = SetQuarantineNewDevicesRequest,
+    responses(
+        (status = 200, description = "Updated toggle state", body = QuarantineNewDevicesResponse),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(("session_cookie" = []), ("bearer_auth" = [])),
+)]
+pub async fn set_quarantine_new_devices(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<SetQuarantineNewDevicesRequest>,
+) -> Result<Json<QuarantineNewDevicesResponse>, AppError> {
+    state
+        .network_zone_service()
+        .set_quarantine_new_devices(body.enabled)
+        .await?;
+    Ok(Json(QuarantineNewDevicesResponse {
+        enabled: body.enabled,
+    }))
 }

@@ -698,3 +698,42 @@ async fn delivery_is_dropped_when_vapid_key_is_corrupt() {
     assert!(h.sender.sent.lock().unwrap().is_empty());
     assert_eq!(h.push_repo.list_admins().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn new_device_quarantined_notifies_admins() {
+    let h = build(SendOutcome::Delivered).await;
+    let device_id = Uuid::new_v4();
+    insert_device(
+        &h.devices,
+        device_id,
+        "aa:bb:cc:dd:ee:01",
+        Some("Kid's iPad"),
+    )
+    .await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::NewDeviceQuarantined {
+            device_id,
+            mac: "aa:bb:cc:dd:ee:01".to_owned(),
+            zone_name: "Guest".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].endpoint, "https://push/admin");
+    // Uses the device's human name and the landing zone.
+    assert!(sent[0].payload.contains("Kid's iPad"));
+    assert!(sent[0].payload.contains("Guest"));
+    assert!(sent[0].payload.contains("Approve"));
+}

@@ -398,6 +398,23 @@ impl PushService for PushServiceImpl {
                 .await;
             }
 
+            // A previously-unseen device landed in the quarantine (default-for-new)
+            // zone while new-device quarantine is on (#738). Nudge the admins to
+            // approve it; approving = reassigning its zone via
+            // `PUT /api/devices/{id}/zone`.
+            WardnetEvent::NewDeviceQuarantined {
+                device_id,
+                zone_name,
+                ..
+            } => {
+                let name = self.device_name(&device_id.to_string()).await;
+                self.deliver_to_admins(Notification {
+                    title: "New device",
+                    body: format!("New device {name} joined, in {zone_name}. Approve in the app."),
+                })
+                .await;
+            }
+
             _ => {}
         }
         Ok(())
