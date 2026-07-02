@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpScope};
 use wardnetd_services::auth_context;
 use wardnetd_services::dhcp::DhcpService;
 use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
@@ -60,7 +60,12 @@ impl DhcpSocket for UdpDhcpSocket {
 pub struct UdpDhcpServer {
     /// Service for lease management.
     service: Arc<dyn DhcpService>,
-    /// Current DHCP configuration (updated via `RwLock`).
+    /// Last-known base DHCP configuration, pushed via [`Self::update_config`]
+    /// on config changes. Since #737 the response options are rendered per
+    /// request from the device's resolved [`DhcpScope`] (see `build_response`),
+    /// so the server loop no longer reads this directly; it is retained so the
+    /// runner can keep the cache warm for future live-reload consumers.
+    #[allow(dead_code)]
     config: Arc<RwLock<DhcpConfig>>,
     /// Address to bind the UDP socket to.
     bind_addr: SocketAddr,
@@ -175,7 +180,6 @@ impl DhcpServer for UdpDhcpServer {
         };
 
         let service = Arc::clone(&self.service);
-        let config = Arc::clone(&self.config);
         let running = Arc::clone(&self.running);
 
         // Create a fresh cancellation token so stop()/start() cycles work.
@@ -186,7 +190,7 @@ impl DhcpServer for UdpDhcpServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, service, config, running.clone(), cancel).await;
+            server_loop(socket, service, running.clone(), cancel).await;
             running.store(false, Ordering::SeqCst);
             tracing::info!("DHCP server loop exited");
         });
@@ -223,7 +227,6 @@ impl DhcpServer for UdpDhcpServer {
 pub(crate) async fn server_loop(
     socket: Arc<dyn DhcpSocket>,
     service: Arc<dyn DhcpService>,
-    config: Arc<RwLock<DhcpConfig>>,
     running: Arc<AtomicBool>,
     cancel: CancellationToken,
 ) {
@@ -260,10 +263,8 @@ pub(crate) async fn server_loop(
         let mac = format_mac(msg.chaddr());
         tracing::debug!(%mac, ?msg_type, xid = msg.xid(), "received DHCP message: mac={mac}, type={msg_type:?}");
 
-        let cfg = config.read().await.clone();
-
         match msg_type {
-            MessageType::Discover => match handle_discover(&service, &msg, &mac, &cfg).await {
+            MessageType::Discover => match handle_discover(&service, &msg, &mac).await {
                 Ok(response) => {
                     // DHCP OFFERs must be broadcast — the client has no IP yet
                     // and can only receive broadcast packets.
@@ -274,7 +275,7 @@ pub(crate) async fn server_loop(
                     tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
                 }
             },
-            MessageType::Request => match handle_request(&service, &msg, &mac, &cfg).await {
+            MessageType::Request => match handle_request(&service, &msg, &mac).await {
                 Ok(response) => {
                     // If the client is requesting from 0.0.0.0 (new lease), send
                     // via broadcast. Renewals come from the client's existing IP
@@ -314,7 +315,6 @@ pub(crate) async fn handle_discover(
     service: &Arc<dyn DhcpService>,
     msg: &Message,
     mac: &str,
-    config: &DhcpConfig,
 ) -> Result<Message, AppError> {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
@@ -323,6 +323,10 @@ pub(crate) async fn handle_discover(
     let lease =
         auth_context::with_context(admin_ctx, service.assign_lease(mac, hostname.as_deref()))
             .await?;
+
+    // Render the response from the device's resolved per-zone scope (#737),
+    // not the global config, so per-zone subnet/gateway/DNS are advertised.
+    let scope = auth_context::with_context(admin_ctx, service.scope_for_mac(mac)).await?;
 
     tracing::info!(
         %mac,
@@ -333,7 +337,7 @@ pub(crate) async fn handle_discover(
         ip = lease.ip_address,
     );
 
-    Ok(build_response(msg, MessageType::Offer, &lease, config))
+    Ok(build_response(msg, MessageType::Offer, &lease, &scope))
 }
 
 /// Handle a DHCPREQUEST message: renew the lease and build an ACK response.
@@ -341,7 +345,6 @@ pub(crate) async fn handle_request(
     service: &Arc<dyn DhcpService>,
     msg: &Message,
     mac: &str,
-    config: &DhcpConfig,
 ) -> Result<Message, AppError> {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
@@ -350,6 +353,9 @@ pub(crate) async fn handle_request(
     let lease =
         auth_context::with_context(admin_ctx, service.renew_lease(mac, hostname.as_deref()))
             .await?;
+
+    // Render the response from the device's resolved per-zone scope (#737).
+    let scope = auth_context::with_context(admin_ctx, service.scope_for_mac(mac)).await?;
 
     tracing::info!(
         %mac,
@@ -360,7 +366,7 @@ pub(crate) async fn handle_request(
         ip = lease.ip_address,
     );
 
-    Ok(build_response(msg, MessageType::Ack, &lease, config))
+    Ok(build_response(msg, MessageType::Ack, &lease, &scope))
 }
 
 /// Build an OFFER or ACK response message.
@@ -368,10 +374,11 @@ pub(crate) fn build_response(
     request: &Message,
     msg_type: MessageType,
     lease: &DhcpLease,
-    config: &DhcpConfig,
+    scope: &DhcpScope,
 ) -> Message {
-    // Wardnet's own LAN IP, auto-detected at startup from the LAN interface.
-    let server_ip = config.gateway_ip;
+    // Wardnet's IP within this scope: the LAN IP for the base pool, or the Pi's
+    // per-zone gateway alias for a zone subnet (#737).
+    let server_ip = scope.gateway_ip;
 
     let mut response = Message::default();
     response
@@ -385,24 +392,25 @@ pub(crate) fn build_response(
     let opts = response.opts_mut();
     opts.insert(DhcpOption::MessageType(msg_type));
     opts.insert(DhcpOption::ServerIdentifier(server_ip));
-    opts.insert(DhcpOption::AddressLeaseTime(config.lease_duration_secs));
-    opts.insert(DhcpOption::SubnetMask(config.subnet_mask));
+    opts.insert(DhcpOption::AddressLeaseTime(scope.lease_duration_secs));
+    opts.insert(DhcpOption::SubnetMask(scope.subnet_mask));
 
-    // Router option: Wardnet gateway first, then upstream router for failover.
+    // Router option: Wardnet gateway first, then optional upstream router for
+    // failover (only for the base pool; zone subnets carry no secondary router).
     let mut routers = vec![server_ip];
-    if let Some(router_ip) = config.router_ip
+    if let Some(router_ip) = scope.router_ip
         && router_ip != server_ip
     {
         routers.push(router_ip);
     }
     opts.insert(DhcpOption::Router(routers));
 
-    // DNS servers: use upstream_dns from config. Once Wardnet has a built-in
-    // DNS server (Milestone 1g), this will switch to advertising the Pi itself.
-    let dns_servers = if config.upstream_dns.is_empty() {
+    // DNS servers from the resolved scope. Falls back to advertising the Pi
+    // itself when the scope carries no explicit DNS.
+    let dns_servers = if scope.dns.is_empty() {
         vec![server_ip]
     } else {
-        config.upstream_dns.clone()
+        scope.dns.clone()
     };
     opts.insert(DhcpOption::DomainNameServer(dns_servers));
 

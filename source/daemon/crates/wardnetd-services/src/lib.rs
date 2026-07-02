@@ -505,6 +505,8 @@ fn create_services(
         dhcp_repo.clone(),
         system_config_repo.clone(),
         event_publisher.clone(),
+        device_repo.clone(),
+        network_zone_repo.clone(),
         lan_ip,
     ));
 

@@ -192,6 +192,10 @@ impl DhcpService for MockDhcpService {
             router_ip: None,
         })
     }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

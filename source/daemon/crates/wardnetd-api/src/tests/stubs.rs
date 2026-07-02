@@ -212,6 +212,9 @@ impl DhcpService for StubDhcpService {
     async fn get_dhcp_config(&self) -> Result<wardnet_common::dhcp::DhcpConfig, AppError> {
         unimplemented!()
     }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubDnsService;

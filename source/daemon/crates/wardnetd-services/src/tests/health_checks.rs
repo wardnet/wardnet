@@ -188,6 +188,10 @@ impl DhcpService for MockDhcpService {
         })
     }
 
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
+
     async fn get_config(&self) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
     }

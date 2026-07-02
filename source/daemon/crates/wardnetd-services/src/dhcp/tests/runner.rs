@@ -147,6 +147,10 @@ impl DhcpService for MockRunnerDhcpService {
             router_ip: Some(Ipv4Addr::new(192, 168, 1, 1)),
         })
     }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +439,12 @@ async fn runner_handles_config_load_failure() {
         }
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Err(AppError::Internal(anyhow::anyhow!("db error")))
+        }
+        async fn scope_for_mac(
+            &self,
+            _mac: &str,
+        ) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+            unimplemented!()
         }
     }
 
