@@ -2,7 +2,7 @@
 //! mock server.
 
 use async_trait::async_trait;
-use wardnetd_services::routing::firewall::ZoneRules;
+use wardnetd_services::routing::firewall::{ZoneIsolationRules, ZoneRules};
 use wardnetd_services::routing::{FirewallManager, PolicyRouter};
 
 /// A firewall manager that performs no nftables operations.
@@ -85,6 +85,16 @@ impl FirewallManager for NoopFirewallManager {
 
     async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
         Ok(Vec::new())
+    }
+
+    async fn apply_zone_isolation(&self, rules: ZoneIsolationRules) -> anyhow::Result<()> {
+        tracing::debug!(
+            allows = rules.allows.len(),
+            deny_pairs = rules.deny_pairs.len(),
+            member_subnets = rules.member_isolation_subnets.len(),
+            "mock firewall apply_zone_isolation",
+        );
+        Ok(())
     }
 
     async fn check_tools_available(&self) -> anyhow::Result<()> {

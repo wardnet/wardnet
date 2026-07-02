@@ -629,10 +629,13 @@ fn create_services(
         network_zone_repo.clone(),
         device_repo.clone(),
         repo_factory.system_config(),
+        repo_factory.zone_exception(),
         backends.firewall,
         backends.policy_router,
         routing_service.clone(),
+        dhcp_service.clone(),
         config,
+        lan_ip,
     );
 
     let update_service = build_update_service(
@@ -751,19 +754,25 @@ fn build_zone_enforcement_service(
     network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+    zone_exception_repo: Arc<dyn wardnetd_data::repository::ZoneExceptionRepository>,
     firewall: Arc<dyn routing::FirewallManager>,
     policy_router: Arc<dyn routing::PolicyRouter>,
     routing_service: Arc<dyn RoutingService>,
+    dhcp_service: Arc<dyn DhcpService>,
     config: &ApplicationConfiguration,
+    lan_ip: std::net::Ipv4Addr,
 ) -> Arc<dyn ZoneEnforcementService> {
     Arc::new(ZoneEnforcementServiceImpl::new(
         network_zone_repo,
         device_repo,
         system_config,
+        zone_exception_repo,
         firewall,
         policy_router,
         routing_service,
+        dhcp_service,
         config.network.lan_interface.clone(),
+        lan_ip,
     ))
 }
 

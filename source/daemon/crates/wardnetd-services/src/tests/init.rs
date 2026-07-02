@@ -181,6 +181,12 @@ impl FirewallManager for StubFirewall {
     async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>> {
         unimplemented!()
     }
+    async fn apply_zone_isolation(
+        &self,
+        _rules: crate::routing::firewall::ZoneIsolationRules,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         unimplemented!()
     }

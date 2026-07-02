@@ -32,20 +32,26 @@
 //! [`WardnetEvent::DefaultPolicyChanged`]: wardnet_common::event::WardnetEvent::DefaultPolicyChanged
 
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use ipnetwork::Ipv4Network;
 use uuid::Uuid;
 use wardnet_common::device::Device;
 use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone};
 use wardnet_common::routing::RoutingTarget;
+use wardnet_common::zone_exception::{ExceptionEndpoint, ExceptionEndpointKind};
 
-use wardnetd_data::repository::{DeviceRepository, NetworkZoneRepository, SystemConfigRepository};
+use wardnetd_data::repository::{
+    DeviceRepository, NetworkZoneRepository, SystemConfigRepository, ZoneExceptionRepository,
+};
 
 use crate::auth_context;
+use crate::dhcp::DhcpService;
 use crate::error::AppError;
 use crate::routing::RoutingService;
-use crate::routing::firewall::{FirewallManager, ZoneRules};
+use crate::routing::firewall::{ExceptionAllow, FirewallManager, ZoneIsolationRules, ZoneRules};
 use crate::routing::policy_router::PolicyRouter;
 
 /// Applies and live-reloads per-device Network-Zone nftables enforcement.
@@ -87,6 +93,16 @@ pub trait ZoneEnforcementService: Send + Sync {
     /// device whose zone forbids the newly-resolved target kind (see the module
     /// docs). Packet rules are unaffected — they depend only on the zone.
     async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError>;
+
+    /// React to a device being reassigned to a different zone (issue #737):
+    /// release its DHCP lease and flush its conntrack so it re-IPs into the new
+    /// zone's subnet, then re-apply its per-device #736 rules + host route and
+    /// recompute the whole L3 isolation state.
+    async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError>;
+
+    /// React to a cross-zone exception being created, updated, or deleted (issue
+    /// #737): recompute and atomically rebuild the whole L3 isolation state.
+    async fn handle_exceptions_changed(&self) -> Result<(), AppError>;
 }
 
 /// Default [`ZoneEnforcementService`] implementation.
@@ -99,34 +115,51 @@ pub struct ZoneEnforcementServiceImpl {
     zones: Arc<dyn NetworkZoneRepository>,
     devices: Arc<dyn DeviceRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
+    /// Cross-zone exceptions — the ACCEPT rules that punch through the
+    /// cross-subnet default-deny (issue #737).
+    exceptions: Arc<dyn ZoneExceptionRepository>,
     firewall: Arc<dyn FirewallManager>,
     policy_router: Arc<dyn PolicyRouter>,
     routing: Arc<dyn RoutingService>,
-    /// WAN-facing egress interface, used for the direct-egress drop.
+    /// DHCP service, used to release a moved device's lease so it re-IPs into
+    /// its new zone subnet (issue #737 `handle_zone_change`).
+    dhcp: Arc<dyn DhcpService>,
+    /// WAN-facing egress interface, used for the direct-egress drop and (issue
+    /// #737) the per-zone gateway aliases + host routes.
     lan_interface: String,
+    /// Wardnet's own LAN IP, the base of the default `/24` subnet and the
+    /// address never removed by the gateway-alias reconciler (issue #737).
+    lan_ip: Ipv4Addr,
 }
 
 impl ZoneEnforcementServiceImpl {
     /// Create a new enforcer from its repositories, shared backends, and the
     /// routing service it clamps forbidden default bindings through.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         zones: Arc<dyn NetworkZoneRepository>,
         devices: Arc<dyn DeviceRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
+        exceptions: Arc<dyn ZoneExceptionRepository>,
         firewall: Arc<dyn FirewallManager>,
         policy_router: Arc<dyn PolicyRouter>,
         routing: Arc<dyn RoutingService>,
+        dhcp: Arc<dyn DhcpService>,
         lan_interface: String,
+        lan_ip: Ipv4Addr,
     ) -> Self {
         Self {
             zones,
             devices,
             system_config,
+            exceptions,
             firewall,
             policy_router,
             routing,
+            dhcp,
             lan_interface,
+            lan_ip,
         }
     }
 
@@ -292,6 +325,307 @@ impl ZoneEnforcementServiceImpl {
             .map_err(AppError::Internal)?
             .unwrap_or_else(|| "direct".to_owned()))
     }
+
+    /// Is Wardnet the authoritative DHCP server? The L3 isolation surface (per-
+    /// zone subnets, gateway aliases, member isolation) is inert unless Wardnet
+    /// owns DHCP — otherwise it cannot hand devices the subnetted addresses the
+    /// enforcement assumes. Missing key ⇒ disabled.
+    async fn dhcp_enabled(&self) -> Result<bool, AppError> {
+        Ok(self
+            .system_config
+            .get("dhcp_enabled")
+            .await
+            .map_err(AppError::Internal)?
+            .as_deref()
+            == Some("true"))
+    }
+
+    /// The base LAN subnet — Wardnet's own IP as a `/24` (mirrors
+    /// `build_discovery_service`'s fallback). `/24` never fails for a valid host
+    /// IP, but guard anyway.
+    fn base_cidr(&self) -> Ipv4Network {
+        Ipv4Network::new(self.lan_ip, 24).unwrap_or_else(|_| {
+            tracing::warn!("zone enforcer: failed to build base /24, using lan_ip/32");
+            Ipv4Network::new(self.lan_ip, 32).expect("a /32 is always valid")
+        })
+    }
+
+    /// Resolve one exception endpoint to a CIDR string:
+    /// - a device to `last_ip/32` (skip+warn if the device is gone);
+    /// - a zone to its subnet CIDR, or the base subnet if the zone has none
+    ///   (skip+warn if the zone is gone).
+    async fn resolve_endpoint_cidr(
+        &self,
+        endpoint: &ExceptionEndpoint,
+        base_cidr: &Ipv4Network,
+    ) -> Option<String> {
+        match endpoint.kind {
+            ExceptionEndpointKind::Device => {
+                match self.devices.find_by_id(&endpoint.id.to_string()).await {
+                    Ok(Some(device)) => Some(format!("{}/32", device.last_ip)),
+                    Ok(None) => {
+                        tracing::warn!(
+                            device_id = %endpoint.id,
+                            "zone enforcer: exception references unknown device, skipping"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, device_id = %endpoint.id, "zone enforcer: failed to load exception device");
+                        None
+                    }
+                }
+            }
+            ExceptionEndpointKind::Zone => {
+                match self.zones.find_by_id(&endpoint.id.to_string()).await {
+                    Ok(Some(zone)) => Some(
+                        zone.subnet
+                            .map_or_else(|| canonical_cidr(*base_cidr), |s| s.cidr),
+                    ),
+                    Ok(None) => {
+                        tracing::warn!(
+                            zone_id = %endpoint.id,
+                            "zone enforcer: exception references unknown zone, skipping"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, zone_id = %endpoint.id, "zone enforcer: failed to load exception zone");
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// Add or remove a device's `/32` host route: an isolate-members device in a
+    /// subnetted zone (under DHCP-mode) needs an on-link path from the Pi so the
+    /// proxy-ARP'd peer traffic can be forwarded/filtered; otherwise the route
+    /// is removed. Errors are warn-logged, never fatal.
+    async fn manage_host_route(&self, device: &Device, zone: &NetworkZone, dhcp_enabled: bool) {
+        let want = dhcp_enabled && zone.member_isolation && zone.subnet.is_some();
+        let res = if want {
+            self.policy_router
+                .add_host_route(&device.last_ip, &self.lan_interface)
+                .await
+        } else {
+            self.policy_router
+                .remove_host_route(&device.last_ip, &self.lan_interface)
+                .await
+        };
+        if let Err(e) = res {
+            tracing::warn!(
+                error = %e,
+                device_ip = %device.last_ip,
+                want,
+                "zone enforcer: failed to manage host route"
+            );
+        }
+    }
+
+    /// Recompute the FULL desired L3 isolation state and apply it atomically:
+    /// the `zone_isolation` chain (allows → cross-subnet denies → member denies),
+    /// the per-zone gateway aliases, and proxy-ARP. See the module design notes.
+    ///
+    /// When Wardnet does not own DHCP the whole surface degrades gracefully to
+    /// the #736 baseline: an empty isolation chain, no gateway aliases, proxy-ARP
+    /// off. All firewall/policy errors are warn-logged, never fatal.
+    #[allow(clippy::too_many_lines)]
+    async fn reconcile_isolation(&self) -> Result<(), AppError> {
+        let base_cidr = self.base_cidr();
+
+        // Graceful degrade when Wardnet is not the DHCP authority.
+        if !self.dhcp_enabled().await? {
+            if let Err(e) = self
+                .firewall
+                .apply_zone_isolation(ZoneIsolationRules::default())
+                .await
+            {
+                tracing::warn!(error = %e, "zone enforcer: failed to clear isolation chain (dhcp off)");
+            }
+            self.remove_stale_gateway_aliases(&HashSet::new(), &base_cidr)
+                .await;
+            if let Err(e) = self
+                .policy_router
+                .set_proxy_arp(&self.lan_interface, false)
+                .await
+            {
+                tracing::warn!(error = %e, "zone enforcer: failed to disable proxy-arp (dhcp off)");
+            }
+            tracing::debug!("zone enforcer: L3 isolation inert (Wardnet does not own DHCP)");
+            return Ok(());
+        }
+
+        let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
+        let exceptions = self
+            .exceptions
+            .find_all()
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Parse the subnet CIDR of every zone that has one.
+        let mut zone_nets: HashMap<Uuid, Ipv4Network> = HashMap::new();
+        for zone in &zones {
+            if let Some(subnet) = &zone.subnet {
+                match subnet.cidr.parse::<Ipv4Network>() {
+                    Ok(net) => {
+                        zone_nets.insert(zone.id, net);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, zone_id = %zone.id, cidr = %subnet.cidr, "zone enforcer: invalid zone subnet, skipping");
+                    }
+                }
+            }
+        }
+
+        // The set of distinct subnets = base + each zone subnet.
+        let mut all_subnets: Vec<String> = vec![canonical_cidr(base_cidr)];
+        for net in zone_nets.values() {
+            let s = canonical_cidr(*net);
+            if !all_subnets.contains(&s) {
+                all_subnets.push(s);
+            }
+        }
+
+        // Cross-subnet default-deny: every ordered pair of distinct subnets.
+        let mut deny_pairs: Vec<(String, String)> = Vec::new();
+        for a in &all_subnets {
+            for b in &all_subnets {
+                if a != b {
+                    deny_pairs.push((a.clone(), b.clone()));
+                }
+            }
+        }
+
+        // Member-isolation subnets: the subnet of each zone whose flag is set.
+        let member_isolation_subnets: Vec<String> = zones
+            .iter()
+            .filter(|z| z.member_isolation)
+            .filter_map(|z| zone_nets.get(&z.id).map(|n| canonical_cidr(*n)))
+            .collect();
+
+        // Cross-zone allows: resolve each exception's endpoints to CIDRs and
+        // expand its service into one ACCEPT per (proto, port-range).
+        let mut allows: Vec<ExceptionAllow> = Vec::new();
+        for exc in &exceptions {
+            let Some(from_cidr) = self.resolve_endpoint_cidr(&exc.from, &base_cidr).await else {
+                continue;
+            };
+            let Some(to_cidr) = self.resolve_endpoint_cidr(&exc.to, &base_cidr).await else {
+                continue;
+            };
+            for port in exc.service.resolve_ports() {
+                allows.push(ExceptionAllow {
+                    from_cidr: from_cidr.clone(),
+                    to_cidr: to_cidr.clone(),
+                    proto: port.proto.as_str().to_owned(),
+                    port_start: port.from,
+                    port_end: port.to,
+                    bidirectional: exc.bidirectional,
+                });
+            }
+        }
+
+        let rules = ZoneIsolationRules {
+            allows,
+            deny_pairs,
+            member_isolation_subnets: member_isolation_subnets.clone(),
+        };
+        let summary = (
+            rules.allows.len(),
+            rules.deny_pairs.len(),
+            rules.member_isolation_subnets.len(),
+        );
+        if let Err(e) = self.firewall.apply_zone_isolation(rules).await {
+            tracing::warn!(error = %e, "zone enforcer: failed to apply zone isolation");
+        }
+
+        // Gateway aliases: the `.1` of each zone subnet, added to the LAN
+        // interface; drop aliases no longer backed by a zone.
+        let mut desired_gateways: HashSet<Ipv4Addr> = HashSet::new();
+        for net in zone_nets.values() {
+            let gw = gateway_of(*net);
+            desired_gateways.insert(gw);
+            if let Err(e) = self
+                .policy_router
+                .add_interface_alias(&self.lan_interface, &gw.to_string(), net.prefix())
+                .await
+            {
+                tracing::warn!(error = %e, gateway = %gw, "zone enforcer: failed to add gateway alias");
+            }
+        }
+        self.remove_stale_gateway_aliases(&desired_gateways, &base_cidr)
+            .await;
+
+        // proxy-ARP is only needed when at least one zone isolates members.
+        if let Err(e) = self
+            .policy_router
+            .set_proxy_arp(&self.lan_interface, !member_isolation_subnets.is_empty())
+            .await
+        {
+            tracing::warn!(error = %e, "zone enforcer: failed to set proxy-arp");
+        }
+
+        tracing::info!(
+            allows = summary.0,
+            deny_pairs = summary.1,
+            member_subnets = summary.2,
+            gateways = desired_gateways.len(),
+            "zone enforcer: L3 isolation reconciled"
+        );
+        Ok(())
+    }
+
+    /// Remove any wardnet-managed gateway alias on the LAN interface that is no
+    /// longer a desired zone gateway. The primary LAN IP and any base-subnet
+    /// address are never touched. Errors are warn-logged.
+    async fn remove_stale_gateway_aliases(
+        &self,
+        desired_gateways: &HashSet<Ipv4Addr>,
+        base_cidr: &Ipv4Network,
+    ) {
+        let aliases = match self
+            .policy_router
+            .list_interface_aliases(&self.lan_interface)
+            .await
+        {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(error = %e, "zone enforcer: failed to list interface aliases");
+                return;
+            }
+        };
+        for (ip_str, prefix) in aliases {
+            let Ok(ip) = ip_str.parse::<Ipv4Addr>() else {
+                continue;
+            };
+            // Never remove the primary, a desired gateway, or a base-subnet addr.
+            if ip == self.lan_ip || desired_gateways.contains(&ip) || base_cidr.contains(ip) {
+                continue;
+            }
+            if let Err(e) = self
+                .policy_router
+                .remove_interface_alias(&self.lan_interface, &ip_str, prefix)
+                .await
+            {
+                tracing::warn!(error = %e, alias = %ip_str, "zone enforcer: failed to remove stale gateway alias");
+            }
+        }
+    }
+}
+
+/// The gateway host address of a subnet: network address + 1 (the `.1`).
+fn gateway_of(net: Ipv4Network) -> Ipv4Addr {
+    let base = u32::from(net.network());
+    Ipv4Addr::from(base + 1)
+}
+
+/// The canonical `"network/prefix"` string of a subnet. `Ipv4Network`'s
+/// `Display` keeps the host bits as-constructed (`192.168.1.1/24`), so we
+/// normalise to the network address to make cross-subnet pairs comparable and
+/// nftables matches canonical.
+fn canonical_cidr(net: Ipv4Network) -> String {
+    format!("{}/{}", net.network(), net.prefix())
 }
 
 #[async_trait]
@@ -360,6 +694,10 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         let policy = self.current_default_policy().await?;
         self.clamp_default_bindings(&policy).await?;
 
+        // Recompute the whole L3 isolation state (cross-subnet deny + exception
+        // allows + member isolation + gateway aliases + proxy-ARP) from scratch.
+        self.reconcile_isolation().await?;
+
         tracing::info!(
             applied,
             total_devices = devices.len(),
@@ -373,7 +711,10 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         tracing::debug!(device_id = %device_id, "zone enforcer: apply_device");
         if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             self.apply_one(&device.last_ip, &zone, true).await?;
+            let dhcp_enabled = self.dhcp_enabled().await?;
+            self.manage_host_route(&device, &zone, dhcp_enabled).await;
         }
+        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -408,6 +749,7 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             }
         }
         tracing::debug!(zone_id = %zone_id, applied, "zone enforcer: apply_zone complete");
+        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -424,11 +766,29 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             .remove_zone_rules(old_ip)
             .await
             .map_err(AppError::Internal)?;
-        if let Some((_device, zone)) = self.load_device_and_zone(device_id).await? {
+        // The old IP's `/32` host route is no longer valid — drop it before the
+        // new one is (conditionally) installed below.
+        if let Err(e) = self
+            .policy_router
+            .remove_host_route(old_ip, &self.lan_interface)
+            .await
+        {
+            tracing::warn!(error = %e, old_ip, "zone enforcer: failed to remove old-IP host route");
+        }
+        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             // Key on the event's new IP rather than the row's `last_ip`, which
             // may not have been observed yet.
             self.apply_one(new_ip, &zone, true).await?;
+            let dhcp_enabled = self.dhcp_enabled().await?;
+            // Install the new-IP host route from the event's IP (the row's
+            // `last_ip` may lag), so build a device view keyed on `new_ip`.
+            let device = Device {
+                last_ip: new_ip.to_owned(),
+                ..device
+            };
+            self.manage_host_route(&device, &zone, dhcp_enabled).await;
         }
+        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -439,6 +799,14 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             .remove_zone_rules(last_ip)
             .await
             .map_err(AppError::Internal)?;
+        if let Err(e) = self
+            .policy_router
+            .remove_host_route(last_ip, &self.lan_interface)
+            .await
+        {
+            tracing::warn!(error = %e, last_ip, "zone enforcer: failed to remove host route");
+        }
+        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -449,5 +817,35 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // rule — only which target a device's `Default` rule resolves to. Clamp
         // any now-forbidden binding back to direct.
         self.clamp_default_bindings(policy).await
+    }
+
+    async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::debug!(device_id = %device_id, "zone enforcer: handle_zone_change");
+        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
+            // Force the device to re-IP into its new zone's subnet: release its
+            // DHCP lease and flush its conntrack. There is a brief connectivity
+            // blip until the device renews (typically seconds for a cooperating
+            // client honouring lease renewal); a client ignoring the release
+            // keeps its old IP until the lease expires — best-effort, non-fatal.
+            if let Err(e) = self.dhcp.release_lease(&device.mac).await {
+                tracing::warn!(error = %e, device_id = %device_id, "zone enforcer: failed to release lease on zone change");
+            }
+            if let Err(e) = self.policy_router.flush_conntrack(&device.last_ip).await {
+                tracing::warn!(error = %e, device_id = %device_id, "zone enforcer: failed to flush conntrack on zone change");
+            }
+            // Re-apply the device's #736 packet rules + host route for the new zone.
+            self.apply_one(&device.last_ip, &zone, true).await?;
+            let dhcp_enabled = self.dhcp_enabled().await?;
+            self.manage_host_route(&device, &zone, dhcp_enabled).await;
+        }
+        self.reconcile_isolation().await?;
+        Ok(())
+    }
+
+    async fn handle_exceptions_changed(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        tracing::debug!("zone enforcer: handle_exceptions_changed");
+        self.reconcile_isolation().await
     }
 }

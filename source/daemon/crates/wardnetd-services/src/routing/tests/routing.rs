@@ -651,6 +651,19 @@ impl FirewallManager for MockNftables {
         Ok(Vec::new())
     }
 
+    async fn apply_zone_isolation(
+        &self,
+        rules: crate::routing::firewall::ZoneIsolationRules,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "apply_zone_isolation:allows={}:denies={}:members={}",
+            rules.allows.len(),
+            rules.deny_pairs.len(),
+            rules.member_isolation_subnets.len()
+        ));
+        Ok(())
+    }
+
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         self.calls
             .lock()

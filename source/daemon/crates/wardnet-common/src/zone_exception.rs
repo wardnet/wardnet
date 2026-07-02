@@ -29,6 +29,19 @@ pub enum Proto {
     Udp,
 }
 
+impl Proto {
+    /// The lowercase wire string (`"tcp"` / `"udp"`), matching the serde
+    /// representation. Used when rendering the transport-protocol match of a
+    /// firewall allow rule (issue #737).
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+        }
+    }
+}
+
 /// An inclusive port range for a single protocol. A single port is expressed as
 /// `from == to`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
