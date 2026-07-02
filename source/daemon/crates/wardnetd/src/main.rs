@@ -797,6 +797,7 @@ async fn run(
         services.jobs.clone(),
         services.stats.clone(),
         services.rule_request.clone(),
+        services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
     .with_health_monitor(health_monitor.clone())

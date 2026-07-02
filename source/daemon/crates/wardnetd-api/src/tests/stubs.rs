@@ -714,6 +714,65 @@ impl NetworkZoneService for StubNetworkZoneService {
     }
 }
 
+pub struct StubZoneExceptionService;
+
+impl StubZoneExceptionService {
+    fn stub_exception() -> wardnet_common::zone_exception::ZoneException {
+        use wardnet_common::zone_exception::{
+            ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
+        };
+        let now = chrono::Utc::now();
+        ZoneException {
+            id: Uuid::nil(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: Uuid::nil(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: Uuid::parse_str("00000000-0000-0000-0000-000000000202").unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[async_trait]
+impl wardnetd_services::ZoneExceptionService for StubZoneExceptionService {
+    async fn list_exceptions(
+        &self,
+    ) -> Result<Vec<wardnet_common::zone_exception::ZoneException>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_exception(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn create_exception(
+        &self,
+        _req: wardnet_common::api::CreateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn update_exception(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn delete_exception(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
+}
+
 pub struct StubSystemService;
 #[async_trait]
 impl SystemService for StubSystemService {
@@ -1192,5 +1251,6 @@ pub fn test_app_state() -> AppState {
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }

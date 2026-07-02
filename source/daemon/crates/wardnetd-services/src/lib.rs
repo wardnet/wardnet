@@ -34,6 +34,7 @@ pub mod tunnel;
 pub mod update;
 pub mod vpn;
 pub mod zone_enforcement;
+pub mod zone_exception;
 
 #[cfg(test)]
 mod tests;
@@ -73,6 +74,7 @@ use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 use crate::zone_enforcement::ZoneEnforcementServiceImpl;
+use crate::zone_exception::ZoneExceptionServiceImpl;
 
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
@@ -103,6 +105,7 @@ pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
 pub use crate::vpn::VpnProviderService;
 pub use crate::zone_enforcement::ZoneEnforcementService;
+pub use crate::zone_exception::ZoneExceptionService;
 
 /// Backends provided by the caller (real or mock).
 ///
@@ -216,6 +219,9 @@ pub struct Services {
     /// Network-Zone packet enforcer: per-zone nftables egress + admin-UI gating
     /// (epic #244, issue #736). Driven by `ZoneEnforcementListener`.
     pub zone_enforcement: Arc<dyn ZoneEnforcementService>,
+    /// Cross-zone exceptions: admin-granted per-endpoint allowances across zone
+    /// boundaries (epic #244, issue #737).
+    pub zone_exception: Arc<dyn ZoneExceptionService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub update: Arc<dyn UpdateService>,
@@ -473,6 +479,14 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    let zone_exception_service: Arc<dyn ZoneExceptionService> =
+        Arc::new(ZoneExceptionServiceImpl::new(
+            repo_factory.zone_exception(),
+            network_zone_repo.clone(),
+            device_repo.clone(),
+            event_publisher.clone(),
+        ));
+
     let rule_request_service: Arc<dyn RuleRequestService> = Arc::new(RuleRequestServiceImpl::new(
         repo_factory.rule_request(),
         device_service.clone(),
@@ -652,6 +666,7 @@ fn create_services(
         routing: routing_service,
         network_zone: network_zone_service,
         zone_enforcement: zone_enforcement_service,
+        zone_exception: zone_exception_service,
         rule_request: rule_request_service,
         push: push_service,
         system: system_service,

@@ -17,6 +17,7 @@ use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStat
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
+use crate::zone_exception::{ExceptionEndpoint, ServiceSpec, ZoneException};
 use uuid::Uuid;
 
 /// Login request body.
@@ -1811,4 +1812,59 @@ pub struct DeleteNetworkZoneResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AssignDeviceZoneRequest {
     pub zone_id: Uuid,
+}
+
+// --- Zone Exceptions (epic #244, issue #737) -------------------------------
+
+/// Response for GET /api/network/zones/exceptions.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListZoneExceptionsResponse {
+    pub exceptions: Vec<ZoneException>,
+}
+
+/// Response for GET /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Request body for POST /api/network/zones/exceptions.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneExceptionRequest {
+    pub from: ExceptionEndpoint,
+    pub to: ExceptionEndpoint,
+    pub service: ServiceSpec,
+    pub bidirectional: bool,
+}
+
+/// Response for POST /api/network/zones/exceptions.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Request body for PUT /api/network/zones/exceptions/{id} (partial update).
+/// Every field is optional; absent fields are left unchanged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneExceptionRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<ExceptionEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<ExceptionEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<ServiceSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidirectional: Option<bool>,
+}
+
+/// Response for PUT /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Response for DELETE /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteZoneExceptionResponse {
+    pub deleted: bool,
 }

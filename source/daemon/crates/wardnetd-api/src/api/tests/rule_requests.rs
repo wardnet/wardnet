@@ -19,6 +19,7 @@ use crate::tests::stubs::{
     StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsServer,
     StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
+    StubZoneExceptionService,
 };
 use wardnetd_services::LogService;
 use wardnetd_services::RuleRequestService;
@@ -156,6 +157,7 @@ fn build_state(rule_svc: impl RuleRequestService + 'static) -> AppState {
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(rule_svc),
+        Arc::new(StubZoneExceptionService),
     )
 }
 

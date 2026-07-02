@@ -179,6 +179,10 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         | WardnetEvent::UpdateCompleted { .. }
         | WardnetEvent::UpdateFailed { .. }
         | WardnetEvent::DeviceCaptureSettingsChanged { .. }
-        | WardnetEvent::DnsEventInserted { .. } => {}
+        | WardnetEvent::DnsEventInserted { .. }
+        // Zone exceptions (#737) are recorded here (commit 1) but not yet
+        // enforced; a later commit makes the enforcer rebuild its allow-rules
+        // on this event.
+        | WardnetEvent::ZoneExceptionsChanged { .. } => {}
     }
 }

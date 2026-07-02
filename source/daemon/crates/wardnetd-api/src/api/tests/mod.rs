@@ -25,3 +25,4 @@ mod setup;
 mod suspension_gate;
 mod system;
 mod tunnels;
+mod zone_exception;

@@ -540,6 +540,44 @@ impl NetworkZoneService for StubNetworkZoneService {
 }
 
 // ---------------------------------------------------------------------------
+// StubZoneExceptionService
+// ---------------------------------------------------------------------------
+
+/// Stub zone-exception service — all methods panic with `unimplemented!()`.
+pub struct StubZoneExceptionService;
+
+#[async_trait]
+impl wardnetd_services::ZoneExceptionService for StubZoneExceptionService {
+    async fn list_exceptions(
+        &self,
+    ) -> Result<Vec<wardnet_common::zone_exception::ZoneException>, AppError> {
+        unimplemented!()
+    }
+    async fn get_exception(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn create_exception(
+        &self,
+        _req: wardnet_common::api::CreateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn update_exception(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn delete_exception(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubDhcpService
 // ---------------------------------------------------------------------------
 
@@ -1287,5 +1325,6 @@ pub fn test_app_state() -> AppState {
         wardnetd_services::jobs::JobServiceImpl::new(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }

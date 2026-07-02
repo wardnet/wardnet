@@ -35,7 +35,7 @@ use crate::tests::stubs::{
     StubDiscoveryService, StubDnsFilterService, StubDnsServer, StubDnsService, StubEventPublisher,
     StubJobService, StubLogService, StubNetworkZoneService, StubProviderService,
     StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
-    StubTlsService, StubTunnelService, StubUpdateService,
+    StubTlsService, StubTunnelService, StubUpdateService, StubZoneExceptionService,
 };
 use wardnetd_services::DnsLocalService;
 use wardnetd_services::auth::service::{LoginResult, WizardState};
@@ -262,6 +262,7 @@ fn make_state() -> AppState {
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }
 

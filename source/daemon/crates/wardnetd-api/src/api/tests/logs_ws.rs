@@ -21,7 +21,7 @@ use crate::tests::stubs::{
     StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
     StubJobService, StubLogService, StubNetworkZoneService, StubProviderService,
     StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
-    StubTunnelService, StubUpdateService,
+    StubTunnelService, StubUpdateService, StubZoneExceptionService,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,6 +99,7 @@ fn make_state() -> AppState {
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }
 
