@@ -248,6 +248,19 @@ pub enum WardnetEvent {
         policy: String,
         timestamp: DateTime<Utc>,
     },
+    /// A previously-unseen device was discovered while new-device quarantine is
+    /// enabled (issue #738). Fires exactly once per device — only from the
+    /// truly-new insert path, never on reconnect — so it is a valid "first-ever"
+    /// signal. The push subsystem consumes it to notify admins to approve the
+    /// device; other listeners ignore it. Placement/enforcement are unaffected
+    /// (the device already landed in the default-for-new zone via
+    /// `DeviceDiscovered`).
+    NewDeviceQuarantined {
+        device_id: Uuid,
+        mac: String,
+        zone_name: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

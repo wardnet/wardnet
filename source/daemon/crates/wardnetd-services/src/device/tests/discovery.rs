@@ -24,7 +24,7 @@ use crate::event::EventPublisher;
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::{
     DeviceRepository, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
-    NetworkZoneRepository,
+    NetworkZoneRepository, SystemConfigRepository,
 };
 
 /// Helper to create an admin auth context for tests.
@@ -487,10 +487,56 @@ fn sample_observation(mac: &str, ip: &str) -> ObservedDevice {
     }
 }
 
+/// In-memory `SystemConfigRepository` for discovery tests. Only the generic
+/// key-value surface is backed; the typed helpers (incl. the #738 quarantine
+/// toggle) come from the trait's default impls over `get`/`set`.
+#[derive(Default)]
+struct MockSystemConfig {
+    values: Mutex<HashMap<String, String>>,
+}
+
+impl MockSystemConfig {
+    /// Flip the `quarantine_new_devices` toggle for a test.
+    fn set_quarantine(&self, enabled: bool) {
+        self.values.lock().unwrap().insert(
+            "quarantine_new_devices".to_owned(),
+            if enabled { "true" } else { "false" }.to_owned(),
+        );
+    }
+}
+
+#[async_trait]
+impl SystemConfigRepository for MockSystemConfig {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.values.lock().unwrap().get(key).cloned())
+    }
+    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.values
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.values.lock().unwrap().remove(key);
+        Ok(())
+    }
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
 struct TestHarness {
     svc: DeviceDiscoveryServiceImpl,
     repo: Arc<MockDeviceRepo>,
     events: Arc<MockEventPublisher>,
+    system_config: Arc<MockSystemConfig>,
 }
 
 fn build_harness() -> TestHarness {
@@ -502,16 +548,23 @@ fn build_harness_with_devices(devices: Vec<Device>) -> TestHarness {
     let dhcp = Arc::new(MockDhcpRepository::empty());
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::new());
+    let system_config = Arc::new(MockSystemConfig::default());
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
         Arc::new(MockNetworkZoneRepo),
         dhcp,
+        system_config.clone(),
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
     );
 
-    TestHarness { svc, repo, events }
+    TestHarness {
+        svc,
+        repo,
+        events,
+        system_config,
+    }
 }
 
 fn build_harness_with_resolver(
@@ -529,16 +582,23 @@ fn build_harness_with_resolver_and_dhcp(
     let repo = Arc::new(MockDeviceRepo::with_devices(devices));
     let events = Arc::new(MockEventPublisher::new());
     let resolver = Arc::new(MockHostnameResolver::with_mappings(resolver_mappings));
+    let system_config = Arc::new(MockSystemConfig::default());
     let svc = DeviceDiscoveryServiceImpl::new(
         repo.clone(),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(dhcp),
+        system_config.clone(),
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
     );
 
-    TestHarness { svc, repo, events }
+    TestHarness {
+        svc,
+        repo,
+        events,
+        system_config,
+    }
 }
 
 // -- Tests ----------------------------------------------------------------
@@ -1212,4 +1272,80 @@ async fn process_observation_reappear_from_db_not_memory() {
     let events = h.events.published_events();
     assert_eq!(events.len(), 1);
     assert!(matches!(&events[0], WardnetEvent::DeviceDiscovered { .. }));
+}
+
+// -- New-device quarantine (#738) -----------------------------------------
+
+/// Toggle ON + a brand-new MAC ⇒ a `NewDeviceQuarantined` event is published
+/// (alongside the usual `DeviceDiscovered`), carrying the default-for-new zone
+/// name so the admin push can say where the device landed.
+#[tokio::test]
+async fn quarantine_on_new_device_publishes_event() {
+    let h = build_harness();
+    h.system_config.set_quarantine(true);
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    let result = h.svc.process_observation(&obs).await.unwrap();
+    assert!(matches!(result, ObservationResult::NewDevice { .. }));
+
+    let events = h.events.published_events();
+    // DeviceDiscovered (enforcement) is emitted before the quarantine nudge.
+    assert!(matches!(&events[0], WardnetEvent::DeviceDiscovered { .. }));
+    let quarantined = events
+        .iter()
+        .find(|e| matches!(e, WardnetEvent::NewDeviceQuarantined { .. }))
+        .expect("expected a NewDeviceQuarantined event");
+    assert!(matches!(
+        quarantined,
+        WardnetEvent::NewDeviceQuarantined { mac, zone_name, .. }
+            if mac == "aa:bb:cc:dd:ee:01" && zone_name == "Trusted"
+    ));
+}
+
+/// Toggle OFF (the default) ⇒ a brand-new MAC behaves exactly as today: no
+/// `NewDeviceQuarantined` event.
+#[tokio::test]
+async fn quarantine_off_new_device_publishes_no_quarantine_event() {
+    let h = build_harness();
+    // Toggle left at its default (off).
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    h.svc.process_observation(&obs).await.unwrap();
+
+    let events = h.events.published_events();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::NewDeviceQuarantined { .. })),
+        "expected no NewDeviceQuarantined event, got {events:?}"
+    );
+}
+
+/// Toggle ON but the MAC already has a DB row (a previously-approved device
+/// reconnecting) ⇒ it takes the reappear path, never `insert_new_device`, so it
+/// is never re-quarantined.
+#[tokio::test]
+async fn quarantine_on_reappearing_device_is_not_requarantined() {
+    let existing = sample_device(
+        "00000000-0000-0000-0000-0000000000aa",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    let h = build_harness_with_devices(vec![existing]);
+    h.system_config.set_quarantine(true);
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    let result = h.svc.process_observation(&obs).await.unwrap();
+    assert!(
+        matches!(result, ObservationResult::Reappeared(_)),
+        "expected Reappeared, got {result:?}"
+    );
+
+    let events = h.events.published_events();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::NewDeviceQuarantined { .. })),
+        "a reconnecting device must not be re-quarantined, got {events:?}"
+    );
 }

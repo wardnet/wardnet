@@ -541,6 +541,12 @@ impl NetworkZoneService for StubNetworkZoneService {
     async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        unimplemented!()
+    }
+    async fn set_quarantine_new_devices(&self, _enabled: bool) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------

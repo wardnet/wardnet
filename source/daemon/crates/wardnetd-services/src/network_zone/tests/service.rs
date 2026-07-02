@@ -138,6 +138,31 @@ async fn every_method_rejects_non_admin() {
         h.svc.set_default(IOT.parse().unwrap()).await,
         Err(AppError::Forbidden(_))
     ));
+    assert!(matches!(
+        h.svc.get_quarantine_new_devices().await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        h.svc.set_quarantine_new_devices(true).await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+#[tokio::test]
+async fn quarantine_toggle_defaults_off_and_round_trips() {
+    let h = build().await;
+    // Off by default (key absent).
+    assert!(!as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
+    // Enable, then read back.
+    as_admin(h.svc.set_quarantine_new_devices(true))
+        .await
+        .unwrap();
+    assert!(as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
+    // Disable again.
+    as_admin(h.svc.set_quarantine_new_devices(false))
+        .await
+        .unwrap();
+    assert!(!as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
 }
 
 // ── Create ─────────────────────────────────────────────────────────────────
