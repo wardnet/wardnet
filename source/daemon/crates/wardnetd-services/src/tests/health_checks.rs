@@ -282,7 +282,6 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 fn dhcp_check(enabled: bool, running: bool, fail: bool) -> DhcpServerHealthCheck {

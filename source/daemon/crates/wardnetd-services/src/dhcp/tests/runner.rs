@@ -56,8 +56,6 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.started.load(Ordering::SeqCst)
     }
-
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +359,6 @@ async fn runner_handles_start_failure_gracefully() {
         fn is_running(&self) -> bool {
             false
         }
-        async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(MockRunnerDhcpService::new(true));

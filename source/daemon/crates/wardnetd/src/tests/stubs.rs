@@ -1122,7 +1122,6 @@ impl wardnetd_services::dhcp::server::DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------

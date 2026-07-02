@@ -195,14 +195,6 @@ impl DhcpServer for UdpDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
-
-    /// Swap the config the running `server_loop` reads on each packet. The
-    /// loop holds the same `Arc<RwLock<DhcpConfig>>`, so the new options
-    /// (pool, mask, lease time, DNS, router) take effect on the next request
-    /// without a restart.
-    async fn update_config(&self, config: DhcpConfig) {
-        *self.config.write().await = config;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,9 +298,11 @@ pub(crate) async fn handle_discover(
         admin_id: Uuid::nil(),
     };
     let hostname = extract_hostname(msg);
-    let lease =
-        auth_context::with_context(admin_ctx, service.assign_lease(mac, hostname.as_deref()))
-            .await?;
+    let lease = auth_context::with_context(
+        admin_ctx.clone(),
+        service.assign_lease(mac, hostname.as_deref()),
+    )
+    .await?;
 
     // Render the response from the device's resolved per-zone scope (#737),
     // not the global config, so per-zone subnet/gateway/DNS are advertised.
@@ -344,9 +338,11 @@ pub(crate) async fn handle_request(
     let hostname = extract_hostname(msg);
     let requested_ip = extract_requested_ip(msg);
 
-    let lease =
-        auth_context::with_context(admin_ctx, service.renew_lease(mac, hostname.as_deref()))
-            .await?;
+    let lease = auth_context::with_context(
+        admin_ctx.clone(),
+        service.renew_lease(mac, hostname.as_deref()),
+    )
+    .await?;
 
     // Render the response from the device's resolved per-zone scope (#737),
     // not the global config, so per-zone subnet/gateway/DNS are advertised.
@@ -470,13 +466,13 @@ pub(crate) fn build_response(
     // and reach off-link/upstream destinations through it. RFC 3442 says a
     // client honouring option 121 SHOULD ignore the Router option (3); we still
     // send option 3 for clients that ignore 121.
-    if scope.member_isolation {
-        if let Ok(default_route) = "0.0.0.0/0".parse::<ipnet::Ipv4Net>() {
-            opts.insert(DhcpOption::ClasslessStaticRoute(vec![(
-                default_route,
-                server_ip,
-            )]));
-        }
+    if scope.member_isolation
+        && let Ok(default_route) = "0.0.0.0/0".parse::<ipnet::Ipv4Net>()
+    {
+        opts.insert(DhcpOption::ClasslessStaticRoute(vec![(
+            default_route,
+            server_ip,
+        )]));
     }
 
     response

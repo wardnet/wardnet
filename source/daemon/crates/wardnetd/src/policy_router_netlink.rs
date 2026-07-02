@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use rtnetlink::packet_route::AddressFamily;
 use rtnetlink::packet_route::address::AddressAttribute;
-use rtnetlink::packet_route::route::{RouteAttribute, RouteScope};
+use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
 
@@ -526,10 +526,9 @@ impl PolicyRouter for NetlinkPolicyRouter {
             if route.header.destination_prefix_length != 32 {
                 continue;
             }
-            let dest_matches = route
-                .attributes
-                .iter()
-                .any(|a| matches!(a, RouteAttribute::Destination(d) if d.to_string() == addr.to_string()));
+            let dest_matches = route.attributes.iter().any(
+                |a| matches!(a, RouteAttribute::Destination(RouteAddress::Inet(d)) if *d == addr),
+            );
             let oif_matches = route
                 .attributes
                 .iter()

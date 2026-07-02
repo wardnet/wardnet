@@ -580,9 +580,8 @@ async fn handle_request_naks_when_assigned_ip_differs_from_requested() {
 
     let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     msg.set_ciaddr(Ipv4Addr::new(192, 168, 1, 50)); // old, now out-of-range IP
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -601,9 +600,8 @@ async fn handle_request_acks_when_requested_ip_matches_assigned() {
 
     let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     msg.set_ciaddr(lease.ip_address);
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
