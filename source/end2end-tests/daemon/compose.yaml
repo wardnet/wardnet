@@ -3,10 +3,12 @@
 # Stage 6 ships the daemon container, a node:22 test runner, and two
 # LAN clients (`test_debian`, `test_ubuntu`) for the DHCP scenarios.
 # Stage 7 adds `blocklist_server` (busybox httpd) on wardnet_lan to
-# serve the blocklist fixtures consumed by the DNS specs. Future
-# stages add `wg_gateway_1`, `wg_gateway_2`, `nordvpn_mock` — see the
-# e2e umbrella issue for the full topology, stage list, and conventions:
-# https://github.com/wardnet/wardnet/issues/273
+# serve the blocklist fixtures consumed by the DNS specs. Stage 10
+# (issue #248) adds the VPN provider topology: `nordvpn_mock` (a Node
+# HTTP mock of api.nordvpn.com), `wg_gateway` (a real WireGuard exit
+# gateway), and `internet_target` (a tunnel-only reachable host) — see
+# the e2e umbrella issue for the full topology, stage list, and
+# conventions: https://github.com/wardnet/wardnet/issues/273
 #
 # Networks (per the e2e plan, Deliverable 5):
 #   wardnet_mgmt 10.90.0.0/24 — test runner ↔ daemon API.
@@ -15,10 +17,12 @@
 #                              can own .1. Docker IPAM .2/28 (only
 #                              .2–.15) leaves .100+ free for the
 #                              daemon's DHCP pool + reservations.
-#   wardnet_wan  10.92.0.0/24 — upstream WG-gateway side; unused by
-#                              the smoke but provisioned now so the
-#                              daemon attaches the same NICs in every
-#                              stage.
+#   wardnet_wan  10.92.0.0/24 — upstream side: nordvpn_mock (.52) and
+#                              the wg_gateway (.53) tunnel underlay.
+#   wardnet_internet 10.93.0.0/24 — isolated "public internet"; only
+#                              wg_gateway (.1) and internet_target (.10)
+#                              attach, so it is reachable from the LAN
+#                              only through the WireGuard tunnel.
 
 name: wardnet-e2e-daemon
 
@@ -135,6 +139,22 @@ services:
         else
           echo "wardnetd e2e fixture: WARNING no NIC holds 10.91.0.1; leaving lan_interface as-is" >&2
         fi
+        # Point the NordVPN provider at the nordvpn_mock container instead of
+        # the real api.nordvpn.com (issue #248, E2E Stage 10). The default
+        # config ships no [vpn_providers] table. Guard on the nordvpn_api_url
+        # key so this is idempotent across container restarts, then either
+        # inject the key under an existing [vpn_providers] section or append a
+        # fresh one. This stays correct whether or not a future base config
+        # already defines [vpn_providers]: it never duplicates the table header
+        # and never silently skips setting the override.
+        if ! grep -q '^nordvpn_api_url' /etc/wardnet/wardnet.toml; then
+          if grep -q '^\[vpn_providers\]' /etc/wardnet/wardnet.toml; then
+            sed -i '/^\[vpn_providers\]/a nordvpn_api_url = "http://10.92.0.52:8080"' /etc/wardnet/wardnet.toml
+          else
+            printf '\n[vpn_providers]\nnordvpn_api_url = "http://10.92.0.52:8080"\n' >> /etc/wardnet/wardnet.toml
+          fi
+          echo "wardnetd e2e fixture: pinned nordvpn_api_url=http://10.92.0.52:8080 in /etc/wardnet/wardnet.toml" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
@@ -231,6 +251,81 @@ services:
       retries: 10
       start_period: 5s
 
+  # NordVPN API mock (issue #248, E2E Stage 10). A dependency-free Node HTTP
+  # server that answers the subset of api.nordvpn.com the daemon's VPN provider
+  # calls, backed by the fixtures/nordvpn JSON. Pinned to 10.92.0.52 on
+  # wardnet_wan (outside that bridge's default IPAM) so the daemon config can
+  # reference a stable URL. The fixtures are bind-mounted read-only so the JSON
+  # can be edited without rebuilding the image.
+  nordvpn_mock:
+    build:
+      context: ./mocks/nordvpn
+      dockerfile: Dockerfile
+    image: wardnet-nordvpn-mock:dev
+    volumes:
+      - ./fixtures/nordvpn:/fixtures:ro
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.52
+    healthcheck:
+      # node:22-slim ships neither curl nor wget; probe with node itself.
+      test:
+        - "CMD-SHELL"
+        - "node -e \"require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 3s
+
+  # WireGuard exit gateway (issue #248). Peers with the daemon-under-test using
+  # the throwaway keypair the nordvpn_mock fixtures advertise, and masquerades
+  # tunnel-origin traffic onto the isolated wardnet_internet net. Sits on
+  # wardnet_wan (tunnel underlay, 10.92.0.53 — the hostname the mock returns)
+  # and wardnet_internet (10.93.0.1). Requires the host WireGuard kernel module.
+  wg_gateway:
+    build:
+      context: ./mocks/wg-gateway
+      dockerfile: Dockerfile
+    image: wardnet-wg-gateway:dev
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.53
+      wardnet_internet:
+        ipv4_address: 10.93.0.1
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg0 >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+      start_period: 5s
+
+  # The "public internet" endpoint, reachable ONLY from the far side of the
+  # WireGuard tunnel (issue #248). It lives alone on wardnet_internet, which
+  # neither the daemon nor the LAN clients attach to; Docker's inter-network
+  # isolation blocks any host-bridged path, so a LAN client can reach
+  # 10.93.0.10 iff its traffic egressed through the tunnel + wg_gateway. The
+  # routing spec asserts reachability with ICMP; the httpd just provides a
+  # cheap healthcheck (and a marker for any future HTTP-based probe).
+  internet_target:
+    image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    command: ["httpd", "-f", "-v", "-p", "80", "-h", "/srv"]
+    volumes:
+      - ./fixtures/internet-target:/srv:ro
+    networks:
+      wardnet_internet:
+        ipv4_address: 10.93.0.10
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1/index.html"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 3s
+
   test_runner:
     build:
       context: ../../..
@@ -244,6 +339,12 @@ services:
       test_ubuntu:
         condition: service_healthy
       blocklist_server:
+        condition: service_healthy
+      nordvpn_mock:
+        condition: service_healthy
+      wg_gateway:
+        condition: service_healthy
+      internet_target:
         condition: service_healthy
     environment:
       WARDNET_API_BASE_URL: "http://wardnetd:7411/api"
@@ -293,3 +394,13 @@ networks:
       config:
         - subnet: 10.92.0.0/24
           gateway: 10.92.0.254
+  # Isolated "public internet" segment for the VPN routing test (issue #248).
+  # Only wg_gateway and internet_target attach here; neither the daemon nor the
+  # LAN clients do. Docker's default inter-network isolation means the only way
+  # a LAN client reaches 10.93.0.0/24 is through the WireGuard tunnel.
+  wardnet_internet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.93.0.0/24
+          gateway: 10.93.0.254

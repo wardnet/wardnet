@@ -102,6 +102,35 @@ fn is_provider_enabled_default_true() {
 }
 
 #[test]
+fn nordvpn_api_url_defaults_to_none() {
+    let config = ApplicationConfiguration::default();
+    assert!(config.vpn_providers.nordvpn_api_url.is_none());
+}
+
+#[test]
+fn load_nordvpn_api_url_override() {
+    let dir = std::env::temp_dir().join("wardnet-config-nordvpn-url-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-nordvpn-url.toml");
+    std::fs::write(
+        &path,
+        r#"
+[vpn_providers]
+nordvpn_api_url = "http://10.92.0.52:8080"
+"#,
+    )
+    .unwrap();
+
+    let config = ApplicationConfiguration::load(&path).unwrap();
+    assert_eq!(
+        config.vpn_providers.nordvpn_api_url.as_deref(),
+        Some("http://10.92.0.52:8080")
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn is_provider_enabled_explicit_false() {
     let mut config = ApplicationConfiguration::default();
     config

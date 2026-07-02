@@ -77,7 +77,7 @@ fn with_nordvpn_disabled() -> EnabledProviders {
 fn new_with_nordvpn_enabled_registers_provider() {
     // Empty map: providers default to enabled.
     let enabled = EnabledProviders::new();
-    let registry = VpnProviderRegistry::new(&enabled);
+    let registry = VpnProviderRegistry::new(&enabled, None);
 
     assert!(
         registry.get("nordvpn").is_some(),
@@ -88,9 +88,24 @@ fn new_with_nordvpn_enabled_registers_provider() {
 }
 
 #[test]
+fn new_with_nordvpn_api_url_override_registers_provider() {
+    // The e2e harness passes `Some(url)` to point the provider at the
+    // nordvpn_mock container (issue #248). The provider must still register;
+    // the override only changes the API base URL, not the registration path.
+    let enabled = EnabledProviders::new();
+    let registry = VpnProviderRegistry::new(&enabled, Some("http://10.92.0.52:8080"));
+
+    assert!(
+        registry.get("nordvpn").is_some(),
+        "NordVPN should be registered when an API URL override is supplied"
+    );
+    assert!(registry.list().iter().any(|p| p.id == "nordvpn"));
+}
+
+#[test]
 fn new_with_nordvpn_disabled_does_not_register() {
     let enabled = with_nordvpn_disabled();
-    let registry = VpnProviderRegistry::new(&enabled);
+    let registry = VpnProviderRegistry::new(&enabled, None);
 
     assert!(
         registry.get("nordvpn").is_none(),
@@ -102,7 +117,7 @@ fn new_with_nordvpn_disabled_does_not_register() {
 #[test]
 fn register_and_get() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
 
     registry.register(Arc::new(FakeProvider::new("alpha", "Alpha VPN")));
 
@@ -114,7 +129,7 @@ fn register_and_get() {
 #[test]
 fn get_returns_none_for_unknown_id() {
     let enabled = with_nordvpn_disabled();
-    let registry = VpnProviderRegistry::new(&enabled);
+    let registry = VpnProviderRegistry::new(&enabled, None);
 
     assert!(registry.get("nonexistent").is_none());
 }
@@ -122,7 +137,7 @@ fn get_returns_none_for_unknown_id() {
 #[test]
 fn list_returns_all_registered_providers() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
 
     registry.register(Arc::new(FakeProvider::new("alpha", "Alpha VPN")));
     registry.register(Arc::new(FakeProvider::new("beta", "Beta VPN")));
@@ -137,7 +152,7 @@ fn list_returns_all_registered_providers() {
 #[test]
 fn register_overwrites_existing_provider() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
 
     registry.register(Arc::new(FakeProvider::new("test", "Version 1")));
     registry.register(Arc::new(FakeProvider::new("test", "Version 2")));
@@ -218,7 +233,7 @@ fn make_server(hostname: &str, name: &str, load: u8) -> ServerInfo {
 #[tokio::test]
 async fn resolve_returns_none_for_unknown_provider() {
     let enabled = with_nordvpn_disabled();
-    let registry = VpnProviderRegistry::new(&enabled);
+    let registry = VpnProviderRegistry::new(&enabled, None);
 
     let result = registry
         .resolve("nonexistent", &make_selector("SE"), 51820)
@@ -230,7 +245,7 @@ async fn resolve_returns_none_for_unknown_provider() {
 #[tokio::test]
 async fn resolve_returns_empty_server_list_error() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
     registry.register(Arc::new(ServerListProvider::new("myvpn", vec![])));
 
     let err = registry
@@ -246,7 +261,7 @@ async fn resolve_returns_empty_server_list_error() {
 #[tokio::test]
 async fn resolve_rejects_invalid_hostname() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
     registry.register(Arc::new(ServerListProvider::new(
         "myvpn",
         vec![make_server("host:with:colons", "Bad Server", 10)],
@@ -262,7 +277,7 @@ async fn resolve_rejects_invalid_hostname() {
 #[tokio::test]
 async fn resolve_returns_endpoint_and_name_for_valid_server() {
     let enabled = with_nordvpn_disabled();
-    let mut registry = VpnProviderRegistry::new(&enabled);
+    let mut registry = VpnProviderRegistry::new(&enabled, None);
     registry.register(Arc::new(ServerListProvider::new(
         "myvpn",
         vec![

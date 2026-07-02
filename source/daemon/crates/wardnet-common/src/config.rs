@@ -485,6 +485,12 @@ pub struct VpnProvidersConfig {
     /// Map of provider ID to enabled flag. Providers not listed here are
     /// treated as enabled.
     pub enabled: std::collections::HashMap<String, bool>,
+    /// Override for the `NordVPN` API base URL. Unset in production (the
+    /// provider talks to `https://api.nordvpn.com`); the end-to-end test
+    /// harness points this at the `nordvpn_mock` container so the daemon
+    /// never reaches the real API. See issue #248 (E2E Stage 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nordvpn_api_url: Option<String>,
 }
 
 /// OpenTelemetry metrics collection configuration.

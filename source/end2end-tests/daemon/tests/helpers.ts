@@ -329,6 +329,45 @@ export async function resolveViaAgent(
   return agentGet<DnsResolveResponse>(agent, `/dns/resolve?${params}`);
 }
 
+/** Shape of the wardnet-test-agent `POST /ping` response. */
+export interface AgentPingResponse {
+  target: string;
+  transmitted: number;
+  received: number;
+  packet_loss_pct: number;
+  rtt_avg_ms: number | null;
+}
+
+export interface PingOptions {
+  /**
+   * Passed to `ping -I`. iputils accepts either an interface name or a source
+   * address here — pass the device's leased IP so the daemon's per-device
+   * `ip rule from <device_ip>` matches and the packet is steered through that
+   * device's tunnel (issue #248).
+   */
+  source?: string;
+  count?: number;
+  timeout?: number;
+}
+
+/**
+ * ICMP-ping `target` from a LAN test-agent. The agent returns 200 with a
+ * parsed summary even on 100% loss, so callers assert on `received` rather
+ * than catching — `received > 0` means the target was reachable.
+ */
+export async function pingViaAgent(
+  agent: string,
+  target: string,
+  opts: PingOptions = {},
+): Promise<AgentPingResponse> {
+  return agentPost<AgentPingResponse>(agent, "/ping", {
+    target,
+    ...(opts.source !== undefined ? { interface: opts.source } : {}),
+    ...(opts.count !== undefined ? { count: opts.count } : {}),
+    ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),
+  });
+}
+
 /**
  * Look up a daemon-discovered device by the IPv4 the test agent is
  * sitting on. Polls because the daemon discovers devices off DHCP
