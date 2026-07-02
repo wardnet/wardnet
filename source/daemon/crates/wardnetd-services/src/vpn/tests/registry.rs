@@ -88,6 +88,21 @@ fn new_with_nordvpn_enabled_registers_provider() {
 }
 
 #[test]
+fn new_with_nordvpn_api_url_override_registers_provider() {
+    // The e2e harness passes `Some(url)` to point the provider at the
+    // nordvpn_mock container (issue #248). The provider must still register;
+    // the override only changes the API base URL, not the registration path.
+    let enabled = EnabledProviders::new();
+    let registry = VpnProviderRegistry::new(&enabled, Some("http://10.92.0.52:8080"));
+
+    assert!(
+        registry.get("nordvpn").is_some(),
+        "NordVPN should be registered when an API URL override is supplied"
+    );
+    assert!(registry.list().iter().any(|p| p.id == "nordvpn"));
+}
+
+#[test]
 fn new_with_nordvpn_disabled_does_not_register() {
     let enabled = with_nordvpn_disabled();
     let registry = VpnProviderRegistry::new(&enabled, None);

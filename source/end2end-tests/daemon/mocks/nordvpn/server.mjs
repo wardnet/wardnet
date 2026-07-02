@@ -106,7 +106,11 @@ const server = createServer((req, res) => {
 
     sendJson(res, 404, { errors: { message: `no mock route for ${path}` } });
   } catch (err) {
-    sendJson(res, 500, { errors: { message: String(err?.message ?? err) } });
+    // Log the detail to the container's stderr (visible in CI logs) rather
+    // than echoing it into the HTTP response, which keeps debuggability
+    // without leaking internal error/stack detail to the caller.
+    console.error(`nordvpn_mock: error handling ${path}:`, err);
+    sendJson(res, 500, { errors: { message: "internal mock error" } });
   }
 });
 
