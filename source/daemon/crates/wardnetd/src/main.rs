@@ -821,12 +821,20 @@ async fn run(
     )
     .parse()?;
 
+    // Show the *resolved absolute* database path (relative paths joined onto
+    // the working directory) so a misconfigured path is obvious in journalctl.
+    // The `:memory:` sentinel has no on-disk path, so fall back to the raw
+    // connection string there.
+    let database_display = config.database.to_file_path().map_or_else(
+        || config.database.connection_string.clone(),
+        |p| p.display().to_string(),
+    );
     println!(
         "\n  Wardnet daemon v{}\n  Listening on http://{} (plain) and https://{} (TLS)\n  Database: {}\n",
         env!("WARDNET_VERSION"),
         addr,
         https_addr,
-        config.database.connection_string,
+        database_display,
     );
 
     let _pidfile = match wardnetd::pidfile::PidfileGuard::write(&config.pidfile_path) {
