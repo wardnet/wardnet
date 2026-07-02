@@ -30,7 +30,7 @@ use wardnet_common::api::{
     RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::api::{WizardMode, WizardStep};
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpScope};
 use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::packet_capture::ObservedDevice;
 use wardnetd_services::error::AppError;
@@ -643,6 +643,9 @@ impl DhcpService for StubDhcpService {
         unimplemented!()
     }
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        unimplemented!()
+    }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
         unimplemented!()
     }
 }
