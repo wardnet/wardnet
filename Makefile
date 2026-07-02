@@ -503,7 +503,7 @@ e2e-ui: build-web
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server nordvpn_mock; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait test_debian || \
 	    echo "warning: test_debian (LAN client) not healthy; running playwright anyway so failures surface as assertions"; \
 	echo "::group::compose ps before playwright"; \

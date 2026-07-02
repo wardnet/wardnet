@@ -186,7 +186,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
               );
             }}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" data-testid="provider-select">
               <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
@@ -236,6 +236,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             >
               <Input
                 id="prov-token"
+                data-testid="provider-token"
                 type="password"
                 value={token}
                 onChange={(e) => {
@@ -280,6 +281,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
             )}
             <Button
               variant="secondary"
+              data-testid="provider-validate"
               onClick={handleValidate}
               disabled={!credsReady || validateCreds.isPending}
             >
@@ -369,6 +371,7 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           <Field label="Label (optional)" htmlFor="prov-label">
             <Input
               id="prov-label"
+              data-testid="provider-label"
               value={labelOverride}
               onChange={(e) => setLabelOverride(e.target.value)}
               placeholder="Auto-generated from server"
@@ -380,7 +383,11 @@ export function ProviderTunnelTab({ onSuccess }: ProviderTunnelTabProps) {
           )}
 
           <div className="flex justify-end">
-            <Button onClick={handleSetup} disabled={setupTunnel.isPending}>
+            <Button
+              data-testid="provider-setup-submit"
+              onClick={handleSetup}
+              disabled={setupTunnel.isPending}
+            >
               {setupTunnel.isPending ? "Setting up…" : "Create tunnel"}
             </Button>
           </div>

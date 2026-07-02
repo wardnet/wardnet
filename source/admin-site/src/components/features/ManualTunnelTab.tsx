@@ -54,6 +54,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         <Field label="Label" htmlFor="tunnel-label" name="label">
           <Input
             id="tunnel-label"
+            data-testid="tunnel-label"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="US West"
@@ -64,6 +65,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         <Field label="Country code" htmlFor="tunnel-country" name="countryCode">
           <Input
             id="tunnel-country"
+            data-testid="tunnel-country"
             value={countryCode}
             onChange={(e) => setCountryCode(e.target.value)}
             placeholder="US"
@@ -106,6 +108,7 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         >
           <Textarea
             id="tunnel-config"
+            data-testid="tunnel-config"
             value={config}
             onChange={(e) => setConfig(e.target.value)}
             placeholder="Paste your .conf file contents here…"
@@ -126,7 +129,11 @@ export function ManualTunnelTab({ onSuccess }: ManualTunnelTabProps) {
         />
       )}
       <div className="flex justify-end">
-        <Button type="submit" disabled={createTunnel.isPending}>
+        <Button
+          type="submit"
+          data-testid="tunnel-create-submit"
+          disabled={createTunnel.isPending}
+        >
           {createTunnel.isPending ? "Creating…" : "Create tunnel"}
         </Button>
       </div>
