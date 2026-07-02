@@ -54,6 +54,14 @@ const CHROMIUM_ARGS = [
 
 export default defineConfig({
   testDir: ".",
+  // Land per-test artifacts (traces, failure screenshots, and — for the
+  // visual specs — the `*-actual.png` / `*-diff.png` images) under the
+  // bind-mounted `reports/` dir so they upload with the CI artifact. This
+  // is how a first, baseline-less CI run surfaces the generated screenshots:
+  // harvest the `*-actual.png` files from the artifact as the initial
+  // `snapshots/` baselines (README → "Visual regression snapshots"). Default
+  // `test-results/` lives only inside the runner container and would be lost.
+  outputDir: `${REPORT_DIR}/test-results`,
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -63,7 +71,41 @@ export default defineConfig({
   // Generous ceilings: compose health waits + first-boot setup push the
   // setup project past Playwright's 30 s default on a cold stack.
   timeout: 60_000,
-  expect: { timeout: 15_000 },
+  expect: {
+    timeout: 15_000,
+    // Visual-regression defaults (issue #628, V1). Applied to every
+    // `toHaveScreenshot` call across the `@visual`-tagged specs:
+    //   - `animations:"disabled"` freezes CSS animations/transitions so a
+    //     mid-flight frame never diffs (Playwright's screenshot default,
+    //     set explicitly for clarity).
+    //   - `caret:"hide"` removes the blinking text caret (also the default).
+    //   - `maxDiffPixelRatio` is a small antialiasing cushion ONLY — genuine
+    //     dynamic content is masked at the call site, not toleranced here.
+    // Baselines are generated in the pinned Playwright runner container
+    // (deterministic Linux/Chromium rendering); see README → "Visual
+    // regression snapshots".
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.01,
+    },
+  },
+  // Baselines live in a dedicated `snapshots/` dir (bind-mounted into both
+  // runners, like `reports/`) instead of Playwright's default co-located
+  // `*-snapshots/` folders: the runner image COPIES `tests/` at build time,
+  // so a co-located baseline would be baked in and impossible to regenerate.
+  // The host bind-mount shadows the image copy, so comparison reads the
+  // committed host baselines and `--update`/`updateSnapshots` writes back to
+  // the host. `{projectName}` scopes per surface (admin-site / admin-app /
+  // user-app) so their identically-named snapshots never collide; the
+  // platform suffix is stable because the runner image is a pinned Linux
+  // Playwright build.
+  snapshotPathTemplate: "snapshots/{projectName}/{arg}{ext}",
+  // Comparison-only by default: a missing OR mismatched baseline fails the
+  // run (correct for CI). `make e2e-ui-update-snapshots` sets
+  // PW_UPDATE_SNAPSHOTS=1 to regenerate every baseline into the bind-mounted
+  // `snapshots/` dir. See README → "Visual regression snapshots".
+  updateSnapshots: process.env.PW_UPDATE_SNAPSHOTS === "1" ? "all" : "none",
   reporter: [
     ["list"],
     ["junit", { outputFile: `${REPORT_DIR}/junit.xml` }],

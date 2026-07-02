@@ -37,7 +37,10 @@ function ProfileCountBadges({ profileId }: { profileId: string }) {
   const customCount = frData?.rules.length ?? 0;
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div
+      data-testid="profile-count-badges"
+      className="flex flex-wrap justify-end gap-2"
+    >
       {blockedCount > 0 && (
         <Pill variant="ghost">
           {blockedCount.toLocaleString()} blocked domains
