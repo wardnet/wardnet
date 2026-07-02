@@ -7,10 +7,12 @@ interface DhcpSummaryCardProps {
   status: DhcpStatusResponse | undefined;
   /** If provided, wraps the card in a router Link to this path. */
   to?: string;
+  /** e2e locator, forwarded to the rendered tile as `data-testid`. */
+  testId?: string;
 }
 
 /** Compact DHCP summary card for the dashboard. */
-export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
+export function DhcpSummaryCard({ status, to, testId }: DhcpSummaryCardProps) {
   if (!status) return null;
 
   const poolPercent =
@@ -20,6 +22,7 @@ export function DhcpSummaryCard({ status, to }: DhcpSummaryCardProps) {
 
   const tile = (
     <StatTile
+      data-testid={testId}
       label="DHCP"
       value={status.active_lease_count}
       sub={`active leases · ${poolPercent}% pool used`}

@@ -375,6 +375,12 @@ services:
     # JUnit + HTML report land alongside them in the CI artefact.
     volumes:
       - ./reports:/work/source/end2end-tests/web-ui/reports
+      # Visual-regression baselines (V1, #628). Bind-mounted (not COPYed into
+      # the image) so the host's committed baselines are what Playwright
+      # compares against, and `PW_UPDATE_SNAPSHOTS=1` runs write regenerated
+      # PNGs back to the host. The mount shadows any `snapshots/` baked into
+      # the image, keeping the source-of-truth on the host / in git.
+      - ./snapshots:/work/source/end2end-tests/web-ui/snapshots
     networks:
       wardnet_mgmt:
         ipv4_address: 10.90.0.10
@@ -416,6 +422,12 @@ services:
       - user-app
     volumes:
       - ./reports:/work/source/end2end-tests/web-ui/reports
+      # Visual-regression baselines (V1, #628). Bind-mounted (not COPYed into
+      # the image) so the host's committed baselines are what Playwright
+      # compares against, and `PW_UPDATE_SNAPSHOTS=1` runs write regenerated
+      # PNGs back to the host. The mount shadows any `snapshots/` baked into
+      # the image, keeping the source-of-truth on the host / in git.
+      - ./snapshots:/work/source/end2end-tests/web-ui/snapshots
     networks:
       wardnet_mgmt: {}
       wardnet_lan: {}

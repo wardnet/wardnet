@@ -135,7 +135,11 @@ function VerifyCard({
       : "neutral";
 
   return (
-    <Card>
+    // `verify-card` lets the visual-regression suite mask this whole card as
+    // one unit (#628): its body is live/non-deterministic — a Leaflet map
+    // with remote tiles plus IP-geolocation fields that resolve to loading /
+    // error / loaded depending on network reachability.
+    <Card data-testid="verify-card">
       <CardHeader>
         <CardTitle>Verify your route</CardTitle>
         <div className="ml-auto flex items-center gap-2">

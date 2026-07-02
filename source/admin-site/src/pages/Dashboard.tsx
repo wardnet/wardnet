@@ -96,7 +96,11 @@ export default function Dashboard() {
                     : 0
                 }
               />
-              <DhcpSummaryCard status={dhcpStatus} to="/dhcp" />
+              <DhcpSummaryCard
+                testId="stat-dhcp"
+                status={dhcpStatus}
+                to="/dhcp"
+              />
             </>
           )}
           <DashboardStatCard
