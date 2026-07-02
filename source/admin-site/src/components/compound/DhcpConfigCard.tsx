@@ -14,14 +14,29 @@ import { Text } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { isCompleteIpv4, ipv4ToInt } from "@wardnet/js";
 import { ApiErrorAlert } from "@wardnet/web";
-import { useUpdateDhcpConfig } from "@wardnet/web";
+import { useUpdateDhcpConfig, usePreviewDhcpConfig } from "@wardnet/web";
 import { useDnsConfig } from "@wardnet/web";
-import type { DhcpConfig } from "@wardnet/js";
+import type { DhcpConfig, DhcpLease } from "@wardnet/js";
+import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 
 function formatDuration(secs: number): string {
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
   return `${Math.floor(secs / 86400)}d`;
+}
+
+/** Human-readable warning listing the devices a pool change would strand. */
+function affectedDescription(leases: DhcpLease[]): string {
+  const shown = leases
+    .slice(0, 5)
+    .map((l) => `${l.hostname || l.mac_address} (${l.ip_address})`);
+  const more = leases.length > 5 ? `, and ${leases.length - 5} more` : "";
+  const count = leases.length;
+  return (
+    `${count} device${count === 1 ? "" : "s"} currently hold ` +
+    `out-of-range leases and will reconnect within ~10 minutes: ` +
+    `${shown.join(", ")}${more}.`
+  );
 }
 
 interface DhcpConfigCardProps {
@@ -35,10 +50,13 @@ interface DhcpConfigCardProps {
  *  and show "Wardnet DNS" in the read view to match reality. */
 export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   const updateConfig = useUpdateDhcpConfig();
+  const previewConfig = usePreviewDhcpConfig();
   const { data: dnsConfigData } = useDnsConfig();
   const dnsEnabled = dnsConfigData?.config.enabled ?? false;
 
   const [editing, setEditing] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [affected, setAffected] = useState<DhcpLease[]>([]);
   const [poolStart, setPoolStart] = useState(config.pool_start);
   const [poolEnd, setPoolEnd] = useState(config.pool_end);
   const [subnetMask, setSubnetMask] = useState(config.subnet_mask);
@@ -84,8 +102,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
     return null;
   }, [editing, poolStart, poolEnd, subnetMask, routerIp]);
 
-  async function handleSave() {
-    if (validationError) return;
+  async function doSave() {
     await updateConfig.mutateAsync({
       pool_start: poolStart,
       pool_end: poolEnd,
@@ -98,6 +115,38 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
       router_ip: routerIp || undefined,
     });
     setEditing(false);
+  }
+
+  async function handleSave() {
+    if (validationError) return;
+
+    // Only a pool-range change can strand existing leases, so dry-run the new
+    // range and warn before saving when devices would be forced to reconnect
+    // (issue #227). Preview is best-effort: if it fails, fall through to save.
+    const poolChanged =
+      poolStart !== config.pool_start || poolEnd !== config.pool_end;
+    if (poolChanged) {
+      try {
+        const res = await previewConfig.mutateAsync({
+          pool_start: poolStart,
+          pool_end: poolEnd,
+        });
+        if (res.affected.length > 0) {
+          setAffected(res.affected);
+          setConfirmOpen(true);
+          return;
+        }
+      } catch {
+        // Ignore — the warning is a nicety, not a gate on saving.
+      }
+    }
+
+    await doSave();
+  }
+
+  function confirmSave() {
+    setConfirmOpen(false);
+    void doSave();
   }
 
   return (
@@ -230,15 +279,32 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             secondaryLabel="Cancel"
             secondaryProps={{
               onClick: cancelEdit,
-              disabled: updateConfig.isPending,
+              disabled: updateConfig.isPending || previewConfig.isPending,
               "data-testid": "dhcp-config-cancel",
             }}
-            primaryLabel={updateConfig.isPending ? "Saving…" : "Save"}
+            primaryLabel={
+              previewConfig.isPending
+                ? "Checking…"
+                : updateConfig.isPending
+                  ? "Saving…"
+                  : "Save"
+            }
             primaryProps={{
               onClick: handleSave,
-              disabled: updateConfig.isPending || validationError !== null,
+              disabled:
+                updateConfig.isPending ||
+                previewConfig.isPending ||
+                validationError !== null,
               "data-testid": "dhcp-config-save",
             }}
+          />
+          <ConfirmDialog
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+            title="Devices will reconnect"
+            description={affectedDescription(affected)}
+            confirmLabel="Save and revoke"
+            onConfirm={confirmSave}
           />
         </>
       ) : (

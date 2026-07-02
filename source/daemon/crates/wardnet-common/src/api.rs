@@ -849,6 +849,26 @@ pub struct ToggleDhcpRequest {
     pub enabled: bool,
 }
 
+/// Request body for POST /api/dhcp/config/preview.
+///
+/// A dry-run that reports which active leases would be revoked if the pool
+/// were changed to `pool_start`–`pool_end`, so the admin can be warned before
+/// saving. Mutates nothing.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PreviewDhcpConfigRequest {
+    pub pool_start: String,
+    pub pool_end: String,
+}
+
+/// Response for POST /api/dhcp/config/preview.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PreviewDhcpConfigResponse {
+    /// Active leases whose IP would fall outside the proposed pool and are not
+    /// pinned by a reservation. These devices would be forced to re-acquire an
+    /// in-range lease on their next renewal.
+    pub affected: Vec<DhcpLease>,
+}
+
 /// Response for GET /api/dhcp/leases.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ListDhcpLeasesResponse {

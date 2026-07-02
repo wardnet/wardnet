@@ -7,7 +7,8 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
 
@@ -55,6 +56,8 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.started.load(Ordering::SeqCst)
     }
+
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +89,14 @@ impl DhcpService for MockRunnerDhcpService {
         _r: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
@@ -346,6 +357,7 @@ async fn runner_handles_start_failure_gracefully() {
         fn is_running(&self) -> bool {
             false
         }
+        async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(MockRunnerDhcpService::new(true));
@@ -385,6 +397,14 @@ async fn runner_handles_config_load_failure() {
             _r: UpdateDhcpConfigRequest,
         ) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
+        }
+        async fn preview_config(
+            &self,
+            _req: PreviewDhcpConfigRequest,
+        ) -> Result<PreviewDhcpConfigResponse, AppError> {
+            Ok(PreviewDhcpConfigResponse {
+                affected: Vec::new(),
+            })
         }
         async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()

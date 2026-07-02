@@ -7,6 +7,8 @@ import type {
   ListDhcpLeasesResponse,
   ListDhcpReservationsResponse,
   UpdateDhcpConfigRequest,
+  PreviewDhcpConfigRequest,
+  PreviewDhcpConfigResponse,
   CreateDhcpReservationRequest,
 } from "@wardnet/js";
 
@@ -51,6 +53,17 @@ export function useToggleDhcp() {
       qc.invalidateQueries({ queryKey: ["dhcp"] });
     },
     onError: () => toast.error("Failed to toggle DHCP server"),
+  });
+}
+
+export function usePreviewDhcpConfig() {
+  return useMutation<
+    PreviewDhcpConfigResponse,
+    Error,
+    PreviewDhcpConfigRequest
+  >({
+    mutationFn: (body: PreviewDhcpConfigRequest) =>
+      dhcpService.previewConfig(body),
   });
 }
 

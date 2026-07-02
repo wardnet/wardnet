@@ -2,6 +2,8 @@ import type { WardnetClient } from "../client.js";
 import type {
   DhcpConfigResponse,
   UpdateDhcpConfigRequest,
+  PreviewDhcpConfigRequest,
+  PreviewDhcpConfigResponse,
   ToggleDhcpRequest,
   ListDhcpLeasesResponse,
   ListDhcpReservationsResponse,
@@ -25,6 +27,18 @@ export class DhcpService {
   async updateConfig(body: UpdateDhcpConfigRequest): Promise<DhcpConfigResponse> {
     return this.client.request<DhcpConfigResponse>("/dhcp/config", {
       method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Dry-run a pool-range change: report the active leases that would be
+   * revoked if the pool were changed to the given range (admin only). Mutates
+   * nothing — used to warn before saving.
+   */
+  async previewConfig(body: PreviewDhcpConfigRequest): Promise<PreviewDhcpConfigResponse> {
+    return this.client.request<PreviewDhcpConfigResponse>("/dhcp/config/preview", {
+      method: "POST",
       body: JSON.stringify(body),
     });
   }

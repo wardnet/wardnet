@@ -18,7 +18,8 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 
@@ -105,6 +106,15 @@ impl DhcpService for MockDhcpService {
         _req: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError> {
         self.get_config().await
+    }
+
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
     }
 
     async fn toggle(&self, _req: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {

@@ -7,7 +7,8 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -19,6 +20,7 @@ use wardnetd_services::error::AppError;
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(get_config, update_config))
+        .routes(routes!(preview_config))
         .routes(routes!(toggle))
         .routes(routes!(list_leases))
         .routes(routes!(revoke_lease))
@@ -29,6 +31,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 
 const TAG: &str = "dhcp";
 const PATH_CONFIG: &str = "/api/dhcp/config";
+const PATH_PREVIEW: &str = "/api/dhcp/config/preview";
 const PATH_TOGGLE: &str = "/api/dhcp/config/toggle";
 const PATH_LEASES: &str = "/api/dhcp/leases";
 const PATH_LEASE_ITEM: &str = "/api/dhcp/leases/{id}";
@@ -83,6 +86,44 @@ pub async fn update_config(
     Json(body): Json<UpdateDhcpConfigRequest>,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
     let response = state.dhcp_service().update_config(body).await?;
+
+    // Hot-reload the running server so the new pool/options take effect without
+    // a daemon restart (issue #227). The swap is cheap and safe whether or not
+    // the server is currently running. Mirrors the toggle handler, which
+    // start/stops the same shared `DhcpServer` instance directly.
+    state
+        .dhcp_server()
+        .update_config(response.config.clone())
+        .await;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = PATH_PREVIEW,
+    tag = TAG,
+    description = "Dry-run a pool-range change: report the active leases that would be \
+                   revoked because their IP would fall outside the proposed pool (and \
+                   are not pinned by a reservation). Mutates nothing — used to warn the \
+                   admin before saving. Admin only.",
+    request_body = PreviewDhcpConfigRequest,
+    responses(
+        (status = 200, description = "Leases that would be revoked", body = PreviewDhcpConfigResponse),
+        AuthErrors,
+        BadRequest,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn preview_config(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<PreviewDhcpConfigRequest>,
+) -> Result<Json<PreviewDhcpConfigResponse>, AppError> {
+    let response = state.dhcp_service().preview_config(body).await?;
     Ok(Json(response))
 }
 

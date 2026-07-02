@@ -27,7 +27,8 @@ use wardnet_common::tunnel::Tunnel;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::api::{WizardMode, WizardStep};
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
@@ -557,6 +558,14 @@ impl DhcpService for StubDhcpService {
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
+    }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -1069,6 +1078,7 @@ impl wardnetd_services::dhcp::server::DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------
