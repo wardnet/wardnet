@@ -40,8 +40,10 @@
 # RUSTSEC-2026-0173: proc-macro-error2 unmaintained.
 # Compile-time proc-macro pulled in via i18n-embed-fl (through age) and
 # tabled_derive (through wctl's tabled). Not a CVE — the author stopped
-# publishing updates. Zero runtime footprint. Re-evaluate when age and
-# tabled migrate off proc-macro-error2.
+# publishing updates. Zero runtime footprint. Blocked on age →
+# i18n-embed-fl migrating off proc-macro-error2 (the tabled/wctl path is
+# removable but not sufficient alone). Tracked in wardnet/wardnet#758;
+# remove this entry when `cargo tree -i proc-macro-error2` returns nothing.
 #
 # RUSTSEC-2026-0186: memmap2 unchecked pointer offset.
 # Transitive via pyroscope (continuous-profiling client) and

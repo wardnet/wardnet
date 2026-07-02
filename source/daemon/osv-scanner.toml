@@ -54,3 +54,26 @@ to encode DHCPv4 packets, which carry at most a single FQDN (option
 81), so the quadratic blow-up isn't reachable. No 0.25.x backport.
 Re-evaluate when dhcproto upgrades.
 """
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0173"
+reason = """
+proc-macro-error2 unmaintained. Compile-time proc-macro pulled in via
+i18n-embed-fl (through age) and tabled_derive (through wctl's tabled).
+Not a CVE — the author stopped publishing updates. Zero runtime
+footprint. Blocked on age → i18n-embed-fl migrating off
+proc-macro-error2 (the tabled/wctl path is removable but not
+sufficient alone). Tracked in wardnet/wardnet#758; remove this entry
+when `cargo tree -i proc-macro-error2` returns nothing.
+"""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0186"
+reason = """
+memmap2 unchecked pointer offset. Transitive via pyroscope
+(continuous-profiling client) and symbolic-common (its demangler). The
+unsoundness is in memmap2's offset API; pyroscope only memory-maps its
+own profiling buffers with in-bounds offsets, so the unchecked path
+isn't reachable in our usage. No fixed release yet. Re-evaluate when
+pyroscope bumps memmap2.
+"""

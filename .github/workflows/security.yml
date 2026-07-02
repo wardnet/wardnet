@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - "source/daemon/**/Cargo.toml"
-      - "source/daemon/Cargo.lock"
+      - "source/daemon/**/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
+      - "source/daemon/osv-scanner.toml"
+      - ".github/scripts/audit-ignore-staleness.py"
   pull_request:
     branches: [main]
     paths:
       - "source/daemon/**/Cargo.toml"
-      - "source/daemon/Cargo.lock"
+      - "source/daemon/**/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
+      - "source/daemon/osv-scanner.toml"
+      - ".github/scripts/audit-ignore-staleness.py"
   schedule:
     # Run daily at 06:00 UTC to catch newly disclosed advisories
     - cron: "0 6 * * *"
@@ -44,3 +48,23 @@ jobs:
 
       - name: Run cargo-audit
         run: cd source/daemon && cargo audit
+
+  ignore-staleness:
+    name: Audit Ignore Staleness
+    runs-on: ubuntu-latest
+    # Non-blocking watchdog: warns (never fails) when a suppressed advisory's
+    # crate has left the dependency graph, so ignores in .cargo/audit.toml and
+    # osv-scanner.toml don't outlive their justification. See wardnet#758.
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Fetch RustSec advisory database
+        run: git clone --depth 1 https://github.com/rustsec/advisory-db.git "$HOME/.cargo/advisory-db"
+
+      - name: Check for stale advisory ignores
+        run: python3 .github/scripts/audit-ignore-staleness.py
