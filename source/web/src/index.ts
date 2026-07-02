@@ -193,6 +193,23 @@ export {
   useDeleteForwardingRule,
 } from "./hooks/useDnsLocal";
 
+// Hooks — network zones (epic #244)
+export {
+  useNetworkZones,
+  useCreateNetworkZone,
+  useUpdateNetworkZone,
+  useDeleteNetworkZone,
+  useAssignDeviceZone,
+  useQuarantineNewDevices,
+  useSetQuarantineNewDevices,
+} from "./hooks/useNetworkZones";
+export {
+  useZoneExceptions,
+  useCreateZoneException,
+  useDeleteZoneException,
+  useCreateCastingException,
+} from "./hooks/useZoneExceptions";
+
 export {
   useDnsFilterProfiles,
   useDnsFilterProfile,

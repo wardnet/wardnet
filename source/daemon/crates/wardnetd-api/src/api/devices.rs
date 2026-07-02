@@ -7,7 +7,7 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus,
-    ListDevicesResponse, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest,
+    ListDevicesResponse, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -80,6 +80,25 @@ pub async fn get_me(
     })
     .unwrap_or_default();
     response.available_tunnels = tunnels;
+
+    // Enrich with the caller's own zone (name + is_default) for the read-only
+    // zone display in the user PWA. The zone catalog is admin-only, so — like
+    // the tunnel listing above — we resolve it under an internal admin context.
+    if let Some(device) = response.device.as_ref() {
+        let zone_id = device.zone_id;
+        response.zone = wardnetd_services::auth_context::with_context(
+            wardnet_common::auth::AuthContext::Admin {
+                admin_id: uuid::Uuid::nil(),
+            },
+            state.network_zone_service().get_zone(zone_id),
+        )
+        .await
+        .ok()
+        .map(|z| ZoneSummary {
+            name: z.zone.name,
+            is_default: z.zone.is_default,
+        });
+    }
 
     Ok(Json(response))
 }

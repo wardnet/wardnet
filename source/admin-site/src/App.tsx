@@ -11,6 +11,7 @@ import Devices from "@/pages/Devices";
 import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
+import Zones from "@/pages/Zones";
 import Settings from "@/pages/Settings";
 import RemoteAccess from "@/pages/RemoteAccess";
 import Power from "@/pages/Power";
@@ -149,6 +150,14 @@ export default function App() {
           element={
             <AdminRoute>
               <TunnelDetail />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="zones"
+          element={
+            <AdminRoute>
+              <Zones />
             </AdminRoute>
           }
         />

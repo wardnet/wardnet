@@ -49,6 +49,7 @@ export type {
   ZoneProvenance,
   AllowedTargetKind,
   ZoneSubnet,
+  ZoneSummary,
 } from "./types/network-zone.js";
 
 // Types — cross-zone exceptions
@@ -178,6 +179,8 @@ export type {
   UpdateNetworkZoneResponse,
   DeleteNetworkZoneResponse,
   AssignDeviceZoneRequest,
+  QuarantineNewDevicesResponse,
+  SetQuarantineNewDevicesRequest,
   ListZoneExceptionsResponse,
   GetZoneExceptionResponse,
   CreateZoneExceptionRequest,

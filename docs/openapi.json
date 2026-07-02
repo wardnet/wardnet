@@ -22391,6 +22391,17 @@
                 "$ref": "#/components/schemas/Device"
               }
             ]
+          },
+          "zone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ZoneSummary",
+                "description": "The caller device's Network Zone, resolved server-side for the\nread-only zone display. `None` if the device or its zone can't be\nresolved."
+              }
+            ]
           }
         }
       },
@@ -26597,6 +26608,24 @@
           "cidr": {
             "type": "string",
             "description": "CIDR, e.g. \"10.44.0.0/24\". Validated when set; unused by any Phase-1 code path."
+          }
+        }
+      },
+      "ZoneSummary": {
+        "type": "object",
+        "description": "Minimal Network Zone info exposed to a self-service caller for the\nread-only zone display in the user PWA.\n\nThe caller is device-keyed and has no admin session, so it cannot call the\nadmin-gated `GET /api/network/zones`. `GET /api/devices/me` resolves the\ncaller's own zone (via an internal admin context) and hands back just the\nname plus whether it is the anchor \"home\" zone — enough for\n\"You're on: Guest — isolated from the home network\" without leaking the\nfull zone policy.",
+        "required": [
+          "name",
+          "is_default"
+        ],
+        "properties": {
+          "is_default": {
+            "type": "boolean",
+            "description": "Whether this is the protected anchor \"home\" zone. When `false` the\ndevice sits in a non-home zone that is isolated from it."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable zone name (e.g. \"Guest\")."
           }
         }
       }

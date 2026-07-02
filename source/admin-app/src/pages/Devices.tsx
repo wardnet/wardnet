@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { useDevices, useTunnels, useDefaultPolicy, countryFlag, isDeviceOnline, Text, Heading } from "@wardnet/web";
+import { useDevices, useTunnels, useDefaultPolicy, useNetworkZones, useAssignDeviceZone, countryFlag, isDeviceOnline, timeAgo, Text, Heading } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { ChevronRightIcon } from "lucide-react";
@@ -71,6 +71,65 @@ const DeviceRow = memo(function DeviceRow({
     </button>
   );
 });
+
+/**
+ * "New devices awaiting review" — the client-derived quarantine inbox. New
+ * devices land in the default-for-new zone; this surfaces the most-recent ones
+ * so an admin can approve (reassign to the home zone) or tap to pick another
+ * zone. This is the deep-link target for the #764 new-device push.
+ */
+function NewDevicesSection({ devices, onSelect }: { devices: Device[]; onSelect: (id: string) => void }) {
+  const { data: zoneData } = useNetworkZones();
+  const approve = useAssignDeviceZone({ successMessage: "Device approved" });
+  const zones = zoneData?.zones ?? [];
+  const defaultForNew = zones.find((z) => z.is_default_for_new);
+  const homeZone = zones.find((z) => z.is_default);
+
+  const pending = useMemo(() => {
+    if (!defaultForNew) return [];
+    return devices
+      .filter((d) => d.zone_id === defaultForNew.id)
+      .sort((a, b) => new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime());
+  }, [devices, defaultForNew]);
+
+  if (pending.length === 0) return null;
+
+  return (
+    <div className="mb-4" data-testid="new-devices-section">
+      <Text as="p" size="xs" weight="medium" className="mb-1.5 uppercase tracking-wider text-ink-3">
+        New devices awaiting review ({pending.length})
+      </Text>
+      <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
+        {pending.map((device) => (
+          <div key={device.id} className="flex items-center gap-3 px-4 py-3">
+            <button
+              onClick={() => onSelect(device.id)}
+              className="flex min-w-0 flex-1 flex-col text-left"
+              data-testid="new-device-row"
+            >
+              <Text as="span" size="base" weight="medium" className="truncate text-ink">
+                {device.name ?? device.hostname ?? device.mac}
+              </Text>
+              <Text as="span" size="xs" className="truncate text-ink-3">
+                Joined {timeAgo(device.first_seen)}
+              </Text>
+            </button>
+            {homeZone && (
+              <button
+                data-testid="new-device-approve"
+                disabled={approve.isPending}
+                onClick={() => approve.mutate({ deviceId: device.id, zoneId: homeZone.id })}
+                className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-ink transition-colors duration-snap active:opacity-80 disabled:pointer-events-none disabled:opacity-40"
+              >
+                Approve
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Devices() {
   const { data: devicesData, isLoading: devicesLoading } = useDevices();
@@ -158,6 +217,8 @@ export default function Devices() {
       </div>
 
       <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
+
+        <NewDevicesSection devices={allDevices} onSelect={handleDeviceClick} />
 
         {/* Filter pills */}
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
