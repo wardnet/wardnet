@@ -130,6 +130,13 @@ pub struct ZoneEnforcementServiceImpl {
     /// Wardnet's own LAN IP, the base of the default `/24` subnet and the
     /// address never removed by the gateway-alias reconciler (issue #737).
     lan_ip: Ipv4Addr,
+    /// The last L3 isolation state actually applied to the kernel: the sorted
+    /// [`ZoneIsolationRules`] plus the desired gateway-alias set. A startup
+    /// burst of N device events all compute the same desired state; comparing
+    /// against this lets `reconcile_isolation` collapse them into one real
+    /// rebuild + (N-1) cheap no-ops (issue #737, FIX 6).
+    last_isolation:
+        tokio::sync::Mutex<Option<(ZoneIsolationRules, std::collections::BTreeSet<String>)>>,
 }
 
 impl ZoneEnforcementServiceImpl {
@@ -160,6 +167,7 @@ impl ZoneEnforcementServiceImpl {
             dhcp,
             lan_interface,
             lan_ip,
+            last_isolation: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -340,13 +348,34 @@ impl ZoneEnforcementServiceImpl {
             == Some("true"))
     }
 
-    /// The base LAN subnet — Wardnet's own IP as a `/24` (mirrors
-    /// `build_discovery_service`'s fallback). `/24` never fails for a valid host
-    /// IP, but guard anyway.
-    fn base_cidr(&self) -> Ipv4Network {
-        Ipv4Network::new(self.lan_ip, 24).unwrap_or_else(|_| {
-            tracing::warn!("zone enforcer: failed to build base /24, using lan_ip/32");
-            Ipv4Network::new(self.lan_ip, 32).expect("a /32 is always valid")
+    /// The base LAN subnet — Wardnet's own IP with the *configured* DHCP subnet
+    /// mask (issue #737, FIX 3). An operator running a non-`/24` LAN (e.g. a
+    /// `/16`) would otherwise have the base subnet mis-sized as a `/24`, which
+    /// both mis-scopes the cross-subnet deny pairs and lets base-subnet gateway
+    /// aliases outside the assumed `/24` be treated as stale.
+    ///
+    /// Reads `dhcp_subnet_mask` (default `255.255.255.0`), converts it to a
+    /// prefix via `count_ones()`, and builds `lan_ip/prefix`. Any parse error or
+    /// invalid prefix falls back to `/24`.
+    async fn base_cidr(&self) -> Ipv4Network {
+        let prefix = self
+            .system_config
+            .get("dhcp_subnet_mask")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|m| m.parse::<Ipv4Addr>().ok())
+            .map_or(24, |mask| {
+                u8::try_from(u32::from(mask).count_ones()).unwrap_or(24)
+            });
+        Ipv4Network::new(self.lan_ip, prefix).unwrap_or_else(|_| {
+            tracing::warn!(
+                prefix,
+                "zone enforcer: failed to build base subnet, using lan_ip/24"
+            );
+            Ipv4Network::new(self.lan_ip, 24).unwrap_or_else(|_| {
+                Ipv4Network::new(self.lan_ip, 32).expect("a /32 is always valid")
+            })
         })
     }
 
@@ -380,7 +409,7 @@ impl ZoneEnforcementServiceImpl {
                 match self.zones.find_by_id(&endpoint.id.to_string()).await {
                     Ok(Some(zone)) => Some(
                         zone.subnet
-                            .map_or_else(|| canonical_cidr(*base_cidr), |s| s.cidr),
+                            .map_or_else(|| crate::subnet::canonical_cidr(*base_cidr), |s| s.cidr),
                     ),
                     Ok(None) => {
                         tracing::warn!(
@@ -432,123 +461,154 @@ impl ZoneEnforcementServiceImpl {
     /// off. All firewall/policy errors are warn-logged, never fatal.
     #[allow(clippy::too_many_lines)]
     async fn reconcile_isolation(&self) -> Result<(), AppError> {
-        let base_cidr = self.base_cidr();
+        let base_cidr = self.base_cidr().await;
 
-        // Graceful degrade when Wardnet is not the DHCP authority.
-        if !self.dhcp_enabled().await? {
-            if let Err(e) = self
-                .firewall
-                .apply_zone_isolation(ZoneIsolationRules::default())
-                .await
-            {
-                tracing::warn!(error = %e, "zone enforcer: failed to clear isolation chain (dhcp off)");
-            }
-            self.remove_stale_gateway_aliases(&HashSet::new(), &base_cidr)
-                .await;
-            if let Err(e) = self
-                .policy_router
-                .set_proxy_arp(&self.lan_interface, false)
-                .await
-            {
-                tracing::warn!(error = %e, "zone enforcer: failed to disable proxy-arp (dhcp off)");
-            }
-            tracing::debug!("zone enforcer: L3 isolation inert (Wardnet does not own DHCP)");
-            return Ok(());
-        }
+        // Compute the FULL desired state first (rules + gateway aliases), then
+        // diff it against the last-applied state so a startup burst of identical
+        // device events collapses to one real rebuild + (N-1) no-ops (FIX 6).
+        // The desired rules and gateway set are computed in both the DHCP-off
+        // (empty) and DHCP-on branches so the skip covers every path.
 
-        let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
-        let exceptions = self
-            .exceptions
-            .find_all()
-            .await
-            .map_err(AppError::Internal)?;
+        let dhcp_enabled = self.dhcp_enabled().await?;
 
-        // Parse the subnet CIDR of every zone that has one.
+        // Desired zone subnets, gateway aliases, isolation rules.
         let mut zone_nets: HashMap<Uuid, Ipv4Network> = HashMap::new();
-        for zone in &zones {
-            if let Some(subnet) = &zone.subnet {
-                match subnet.cidr.parse::<Ipv4Network>() {
-                    Ok(net) => {
-                        zone_nets.insert(zone.id, net);
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, zone_id = %zone.id, cidr = %subnet.cidr, "zone enforcer: invalid zone subnet, skipping");
+        let mut rules;
+        let mut desired_alias_map: std::collections::BTreeMap<Ipv4Addr, u8> =
+            std::collections::BTreeMap::new();
+        let member_isolation_present;
+
+        if dhcp_enabled {
+            let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
+            let exceptions = self
+                .exceptions
+                .find_all()
+                .await
+                .map_err(AppError::Internal)?;
+
+            // Parse the subnet CIDR of every zone that has one.
+            for zone in &zones {
+                if let Some(subnet) = &zone.subnet {
+                    match subnet.cidr.parse::<Ipv4Network>() {
+                        Ok(net) => {
+                            zone_nets.insert(zone.id, net);
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, zone_id = %zone.id, cidr = %subnet.cidr, "zone enforcer: invalid zone subnet, skipping");
+                        }
                     }
                 }
             }
-        }
 
-        // The set of distinct subnets = base + each zone subnet.
-        let mut all_subnets: Vec<String> = vec![canonical_cidr(base_cidr)];
-        for net in zone_nets.values() {
-            let s = canonical_cidr(*net);
-            if !all_subnets.contains(&s) {
-                all_subnets.push(s);
-            }
-        }
-
-        // Cross-subnet default-deny: every ordered pair of distinct subnets.
-        let mut deny_pairs: Vec<(String, String)> = Vec::new();
-        for a in &all_subnets {
-            for b in &all_subnets {
-                if a != b {
-                    deny_pairs.push((a.clone(), b.clone()));
+            // The set of distinct subnets = base + each zone subnet.
+            let mut all_subnets: Vec<String> = vec![crate::subnet::canonical_cidr(base_cidr)];
+            for net in zone_nets.values() {
+                let s = crate::subnet::canonical_cidr(*net);
+                if !all_subnets.contains(&s) {
+                    all_subnets.push(s);
                 }
             }
+
+            // Cross-subnet default-deny: every ordered pair of distinct subnets.
+            let mut deny_pairs: Vec<(String, String)> = Vec::new();
+            for a in &all_subnets {
+                for b in &all_subnets {
+                    if a != b {
+                        deny_pairs.push((a.clone(), b.clone()));
+                    }
+                }
+            }
+
+            // Member-isolation subnets: the subnet of each zone whose flag is set.
+            let member_isolation_subnets: Vec<String> = zones
+                .iter()
+                .filter(|z| z.member_isolation)
+                .filter_map(|z| {
+                    zone_nets
+                        .get(&z.id)
+                        .map(|n| crate::subnet::canonical_cidr(*n))
+                })
+                .collect();
+
+            // Cross-zone allows: resolve each exception's endpoints to CIDRs and
+            // expand its service into one ACCEPT per (proto, port-range).
+            let mut allows: Vec<ExceptionAllow> = Vec::new();
+            for exc in &exceptions {
+                let Some(from_cidr) = self.resolve_endpoint_cidr(&exc.from, &base_cidr).await
+                else {
+                    continue;
+                };
+                let Some(to_cidr) = self.resolve_endpoint_cidr(&exc.to, &base_cidr).await else {
+                    continue;
+                };
+                for port in exc.service.resolve_ports() {
+                    allows.push(ExceptionAllow {
+                        from_cidr: from_cidr.clone(),
+                        to_cidr: to_cidr.clone(),
+                        proto: port.proto.as_str().to_owned(),
+                        port_start: port.from,
+                        port_end: port.to,
+                        bidirectional: exc.bidirectional,
+                    });
+                }
+            }
+
+            member_isolation_present = !member_isolation_subnets.is_empty();
+            rules = ZoneIsolationRules {
+                allows,
+                deny_pairs,
+                member_isolation_subnets,
+            };
+
+            // Gateway aliases: the `.1` of each zone subnet.
+            for net in zone_nets.values() {
+                desired_alias_map.insert(crate::subnet::gateway_for(*net), net.prefix());
+            }
+        } else {
+            // Graceful degrade when Wardnet is not the DHCP authority: empty
+            // isolation chain, no gateway aliases, proxy-ARP off.
+            member_isolation_present = false;
+            rules = ZoneIsolationRules::default();
         }
 
-        // Member-isolation subnets: the subnet of each zone whose flag is set.
-        let member_isolation_subnets: Vec<String> = zones
-            .iter()
-            .filter(|z| z.member_isolation)
-            .filter_map(|z| zone_nets.get(&z.id).map(|n| canonical_cidr(*n)))
+        // Sort every vector so the applied nftables order is deterministic and
+        // the equality check against the last-applied state is order-stable.
+        rules.allows.sort();
+        rules.deny_pairs.sort();
+        rules.member_isolation_subnets.sort();
+
+        // Canonical string form of the desired gateway-alias set, used both for
+        // the skip check and (kept as a set) for stale-alias removal.
+        let desired_alias_strings: std::collections::BTreeSet<String> = desired_alias_map
+            .keys()
+            .map(std::string::ToString::to_string)
             .collect();
 
-        // Cross-zone allows: resolve each exception's endpoints to CIDRs and
-        // expand its service into one ACCEPT per (proto, port-range).
-        let mut allows: Vec<ExceptionAllow> = Vec::new();
-        for exc in &exceptions {
-            let Some(from_cidr) = self.resolve_endpoint_cidr(&exc.from, &base_cidr).await else {
-                continue;
-            };
-            let Some(to_cidr) = self.resolve_endpoint_cidr(&exc.to, &base_cidr).await else {
-                continue;
-            };
-            for port in exc.service.resolve_ports() {
-                allows.push(ExceptionAllow {
-                    from_cidr: from_cidr.clone(),
-                    to_cidr: to_cidr.clone(),
-                    proto: port.proto.as_str().to_owned(),
-                    port_start: port.from,
-                    port_end: port.to,
-                    bidirectional: exc.bidirectional,
-                });
+        // Skip the expensive kernel work when nothing changed (FIX 6).
+        {
+            let last = self.last_isolation.lock().await;
+            if last.as_ref() == Some(&(rules.clone(), desired_alias_strings.clone())) {
+                tracing::debug!("zone enforcer: L3 isolation unchanged, skipping rebuild");
+                return Ok(());
             }
         }
 
-        let rules = ZoneIsolationRules {
-            allows,
-            deny_pairs,
-            member_isolation_subnets: member_isolation_subnets.clone(),
-        };
         let summary = (
             rules.allows.len(),
             rules.deny_pairs.len(),
             rules.member_isolation_subnets.len(),
         );
-        if let Err(e) = self.firewall.apply_zone_isolation(rules).await {
+
+        if let Err(e) = self.firewall.apply_zone_isolation(rules.clone()).await {
             tracing::warn!(error = %e, "zone enforcer: failed to apply zone isolation");
         }
 
-        // Gateway aliases: the `.1` of each zone subnet, added to the LAN
-        // interface; drop aliases no longer backed by a zone.
-        let mut desired_gateways: HashSet<Ipv4Addr> = HashSet::new();
-        for net in zone_nets.values() {
-            let gw = gateway_of(*net);
-            desired_gateways.insert(gw);
+        // Add desired gateway aliases, then drop any no longer backed by a zone.
+        let desired_gateways: HashSet<Ipv4Addr> = desired_alias_map.keys().copied().collect();
+        for (gw, prefix) in &desired_alias_map {
             if let Err(e) = self
                 .policy_router
-                .add_interface_alias(&self.lan_interface, &gw.to_string(), net.prefix())
+                .add_interface_alias(&self.lan_interface, &gw.to_string(), *prefix)
                 .await
             {
                 tracing::warn!(error = %e, gateway = %gw, "zone enforcer: failed to add gateway alias");
@@ -560,11 +620,14 @@ impl ZoneEnforcementServiceImpl {
         // proxy-ARP is only needed when at least one zone isolates members.
         if let Err(e) = self
             .policy_router
-            .set_proxy_arp(&self.lan_interface, !member_isolation_subnets.is_empty())
+            .set_proxy_arp(&self.lan_interface, member_isolation_present)
             .await
         {
             tracing::warn!(error = %e, "zone enforcer: failed to set proxy-arp");
         }
+
+        // Record the applied state so the next identical reconcile is a no-op.
+        *self.last_isolation.lock().await = Some((rules, desired_alias_strings));
 
         tracing::info!(
             allows = summary.0,
@@ -579,6 +642,14 @@ impl ZoneEnforcementServiceImpl {
     /// Remove any wardnet-managed gateway alias on the LAN interface that is no
     /// longer a desired zone gateway. The primary LAN IP and any base-subnet
     /// address are never touched. Errors are warn-logged.
+    ///
+    /// FIX 3: the removal guard is tightened so an *operator-added* secondary IP
+    /// is never deleted. In addition to sparing the primary, any desired
+    /// gateway, and base-subnet addresses, an alias is only removed when it also
+    /// *looks like* a Wardnet-managed zone gateway — i.e. it is the `.1`
+    /// (first-host) of its own subnet at `base_prefix`. An operator's arbitrary
+    /// secondary such as `10.0.5.5/24` (where `.5` is not the first host) is
+    /// therefore left in place.
     async fn remove_stale_gateway_aliases(
         &self,
         desired_gateways: &HashSet<Ipv4Addr>,
@@ -603,6 +674,14 @@ impl ZoneEnforcementServiceImpl {
             if ip == self.lan_ip || desired_gateways.contains(&ip) || base_cidr.contains(ip) {
                 continue;
             }
+            // Only remove an alias that looks Wardnet-managed: the first host of
+            // its own subnet. Preserves any operator secondary that is not a `.1`.
+            let looks_managed =
+                Ipv4Network::new(ip, prefix).is_ok_and(|net| ip == crate::subnet::gateway_for(net));
+            if !looks_managed {
+                tracing::debug!(alias = %ip_str, "zone enforcer: preserving non-gateway secondary IP");
+                continue;
+            }
             if let Err(e) = self
                 .policy_router
                 .remove_interface_alias(&self.lan_interface, &ip_str, prefix)
@@ -612,20 +691,6 @@ impl ZoneEnforcementServiceImpl {
             }
         }
     }
-}
-
-/// The gateway host address of a subnet: network address + 1 (the `.1`).
-fn gateway_of(net: Ipv4Network) -> Ipv4Addr {
-    let base = u32::from(net.network());
-    Ipv4Addr::from(base + 1)
-}
-
-/// The canonical `"network/prefix"` string of a subnet. `Ipv4Network`'s
-/// `Display` keeps the host bits as-constructed (`192.168.1.1/24`), so we
-/// normalise to the network address to make cross-subnet pairs comparable and
-/// nftables matches canonical.
-fn canonical_cidr(net: Ipv4Network) -> String {
-    format!("{}/{}", net.network(), net.prefix())
 }
 
 #[async_trait]

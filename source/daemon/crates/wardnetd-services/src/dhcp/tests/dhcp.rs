@@ -2251,3 +2251,46 @@ async fn lease_in_old_subnet_orphaned_when_zone_subnet_changes() {
         .unwrap();
     assert_eq!(old_row.status, "expired");
 }
+
+#[tokio::test]
+async fn reservation_outside_zone_subnet_falls_back_to_pool() {
+    // FIX 2: a device is in a zone with the 10.66.0.0/24 subnet, but its static
+    // reservation points at 10.44.0.50 — an address in a *different* subnet.
+    // Honouring it would hand the client an IP whose gateway/mask belong to
+    // another subnet, so the reservation is ignored and a pool IP is leased.
+    let (svc, dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.66.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:06", zone_id);
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:06", "10.44.0.50");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:06", None))
+            .await
+            .unwrap();
+
+    // The incompatible reservation is skipped; the device gets the first pool IP.
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 66, 0, 10));
+}
+
+#[tokio::test]
+async fn reservation_inside_zone_subnet_is_honoured() {
+    // Counterpart to the fall-back case: a reservation that *does* fall inside
+    // the zone subnet is still honoured verbatim.
+    let (svc, dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.66.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:07", zone_id);
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:07", "10.66.0.42");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:07", None))
+            .await
+            .unwrap();
+
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 66, 0, 42));
+}

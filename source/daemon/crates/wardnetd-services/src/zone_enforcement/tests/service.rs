@@ -931,12 +931,14 @@ async fn gateway_alias_added_and_stale_alias_removed() {
     let h = build().await;
     enable_dhcp(&h).await;
     insert_subnet_zone(&h.zones, ZONE_A, "ZoneA", "10.44.1.0/24", false).await;
-    // Pre-seed the interface with the primary IP, a base-subnet address, and a
-    // stale former-gateway alias outside the base subnet and not desired.
+    // Pre-seed the interface with the primary IP, a base-subnet address, a
+    // stale former-gateway alias (a `.1` outside the base subnet, not desired),
+    // and an operator-added secondary that is NOT a first-host (`.5`).
     *h.existing_aliases.lock().await = vec![
         ("192.168.1.1".to_owned(), 24), // primary — never removed
         ("192.168.1.5".to_owned(), 24), // base-subnet addr — never removed
-        ("10.44.9.1".to_owned(), 24),   // stale former gateway — removed
+        ("10.44.9.1".to_owned(), 24),   // stale former gateway (.1) — removed
+        ("10.0.5.5".to_owned(), 24),    // operator secondary (.5) — preserved
     ];
 
     as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
@@ -947,7 +949,7 @@ async fn gateway_alias_added_and_stale_alias_removed() {
         pc.contains(&"add_alias:eth0:10.44.1.1/24".to_owned()),
         "zone gateway alias added: {pc:?}"
     );
-    // The stale former-gateway alias is removed.
+    // The stale former-gateway alias (a first-host) is removed.
     assert!(
         pc.contains(&"remove_alias:eth0:10.44.9.1/24".to_owned()),
         "stale alias removed: {pc:?}"
@@ -957,6 +959,37 @@ async fn gateway_alias_added_and_stale_alias_removed() {
         !pc.iter()
             .any(|c| c.contains("remove_alias:eth0:192.168.1.")),
         "primary/base addresses left alone: {pc:?}"
+    );
+    // FIX 3: an operator secondary that is not a subnet's first-host is never
+    // treated as a Wardnet-managed gateway, so it is preserved.
+    assert!(
+        !pc.contains(&"remove_alias:eth0:10.0.5.5/24".to_owned()),
+        "operator secondary (non-first-host) preserved: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn identical_reconcile_cycles_rebuild_isolation_once() {
+    // FIX 6: a startup burst of identical device events must collapse into one
+    // real isolation rebuild + (N-1) cheap no-ops. Two back-to-back
+    // apply_device cycles over an unchanged database produce exactly one
+    // `apply_zone_isolation` call.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "ZoneA", "10.44.1.0/24", false).await;
+    let dev = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(dev)).await.unwrap();
+    as_admin(h.svc.apply_device(dev)).await.unwrap();
+
+    let isolation_calls = calls(&h)
+        .await
+        .into_iter()
+        .filter(|c| c.starts_with("isolation:"))
+        .count();
+    assert_eq!(
+        isolation_calls, 1,
+        "identical reconciles must rebuild isolation exactly once"
     );
 }
 

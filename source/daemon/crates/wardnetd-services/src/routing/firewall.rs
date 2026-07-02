@@ -29,7 +29,7 @@ pub struct ZoneRules {
 /// cross-subnet service (e.g. a phone casting to a TV in another zone) survives
 /// the otherwise default-deny between subnets. Endpoints are already resolved to
 /// CIDRs (a device to its `/32`, a zone to its subnet) by the enforcer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExceptionAllow {
     /// Source CIDR, e.g. `"10.44.2.5/32"` or `"10.44.2.0/24"`.
     pub from_cidr: String,

@@ -8,6 +8,7 @@ pub mod jobs;
 pub mod request_context;
 pub mod secret_store;
 pub mod stats;
+pub mod subnet;
 pub mod version;
 
 pub mod auth;

@@ -293,6 +293,7 @@ impl DhcpServiceImpl {
             lease_duration_secs: base.lease_duration_secs,
             router_ip: base.router_ip,
             member_isolation: false,
+            subnet_prefix: None,
         };
 
         // Resolve the device's zone; any failure degrades to the base scope.
@@ -313,16 +314,11 @@ impl DhcpServiceImpl {
             }
         };
 
-        let net_u32 = u32::from(net.network());
-        let bcast = u32::from(net.broadcast());
-        let gateway = Ipv4Addr::from(net_u32 + 1);
-        let pool_start = Ipv4Addr::from(net_u32 + 10);
-        let pool_end = Ipv4Addr::from(bcast.saturating_sub(6));
-
-        if pool_start >= pool_end {
+        let gateway = crate::subnet::gateway_for(net);
+        let Some((pool_start, pool_end)) = crate::subnet::pool_bounds(net) else {
             tracing::warn!(mac, zone = %zone.name, cidr = %subnet.cidr, "zone subnet too small for a DHCP pool, using base scope");
             return Ok(base_scope);
-        }
+        };
 
         // Isolate-members zones advertise a /32 so peers appear off-link; the
         // real mask is still used for allocation (the pool stays inside the /N).
@@ -344,6 +340,7 @@ impl DhcpServiceImpl {
             // The gateway alias is the only router for a zone subnet.
             router_ip: None,
             member_isolation: zone.member_isolation,
+            subnet_prefix: Some(net.prefix()),
         })
     }
 
@@ -836,13 +833,36 @@ impl DhcpService for DhcpServiceImpl {
             return Ok(existing);
         }
 
-        // Check for a static reservation first.
-        let ip = if let Some(reservation) = self
+        // Check for a static reservation first. A reservation is honoured only
+        // when it is compatible with the device's resolved scope: for a zone
+        // subnet (`subnet_prefix = Some(p)`) the reserved IP must fall inside
+        // that subnet, otherwise the client would be handed an address in one
+        // subnet with a gateway/mask for another. Such a reservation is skipped
+        // (with a warn) and the device gets a pool IP instead. The base scope
+        // (`subnet_prefix = None`) honours reservations exactly as before.
+        let reservation = self
             .dhcp
             .find_reservation_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
-        {
+            .filter(|reservation| {
+                let compatible = match scope.subnet_prefix {
+                    Some(prefix) => Ipv4Network::new(scope.gateway_ip, prefix)
+                        .map_or(true, |net| net.contains(reservation.ip_address)),
+                    None => true,
+                };
+                if !compatible {
+                    tracing::warn!(
+                        mac,
+                        reservation_ip = %reservation.ip_address,
+                        gateway = %scope.gateway_ip,
+                        "static reservation is outside the device's zone subnet, ignoring; allocating from pool"
+                    );
+                }
+                compatible
+            });
+
+        let ip = if let Some(reservation) = reservation {
             tracing::info!(mac, ip = %reservation.ip_address, "using static reservation");
             reservation.ip_address
         } else {

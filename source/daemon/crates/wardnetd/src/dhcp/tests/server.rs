@@ -239,6 +239,7 @@ fn test_scope() -> DhcpScope {
         lease_duration_secs: 86400,
         router_ip: Some(Ipv4Addr::new(192, 168, 1, 1)),
         member_isolation: false,
+        subnet_prefix: None,
     }
 }
 
@@ -915,7 +916,7 @@ async fn udp_server_start_sets_running_flag() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -929,7 +930,7 @@ async fn udp_server_stop_clears_running_flag() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -950,7 +951,7 @@ async fn udp_server_start_when_already_running() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     // Second start should be a no-op (returns Ok).
@@ -966,7 +967,7 @@ async fn udp_server_stop_when_not_running() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     // Stop without start should be a no-op.
     server.stop().await.unwrap();
@@ -1135,25 +1136,6 @@ async fn send_response_handles_send_error_gracefully() {
 
     // Should not panic -- just logs the error.
     server::send_response(&socket, &response, dest).await;
-}
-
-// ---------------------------------------------------------------------------
-// UdpDhcpServer::update_config
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn udp_server_update_config() {
-    let lease = test_lease();
-    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
-    let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
-
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
-
-    // Update the config and verify it does not panic.
-    let mut new_config = test_config();
-    new_config.lease_duration_secs = 7200;
-    new_config.pool_end = Ipv4Addr::new(192, 168, 1, 250);
-    server.update_config(new_config).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -1376,7 +1358,7 @@ async fn udp_server_restart_cycle() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     // First cycle.
     server.start().await.unwrap();

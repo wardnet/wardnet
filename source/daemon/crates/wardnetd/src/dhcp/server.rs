@@ -6,12 +6,12 @@ use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpScope};
+use wardnet_common::dhcp::{DhcpLease, DhcpScope};
 use wardnetd_services::auth_context;
 use wardnetd_services::dhcp::DhcpService;
 use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
@@ -60,13 +60,6 @@ impl DhcpSocket for UdpDhcpSocket {
 pub struct UdpDhcpServer {
     /// Service for lease management.
     service: Arc<dyn DhcpService>,
-    /// Last-known base DHCP configuration, pushed via [`Self::update_config`]
-    /// on config changes. Since #737 the response options are rendered per
-    /// request from the device's resolved [`DhcpScope`] (see `build_response`),
-    /// so the server loop no longer reads this directly; it is retained so the
-    /// runner can keep the cache warm for future live-reload consumers.
-    #[allow(dead_code)]
-    config: Arc<RwLock<DhcpConfig>>,
     /// Address to bind the UDP socket to.
     bind_addr: SocketAddr,
     /// Pre-injected socket (used in tests). When `None`, `start()` binds a new one.
@@ -84,8 +77,8 @@ pub struct UdpDhcpServer {
 impl UdpDhcpServer {
     /// Create a new DHCP server that binds to `0.0.0.0:67` (the standard DHCP port).
     #[must_use]
-    pub fn new(service: Arc<dyn DhcpService>, config: DhcpConfig) -> Self {
-        Self::with_bind_addr(service, config, SocketAddr::from(([0, 0, 0, 0], 67)))
+    pub fn new(service: Arc<dyn DhcpService>) -> Self {
+        Self::with_bind_addr(service, SocketAddr::from(([0, 0, 0, 0], 67)))
     }
 
     /// Create a new DHCP server that binds to the given address.
@@ -93,14 +86,9 @@ impl UdpDhcpServer {
     /// Use `127.0.0.1:0` in tests so the OS assigns an ephemeral port and
     /// the server operates entirely over loopback.
     #[must_use]
-    pub(crate) fn with_bind_addr(
-        service: Arc<dyn DhcpService>,
-        config: DhcpConfig,
-        bind_addr: SocketAddr,
-    ) -> Self {
+    pub(crate) fn with_bind_addr(service: Arc<dyn DhcpService>, bind_addr: SocketAddr) -> Self {
         Self {
             service,
-            config: Arc::new(RwLock::new(config)),
             bind_addr,
             injected_socket: None,
             running: Arc::new(AtomicBool::new(false)),
@@ -115,14 +103,9 @@ impl UdpDhcpServer {
     /// The socket is used directly instead of binding a new one in `start()`.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn with_socket(
-        service: Arc<dyn DhcpService>,
-        config: DhcpConfig,
-        socket: Arc<dyn DhcpSocket>,
-    ) -> Self {
+    pub(crate) fn with_socket(service: Arc<dyn DhcpService>, socket: Arc<dyn DhcpSocket>) -> Self {
         Self {
             service,
-            config: Arc::new(RwLock::new(config)),
             bind_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             injected_socket: Some(socket),
             running: Arc::new(AtomicBool::new(false)),
@@ -139,11 +122,6 @@ impl UdpDhcpServer {
     #[allow(dead_code)]
     pub(crate) fn local_addr(&self) -> Option<SocketAddr> {
         *self.local_addr.lock().expect("local_addr mutex poisoned")
-    }
-
-    /// Update the stored configuration (called when config changes).
-    pub async fn update_config(&self, config: DhcpConfig) {
-        *self.config.write().await = config;
     }
 }
 
@@ -413,6 +391,23 @@ pub(crate) fn build_response(
         scope.dns.clone()
     };
     opts.insert(DhcpOption::DomainNameServer(dns_servers));
+
+    // Member-isolation zones advertise a /32 mask (option 1) so peers appear
+    // off-link and every packet is forced through the Pi (#737). A /32 leaves a
+    // strict client with no on-link route at all — not even to its own gateway —
+    // so we also advertise option 121 (Classless Static Route) with a default
+    // route via the gateway. Cooperating clients then install a route to the Pi
+    // and reach off-link/upstream destinations through it. RFC 3442 says a
+    // client honouring option 121 SHOULD ignore the Router option (3); we still
+    // send option 3 for clients that ignore 121.
+    if scope.member_isolation {
+        if let Ok(default_route) = "0.0.0.0/0".parse::<ipnet::Ipv4Net>() {
+            opts.insert(DhcpOption::ClasslessStaticRoute(vec![(
+                default_route,
+                server_ip,
+            )]));
+        }
+    }
 
     response
 }

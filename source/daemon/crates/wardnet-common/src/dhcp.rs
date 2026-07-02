@@ -60,6 +60,12 @@ pub struct DhcpScope {
     #[schema(value_type = Option<String>)]
     pub router_ip: Option<Ipv4Addr>,
     pub member_isolation: bool,
+    /// The zone subnet's real prefix length (issue #737). `Some(p)` for a per-
+    /// zone scope; `None` for the base scope. Used to reject a static
+    /// reservation whose IP falls outside the device's zone subnet — leasing
+    /// such an IP would leave the client with a gateway/mask in a different
+    /// subnet than its address.
+    pub subnet_prefix: Option<u8>,
 }
 
 /// The current status of a DHCP lease.

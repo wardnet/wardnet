@@ -6325,6 +6325,7 @@ dependencies = [
  "futures",
  "hickory-proto",
  "hickory-resolver",
+ "ipnet",
  "ipnetwork 0.20.0",
  "libc",
  "mdns-sd",

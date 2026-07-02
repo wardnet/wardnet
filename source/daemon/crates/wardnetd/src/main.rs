@@ -557,38 +557,10 @@ async fn run(
     let profiling_agent = ProfilingAgent::start(&config.pyroscope);
 
     // Build and start DHCP server and runner.
-    // Load initial DHCP config under admin context.
-    // gateway_ip is injected by DhcpServiceImpl from the detected LAN IP.
-    let admin_ctx = AuthContext::Admin {
-        admin_id: uuid::Uuid::nil(),
-    };
-    let initial_dhcp_config = auth_context::with_context(
-        admin_ctx.clone(),
-        services.dhcp.get_dhcp_config(),
-    )
-    .await
-    .unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "failed to load initial DHCP config, using defaults: error={e}");
-        {
-            // Derive default pool range from the detected LAN IP subnet.
-            let octets = lan_ip.octets();
-            wardnet_common::dhcp::DhcpConfig {
-                enabled: false,
-                gateway_ip: lan_ip,
-                pool_start: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 100),
-                pool_end: std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 250),
-                subnet_mask: "255.255.255.0".parse().expect("valid IP"),
-                upstream_dns: vec![
-                    "1.1.1.1".parse().expect("valid IP"),
-                    "8.8.8.8".parse().expect("valid IP"),
-                ],
-                lease_duration_secs: 600,
-                router_ip: None,
-            }
-        }
-    });
+    // The DHCP server renders every response from the device's per-request
+    // resolved scope (#737), so it no longer needs an initial base config.
     let dhcp_server: Arc<dyn wardnetd_services::dhcp::server::DhcpServer> = Arc::new(
-        wardnetd::dhcp::server::UdpDhcpServer::new(services.dhcp.clone(), initial_dhcp_config),
+        wardnetd::dhcp::server::UdpDhcpServer::new(services.dhcp.clone()),
     );
     let dhcp_runner = DhcpRunner::start(
         services.dhcp.clone(),
