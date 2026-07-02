@@ -1,7 +1,9 @@
 use std::net::Ipv4Addr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use ipnetwork::Ipv4Network;
 use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
@@ -9,7 +11,7 @@ use wardnet_common::api::{
     PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
     ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpScope};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -17,7 +19,8 @@ use crate::event::EventPublisher;
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::{
-    DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+    DeviceRepository, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+    NetworkZoneRepository,
 };
 
 /// DHCP lease and reservation management.
@@ -101,6 +104,14 @@ pub trait DhcpService: Send + Sync {
     ///
     /// Requires admin auth context.
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError>;
+
+    /// Resolve the effective DHCP scope for a MAC (public for the DHCP server
+    /// runtime, which uses it to render the response options).
+    ///
+    /// Derives the scope from the device's Network Zone subnet (issue #737),
+    /// falling back to the base pool when the zone has no subnet or when Wardnet
+    /// is not authoritative. Requires admin auth context.
+    async fn scope_for_mac(&self, mac: &str) -> Result<DhcpScope, AppError>;
 }
 
 /// Default implementation of [`DhcpService`].
@@ -108,6 +119,10 @@ pub struct DhcpServiceImpl {
     dhcp: Arc<dyn DhcpRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
     events: Arc<dyn EventPublisher>,
+    /// Devices, for MAC → Network Zone resolution when scoping a lease (#737).
+    devices: Arc<dyn DeviceRepository>,
+    /// Network Zones, for per-zone subnet resolution (#737).
+    zones: Arc<dyn NetworkZoneRepository>,
     /// Wardnet's own LAN IP, auto-detected at startup.
     gateway_ip: Ipv4Addr,
 }
@@ -118,12 +133,16 @@ impl DhcpServiceImpl {
         dhcp: Arc<dyn DhcpRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
         events: Arc<dyn EventPublisher>,
+        devices: Arc<dyn DeviceRepository>,
+        zones: Arc<dyn NetworkZoneRepository>,
         gateway_ip: Ipv4Addr,
     ) -> Self {
         Self {
             dhcp,
             system_config,
             events,
+            devices,
+            zones,
             gateway_ip,
         }
     }
@@ -226,6 +245,114 @@ impl DhcpServiceImpl {
         })
     }
 
+    /// Resolve the Network Zone a MAC leases from: the device's assigned zone
+    /// for a known device, or the default-for-new zone for an unknown MAC.
+    ///
+    /// Returns `None` (with a debug log) on any repository error or missing
+    /// zone so [`resolve_scope`](Self::resolve_scope) can degrade to the base
+    /// scope — a lease is never failed over a zone lookup.
+    async fn resolve_zone_for_mac(
+        &self,
+        mac: &str,
+    ) -> Option<wardnet_common::network_zone::NetworkZone> {
+        match self.devices.find_by_mac(mac).await {
+            Ok(Some(dev)) => match self.zones.find_by_id(&dev.zone_id.to_string()).await {
+                Ok(Some(zone)) => Some(zone),
+                Ok(None) => {
+                    tracing::debug!(mac, zone_id = %dev.zone_id, "device zone not found, using base DHCP scope");
+                    None
+                }
+                Err(e) => {
+                    tracing::debug!(mac, error = %e, "zone lookup failed, using base DHCP scope");
+                    None
+                }
+            },
+            Ok(None) => match self.zones.find_default_for_new().await {
+                Ok(zone) => Some(zone),
+                Err(e) => {
+                    tracing::debug!(mac, error = %e, "default-for-new zone lookup failed, using base DHCP scope");
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::debug!(mac, error = %e, "device lookup failed, using base DHCP scope");
+                None
+            }
+        }
+    }
+
+    /// Resolve the effective DHCP scope for a MAC (issue #737).
+    ///
+    /// The scope determines which subnet a device leases from and which options
+    /// it is advertised. It is derived from the device's Network Zone: a zone
+    /// with a configured subnet yields a per-zone scope (gateway at `.1`, pool
+    /// `.10`–`broadcast-6`, DNS pointed at the gateway alias); otherwise the
+    /// base pool from `system_config` is used.
+    ///
+    /// Zone lookup never fails a lease: any repository error, missing zone, or
+    /// unparseable/too-small subnet degrades to the base scope with a log line.
+    async fn resolve_scope(&self, mac: &str) -> Result<DhcpScope, AppError> {
+        let base = self.load_config().await?;
+        let base_scope = DhcpScope {
+            gateway_ip: base.gateway_ip,
+            pool_start: base.pool_start,
+            pool_end: base.pool_end,
+            subnet_mask: base.subnet_mask,
+            dns: base.upstream_dns.clone(),
+            lease_duration_secs: base.lease_duration_secs,
+            router_ip: base.router_ip,
+            member_isolation: false,
+            subnet_prefix: None,
+        };
+
+        // Resolve the device's zone; any failure degrades to the base scope.
+        let Some(zone) = self.resolve_zone_for_mac(mac).await else {
+            return Ok(base_scope);
+        };
+
+        // No per-zone subnet -> keep today's base behaviour.
+        let Some(subnet) = zone.subnet.as_ref() else {
+            return Ok(base_scope);
+        };
+
+        let net = match Ipv4Network::from_str(&subnet.cidr) {
+            Ok(net) => net,
+            Err(e) => {
+                tracing::warn!(mac, zone = %zone.name, cidr = %subnet.cidr, error = %e, "unparseable zone subnet, using base DHCP scope");
+                return Ok(base_scope);
+            }
+        };
+
+        let gateway = crate::subnet::gateway_for(net);
+        let Some((pool_start, pool_end)) = crate::subnet::pool_bounds(net) else {
+            tracing::warn!(mac, zone = %zone.name, cidr = %subnet.cidr, "zone subnet too small for a DHCP pool, using base scope");
+            return Ok(base_scope);
+        };
+
+        // Isolate-members zones advertise a /32 so peers appear off-link; the
+        // real mask is still used for allocation (the pool stays inside the /N).
+        let subnet_mask = if zone.member_isolation {
+            Ipv4Addr::BROADCAST
+        } else {
+            net.mask()
+        };
+
+        Ok(DhcpScope {
+            gateway_ip: gateway,
+            pool_start,
+            pool_end,
+            subnet_mask,
+            // The Pi's alias in this subnet, so per-zone DNS filtering still
+            // reaches the Pi.
+            dns: vec![gateway],
+            lease_duration_secs: base.lease_duration_secs,
+            // The gateway alias is the only router for a zone subnet.
+            router_ip: None,
+            member_isolation: zone.member_isolation,
+            subnet_prefix: Some(net.prefix()),
+        })
+    }
+
     /// Compute the total number of IPs in the pool.
     fn pool_size(start: Ipv4Addr, end: Ipv4Addr) -> u64 {
         let s = u32::from(start);
@@ -233,9 +360,13 @@ impl DhcpServiceImpl {
         if e >= s { u64::from(e - s + 1) } else { 0 }
     }
 
-    /// Find the first available IP in the DHCP pool range that is not
+    /// Find the first available IP in the given pool range that is not
     /// currently assigned to an active lease or a static reservation.
-    async fn find_available_ip(&self, config: &DhcpConfig) -> Result<Ipv4Addr, AppError> {
+    async fn find_available_ip(
+        &self,
+        pool_start: Ipv4Addr,
+        pool_end: Ipv4Addr,
+    ) -> Result<Ipv4Addr, AppError> {
         let active_leases = self
             .dhcp
             .list_active_leases()
@@ -253,8 +384,8 @@ impl DhcpServiceImpl {
             .chain(reservations.iter().map(|r| r.ip_address))
             .collect();
 
-        let start = u32::from(config.pool_start);
-        let end = u32::from(config.pool_end);
+        let start = u32::from(pool_start);
+        let end = u32::from(pool_end);
 
         for ip_num in start..=end {
             let candidate = Ipv4Addr::from(ip_num);
@@ -268,10 +399,10 @@ impl DhcpServiceImpl {
         ))
     }
 
-    /// Whether `ip` falls within the configured dynamic pool range.
-    fn ip_in_pool(ip: Ipv4Addr, config: &DhcpConfig) -> bool {
+    /// Whether `ip` falls within the given dynamic pool range.
+    fn ip_in_pool(ip: Ipv4Addr, pool_start: Ipv4Addr, pool_end: Ipv4Addr) -> bool {
         let n = u32::from(ip);
-        n >= u32::from(config.pool_start) && n <= u32::from(config.pool_end)
+        n >= u32::from(pool_start) && n <= u32::from(pool_end)
     }
 
     /// Parse and validate a proposed DHCP pool range: both endpoints must be
@@ -311,7 +442,8 @@ impl DhcpServiceImpl {
     async fn lease_if_still_valid(
         &self,
         mac: &str,
-        config: &DhcpConfig,
+        pool_start: Ipv4Addr,
+        pool_end: Ipv4Addr,
     ) -> Result<Option<DhcpLease>, AppError> {
         let Some(existing) = self
             .dhcp
@@ -330,7 +462,7 @@ impl DhcpServiceImpl {
 
         let still_valid = match &reservation {
             Some(r) => r.ip_address == existing.ip_address,
-            None => Self::ip_in_pool(existing.ip_address, config),
+            None => Self::ip_in_pool(existing.ip_address, pool_start, pool_end),
         };
 
         if still_valid {
@@ -340,8 +472,8 @@ impl DhcpServiceImpl {
         let detail = match &reservation {
             Some(r) => format!("superseded by reservation for {}", r.ip_address),
             None => format!(
-                "orphaned: ip {} has no reservation and is outside pool {}-{}",
-                existing.ip_address, config.pool_start, config.pool_end
+                "orphaned: ip {} has no reservation and is outside pool {pool_start}-{pool_end}",
+                existing.ip_address
             ),
         };
         tracing::info!(
@@ -754,19 +886,26 @@ impl DhcpService for DhcpServiceImpl {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn assign_lease(&self, mac: &str, hostname: Option<&str>) -> Result<DhcpLease, AppError> {
         auth_context::require_admin()?;
         // Casing is canonicalised at the repository boundary (issue #312);
         // pass the runtime-supplied MAC through verbatim.
         let hostname = Self::normalised_hostname(hostname);
 
-        let config = self.load_config().await?;
+        // Resolve the device's per-zone DHCP scope once (#737); allocation and
+        // lease-validity checks below all run against this scope's pool.
+        let scope = self.resolve_scope(mac).await?;
 
         // Reuse an existing active lease when it still reflects the current
         // configuration. An orphaned lease (reservation removed or pool
-        // narrowed away from the IP) is expired inside the helper so the
-        // fall-through allocates a fresh IP instead of pinning the device.
-        if let Some(mut existing) = self.lease_if_still_valid(mac, &config).await? {
+        // narrowed away from the IP — including a device that moved zones) is
+        // expired inside the helper so the fall-through allocates a fresh IP
+        // inside the resolved scope instead of pinning the device.
+        if let Some(mut existing) = self
+            .lease_if_still_valid(mac, scope.pool_start, scope.pool_end)
+            .await?
+        {
             // Detect a real option-12 change so we only update + emit an
             // event when something downstream consumers care about has
             // actually moved. Plain DISCOVER retransmits with the same
@@ -822,22 +961,46 @@ impl DhcpService for DhcpServiceImpl {
             return Ok(existing);
         }
 
-        // Check for a static reservation first.
-        let ip = if let Some(reservation) = self
+        // Check for a static reservation first. A reservation is honoured only
+        // when it is compatible with the device's resolved scope: for a zone
+        // subnet (`subnet_prefix = Some(p)`) the reserved IP must fall inside
+        // that subnet, otherwise the client would be handed an address in one
+        // subnet with a gateway/mask for another. Such a reservation is skipped
+        // (with a warn) and the device gets a pool IP instead. The base scope
+        // (`subnet_prefix = None`) honours reservations exactly as before.
+        let reservation = self
             .dhcp
             .find_reservation_by_mac(mac)
             .await
             .map_err(AppError::Internal)?
-        {
+            .filter(|reservation| {
+                let compatible = match scope.subnet_prefix {
+                    Some(prefix) => Ipv4Network::new(scope.gateway_ip, prefix)
+                        .map_or(true, |net| net.contains(reservation.ip_address)),
+                    None => true,
+                };
+                if !compatible {
+                    tracing::warn!(
+                        mac,
+                        reservation_ip = %reservation.ip_address,
+                        gateway = %scope.gateway_ip,
+                        "static reservation is outside the device's zone subnet, ignoring; allocating from pool"
+                    );
+                }
+                compatible
+            });
+
+        let ip = if let Some(reservation) = reservation {
             tracing::info!(mac, ip = %reservation.ip_address, "using static reservation");
             reservation.ip_address
         } else {
-            // Find first available IP in pool range.
-            self.find_available_ip(&config).await?
+            // Find first available IP in the resolved scope's pool range.
+            self.find_available_ip(scope.pool_start, scope.pool_end)
+                .await?
         };
 
         let now = chrono::Utc::now();
-        let lease_end = now + chrono::Duration::seconds(i64::from(config.lease_duration_secs));
+        let lease_end = now + chrono::Duration::seconds(i64::from(scope.lease_duration_secs));
         let id = Uuid::new_v4();
 
         let row = DhcpLeaseRow {
@@ -889,18 +1052,23 @@ impl DhcpService for DhcpServiceImpl {
         // Casing is canonicalised at the repository boundary (issue #312).
         let hostname = Self::normalised_hostname(hostname);
 
-        let config = self.load_config().await?;
+        // Resolve the device's per-zone DHCP scope once (#737).
+        let scope = self.resolve_scope(mac).await?;
 
         // `lease_if_still_valid` collapses two migration cases into one path:
         // a reservation that no longer matches the lease's IP, and a lease
         // whose IP is no longer in any pool/reservation (orphaned by a
-        // reservation deletion or pool change). Either way the stale lease
-        // is expired in-place and we fall through to assign_lease, which
-        // closes the window where the old IP could be re-handed while the
-        // original device still holds it.
-        if let Some(mut existing) = self.lease_if_still_valid(mac, &config).await? {
+        // reservation deletion, pool change, or a zone move that shifted the
+        // device to a new subnet). Either way the stale lease is expired
+        // in-place and we fall through to assign_lease, which closes the window
+        // where the old IP could be re-handed while the original device still
+        // holds it.
+        if let Some(mut existing) = self
+            .lease_if_still_valid(mac, scope.pool_start, scope.pool_end)
+            .await?
+        {
             let new_end = chrono::Utc::now()
-                + chrono::Duration::seconds(i64::from(config.lease_duration_secs));
+                + chrono::Duration::seconds(i64::from(scope.lease_duration_secs));
 
             self.dhcp
                 .renew_lease(&existing.id.to_string(), &new_end.to_rfc3339())
@@ -1026,5 +1194,10 @@ impl DhcpService for DhcpServiceImpl {
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         auth_context::require_admin()?;
         self.load_config().await
+    }
+
+    async fn scope_for_mac(&self, mac: &str) -> Result<DhcpScope, AppError> {
+        auth_context::require_admin()?;
+        self.resolve_scope(mac).await
     }
 }

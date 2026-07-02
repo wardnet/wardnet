@@ -229,6 +229,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         // already re-applies `Default`-ruled devices inside `set_default_policy`.
         | WardnetEvent::NetworkZoneChanged { .. }
         | WardnetEvent::DeviceZoneChanged { .. }
+        | WardnetEvent::ZoneExceptionsChanged { .. }
         | WardnetEvent::DefaultPolicyChanged { .. } => {}
     }
 }

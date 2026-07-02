@@ -13281,6 +13281,841 @@
         ]
       }
     },
+    "/api/network/zones/exceptions": {
+      "get": {
+        "tags": [
+          "zone_exceptions"
+        ],
+        "description": "List every cross-zone exception. Admin only.",
+        "operationId": "list_exceptions",
+        "responses": {
+          "200": {
+            "description": "Exceptions list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListZoneExceptionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "zone_exceptions"
+        ],
+        "description": "Create a cross-zone exception. Both endpoints must exist and differ; a custom port list must be non-empty with valid ranges. Admin only.",
+        "operationId": "create_exception",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateZoneExceptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Exception created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateZoneExceptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/network/zones/exceptions/{id}": {
+      "get": {
+        "tags": [
+          "zone_exceptions"
+        ],
+        "description": "Fetch a single cross-zone exception. Admin only.",
+        "operationId": "get_exception",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Exception id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exception",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetZoneExceptionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "zone_exceptions"
+        ],
+        "description": "Partially update a cross-zone exception. Every field is optional; the resolved exception is re-validated. Admin only.",
+        "operationId": "update_exception",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Exception id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateZoneExceptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated exception",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateZoneExceptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "zone_exceptions"
+        ],
+        "description": "Delete a cross-zone exception. Admin only.",
+        "operationId": "delete_exception",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Exception id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exception deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteZoneExceptionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/network/zones/{id}": {
       "get": {
         "tags": [
@@ -20622,6 +21457,42 @@
           }
         }
       },
+      "CreateZoneExceptionRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/network/zones/exceptions.",
+        "required": [
+          "from",
+          "to",
+          "service",
+          "bidirectional"
+        ],
+        "properties": {
+          "bidirectional": {
+            "type": "boolean"
+          },
+          "from": {
+            "$ref": "#/components/schemas/ExceptionEndpoint"
+          },
+          "service": {
+            "$ref": "#/components/schemas/ServiceSpec"
+          },
+          "to": {
+            "$ref": "#/components/schemas/ExceptionEndpoint"
+          }
+        }
+      },
+      "CreateZoneExceptionResponse": {
+        "type": "object",
+        "description": "Response for POST /api/network/zones/exceptions.",
+        "required": [
+          "exception"
+        ],
+        "properties": {
+          "exception": {
+            "$ref": "#/components/schemas/ZoneException"
+          }
+        }
+      },
       "CreateZoneRequest": {
         "type": "object",
         "description": "Request body for POST /api/dns/local/zones.",
@@ -21024,6 +21895,18 @@
         "properties": {
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "DeleteZoneExceptionResponse": {
+        "type": "object",
+        "description": "Response for DELETE /api/network/zones/exceptions/{id}.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
           }
         }
       },
@@ -22016,6 +22899,31 @@
           "system"
         ]
       },
+      "ExceptionEndpoint": {
+        "type": "object",
+        "description": "One side of a cross-zone exception: a `kind`-tagged reference to a device or\na zone.",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ExceptionEndpointKind"
+          }
+        }
+      },
+      "ExceptionEndpointKind": {
+        "type": "string",
+        "description": "The kind of endpoint a cross-zone exception references. An endpoint is either\na single device or a whole zone; the `id` is interpreted against the matching\ncatalog (`devices` or `network_zones`). FKs are soft/kind-tagged and are\nvalidated in the service, not the schema.",
+        "enum": [
+          "device",
+          "zone"
+        ]
+      },
       "ExportBackupRequest": {
         "type": "object",
         "description": "Request body for `POST /api/backup/export`.\n\nThe passphrase is used to derive the age encryption key via scrypt.\nServer-side we enforce a minimum length of\n`crate::backup::MIN_PASSPHRASE_LEN`; clients should surface the same\nminimum in UI copy so failures happen before the request.",
@@ -22086,6 +22994,18 @@
         "properties": {
           "record": {
             "$ref": "#/components/schemas/CustomDnsRecord"
+          }
+        }
+      },
+      "GetZoneExceptionResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/zones/exceptions/{id}.",
+        "required": [
+          "exception"
+        ],
+        "properties": {
+          "exception": {
+            "$ref": "#/components/schemas/ZoneException"
           }
         }
       },
@@ -22774,6 +23694,21 @@
           }
         }
       },
+      "ListZoneExceptionsResponse": {
+        "type": "object",
+        "description": "Response for GET /api/network/zones/exceptions.",
+        "required": [
+          "exceptions"
+        ],
+        "properties": {
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ZoneException"
+            }
+          }
+        }
+      },
       "ListZonesResponse": {
         "type": "object",
         "description": "Response for GET /api/dns/local/zones.",
@@ -22982,6 +23917,30 @@
         ],
         "description": "A Network Zone plus its current member count. Enriched view returned by the\nzone list/detail endpoints."
       },
+      "PortSpec": {
+        "type": "object",
+        "description": "An inclusive port range for a single protocol. A single port is expressed as\n`from == to`.",
+        "required": [
+          "proto",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "proto": {
+            "$ref": "#/components/schemas/Proto"
+          },
+          "to": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "PreviewDhcpConfigRequest": {
         "type": "object",
         "description": "Request body for POST /api/dhcp/config/preview.\n\nA dry-run that reports which active leases would be revoked if the pool\nwere changed to `pool_start`–`pool_end`, so the admin can be warned before\nsaving. Mutates nothing.",
@@ -23013,6 +23972,14 @@
             "description": "Active leases whose IP would fall outside the proposed pool and are not\npinned by a reservation. These devices would be forced to re-acquire an\nin-range lease on their next renewal."
           }
         }
+      },
+      "Proto": {
+        "type": "string",
+        "description": "Transport protocol a [`PortSpec`] applies to.",
+        "enum": [
+          "tcp",
+          "udp"
+        ]
       },
       "ProviderAuthMethod": {
         "type": "string",
@@ -23466,6 +24433,59 @@
             "description": "Human-readable server name (e.g. \"Sweden #142\")."
           }
         }
+      },
+      "ServiceSet": {
+        "type": "string",
+        "description": "A named, curated bundle of ports for a common cross-zone use case. Presets\nkeep the wire format compact and let the daemon evolve the underlying ports\nwithout a data migration.",
+        "enum": [
+          "casting"
+        ]
+      },
+      "ServiceSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A named preset (e.g. `casting`).",
+            "required": [
+              "set",
+              "type"
+            ],
+            "properties": {
+              "set": {
+                "$ref": "#/components/schemas/ServiceSet"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "preset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An explicit list of port specs.",
+            "required": [
+              "ports",
+              "type"
+            ],
+            "properties": {
+              "ports": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PortSpec"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ports"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "How the allowed ports of an exception are specified: either a curated preset\nor an explicit list. Internally tagged on the wire so the two shapes are\ndistinguishable without a discriminant field colliding with payload keys."
       },
       "SetDefaultPolicyRequest": {
         "type": "object",
@@ -24933,6 +25953,60 @@
           }
         }
       },
+      "UpdateZoneExceptionRequest": {
+        "type": "object",
+        "description": "Request body for PUT /api/network/zones/exceptions/{id} (partial update).\nEvery field is optional; absent fields are left unchanged.",
+        "properties": {
+          "bidirectional": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "from": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExceptionEndpoint"
+              }
+            ]
+          },
+          "service": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServiceSpec"
+              }
+            ]
+          },
+          "to": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExceptionEndpoint"
+              }
+            ]
+          }
+        }
+      },
+      "UpdateZoneExceptionResponse": {
+        "type": "object",
+        "description": "Response for PUT /api/network/zones/exceptions/{id}.",
+        "required": [
+          "exception"
+        ],
+        "properties": {
+          "exception": {
+            "$ref": "#/components/schemas/ZoneException"
+          }
+        }
+      },
       "UpdateZoneRequest": {
         "type": "object",
         "description": "Request body for PUT /api/dns/local/zones/{id} (partial update).",
@@ -25141,6 +26215,46 @@
           "remote_access",
           "completed"
         ]
+      },
+      "ZoneException": {
+        "type": "object",
+        "description": "A cross-zone exception: an admin-granted allowance for one endpoint to reach\nanother across an otherwise-isolated zone boundary (e.g. a phone casting to a\nTV). This is data-model only in issue #737 commit 1; the zone enforcer\nconsumes it in a later commit.",
+        "required": [
+          "id",
+          "from",
+          "to",
+          "service",
+          "bidirectional",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "bidirectional": {
+            "type": "boolean",
+            "description": "Whether the allowance applies in both directions (`from ↔ to`) or only\n`from → to`."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from": {
+            "$ref": "#/components/schemas/ExceptionEndpoint"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "service": {
+            "$ref": "#/components/schemas/ServiceSpec"
+          },
+          "to": {
+            "$ref": "#/components/schemas/ExceptionEndpoint"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "ZoneProvenance": {
         "type": "string",

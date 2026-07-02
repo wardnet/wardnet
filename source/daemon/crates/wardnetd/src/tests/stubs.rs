@@ -31,7 +31,7 @@ use wardnet_common::api::{
     ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::api::{WizardMode, WizardStep};
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpScope};
 use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::packet_capture::ObservedDevice;
 use wardnetd_services::error::AppError;
@@ -544,6 +544,44 @@ impl NetworkZoneService for StubNetworkZoneService {
 }
 
 // ---------------------------------------------------------------------------
+// StubZoneExceptionService
+// ---------------------------------------------------------------------------
+
+/// Stub zone-exception service — all methods panic with `unimplemented!()`.
+pub struct StubZoneExceptionService;
+
+#[async_trait]
+impl wardnetd_services::ZoneExceptionService for StubZoneExceptionService {
+    async fn list_exceptions(
+        &self,
+    ) -> Result<Vec<wardnet_common::zone_exception::ZoneException>, AppError> {
+        unimplemented!()
+    }
+    async fn get_exception(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn create_exception(
+        &self,
+        _req: wardnet_common::api::CreateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn update_exception(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn delete_exception(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StubDhcpService
 // ---------------------------------------------------------------------------
 
@@ -617,6 +655,9 @@ impl DhcpService for StubDhcpService {
         unimplemented!()
     }
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        unimplemented!()
+    }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
         unimplemented!()
     }
 }
@@ -1081,7 +1122,6 @@ impl wardnetd_services::dhcp::server::DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -1300,5 +1340,6 @@ pub fn test_app_state() -> AppState {
         wardnetd_services::jobs::JobServiceImpl::new(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }

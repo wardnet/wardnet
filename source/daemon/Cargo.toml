@@ -123,7 +123,11 @@ async-trait = "0.1"
 # https://crates.io/crates/wireguard-control
 wireguard-control = "1"
 # https://crates.io/crates/ipnetwork
-ipnetwork = "0.20"
+# 0.21 to match the ipnetwork version rustables 0.8.8 exposes in its
+# `Rule::snetwork`/`dnetwork` signatures, so the two unify to one type.
+ipnetwork = "0.21"
+# https://crates.io/crates/ipnet — the CIDR type dhcproto's option 121 uses
+ipnet = "2"
 # https://crates.io/crates/tokio-util
 tokio-util = { version = "0.7", features = ["rt"] }
 # https://crates.io/crates/arc-swap — atomic Arc replacement for hot-path filter cache

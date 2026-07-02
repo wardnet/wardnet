@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use wardnet_common::dhcp::DhcpConfig;
 
 use crate::error::AppError;
 
@@ -40,9 +39,4 @@ pub trait DhcpServer: Send + Sync {
 
     /// Whether the server is currently running.
     fn is_running(&self) -> bool;
-
-    /// Replace the configuration the running server serves, so pool/option
-    /// changes take effect without a daemon restart (issue #227). A no-op-safe
-    /// swap: callers may invoke it whether or not the server is running.
-    async fn update_config(&self, config: DhcpConfig);
 }

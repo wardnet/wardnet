@@ -26,6 +26,7 @@ pub mod system;
 pub mod tls;
 pub mod tunnels;
 pub mod update;
+pub mod zone_exception;
 
 #[cfg(test)]
 mod tests;
@@ -125,6 +126,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = system::register(r);
     r = network::register(r);
     r = network_zone::register(r);
+    r = zone_exception::register(r);
     r = jobs::register(r);
     r = stats::register(r);
     r = rule_requests::register(r);

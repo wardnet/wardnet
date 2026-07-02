@@ -19,6 +19,7 @@ pub mod tunnel;
 pub mod update;
 pub mod vpn_provider;
 pub mod wireguard_config;
+pub mod zone_exception;
 
 #[cfg(test)]
 mod tests;

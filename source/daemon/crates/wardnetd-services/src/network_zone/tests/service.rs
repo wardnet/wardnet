@@ -180,6 +180,28 @@ async fn create_zone_rejects_bad_cidr() {
 }
 
 #[tokio::test]
+async fn create_zone_rejects_subnet_too_small_for_pool() {
+    // FIX 4: a syntactically-valid CIDR whose pool bounds are empty (a /30 has
+    // no usable .10..broadcast-6 range) is rejected up front so the DHCP
+    // resolver never has to silently fall back to the base scope.
+    let h = build().await;
+    let mut req = create_req("TinySubnet");
+    req.subnet = Some(ZoneSubnet {
+        cidr: "10.44.0.0/30".to_owned(),
+    });
+    let err = as_admin(h.svc.create_zone(req)).await;
+    match err {
+        Err(AppError::BadRequest(msg)) => {
+            assert!(
+                msg.contains("too small to host a DHCP pool"),
+                "unexpected message: {msg}"
+            );
+        }
+        other => panic!("expected BadRequest, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn create_zone_rejects_duplicate_name() {
     let h = build().await;
     // "Trusted" is a seeded name.

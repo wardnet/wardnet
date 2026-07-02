@@ -15,12 +15,19 @@ use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReserva
 use tokio::sync::broadcast;
 use wardnet_common::event::WardnetEvent;
 
+use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::network_zone::{
+    AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance, ZoneSubnet,
+};
+use wardnet_common::routing::RoutingRule;
+
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::{DhcpService, DhcpServiceImpl};
 use wardnetd_data::repository::{
-    DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow, SystemConfigRepository,
+    DeviceRepository, DeviceRow, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
+    NetworkZoneRepository, SystemConfigRepository,
 };
 
 // -- Mock DhcpRepository ---------------------------------------------------
@@ -321,6 +328,242 @@ impl SystemConfigRepository for MockSystemConfigRepository {
     }
 }
 
+// -- Mock DeviceRepository -------------------------------------------------
+
+/// In-memory `DeviceRepository` mock exposing only what `resolve_scope` needs
+/// (`find_by_mac`); every other method is unreachable in these tests.
+struct MockDeviceRepository {
+    by_mac: Mutex<HashMap<String, Device>>,
+}
+
+impl MockDeviceRepository {
+    fn new() -> Self {
+        Self {
+            by_mac: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Register a device that `find_by_mac` should return for `mac`.
+    fn add(&self, mac: &str, zone_id: Uuid) {
+        let device = Device {
+            id: Uuid::new_v4(),
+            mac: mac.to_lowercase(),
+            name: None,
+            hostname: None,
+            manufacturer: None,
+            device_type: DeviceType::Unknown,
+            first_seen: Utc::now(),
+            last_seen: Utc::now(),
+            last_ip: "0.0.0.0".to_owned(),
+            admin_locked: false,
+            zone_id,
+            dns_capture_enabled: false,
+            dns_capture_cap_count: 0,
+            dns_capture_cap_days: 0,
+        };
+        self.by_mac
+            .lock()
+            .unwrap()
+            .insert(mac.to_lowercase(), device);
+    }
+}
+
+#[async_trait]
+impl DeviceRepository for MockDeviceRepository {
+    async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
+        Ok(self
+            .by_mac
+            .lock()
+            .unwrap()
+            .get(&mac.to_lowercase())
+            .cloned())
+    }
+
+    async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
+        unimplemented!()
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Device>> {
+        unimplemented!()
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
+        unimplemented!()
+    }
+    async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn update_last_seen_and_ip(
+        &self,
+        _id: &str,
+        _ip: &str,
+        _last_seen: &str,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn update_hostname(&self, _id: &str, _hostname: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn update_name_and_type(
+        &self,
+        _id: &str,
+        _name: Option<&str>,
+        _device_type: &str,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn find_stale(&self, _before: &str) -> anyhow::Result<Vec<Device>> {
+        unimplemented!()
+    }
+    async fn find_rule_for_device(&self, _device_id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        unimplemented!()
+    }
+    async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>> {
+        unimplemented!()
+    }
+    async fn upsert_user_rule(
+        &self,
+        _device_id: &str,
+        _target_json: &str,
+        _now: &str,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn find_devices_for_tunnel(&self, _tunnel_id: &str) -> anyhow::Result<Vec<Device>> {
+        unimplemented!()
+    }
+    async fn switch_tunnel_rules_to_direct(
+        &self,
+        _tunnel_id: &str,
+        _now: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        unimplemented!()
+    }
+    async fn update_admin_locked(&self, _id: &str, _locked: bool) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn assign_zone(&self, _device_id: &str, _zone_id: &str) -> anyhow::Result<bool> {
+        unimplemented!()
+    }
+    async fn count(&self) -> anyhow::Result<i64> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> anyhow::Result<bool> {
+        unimplemented!()
+    }
+    async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>> {
+        unimplemented!()
+    }
+}
+
+// -- Mock NetworkZoneRepository --------------------------------------------
+
+/// In-memory `NetworkZoneRepository` mock exposing `find_by_id` and
+/// `find_default_for_new` (used by `resolve_scope`); the rest are unreachable.
+struct MockNetworkZoneRepository {
+    zones: Mutex<HashMap<Uuid, NetworkZone>>,
+    default_for_new: Mutex<Option<Uuid>>,
+}
+
+impl MockNetworkZoneRepository {
+    fn new() -> Self {
+        Self {
+            zones: Mutex::new(HashMap::new()),
+            default_for_new: Mutex::new(None),
+        }
+    }
+
+    /// Insert a zone; when `default_for_new` is set, mark it as the
+    /// default-for-new target too.
+    fn add(&self, zone: NetworkZone, default_for_new: bool) {
+        if default_for_new {
+            *self.default_for_new.lock().unwrap() = Some(zone.id);
+        }
+        self.zones.lock().unwrap().insert(zone.id, zone);
+    }
+}
+
+#[async_trait]
+impl NetworkZoneRepository for MockNetworkZoneRepository {
+    async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<NetworkZone>> {
+        let Ok(uuid) = id.parse::<Uuid>() else {
+            return Ok(None);
+        };
+        Ok(self.zones.lock().unwrap().get(&uuid).cloned())
+    }
+
+    async fn find_default_for_new(&self) -> anyhow::Result<NetworkZone> {
+        let id = self
+            .default_for_new
+            .lock()
+            .unwrap()
+            .ok_or_else(|| anyhow::anyhow!("no default-for-new zone configured"))?;
+        self.zones
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("default-for-new zone missing"))
+    }
+
+    async fn find_all(&self) -> anyhow::Result<Vec<NetworkZone>> {
+        unimplemented!()
+    }
+    async fn find_default(&self) -> anyhow::Result<NetworkZone> {
+        unimplemented!()
+    }
+    async fn insert(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn update(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn set_default(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn set_default_for_new(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
+        unimplemented!()
+    }
+    async fn member_counts(&self) -> anyhow::Result<HashMap<String, i64>> {
+        unimplemented!()
+    }
+}
+
+/// Build a `NetworkZone` fixture with an optional subnet and member-isolation.
+fn zone_fixture(subnet: Option<&str>, member_isolation: bool) -> NetworkZone {
+    NetworkZone {
+        id: Uuid::new_v4(),
+        name: "test-zone".to_owned(),
+        provenance: ZoneProvenance::Manual,
+        isolation_stance: if member_isolation {
+            ZoneStance::IsolateMembers
+        } else {
+            ZoneStance::SharedSubnet
+        },
+        allowed_targets: vec![AllowedTargetKind::Direct],
+        member_isolation,
+        subnet: subnet.map(|c| ZoneSubnet { cidr: c.to_owned() }),
+        admin_ui_reachable: true,
+        is_default: false,
+        is_default_for_new: false,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
 // -- Helpers ---------------------------------------------------------------
 
 /// Helper to create an admin auth context for tests.
@@ -331,11 +574,24 @@ fn admin_ctx() -> AuthContext {
 }
 
 /// Build a `DhcpServiceImpl` with mock dependencies.
+///
+/// The device/zone repos are empty and the zone repo has no default-for-new,
+/// so `resolve_scope` always degrades to the base pool — preserving the
+/// pre-#737 behaviour these tests assert.
 fn build_service() -> DhcpServiceImpl {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
     let events = Arc::new(MockEventPublisher::new());
-    DhcpServiceImpl::new(dhcp, system_config, events, "10.0.0.1".parse().unwrap())
+    let devices = Arc::new(MockDeviceRepository::new());
+    let zones = Arc::new(MockNetworkZoneRepository::new());
+    DhcpServiceImpl::new(
+        dhcp,
+        system_config,
+        events,
+        devices,
+        zones,
+        "10.0.0.1".parse().unwrap(),
+    )
 }
 
 // -- Tests -----------------------------------------------------------------
@@ -413,6 +669,8 @@ async fn update_config_clears_garp_router_mac() {
         dhcp,
         system_config.clone(),
         events,
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
         "10.0.0.1".parse().unwrap(),
     );
 
@@ -457,6 +715,8 @@ async fn update_config_idempotent_when_garp_unset() {
         dhcp,
         system_config.clone(),
         events,
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
         "10.0.0.1".parse().unwrap(),
     );
 
@@ -691,9 +951,36 @@ fn build_service_with_event_recorder() -> (
         dhcp.clone(),
         system_config.clone(),
         events.clone(),
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
         "192.168.1.1".parse().unwrap(),
     );
     (svc, dhcp, system_config, events)
+}
+
+/// Build a `DhcpServiceImpl` with real device/zone mocks so scope-resolution
+/// tests (#737) can seed devices and zones. Uses a `192.168.1.1` gateway to
+/// match the base-pool fixtures elsewhere in this file.
+fn build_service_with_zone_deps() -> (
+    DhcpServiceImpl,
+    Arc<MockDhcpRepository>,
+    Arc<MockDeviceRepository>,
+    Arc<MockNetworkZoneRepository>,
+) {
+    let dhcp = Arc::new(MockDhcpRepository::new());
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    let events = Arc::new(MockEventPublisher::new());
+    let devices = Arc::new(MockDeviceRepository::new());
+    let zones = Arc::new(MockNetworkZoneRepository::new());
+    let svc = DhcpServiceImpl::new(
+        dhcp.clone(),
+        system_config,
+        events,
+        devices.clone(),
+        zones.clone(),
+        "192.168.1.1".parse().unwrap(),
+    );
+    (svc, dhcp, devices, zones)
 }
 
 /// Insert a pre-existing active lease into the mock repository.
@@ -1341,7 +1628,14 @@ async fn load_config_missing_keys_uses_defaults() {
         data: Mutex::new(HashMap::new()),
     });
     let events = Arc::new(MockEventPublisher::new());
-    let svc = DhcpServiceImpl::new(dhcp, system_config, events, "10.0.0.1".parse().unwrap());
+    let svc = DhcpServiceImpl::new(
+        dhcp,
+        system_config,
+        events,
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
+        "10.0.0.1".parse().unwrap(),
+    );
 
     let config = auth_context::with_context(admin_ctx(), svc.get_dhcp_config())
         .await
@@ -1826,6 +2120,180 @@ async fn renew_lease_publishes_event_with_updated_hostname() {
         }
         other => panic!("expected DhcpLeaseRenewed, got {other:?}"),
     }
+}
+
+// =========================================================================
+// scope_for_mac / per-zone scope resolution (issue #737)
+// =========================================================================
+
+/// Assert the pool bounds, gateway, and mask a `/24` zone subnet derives.
+fn assert_slash24_scope(scope: &wardnet_common::dhcp::DhcpScope, third_octet: u8) {
+    assert_eq!(scope.gateway_ip, Ipv4Addr::new(10, third_octet, 0, 1));
+    assert_eq!(scope.pool_start, Ipv4Addr::new(10, third_octet, 0, 10));
+    // broadcast .255 minus 6.
+    assert_eq!(scope.pool_end, Ipv4Addr::new(10, third_octet, 0, 249));
+}
+
+#[tokio::test]
+async fn scope_unknown_mac_uses_default_for_new_zone_subnet() {
+    let (svc, _dhcp, _devices, zones) = build_service_with_zone_deps();
+
+    // Unknown MAC (no device) -> default-for-new zone with a subnet.
+    zones.add(zone_fixture(Some("10.44.0.0/24"), false), true);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:01"))
+        .await
+        .unwrap();
+
+    assert_slash24_scope(&scope, 44);
+    assert_eq!(scope.subnet_mask, Ipv4Addr::new(255, 255, 255, 0));
+    assert_eq!(scope.dns, vec![Ipv4Addr::new(10, 44, 0, 1)]);
+    assert!(scope.router_ip.is_none());
+    assert!(!scope.member_isolation);
+}
+
+#[tokio::test]
+async fn scope_known_device_uses_its_zone_subnet() {
+    let (svc, _dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.44.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:02", zone_id);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("AA:BB:CC:DD:EE:02"))
+        .await
+        .unwrap();
+
+    // Gateway is the subnet's .1 and DNS points at that gateway alias.
+    assert_eq!(scope.gateway_ip, Ipv4Addr::new(10, 44, 0, 1));
+    assert_eq!(scope.dns, vec![Ipv4Addr::new(10, 44, 0, 1)]);
+    assert_slash24_scope(&scope, 44);
+}
+
+#[tokio::test]
+async fn scope_zone_without_subnet_falls_back_to_base() {
+    let (svc, _dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(None, false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:03", zone_id);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:03"))
+        .await
+        .unwrap();
+
+    // Base pool (gateway 192.168.1.1, pool .100-.200) — pre-#737 behaviour.
+    assert_eq!(scope.gateway_ip, Ipv4Addr::new(192, 168, 1, 1));
+    assert_eq!(scope.pool_start, Ipv4Addr::new(192, 168, 1, 100));
+    assert_eq!(scope.pool_end, Ipv4Addr::new(192, 168, 1, 200));
+    assert_eq!(scope.subnet_mask, Ipv4Addr::new(255, 255, 255, 0));
+    assert!(!scope.member_isolation);
+}
+
+#[tokio::test]
+async fn scope_member_isolation_advertises_slash32_but_allocates_in_pool() {
+    let (svc, _dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.55.0.0/24"), true);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:04", zone_id);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:04"))
+        .await
+        .unwrap();
+
+    // Advertised mask is /32 so peers appear off-link...
+    assert_eq!(scope.subnet_mask, Ipv4Addr::BROADCAST);
+    assert!(scope.member_isolation);
+    // ...but allocation still uses the real /24 pool.
+    assert_slash24_scope(&scope, 55);
+
+    // A concrete lease lands inside the /24 pool (the first free IP, .10).
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("aa:bb:cc:dd:ee:04", None))
+            .await
+            .unwrap();
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 55, 0, 10));
+}
+
+#[tokio::test]
+async fn lease_in_old_subnet_orphaned_when_zone_subnet_changes() {
+    let (svc, dhcp, devices, zones) = build_service_with_zone_deps();
+
+    // Device's zone now carries the 10.66.0.0/24 subnet.
+    let zone = zone_fixture(Some("10.66.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:05", zone_id);
+
+    // But it still holds an active lease from a *different* subnet (10.44.0.20),
+    // which is outside the new scope's 10.66.0.10-.249 pool.
+    let old_id = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:05", "10.44.0.20");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:05", None))
+            .await
+            .unwrap();
+
+    // It re-IPs into the new subnet, and the stale lease is expired.
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 66, 0, 10));
+    assert_ne!(lease.id.to_string(), old_id);
+
+    let old_row = dhcp
+        .leases
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.id == old_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(old_row.status, "expired");
+}
+
+#[tokio::test]
+async fn reservation_outside_zone_subnet_falls_back_to_pool() {
+    // FIX 2: a device is in a zone with the 10.66.0.0/24 subnet, but its static
+    // reservation points at 10.44.0.50 — an address in a *different* subnet.
+    // Honouring it would hand the client an IP whose gateway/mask belong to
+    // another subnet, so the reservation is ignored and a pool IP is leased.
+    let (svc, dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.66.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:06", zone_id);
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:06", "10.44.0.50");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:06", None))
+            .await
+            .unwrap();
+
+    // The incompatible reservation is skipped; the device gets the first pool IP.
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 66, 0, 10));
+}
+
+#[tokio::test]
+async fn reservation_inside_zone_subnet_is_honoured() {
+    // Counterpart to the fall-back case: a reservation that *does* fall inside
+    // the zone subnet is still honoured verbatim.
+    let (svc, dhcp, devices, zones) = build_service_with_zone_deps();
+
+    let zone = zone_fixture(Some("10.66.0.0/24"), false);
+    let zone_id = zone.id;
+    zones.add(zone, false);
+    devices.add("aa:bb:cc:dd:ee:07", zone_id);
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:07", "10.66.0.42");
+
+    let lease =
+        auth_context::with_context(admin_ctx(), svc.assign_lease("AA:BB:CC:DD:EE:07", None))
+            .await
+            .unwrap();
+
+    assert_eq!(lease.ip_address, Ipv4Addr::new(10, 66, 0, 42));
 }
 
 // =========================================================================

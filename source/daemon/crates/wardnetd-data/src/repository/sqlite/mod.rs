@@ -21,6 +21,7 @@ pub mod system_config;
 pub mod tunnel;
 pub mod tunnel_speed_test;
 pub mod update;
+pub mod zone_exception;
 
 pub use admin::SqliteAdminRepository;
 pub use api_key::SqliteApiKeyRepository;
@@ -40,6 +41,7 @@ pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;
 pub use tunnel_speed_test::SqliteTunnelSpeedTestRepository;
 pub use update::SqliteUpdateRepository;
+pub use zone_exception::SqliteZoneExceptionRepository;
 
 #[cfg(test)]
 mod tests;

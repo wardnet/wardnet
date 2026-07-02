@@ -183,13 +183,16 @@ impl NetworkZoneServiceImpl {
                 "allowed_targets must not be empty".to_owned(),
             ));
         }
-        if let Some(subnet) = subnet
-            && ipnetwork::IpNetwork::from_str(&subnet.cidr).is_err()
-        {
-            return Err(AppError::BadRequest(format!(
-                "subnet cidr '{}' is not a valid CIDR",
-                subnet.cidr
-            )));
+        if let Some(subnet) = subnet {
+            let net = ipnetwork::Ipv4Network::from_str(&subnet.cidr).map_err(|_| {
+                AppError::BadRequest(format!("subnet cidr '{}' is not a valid CIDR", subnet.cidr))
+            })?;
+            if crate::subnet::pool_bounds(net).is_none() {
+                return Err(AppError::BadRequest(format!(
+                    "subnet cidr '{}' is too small to host a DHCP pool",
+                    subnet.cidr
+                )));
+            }
         }
         Ok(())
     }

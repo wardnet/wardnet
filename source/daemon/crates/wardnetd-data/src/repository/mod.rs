@@ -17,6 +17,7 @@ pub mod system_config;
 pub mod tunnel;
 pub mod tunnel_speed_test;
 pub mod update;
+pub mod zone_exception;
 
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
@@ -43,13 +44,14 @@ pub use sqlite::{
     SqliteDnsRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
     SqlitePushRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
     SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
+    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
 pub use tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
 pub use update::{UpdateHistoryRow, UpdateRepository};
+pub use zone_exception::ZoneExceptionRepository;
 
 #[cfg(test)]
 mod tests;

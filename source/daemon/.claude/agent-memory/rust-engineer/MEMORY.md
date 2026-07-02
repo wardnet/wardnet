@@ -26,3 +26,12 @@
 ## Clippy Notes
 - Project uses `-D warnings` for clippy
 - Collapsible if statements caught by clippy — use `let` chains (`if let ... && ...`)
+- Strict lints on: `must_use_candidate` (add `#[must_use]` to pure pub fns), `cast_possible_truncation` (use `u8::try_from(...)` not `as u8`), `map_unwrap_or` (use `.map_or(default, f)` / `.is_ok_and(f)`)
+
+## Subnet Helpers (#737)
+- `wardnetd-services/src/subnet.rs`: shared IPv4 helpers `gateway_for` (net+1), `pool_bounds` (net+10..=bcast-6, None if too small), `canonical_cidr` (host bits cleared). Used by both dhcp `resolve_scope` and zone_enforcement `reconcile_isolation` — don't hand-roll the arithmetic.
+
+## DHCP notes
+- `DhcpScope.subnet_prefix: Option<u8>` — Some(prefix) for zone scope, None for base. `assign_lease` skips a static reservation whose IP is outside the zone subnet.
+- dhcproto 0.15 exposes `DhcpOption::ClasslessStaticRoute(Vec<(ipnet::Ipv4Net, Ipv4Addr)>)`; `ipnet` is a direct dep of wardnetd. Member-isolation /32 scopes advertise `0.0.0.0/0 -> gateway` (option 121).
+- wardnetd/wardnetd-mock are Linux-only (can't build on macOS host); CI is their gate — edit by inspection.

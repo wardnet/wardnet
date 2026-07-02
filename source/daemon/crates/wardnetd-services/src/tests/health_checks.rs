@@ -188,6 +188,10 @@ impl DhcpService for MockDhcpService {
         })
     }
 
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
+
     async fn get_config(&self) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -278,7 +282,6 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 fn dhcp_check(enabled: bool, running: bool, fail: bool) -> DhcpServerHealthCheck {

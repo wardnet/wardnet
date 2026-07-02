@@ -6,12 +6,12 @@ use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
+use wardnet_common::dhcp::{DhcpLease, DhcpScope};
 use wardnetd_services::auth_context;
 use wardnetd_services::dhcp::DhcpService;
 use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
@@ -60,8 +60,6 @@ impl DhcpSocket for UdpDhcpSocket {
 pub struct UdpDhcpServer {
     /// Service for lease management.
     service: Arc<dyn DhcpService>,
-    /// Current DHCP configuration (updated via `RwLock`).
-    config: Arc<RwLock<DhcpConfig>>,
     /// Address to bind the UDP socket to.
     bind_addr: SocketAddr,
     /// Pre-injected socket (used in tests). When `None`, `start()` binds a new one.
@@ -79,8 +77,8 @@ pub struct UdpDhcpServer {
 impl UdpDhcpServer {
     /// Create a new DHCP server that binds to `0.0.0.0:67` (the standard DHCP port).
     #[must_use]
-    pub fn new(service: Arc<dyn DhcpService>, config: DhcpConfig) -> Self {
-        Self::with_bind_addr(service, config, SocketAddr::from(([0, 0, 0, 0], 67)))
+    pub fn new(service: Arc<dyn DhcpService>) -> Self {
+        Self::with_bind_addr(service, SocketAddr::from(([0, 0, 0, 0], 67)))
     }
 
     /// Create a new DHCP server that binds to the given address.
@@ -88,14 +86,9 @@ impl UdpDhcpServer {
     /// Use `127.0.0.1:0` in tests so the OS assigns an ephemeral port and
     /// the server operates entirely over loopback.
     #[must_use]
-    pub(crate) fn with_bind_addr(
-        service: Arc<dyn DhcpService>,
-        config: DhcpConfig,
-        bind_addr: SocketAddr,
-    ) -> Self {
+    pub(crate) fn with_bind_addr(service: Arc<dyn DhcpService>, bind_addr: SocketAddr) -> Self {
         Self {
             service,
-            config: Arc::new(RwLock::new(config)),
             bind_addr,
             injected_socket: None,
             running: Arc::new(AtomicBool::new(false)),
@@ -110,14 +103,9 @@ impl UdpDhcpServer {
     /// The socket is used directly instead of binding a new one in `start()`.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn with_socket(
-        service: Arc<dyn DhcpService>,
-        config: DhcpConfig,
-        socket: Arc<dyn DhcpSocket>,
-    ) -> Self {
+    pub(crate) fn with_socket(service: Arc<dyn DhcpService>, socket: Arc<dyn DhcpSocket>) -> Self {
         Self {
             service,
-            config: Arc::new(RwLock::new(config)),
             bind_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             injected_socket: Some(socket),
             running: Arc::new(AtomicBool::new(false)),
@@ -170,7 +158,6 @@ impl DhcpServer for UdpDhcpServer {
         };
 
         let service = Arc::clone(&self.service);
-        let config = Arc::clone(&self.config);
         let running = Arc::clone(&self.running);
 
         // Create a fresh cancellation token so stop()/start() cycles work.
@@ -181,7 +168,7 @@ impl DhcpServer for UdpDhcpServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, service, config, running.clone(), cancel).await;
+            server_loop(socket, service, running.clone(), cancel).await;
             running.store(false, Ordering::SeqCst);
             tracing::info!("DHCP server loop exited");
         });
@@ -208,14 +195,6 @@ impl DhcpServer for UdpDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
-
-    /// Swap the config the running `server_loop` reads on each packet. The
-    /// loop holds the same `Arc<RwLock<DhcpConfig>>`, so the new options
-    /// (pool, mask, lease time, DNS, router) take effect on the next request
-    /// without a restart.
-    async fn update_config(&self, config: DhcpConfig) {
-        *self.config.write().await = config;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +205,6 @@ impl DhcpServer for UdpDhcpServer {
 pub(crate) async fn server_loop(
     socket: Arc<dyn DhcpSocket>,
     service: Arc<dyn DhcpService>,
-    config: Arc<RwLock<DhcpConfig>>,
     running: Arc<AtomicBool>,
     cancel: CancellationToken,
 ) {
@@ -263,10 +241,8 @@ pub(crate) async fn server_loop(
         let mac = format_mac(msg.chaddr());
         tracing::debug!(%mac, ?msg_type, xid = msg.xid(), "received DHCP message: mac={mac}, type={msg_type:?}");
 
-        let cfg = config.read().await.clone();
-
         match msg_type {
-            MessageType::Discover => match handle_discover(&service, &msg, &mac, &cfg).await {
+            MessageType::Discover => match handle_discover(&service, &msg, &mac).await {
                 Ok(response) => {
                     // DHCP OFFERs must be broadcast — the client has no IP yet
                     // and can only receive broadcast packets.
@@ -277,7 +253,7 @@ pub(crate) async fn server_loop(
                     tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
                 }
             },
-            MessageType::Request => match handle_request(&service, &msg, &mac, &cfg).await {
+            MessageType::Request => match handle_request(&service, &msg, &mac).await {
                 Ok(response) => {
                     // If the client is requesting from 0.0.0.0 (new lease), send
                     // via broadcast. Renewals come from the client's existing IP
@@ -317,15 +293,20 @@ pub(crate) async fn handle_discover(
     service: &Arc<dyn DhcpService>,
     msg: &Message,
     mac: &str,
-    config: &DhcpConfig,
 ) -> Result<Message, AppError> {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
     };
     let hostname = extract_hostname(msg);
-    let lease =
-        auth_context::with_context(admin_ctx, service.assign_lease(mac, hostname.as_deref()))
-            .await?;
+    let lease = auth_context::with_context(
+        admin_ctx.clone(),
+        service.assign_lease(mac, hostname.as_deref()),
+    )
+    .await?;
+
+    // Render the response from the device's resolved per-zone scope (#737),
+    // not the global config, so per-zone subnet/gateway/DNS are advertised.
+    let scope = auth_context::with_context(admin_ctx, service.scope_for_mac(mac)).await?;
 
     tracing::info!(
         %mac,
@@ -336,7 +317,7 @@ pub(crate) async fn handle_discover(
         ip = lease.ip_address,
     );
 
-    Ok(build_response(msg, MessageType::Offer, &lease, config))
+    Ok(build_response(msg, MessageType::Offer, &lease, &scope))
 }
 
 /// Handle a DHCPREQUEST message.
@@ -350,7 +331,6 @@ pub(crate) async fn handle_request(
     service: &Arc<dyn DhcpService>,
     msg: &Message,
     mac: &str,
-    config: &DhcpConfig,
 ) -> Result<Message, AppError> {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
@@ -358,9 +338,15 @@ pub(crate) async fn handle_request(
     let hostname = extract_hostname(msg);
     let requested_ip = extract_requested_ip(msg);
 
-    let lease =
-        auth_context::with_context(admin_ctx, service.renew_lease(mac, hostname.as_deref()))
-            .await?;
+    let lease = auth_context::with_context(
+        admin_ctx.clone(),
+        service.renew_lease(mac, hostname.as_deref()),
+    )
+    .await?;
+
+    // Render the response from the device's resolved per-zone scope (#737),
+    // not the global config, so per-zone subnet/gateway/DNS are advertised.
+    let scope = auth_context::with_context(admin_ctx, service.scope_for_mac(mac)).await?;
 
     // If the client asked to keep a specific IP but the service assigned a
     // different one, its old address is no longer valid (e.g. the pool moved
@@ -376,7 +362,7 @@ pub(crate) async fn handle_request(
             %new_ip,
             "sending DHCPNAK: mac={mac} requested out-of-range ip={requested_ip}, assigned new_ip={new_ip}",
         );
-        return Ok(build_nak(msg, config));
+        return Ok(build_nak(msg, &scope));
     }
 
     tracing::info!(
@@ -388,7 +374,7 @@ pub(crate) async fn handle_request(
         ip = lease.ip_address,
     );
 
-    Ok(build_response(msg, MessageType::Ack, &lease, config))
+    Ok(build_response(msg, MessageType::Ack, &lease, &scope))
 }
 
 /// Extract the IP address a DHCPREQUEST client wants to keep. In RENEWING /
@@ -408,9 +394,10 @@ fn extract_requested_ip(msg: &Message) -> Ipv4Addr {
 }
 
 /// Build a DHCPNAK response. A NAK carries no address; it just tells the client
-/// its request was rejected and it must restart the handshake.
-pub(crate) fn build_nak(request: &Message, config: &DhcpConfig) -> Message {
-    let server_ip = config.gateway_ip;
+/// its request was rejected and it must restart the handshake. The server
+/// identifier is taken from the device's resolved per-zone scope (#737).
+pub(crate) fn build_nak(request: &Message, scope: &DhcpScope) -> Message {
+    let server_ip = scope.gateway_ip;
 
     let mut response = Message::default();
     response
@@ -431,10 +418,11 @@ pub(crate) fn build_response(
     request: &Message,
     msg_type: MessageType,
     lease: &DhcpLease,
-    config: &DhcpConfig,
+    scope: &DhcpScope,
 ) -> Message {
-    // Wardnet's own LAN IP, auto-detected at startup from the LAN interface.
-    let server_ip = config.gateway_ip;
+    // Wardnet's IP within this scope: the LAN IP for the base pool, or the Pi's
+    // per-zone gateway alias for a zone subnet (#737).
+    let server_ip = scope.gateway_ip;
 
     let mut response = Message::default();
     response
@@ -448,26 +436,44 @@ pub(crate) fn build_response(
     let opts = response.opts_mut();
     opts.insert(DhcpOption::MessageType(msg_type));
     opts.insert(DhcpOption::ServerIdentifier(server_ip));
-    opts.insert(DhcpOption::AddressLeaseTime(config.lease_duration_secs));
-    opts.insert(DhcpOption::SubnetMask(config.subnet_mask));
+    opts.insert(DhcpOption::AddressLeaseTime(scope.lease_duration_secs));
+    opts.insert(DhcpOption::SubnetMask(scope.subnet_mask));
 
-    // Router option: Wardnet gateway first, then upstream router for failover.
+    // Router option: Wardnet gateway first, then optional upstream router for
+    // failover (only for the base pool; zone subnets carry no secondary router).
     let mut routers = vec![server_ip];
-    if let Some(router_ip) = config.router_ip
+    if let Some(router_ip) = scope.router_ip
         && router_ip != server_ip
     {
         routers.push(router_ip);
     }
     opts.insert(DhcpOption::Router(routers));
 
-    // DNS servers: use upstream_dns from config. Once Wardnet has a built-in
-    // DNS server (Milestone 1g), this will switch to advertising the Pi itself.
-    let dns_servers = if config.upstream_dns.is_empty() {
+    // DNS servers from the resolved scope. Falls back to advertising the Pi
+    // itself when the scope carries no explicit DNS.
+    let dns_servers = if scope.dns.is_empty() {
         vec![server_ip]
     } else {
-        config.upstream_dns.clone()
+        scope.dns.clone()
     };
     opts.insert(DhcpOption::DomainNameServer(dns_servers));
+
+    // Member-isolation zones advertise a /32 mask (option 1) so peers appear
+    // off-link and every packet is forced through the Pi (#737). A /32 leaves a
+    // strict client with no on-link route at all — not even to its own gateway —
+    // so we also advertise option 121 (Classless Static Route) with a default
+    // route via the gateway. Cooperating clients then install a route to the Pi
+    // and reach off-link/upstream destinations through it. RFC 3442 says a
+    // client honouring option 121 SHOULD ignore the Router option (3); we still
+    // send option 3 for clients that ignore 121.
+    if scope.member_isolation
+        && let Ok(default_route) = "0.0.0.0/0".parse::<ipnet::Ipv4Net>()
+    {
+        opts.insert(DhcpOption::ClasslessStaticRoute(vec![(
+            default_route,
+            server_ip,
+        )]));
+    }
 
     response
 }

@@ -30,6 +30,8 @@ enum EnforceCall {
         last_ip: String,
     },
     DefaultPolicyChanged(String),
+    HandleZoneChange(Uuid),
+    ExceptionsChanged,
 }
 
 struct MockEnforcer {
@@ -105,6 +107,14 @@ impl ZoneEnforcementService for MockEnforcer {
     async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError> {
         self.record(EnforceCall::DefaultPolicyChanged(policy.to_owned()))
     }
+
+    async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError> {
+        self.record(EnforceCall::HandleZoneChange(device_id))
+    }
+
+    async fn handle_exceptions_changed(&self) -> Result<(), AppError> {
+        self.record(EnforceCall::ExceptionsChanged)
+    }
 }
 
 /// Publish `event`, let the listener drain it, and return the recorded calls.
@@ -136,7 +146,9 @@ async fn network_zone_changed_triggers_apply_zone() {
 }
 
 #[tokio::test]
-async fn device_zone_changed_triggers_apply_device() {
+async fn device_zone_changed_triggers_handle_zone_change() {
+    // A device moving zones must release its lease and reconcile isolation
+    // (via `handle_zone_change`), not just re-apply its rules (#737).
     let device_id = Uuid::new_v4();
     let enforcer = Arc::new(MockEnforcer::new());
     let calls = dispatch(
@@ -149,7 +161,7 @@ async fn device_zone_changed_triggers_apply_device() {
         },
     )
     .await;
-    assert_eq!(calls, vec![EnforceCall::ApplyDevice(device_id)]);
+    assert_eq!(calls, vec![EnforceCall::HandleZoneChange(device_id)]);
 }
 
 #[tokio::test]
@@ -236,6 +248,20 @@ async fn default_policy_changed_triggers_handler() {
 }
 
 #[tokio::test]
+async fn zone_exceptions_changed_triggers_handle_exceptions_changed() {
+    // A cross-zone exception change rebuilds the L3 isolation state (#737).
+    let enforcer = Arc::new(MockEnforcer::new());
+    let calls = dispatch(
+        enforcer,
+        WardnetEvent::ZoneExceptionsChanged {
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+    assert_eq!(calls, vec![EnforceCall::ExceptionsChanged]);
+}
+
+#[tokio::test]
 async fn irrelevant_event_triggers_nothing() {
     let enforcer = Arc::new(MockEnforcer::new());
     let calls = dispatch(
@@ -270,5 +296,5 @@ async fn failing_enforcer_call_is_swallowed() {
     )
     .await;
     // The call was still dispatched (and its error swallowed by the listener).
-    assert_eq!(calls, vec![EnforceCall::ApplyDevice(device_id)]);
+    assert_eq!(calls, vec![EnforceCall::HandleZoneChange(device_id)]);
 }

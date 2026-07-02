@@ -232,6 +232,11 @@ pub enum WardnetEvent {
         new_zone_id: Uuid,
         timestamp: DateTime<Utc>,
     },
+    /// A cross-zone exception was created, updated, or deleted (issue #737). The
+    /// zone enforcer rebuilds its allow-rules; other listeners ignore it.
+    ZoneExceptionsChanged {
+        timestamp: DateTime<Utc>,
+    },
     /// The global default routing policy changed (e.g. `"direct"` → a tunnel
     /// UUID). Emitted by `RoutingService::set_default_policy`. The Network-Zone
     /// enforcer (issue #736) consumes this to re-validate every `Default`-ruled

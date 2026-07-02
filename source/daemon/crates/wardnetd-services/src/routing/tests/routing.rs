@@ -502,6 +502,54 @@ impl PolicyRouter for MockNetlink {
             .push("check_tools_available".to_owned());
         Ok(())
     }
+
+    async fn add_interface_alias(&self, i: &str, ip: &str, p: u8) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_interface_alias:{ip}/{p}:{i}"));
+        Ok(())
+    }
+
+    async fn remove_interface_alias(&self, i: &str, ip: &str, p: u8) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("remove_interface_alias:{ip}/{p}:{i}"));
+        Ok(())
+    }
+
+    async fn list_interface_aliases(&self, i: &str) -> anyhow::Result<Vec<(String, u8)>> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("list_interface_aliases:{i}"));
+        Ok(Vec::new())
+    }
+
+    async fn set_proxy_arp(&self, i: &str, e: bool) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("set_proxy_arp:{i}:{e}"));
+        Ok(())
+    }
+
+    async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_host_route:{ip}:{i}"));
+        Ok(())
+    }
+
+    async fn remove_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("remove_host_route:{ip}:{i}"));
+        Ok(())
+    }
 }
 
 // -- Mock FirewallManager -----------------------------------------------------
@@ -601,6 +649,19 @@ impl FirewallManager for MockNftables {
             .await
             .push("list_zone_rule_ips".to_owned());
         Ok(Vec::new())
+    }
+
+    async fn apply_zone_isolation(
+        &self,
+        rules: crate::routing::firewall::ZoneIsolationRules,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "apply_zone_isolation:allows={}:denies={}:members={}",
+            rules.allows.len(),
+            rules.deny_pairs.len(),
+            rules.member_isolation_subnets.len()
+        ));
+        Ok(())
     }
 
     async fn check_tools_available(&self) -> anyhow::Result<()> {

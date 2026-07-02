@@ -6,6 +6,7 @@ import type {
   ZoneStance,
   ZoneSubnet,
 } from "./network-zone.js";
+import type { ExceptionEndpoint, ServiceSpec, ZoneException } from "./zone-exception.js";
 import type { TunnelStatus } from "./tunnel.js";
 import type {
   CountryInfo,
@@ -334,4 +335,40 @@ export interface DeleteNetworkZoneResponse {
 
 export interface AssignDeviceZoneRequest {
   zone_id: string;
+}
+
+// -- Cross-zone exceptions (issue #737) --------------------------------------
+
+export interface ListZoneExceptionsResponse {
+  exceptions: ZoneException[];
+}
+
+export interface GetZoneExceptionResponse {
+  exception: ZoneException;
+}
+
+export interface CreateZoneExceptionRequest {
+  from: ExceptionEndpoint;
+  to: ExceptionEndpoint;
+  service: ServiceSpec;
+  bidirectional: boolean;
+}
+
+export interface CreateZoneExceptionResponse {
+  exception: ZoneException;
+}
+
+export interface UpdateZoneExceptionRequest {
+  from?: ExceptionEndpoint;
+  to?: ExceptionEndpoint;
+  service?: ServiceSpec;
+  bidirectional?: boolean;
+}
+
+export interface UpdateZoneExceptionResponse {
+  exception: ZoneException;
+}
+
+export interface DeleteZoneExceptionResponse {
+  deleted: boolean;
 }

@@ -32,8 +32,4 @@ impl DhcpServer for NoopDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
-
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {
-        tracing::debug!("mock DHCP server update_config");
-    }
 }

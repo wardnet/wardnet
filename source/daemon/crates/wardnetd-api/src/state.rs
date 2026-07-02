@@ -9,6 +9,7 @@ use wardnetd_services::{
     DnsFilterService, DnsLocalService, DnsService, HealthMonitor, JobService, LogService,
     NetworkZoneService, PushService, RoutingService, RuleRequestService, StatsService,
     SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
+    ZoneExceptionService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -35,6 +36,7 @@ struct Inner {
     provider_service: Arc<dyn VpnProviderService>,
     routing_service: Arc<dyn RoutingService>,
     network_zone_service: Arc<dyn NetworkZoneService>,
+    zone_exception_service: Arc<dyn ZoneExceptionService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
     update_service: Arc<dyn UpdateService>,
@@ -84,6 +86,7 @@ impl AppState {
         job_service: Arc<dyn JobService>,
         stats_service: Arc<dyn StatsService>,
         rule_request_service: Arc<dyn RuleRequestService>,
+        zone_exception_service: Arc<dyn ZoneExceptionService>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -101,6 +104,7 @@ impl AppState {
                 provider_service,
                 routing_service,
                 network_zone_service,
+                zone_exception_service,
                 system_service,
                 tunnel_service,
                 update_service,
@@ -256,6 +260,13 @@ impl AppState {
     #[must_use]
     pub fn network_zone_service(&self) -> &dyn NetworkZoneService {
         self.inner.network_zone_service.as_ref()
+    }
+
+    /// Access the cross-zone exceptions service (admin-granted per-endpoint
+    /// allowances across zone boundaries — issue #737).
+    #[must_use]
+    pub fn zone_exception_service(&self) -> &dyn ZoneExceptionService {
+        self.inner.zone_exception_service.as_ref()
     }
 
     #[must_use]
