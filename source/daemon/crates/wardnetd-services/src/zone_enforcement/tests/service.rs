@@ -138,6 +138,24 @@ impl PolicyRouter for NoopPolicy {
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn add_interface_alias(&self, _i: &str, _ip: &str, _p: u8) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn remove_interface_alias(&self, _i: &str, _ip: &str, _p: u8) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_interface_aliases(&self, _i: &str) -> anyhow::Result<Vec<(String, u8)>> {
+        Ok(Vec::new())
+    }
+    async fn set_proxy_arp(&self, _i: &str, _e: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn add_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn remove_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 // -- Recording RoutingService (only apply_rule_for_device is exercised) ------

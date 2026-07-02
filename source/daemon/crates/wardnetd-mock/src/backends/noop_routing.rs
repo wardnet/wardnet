@@ -162,4 +162,66 @@ impl PolicyRouter for NoopPolicyRouter {
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         Ok(())
     }
+
+    async fn add_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            interface,
+            ip,
+            prefix,
+            "mock policy add_interface_alias: {ip}/{prefix} dev {interface}",
+        );
+        Ok(())
+    }
+
+    async fn remove_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            interface,
+            ip,
+            prefix,
+            "mock policy remove_interface_alias: {ip}/{prefix} dev {interface}",
+        );
+        Ok(())
+    }
+
+    async fn list_interface_aliases(&self, interface: &str) -> anyhow::Result<Vec<(String, u8)>> {
+        tracing::debug!(interface, "mock policy list_interface_aliases");
+        Ok(Vec::new())
+    }
+
+    async fn set_proxy_arp(&self, interface: &str, enabled: bool) -> anyhow::Result<()> {
+        tracing::debug!(
+            interface,
+            enabled,
+            "mock policy set_proxy_arp: dev {interface} = {enabled}",
+        );
+        Ok(())
+    }
+
+    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        tracing::debug!(
+            ip,
+            interface,
+            "mock policy add_host_route: {ip}/32 dev {interface}",
+        );
+        Ok(())
+    }
+
+    async fn remove_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        tracing::debug!(
+            ip,
+            interface,
+            "mock policy remove_host_route: {ip}/32 dev {interface}",
+        );
+        Ok(())
+    }
 }

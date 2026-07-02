@@ -1,9 +1,10 @@
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use rtnetlink::packet_route::AddressFamily;
+use rtnetlink::packet_route::address::AddressAttribute;
 use rtnetlink::packet_route::route::{RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
@@ -342,6 +343,205 @@ impl PolicyRouter for NetlinkPolicyRouter {
             .await
             .map_err(|e| anyhow::anyhow!("netlink socket not working: {e}"))?;
         tracing::info!("netlink: policy router tools available");
+        Ok(())
+    }
+
+    async fn add_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid alias IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        match self
+            .handle
+            .address()
+            .add(index, IpAddr::V4(addr), prefix)
+            .execute()
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+                tracing::debug!(
+                    interface,
+                    ip,
+                    prefix,
+                    "interface alias already present, skipping"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!("failed to add alias {ip}/{prefix} dev {interface}: {e}")
+            }
+        }
+    }
+
+    async fn remove_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid alias IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        // Find the matching AddressMessage on this link and delete it. Deleting
+        // by a hand-built message is brittle across kernels; round-tripping the
+        // kernel's own message is the robust idiom.
+        let mut addrs = self
+            .handle
+            .address()
+            .get()
+            .set_link_index_filter(index)
+            .execute();
+        while let Some(msg) = addrs.try_next().await? {
+            if msg.header.prefix_len != prefix {
+                continue;
+            }
+            let matches = msg.attributes.iter().any(|a| {
+                matches!(a, AddressAttribute::Local(IpAddr::V4(v)) if *v == addr)
+                    || matches!(a, AddressAttribute::Address(IpAddr::V4(v)) if *v == addr)
+            });
+            if matches {
+                if let Err(e) = self.handle.address().del(msg).execute().await {
+                    anyhow::bail!("failed to remove alias {ip}/{prefix} dev {interface}: {e}");
+                }
+                return Ok(());
+            }
+        }
+        tracing::debug!(
+            interface,
+            ip,
+            prefix,
+            "interface alias not present, nothing to remove"
+        );
+        Ok(())
+    }
+
+    async fn list_interface_aliases(&self, interface: &str) -> anyhow::Result<Vec<(String, u8)>> {
+        let index = self.link_index(interface).await?;
+        let mut addrs = self
+            .handle
+            .address()
+            .get()
+            .set_link_index_filter(index)
+            .execute();
+        let mut out = Vec::new();
+        while let Some(msg) = addrs.try_next().await? {
+            let prefix = msg.header.prefix_len;
+            let ip = msg.attributes.iter().find_map(|a| match a {
+                AddressAttribute::Local(IpAddr::V4(v)) => Some(*v),
+                _ => None,
+            });
+            // Fall back to IFA_ADDRESS when IFA_LOCAL is absent (non-ptp links
+            // usually carry both; some kernels omit Local for IPv4 aliases).
+            let ip = ip.or_else(|| {
+                msg.attributes.iter().find_map(|a| match a {
+                    AddressAttribute::Address(IpAddr::V4(v)) => Some(*v),
+                    _ => None,
+                })
+            });
+            if let Some(v) = ip {
+                out.push((v.to_string(), prefix));
+            }
+        }
+        Ok(out)
+    }
+
+    async fn set_proxy_arp(&self, interface: &str, enabled: bool) -> anyhow::Result<()> {
+        let path = format!("/proc/sys/net/ipv4/conf/{interface}/proxy_arp");
+        let want = if enabled { "1" } else { "0" };
+
+        // Same permission dance as `enable_ip_forwarding`: the daemon runs with
+        // CAP_NET_ADMIN but not CAP_DAC_OVERRIDE, so the /proc write may be
+        // refused; check first, then fall back to `sysctl -w`.
+        if let Ok(value) = tokio::fs::read_to_string(&path).await
+            && value.trim() == want
+        {
+            return Ok(());
+        }
+
+        let write_err = match tokio::fs::write(&path, want).await {
+            Ok(()) => return Ok(()),
+            Err(e) => e,
+        };
+
+        let key = format!("net.ipv4.conf.{interface}.proxy_arp={want}");
+        let output = self
+            .executor
+            .run("sysctl", &["-w", &key])
+            .await
+            .map_err(|spawn_err| {
+                anyhow::anyhow!(
+                    "failed to set proxy_arp on {interface}: writing {path} failed ({write_err}); \
+                     sysctl fallback failed to spawn ({spawn_err})"
+                )
+            })?;
+        if !output.success {
+            anyhow::bail!(
+                "failed to set proxy_arp on {interface}: writing {path} failed ({write_err}); \
+                 sysctl fallback exited unsuccessfully: {}",
+                output.stderr.trim()
+            );
+        }
+        Ok(())
+    }
+
+    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid host-route IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        let route = RouteMessageBuilder::<Ipv4Addr>::new()
+            .destination_prefix(addr, 32)
+            .output_interface(index)
+            .scope(RouteScope::Link)
+            .build();
+
+        match self.handle.route().add(route).execute().await {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+                tracing::debug!(ip, interface, "host route already exists, skipping");
+                Ok(())
+            }
+            Err(e) => anyhow::bail!("failed to add host route {ip}/32 dev {interface}: {e}"),
+        }
+    }
+
+    async fn remove_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid host-route IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        let mut routes = self.handle.route().get(Self::ipv4_route_filter()).execute();
+        while let Some(route) = routes.try_next().await? {
+            if route.header.destination_prefix_length != 32 {
+                continue;
+            }
+            let dest_matches = route
+                .attributes
+                .iter()
+                .any(|a| matches!(a, RouteAttribute::Destination(d) if d.to_string() == addr.to_string()));
+            let oif_matches = route
+                .attributes
+                .iter()
+                .any(|a| matches!(a, RouteAttribute::Oif(o) if *o == index));
+            if dest_matches && oif_matches {
+                if let Err(e) = self.handle.route().del(route).execute().await {
+                    anyhow::bail!("failed to remove host route {ip}/32 dev {interface}: {e}");
+                }
+                return Ok(());
+            }
+        }
+        tracing::debug!(ip, interface, "host route not present, nothing to remove");
         Ok(())
     }
 }

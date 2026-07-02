@@ -123,6 +123,24 @@ impl PolicyRouter for StubPolicyRouter {
     async fn check_tools_available(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn add_interface_alias(&self, _i: &str, _ip: &str, _p: u8) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_interface_alias(&self, _i: &str, _ip: &str, _p: u8) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_interface_aliases(&self, _i: &str) -> anyhow::Result<Vec<(String, u8)>> {
+        unimplemented!()
+    }
+    async fn set_proxy_arp(&self, _i: &str, _e: bool) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn add_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
 }
 
 struct StubFirewall;
