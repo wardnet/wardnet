@@ -197,6 +197,14 @@ impl DhcpService for MockDhcpService {
     ) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
     }
+    async fn preview_config(
+        &self,
+        _req: wardnet_common::api::PreviewDhcpConfigRequest,
+    ) -> Result<wardnet_common::api::PreviewDhcpConfigResponse, AppError> {
+        Ok(wardnet_common::api::PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
+    }
     async fn toggle(
         &self,
         _r: wardnet_common::api::ToggleDhcpRequest,
@@ -270,6 +278,7 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 fn dhcp_check(enabled: bool, running: bool, fail: bool) -> DhcpServerHealthCheck {

@@ -6,7 +6,8 @@ use uuid::Uuid;
 use wardnet_common::api::{
     CreateDhcpReservationRequest, CreateDhcpReservationResponse, DeleteDhcpReservationResponse,
     DhcpConfigResponse, DhcpStatusResponse, ListDhcpLeasesResponse, ListDhcpReservationsResponse,
-    RevokeDhcpLeaseResponse, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
+    ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
 
@@ -33,6 +34,14 @@ pub trait DhcpService: Send + Sync {
         &self,
         req: UpdateDhcpConfigRequest,
     ) -> Result<DhcpConfigResponse, AppError>;
+
+    /// Dry-run a pool-range change: report the active leases that would be
+    /// revoked because their IP would fall outside the proposed pool (and are
+    /// not pinned by a reservation). Mutates nothing.
+    async fn preview_config(
+        &self,
+        req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError>;
 
     /// Enable or disable the DHCP server.
     async fn toggle(&self, req: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError>;
@@ -265,6 +274,27 @@ impl DhcpServiceImpl {
         n >= u32::from(config.pool_start) && n <= u32::from(config.pool_end)
     }
 
+    /// Parse and validate a proposed DHCP pool range: both endpoints must be
+    /// valid IPv4 addresses and `pool_end >= pool_start`. Shared by
+    /// `update_config` and `preview_config` so the rule lives in one place.
+    fn parse_pool_range(
+        pool_start: &str,
+        pool_end: &str,
+    ) -> Result<(Ipv4Addr, Ipv4Addr), AppError> {
+        let start: Ipv4Addr = pool_start
+            .parse()
+            .map_err(|_| AppError::BadRequest("invalid pool_start IP address".to_owned()))?;
+        let end: Ipv4Addr = pool_end
+            .parse()
+            .map_err(|_| AppError::BadRequest("invalid pool_end IP address".to_owned()))?;
+        if u32::from(end) < u32::from(start) {
+            return Err(AppError::BadRequest(
+                "pool_end must be >= pool_start".to_owned(),
+            ));
+        }
+        Ok((start, end))
+    }
+
     /// Look up the active lease for `mac` and confirm it still reflects
     /// the current configuration. A lease is valid when either a reservation
     /// for the same MAC points to its IP, or no reservation exists for the
@@ -334,6 +364,87 @@ impl DhcpServiceImpl {
             .map_err(AppError::Internal)?;
         Ok(None)
     }
+
+    /// Active leases whose IP falls outside `[pool_start, pool_end]` and are
+    /// not pinned by a reservation for the same MAC. A reservation is a
+    /// deliberate static pin, so it survives a pool change even when its IP
+    /// sits outside the dynamic pool — mirroring `lease_if_still_valid`.
+    async fn leases_outside_pool(
+        &self,
+        pool_start: Ipv4Addr,
+        pool_end: Ipv4Addr,
+    ) -> Result<Vec<DhcpLease>, AppError> {
+        let leases = self
+            .dhcp
+            .list_active_leases()
+            .await
+            .map_err(AppError::Internal)?;
+        let reservations = self
+            .dhcp
+            .list_reservations()
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Map each reserved MAC to its pinned IP. Casing is canonicalised at
+        // the repository boundary (issue #312) so a direct comparison is safe.
+        let reserved: std::collections::HashMap<String, Ipv4Addr> = reservations
+            .into_iter()
+            .map(|r| (r.mac_address, r.ip_address))
+            .collect();
+
+        let start = u32::from(pool_start);
+        let end = u32::from(pool_end);
+        Ok(leases
+            .into_iter()
+            .filter(|l| {
+                let n = u32::from(l.ip_address);
+                let in_pool = n >= start && n <= end;
+                let pinned = reserved.get(&l.mac_address) == Some(&l.ip_address);
+                !in_pool && !pinned
+            })
+            .collect())
+    }
+
+    /// Expire every active lease outside `[pool_start, pool_end]` (skipping
+    /// reservation-pinned ones) and write an audit-log row for each. Returns
+    /// the number of leases revoked.
+    async fn revoke_leases_outside_pool(
+        &self,
+        pool_start: Ipv4Addr,
+        pool_end: Ipv4Addr,
+    ) -> Result<u64, AppError> {
+        let stranded = self.leases_outside_pool(pool_start, pool_end).await?;
+        let mut revoked = 0u64;
+        for lease in stranded {
+            self.dhcp
+                .update_lease_status(&lease.id.to_string(), "expired")
+                .await
+                .map_err(AppError::Internal)?;
+            self.dhcp
+                .insert_lease_log(&DhcpLeaseLogRow {
+                    lease_id: lease.id.to_string(),
+                    mac_address: lease.mac_address.clone(),
+                    event_type: "expired".to_owned(),
+                    details: Some(format!(
+                        "out of range after pool change: ip {} outside {pool_start}-{pool_end}",
+                        lease.ip_address
+                    )),
+                })
+                .await
+                .map_err(AppError::Internal)?;
+            let mac = &lease.mac_address;
+            let ip = lease.ip_address;
+            let lease_id = lease.id;
+            tracing::info!(
+                %mac,
+                %ip,
+                %lease_id,
+                "expiring lease stranded outside new DHCP pool: mac={mac}, ip={ip}, lease_id={lease_id}"
+            );
+            revoked += 1;
+        }
+        Ok(revoked)
+    }
 }
 
 #[async_trait]
@@ -351,24 +462,11 @@ impl DhcpService for DhcpServiceImpl {
         auth_context::require_admin()?;
 
         // Validate IP addresses.
-        let pool_start: Ipv4Addr = req
-            .pool_start
-            .parse()
-            .map_err(|_| AppError::BadRequest("invalid pool_start IP address".to_owned()))?;
-        let pool_end: Ipv4Addr = req
-            .pool_end
-            .parse()
-            .map_err(|_| AppError::BadRequest("invalid pool_end IP address".to_owned()))?;
+        let (pool_start, pool_end) = Self::parse_pool_range(&req.pool_start, &req.pool_end)?;
         let _subnet_mask: Ipv4Addr = req
             .subnet_mask
             .parse()
             .map_err(|_| AppError::BadRequest("invalid subnet_mask IP address".to_owned()))?;
-
-        if u32::from(pool_end) < u32::from(pool_start) {
-            return Err(AppError::BadRequest(
-                "pool_end must be >= pool_start".to_owned(),
-            ));
-        }
 
         for dns in &req.upstream_dns {
             let _: Ipv4Addr = dns.parse().map_err(|_| {
@@ -424,8 +522,38 @@ impl DhcpService for DhcpServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Revoke leases stranded outside the new pool (issue #227). A device
+        // holding an out-of-range IP would otherwise keep it — with routing
+        // rules still targeting the old address — until its lease happened to
+        // expire. Expiring them now, plus the DHCPNAK path in `evaluate_renewal`,
+        // forces each device to re-acquire an in-range lease at its next
+        // renewal. Reservations are left untouched: a static pin is deliberate
+        // even when it sits outside the dynamic pool.
+        let revoked = self
+            .revoke_leases_outside_pool(pool_start, pool_end)
+            .await?;
+        if revoked > 0 {
+            tracing::info!(
+                revoked,
+                %pool_start,
+                %pool_end,
+                "revoked {revoked} DHCP leases outside new pool range {pool_start}-{pool_end}"
+            );
+        }
+
         let config = self.load_config().await?;
         Ok(DhcpConfigResponse { config })
+    }
+
+    async fn preview_config(
+        &self,
+        req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let (pool_start, pool_end) = Self::parse_pool_range(&req.pool_start, &req.pool_end)?;
+        let affected = self.leases_outside_pool(pool_start, pool_end).await?;
+        Ok(PreviewDhcpConfigResponse { affected })
     }
 
     async fn toggle(&self, req: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {

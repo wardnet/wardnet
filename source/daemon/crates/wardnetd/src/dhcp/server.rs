@@ -1,9 +1,9 @@
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode};
+use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
@@ -135,11 +135,6 @@ impl UdpDhcpServer {
     pub(crate) fn local_addr(&self) -> Option<SocketAddr> {
         *self.local_addr.lock().expect("local_addr mutex poisoned")
     }
-
-    /// Update the stored configuration (called when config changes).
-    pub async fn update_config(&self, config: DhcpConfig) {
-        *self.config.write().await = config;
-    }
 }
 
 #[async_trait]
@@ -212,6 +207,14 @@ impl DhcpServer for UdpDhcpServer {
 
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
+    }
+
+    /// Swap the config the running `server_loop` reads on each packet. The
+    /// loop holds the same `Arc<RwLock<DhcpConfig>>`, so the new options
+    /// (pool, mask, lease time, DNS, router) take effect on the next request
+    /// without a restart.
+    async fn update_config(&self, config: DhcpConfig) {
+        *self.config.write().await = config;
     }
 }
 
@@ -336,7 +339,13 @@ pub(crate) async fn handle_discover(
     Ok(build_response(msg, MessageType::Offer, &lease, config))
 }
 
-/// Handle a DHCPREQUEST message: renew the lease and build an ACK response.
+/// Handle a DHCPREQUEST message.
+///
+/// Delegates to [`DhcpService::evaluate_renewal`], which decides whether the
+/// client may keep the IP it asked for. A legitimate renewal produces a
+/// DHCPACK; a request for an IP the configuration no longer justifies (e.g.
+/// the pool moved out from under it) produces a DHCPNAK, forcing the client
+/// back to DISCOVER so it picks up an in-range lease (issue #227).
 pub(crate) async fn handle_request(
     service: &Arc<dyn DhcpService>,
     msg: &Message,
@@ -347,9 +356,28 @@ pub(crate) async fn handle_request(
         admin_id: Uuid::nil(),
     };
     let hostname = extract_hostname(msg);
+    let requested_ip = extract_requested_ip(msg);
+
     let lease =
         auth_context::with_context(admin_ctx, service.renew_lease(mac, hostname.as_deref()))
             .await?;
+
+    // If the client asked to keep a specific IP but the service assigned a
+    // different one, its old address is no longer valid (e.g. the pool moved
+    // out from under it). A renewing client expects either an ACK for the same
+    // IP or a NAK — silently ACKing a different IP is a protocol violation, so
+    // NAK to force it back through DISCOVER, where it picks up the in-range
+    // lease that `renew_lease` just prepared. See issue #227.
+    if !requested_ip.is_unspecified() && lease.ip_address != requested_ip {
+        let new_ip = lease.ip_address;
+        tracing::info!(
+            %mac,
+            %requested_ip,
+            %new_ip,
+            "sending DHCPNAK: mac={mac} requested out-of-range ip={requested_ip}, assigned new_ip={new_ip}",
+        );
+        return Ok(build_nak(msg, config));
+    }
 
     tracing::info!(
         %mac,
@@ -361,6 +389,41 @@ pub(crate) async fn handle_request(
     );
 
     Ok(build_response(msg, MessageType::Ack, &lease, config))
+}
+
+/// Extract the IP address a DHCPREQUEST client wants to keep. In RENEWING /
+/// REBINDING the client already holds the address, so it appears in `ciaddr`;
+/// in SELECTING / INIT-REBOOT it is carried in the Requested-IP option (50).
+/// Returns `0.0.0.0` when neither is present.
+fn extract_requested_ip(msg: &Message) -> Ipv4Addr {
+    let ciaddr = msg.ciaddr();
+    if !ciaddr.is_unspecified() {
+        return ciaddr;
+    }
+    if let Some(DhcpOption::RequestedIpAddress(ip)) = msg.opts().get(OptionCode::RequestedIpAddress)
+    {
+        return *ip;
+    }
+    Ipv4Addr::UNSPECIFIED
+}
+
+/// Build a DHCPNAK response. A NAK carries no address; it just tells the client
+/// its request was rejected and it must restart the handshake.
+pub(crate) fn build_nak(request: &Message, config: &DhcpConfig) -> Message {
+    let server_ip = config.gateway_ip;
+
+    let mut response = Message::default();
+    response
+        .set_opcode(Opcode::BootReply)
+        .set_xid(request.xid())
+        .set_flags(Flags::default().set_broadcast())
+        .set_chaddr(request.chaddr());
+
+    let opts = response.opts_mut();
+    opts.insert(DhcpOption::MessageType(MessageType::Nak));
+    opts.insert(DhcpOption::ServerIdentifier(server_ip));
+
+    response
 }
 
 /// Build an OFFER or ACK response message.

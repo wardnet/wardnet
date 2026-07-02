@@ -6,7 +6,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::api::{
-    CreateDhcpReservationRequest, ToggleDhcpRequest, UpdateDhcpConfigRequest,
+    CreateDhcpReservationRequest, PreviewDhcpConfigRequest, ToggleDhcpRequest,
+    UpdateDhcpConfigRequest,
 };
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
@@ -1825,4 +1826,118 @@ async fn renew_lease_publishes_event_with_updated_hostname() {
         }
         other => panic!("expected DhcpLeaseRenewed, got {other:?}"),
     }
+}
+
+// =========================================================================
+// Pool-range change: out-of-range lease revocation (issue #227)
+// =========================================================================
+
+/// Build an `UpdateDhcpConfigRequest` for the given pool with fixed defaults
+/// for the unrelated fields.
+fn update_req(pool_start: &str, pool_end: &str) -> UpdateDhcpConfigRequest {
+    UpdateDhcpConfigRequest {
+        pool_start: pool_start.to_owned(),
+        pool_end: pool_end.to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: None,
+    }
+}
+
+/// Current stored status of the lease with `id`, if present.
+fn lease_status(dhcp: &MockDhcpRepository, id: &str) -> Option<String> {
+    dhcp.leases
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.id == id)
+        .map(|r| r.status.clone())
+}
+
+#[tokio::test]
+async fn update_config_revokes_only_out_of_range_unreserved_leases() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    // New pool is 192.168.1.150-200.
+    let in_range = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:01", "192.168.1.160");
+    let out_of_range = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:02", "192.168.1.50");
+    // Out of the pool but pinned by a reservation -> deliberate, must survive.
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:03", "192.168.1.10");
+    let reserved = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:03", "192.168.1.10");
+
+    auth_context::with_context(
+        admin_ctx(),
+        svc.update_config(update_req("192.168.1.150", "192.168.1.200")),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(lease_status(&dhcp, &in_range).as_deref(), Some("active"));
+    assert_eq!(lease_status(&dhcp, &reserved).as_deref(), Some("active"));
+    assert_eq!(
+        lease_status(&dhcp, &out_of_range).as_deref(),
+        Some("expired")
+    );
+
+    // An audit-log row explains why the stranded lease was revoked.
+    let logs = dhcp.logs.lock().unwrap();
+    let expired_log = logs
+        .iter()
+        .find(|l| l.event_type == "expired")
+        .expect("expired log row");
+    assert!(
+        expired_log
+            .details
+            .as_deref()
+            .unwrap_or_default()
+            .contains("out of range")
+    );
+}
+
+#[tokio::test]
+async fn preview_config_reports_affected_without_mutating() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    let in_range = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:01", "192.168.1.160");
+    let out_of_range = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:02", "192.168.1.50");
+    seed_reservation(&dhcp, "aa:bb:cc:dd:ee:03", "192.168.1.10");
+    let reserved = seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:03", "192.168.1.10");
+
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        svc.preview_config(PreviewDhcpConfigRequest {
+            pool_start: "192.168.1.150".to_owned(),
+            pool_end: "192.168.1.200".to_owned(),
+        }),
+    )
+    .await
+    .unwrap();
+
+    // Only the out-of-range, unreserved lease is reported.
+    assert_eq!(resp.affected.len(), 1);
+    assert_eq!(resp.affected[0].ip_address.to_string(), "192.168.1.50");
+
+    // Nothing was mutated: every lease stays active and no log rows appear.
+    assert_eq!(lease_status(&dhcp, &in_range).as_deref(), Some("active"));
+    assert_eq!(
+        lease_status(&dhcp, &out_of_range).as_deref(),
+        Some("active")
+    );
+    assert_eq!(lease_status(&dhcp, &reserved).as_deref(), Some("active"));
+    assert!(dhcp.logs.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn preview_config_rejects_inverted_range() {
+    let (svc, _dhcp, _cfg) = build_service_with_deps();
+    let result = auth_context::with_context(
+        admin_ctx(),
+        svc.preview_config(PreviewDhcpConfigRequest {
+            pool_start: "192.168.1.200".to_owned(),
+            pool_end: "192.168.1.100".to_owned(),
+        }),
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
 }

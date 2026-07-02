@@ -165,6 +165,14 @@ impl DhcpService for StubDhcpService {
     ) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
+    }
     async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -895,6 +903,7 @@ impl DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
+    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 pub struct StubDnsServer;
