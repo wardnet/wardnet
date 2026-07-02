@@ -101,6 +101,14 @@ pub trait AuthService: Send + Sync {
         to_step: WizardStep,
         mode: Option<WizardMode>,
     ) -> Result<WizardState, AppError>;
+
+    /// Delete all sessions whose `expires_at` is in the past.
+    ///
+    /// Intended for the periodic
+    /// [`SessionCleanupRunner`](crate::auth::SessionCleanupRunner); reads
+    /// already filter expired rows, so this only reclaims dead storage.
+    /// Returns the number of rows removed.
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError>;
 }
 
 /// Maximum lifetime of a `remember_me` session regardless of sliding-window refreshes.
@@ -291,6 +299,16 @@ impl AuthService for AuthServiceImpl {
             }
             None => Ok(None),
         }
+    }
+
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        self.sessions
+            .delete_expired(&now)
+            .await
+            .map_err(AppError::Internal)
     }
 
     async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
