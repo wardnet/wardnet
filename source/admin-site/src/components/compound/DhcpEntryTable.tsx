@@ -34,6 +34,14 @@ interface DhcpEntry {
   reservation: DhcpReservation | null;
 }
 
+/** Collapse a null / empty / whitespace-only description to null so only
+ *  meaningful annotations render as a subline. */
+function normalizeDescription(
+  description: string | null | undefined,
+): string | null {
+  return description?.trim() ? description : null;
+}
+
 /** Kind + status as two separate pills. They stack vertically on
  *  mobile so the column doesn't push the row wider than the
  *  viewport, and sit inline at `md+` where there's room. */
@@ -67,11 +75,7 @@ function buildColumns(
         const entry = row.original;
         const device = deviceIndex.get(entry.mac.toLowerCase());
         const primary =
-          device?.name ??
-          entry.description ??
-          entry.hostname ??
-          device?.hostname ??
-          entry.mac;
+          device?.name ?? entry.hostname ?? device?.hostname ?? entry.mac;
         const secondary = primary === entry.mac ? null : entry.mac;
         const fallbackIcon =
           entry.kind === "reservation" ? (
@@ -88,6 +92,7 @@ function buildColumns(
           <HostCell
             primary={primary}
             secondary={secondary}
+            note={entry.description}
             icon={icon}
             // The IP column is hidden below md so we surface the
             // address inside the Host cell on mobile instead.
@@ -114,14 +119,6 @@ function buildColumns(
           ? reservationTypeBadge()
           : leaseTypeBadge(row.original.leaseStatus ?? "active"),
     },
-    {
-      id: "description",
-      header: "Description",
-      meta: { className: "hidden md:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-ink-3">{row.original.description ?? "—"}</span>
-      ),
-    },
   ];
 }
 
@@ -145,7 +142,8 @@ interface DhcpEntryTableProps {
 
 /** Combined DHCP entries table — reservations and leases share one
  *  surface with a group filter (All / Reservations / Leases), a
- *  search field (MAC · hostname · IP), and an Add reservation CTA. */
+ *  search field (MAC · hostname · IP · description), and an Add
+ *  reservation CTA. */
 export function DhcpEntryTable({
   leases,
   reservations,
@@ -162,6 +160,16 @@ export function DhcpEntryTable({
 }: DhcpEntryTableProps) {
   const deviceIndex = useMemo(() => buildDeviceIndex(devices), [devices]);
 
+  // MAC-keyed reservation index so a dynamic lease can surface the
+  // description of the reservation it fulfils. MACs are canonical
+  // lowercase server-side (issue #312); we lowercase keys/lookups
+  // defensively to stay robust to any un-normalised input.
+  const reservationIndex = useMemo(() => {
+    const map = new Map<string, DhcpReservation>();
+    for (const r of reservations) map.set(r.mac_address.toLowerCase(), r);
+    return map;
+  }, [reservations]);
+
   const entries = useMemo<DhcpEntry[]>(() => {
     const fromReservations: DhcpEntry[] = reservations.map((r) => ({
       kind: "reservation",
@@ -169,7 +177,7 @@ export function DhcpEntryTable({
       mac: r.mac_address,
       ip: r.ip_address,
       hostname: r.hostname,
-      description: r.description,
+      description: normalizeDescription(r.description),
       leaseStatus: null,
       lease: null,
       reservation: r,
@@ -180,28 +188,43 @@ export function DhcpEntryTable({
       mac: l.mac_address,
       ip: l.ip_address,
       hostname: l.hostname,
-      description: null,
+      description: normalizeDescription(
+        reservationIndex.get(l.mac_address.toLowerCase())?.description,
+      ),
       leaseStatus: l.status,
       lease: l,
       reservation: null,
     }));
     return [...fromReservations, ...fromLeases];
-  }, [leases, reservations]);
+  }, [leases, reservations, reservationIndex]);
+
+  // A reserved MAC gets both a static reservation and (while the device
+  // is online) a dynamic lease. In the "All" view we collapse those to a
+  // single row — the reservation — so the device isn't listed twice; the
+  // Leases tab still shows the underlying lease.
+  const reservedLeaseCount = useMemo(
+    () =>
+      leases.filter((l) => reservationIndex.has(l.mac_address.toLowerCase()))
+        .length,
+    [leases, reservationIndex],
+  );
 
   const counts = useMemo(
     () => ({
-      all: entries.length,
+      all: entries.length - reservedLeaseCount,
       reservations: reservations.length,
       leases: leases.length,
     }),
-    [entries.length, reservations.length, leases.length],
+    [entries.length, reservedLeaseCount, reservations.length, leases.length],
   );
 
   const filtered = useMemo(() => {
     const byGroup = entries.filter((e) => {
       if (activeGroup === "reservations") return e.kind === "reservation";
       if (activeGroup === "leases") return e.kind === "lease";
-      return true;
+      // "all": hide a lease whose MAC already has a reservation so the
+      // reserved device appears once, as its static reservation.
+      return !(e.kind === "lease" && reservationIndex.has(e.mac.toLowerCase()));
     });
     const q = searchValue.trim().toLowerCase();
     if (!q) return byGroup;
@@ -209,9 +232,10 @@ export function DhcpEntryTable({
       (e) =>
         e.mac.toLowerCase().includes(q) ||
         (e.hostname ?? "").toLowerCase().includes(q) ||
-        e.ip.toLowerCase().includes(q),
+        e.ip.toLowerCase().includes(q) ||
+        (e.description ?? "").toLowerCase().includes(q),
     );
-  }, [entries, activeGroup, searchValue]);
+  }, [entries, activeGroup, searchValue, reservationIndex]);
 
   const columns = useMemo(() => buildColumns(deviceIndex), [deviceIndex]);
 
@@ -236,7 +260,7 @@ export function DhcpEntryTable({
   if (entries.length === 0) {
     return (
       <DiscoveryPlaceholder
-        cols={4}
+        cols={3}
         message="Waiting for DHCP activity"
         hint="Leases and reservations will appear here as devices come online."
       />
@@ -252,7 +276,7 @@ export function DhcpEntryTable({
       onGroupChange={(id) => onGroupChange(id as DhcpGroupId)}
       searchValue={searchValue}
       onSearchChange={onSearchChange}
-      searchPlaceholder="Search by MAC, hostname or IP"
+      searchPlaceholder="Search by MAC, hostname, IP or description"
       searchTestId="dhcp-search"
       addLabel="Add reservation"
       onAdd={onAddReservation}
