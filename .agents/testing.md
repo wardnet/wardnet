@@ -9,13 +9,48 @@ cd source/daemon && cargo test --workspace
 # SDK checks
 cd source/sdk/wardnet-js && yarn type-check && yarn format:check
 
-# Web UI checks
-cd source/web-ui && yarn type-check && yarn lint && yarn format:check
+# Frontend unit tests (Vitest) — per package, from source/
+cd source && yarn turbo run test --filter=@wardnet/web
+cd source && yarn turbo run test:coverage --filter=@wardnet/admin-site
+
+# Frontend checks (type-check + lint + format, where the script exists)
+cd source && yarn turbo run type-check lint format:check --filter=@wardnet/admin-site --filter=@wardnet/web
 
 # Or run everything at once (unit tests + lint + format):
 # On macOS, daemon checks automatically run inside a Linux container.
 make check
 ```
+
+## Frontend unit tests (Vitest)
+
+The TS frontends — `@wardnet/web` (shared hooks/components/SDK wiring) and
+the three apps `@wardnet/admin-site`, `@wardnet/admin-app`, `@wardnet/user-app`
+— are tested with **Vitest** (jsdom + Testing Library), mirroring the
+long-standing `marketing-site` setup. Each package exposes `test`,
+`test:watch`, and `test:coverage` scripts wired into the Turbo pipeline.
+
+Conventions:
+
+- Test files live under `<pkg>/tests/`, mirroring `src/`, named `*.test.ts(x)`.
+- Import test globals explicitly (`import { describe, it, expect, vi } from "vitest";`)
+  even though `globals: true` is set — it keeps `tsc` happy since `tests/` is
+  in the type-check include.
+- jest-dom matchers are enabled via `<pkg>/tests/setup.ts`
+  (`import "@testing-library/jest-dom"`).
+- Mock the SDK singletons (`src/lib/sdk.ts`) with the hoisted pattern
+  (`const { deviceService } = vi.hoisted(() => ({ deviceService: { list: vi.fn() } }));`
+  then `vi.mock("../../src/lib/sdk", () => ({ deviceService }))`) — a plain
+  outer const is uninitialised when the hoisted `vi.mock` factory runs.
+- Render inside providers (`QueryClientProvider` + `MemoryRouter`); admin-site
+  ships `renderWithProviders` + `makeDevice`/`makeTunnel` in `tests/test-utils.tsx`.
+- Segmented MAC/IPv4 inputs render one `<input>` per octet inside a
+  `data-testid` container — fill them per-segment.
+
+CI: each build leaf (`build-admin-web`, `build-admin-app`, `build-user-app`)
+runs `yarn turbo run test` as a required gate, and `coverage.yml`'s
+`frontend-coverage` job runs `test:coverage` and feeds LCOV/JUnit into the
+single Codecov upload. Coverage jobs are gated per change bucket so a
+frontend-only PR skips daemon/site coverage.
 
 ## Test file layout — STRICT RULE
 

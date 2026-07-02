@@ -1,16 +1,30 @@
 name: Coverage
 
-# Reusable leaf for daemon + site coverage.
+# Reusable leaf for daemon + marketing-site + TS-frontend coverage.
 #
-# Called only from pr.yml (coverage doesn't run on push-to-main —
-# Codecov's patch-coverage feature keys off PRs). Daemon and
-# site coverage run in parallel jobs, and a single `upload` job combines
-# all LCOV/JUnit files into ONE Codecov invocation per PR so we get a
-# single PR comment with a coherent base comparison rather than
+# Called from pr.yml and ci.yml. Each coverage job (daemon / site /
+# frontend) is gated on a boolean input so the caller only spins up the
+# work its change set touches — a frontend-only PR skips the 30-min daemon
+# coverage, and vice versa. The parallel jobs each emit LCOV + JUnit, and a
+# single `upload` job combines everything into ONE Codecov invocation so we
+# get a single PR comment with a coherent base comparison rather than
 # dueling uploads from separate leaves.
 
 on:
   workflow_call:
+    inputs:
+      run-daemon:
+        description: "Run the (expensive) Rust daemon coverage job."
+        type: boolean
+        default: false
+      run-site:
+        description: "Run marketing-site coverage."
+        type: boolean
+        default: false
+      run-frontend:
+        description: "Run the TS frontend (web + apps) coverage."
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         description: |
@@ -38,6 +52,7 @@ env:
 jobs:
   daemon-coverage:
     name: Daemon coverage
+    if: inputs.run-daemon
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -88,6 +103,7 @@ jobs:
 
   site-coverage:
     name: Site coverage
+    if: inputs.run-site
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -130,9 +146,60 @@ jobs:
           path: coverage/
           retention-days: 1
 
+  frontend-coverage:
+    name: Frontend coverage
+    if: inputs.run-frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/yarn.lock
+
+      - name: Install deps
+        run: cd source && yarn install --immutable
+
+      - name: Generate frontend coverage + test results
+        # Vitest across the four TS frontends (@wardnet/web + the three apps).
+        # Each emits its own coverage/lcov.info and test-results/junit.xml.
+        run: cd source && yarn turbo run test:coverage --filter=@wardnet/web --filter=@wardnet/admin-site --filter=@wardnet/admin-app --filter=@wardnet/user-app
+
+      - name: Collect into shared layout
+        # Each package's Vitest LCOV uses package-relative `SF:src/...` paths.
+        # Prefix them with `source/<pkg>/` so the combined report maps to
+        # unambiguous repo paths (four packages all have a `src/`), then
+        # concatenate into one LCOV. JUnit files are copied per package.
+        run: |
+          mkdir -p coverage
+          : > coverage/frontend-lcov.info
+          for pkg in web admin-site admin-app user-app; do
+            lcov="source/$pkg/coverage/lcov.info"
+            if [[ -f "$lcov" ]]; then
+              sed -E "s#^SF:(src/)#SF:source/$pkg/\1#" "$lcov" >> coverage/frontend-lcov.info
+            fi
+            junit="source/$pkg/test-results/junit.xml"
+            if [[ -f "$junit" ]]; then
+              cp "$junit" "coverage/frontend-$pkg-junit.xml"
+            fi
+          done
+
+      - name: Upload frontend coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-frontend
+          path: coverage/
+          retention-days: 1
+
   upload:
     name: Upload to Codecov
-    needs: [daemon-coverage, site-coverage]
+    needs: [daemon-coverage, site-coverage, frontend-coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Run even if one side failed so partial coverage still uploads —
@@ -140,7 +207,8 @@ jobs:
     if: |
       always() && (
         needs.daemon-coverage.result == 'success' ||
-        needs.site-coverage.result == 'success'
+        needs.site-coverage.result == 'success' ||
+        needs.frontend-coverage.result == 'success'
       )
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -164,6 +232,13 @@ jobs:
           name: coverage-site
           path: coverage/
 
+      - name: Download frontend coverage
+        if: needs.frontend-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-frontend
+          path: coverage/
+
       - name: Resolve present coverage files
         id: files
         run: |
@@ -172,8 +247,12 @@ jobs:
           JUNIT=""
           [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
           [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
+          [[ -f coverage/frontend-lcov.info ]] && LCOV="${LCOV}coverage/frontend-lcov.info,"
           [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
           [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
+          for f in coverage/frontend-*-junit.xml; do
+            [[ -f "$f" ]] && JUNIT="${JUNIT}${f},"
+          done
           echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
           echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
 

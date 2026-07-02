@@ -45,6 +45,9 @@ jobs:
       - name: Type check
         run: cd source && yarn turbo run type-check --filter=@wardnet/admin-app
 
+      - name: Test
+        run: cd source && yarn turbo run test --filter=@wardnet/admin-app
+
   build:
     name: Build admin-app bundle
     runs-on: ubuntu-latest

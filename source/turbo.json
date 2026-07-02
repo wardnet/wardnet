@@ -13,6 +13,10 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**", "test-results/**"]
+    },
     "build-storybook": {
       "dependsOn": ["^build"],
       "outputs": ["storybook-static/**"]

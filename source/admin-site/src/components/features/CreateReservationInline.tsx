@@ -6,7 +6,8 @@ import { Input } from "@wardnet/web";
 import { Ipv4Input } from "@/components/core/ui/ipv4-input";
 import { MacInput } from "@/components/core/ui/mac-input";
 import { ApiErrorAlert } from "@wardnet/web";
-import { useCreateReservation } from "@wardnet/web";
+import { useCreateReservation, suggestHostnameForMac } from "@wardnet/web";
+import type { Device } from "@wardnet/js";
 
 /** Optional pre-filled values for the reservation form. */
 export interface ReservationDefaults {
@@ -26,6 +27,10 @@ interface CreateReservationInlineProps {
    *  of the leases view. */
   onSuccess?: () => void;
   defaults?: ReservationDefaults;
+  /** Managed devices, used to auto-suggest a hostname from the MAC
+   *  (issue #85). Sourced from the parent's `useDevices()` — passed in
+   *  rather than fetched here so the component stays presentational. */
+  devices?: Device[];
 }
 
 /**
@@ -45,13 +50,54 @@ export function CreateReservationInline({
   onClose,
   onSuccess,
   defaults,
+  devices = [],
 }: CreateReservationInlineProps) {
   const createReservation = useCreateReservation();
 
+  // Auto-suggest a hostname from a matching managed device (issue #85).
+  // An explicit `defaults.hostname` (e.g. carried over from a lease on
+  // "Make static") is respected as-is; we only suggest into an empty
+  // field. The initial suggestion covers the read-only-MAC path, where
+  // the MAC is fixed on mount and its onChange never fires.
+  const initialSuggestion =
+    defaults?.hostname || !defaults?.mac
+      ? undefined
+      : suggestHostnameForMac(devices, defaults.mac);
+
   const [macAddress, setMacAddress] = useState(defaults?.mac ?? "");
   const [ipAddress, setIpAddress] = useState(defaults?.ip ?? "");
-  const [hostname, setHostname] = useState(defaults?.hostname ?? "");
+  const [hostname, setHostname] = useState(
+    defaults?.hostname ?? initialSuggestion ?? "",
+  );
   const [description, setDescription] = useState(defaults?.description ?? "");
+  // The hostname value currently owned by the auto-suggestion, or null
+  // once the user has taken over the field. Lets a later MAC change
+  // replace a still-suggested hostname while never clobbering a value
+  // the user typed themselves.
+  const [suggestedName, setSuggestedName] = useState<string | null>(
+    initialSuggestion ?? null,
+  );
+
+  function handleMacChange(next: string) {
+    setMacAddress(next);
+    // Only overwrite the hostname while it's empty or still holding the
+    // previous suggestion — never a value the user typed.
+    if (hostname === "" || hostname === suggestedName) {
+      const suggestion = suggestHostnameForMac(devices, next);
+      setHostname(suggestion ?? "");
+      setSuggestedName(suggestion ?? null);
+    }
+  }
+
+  function handleHostnameChange(next: string) {
+    setHostname(next);
+    // A manual edit takes ownership of the field (unless it happens to
+    // match the current suggestion, in which case the marker stays).
+    if (next !== suggestedName) setSuggestedName(null);
+  }
+
+  const hostnameIsSuggested =
+    suggestedName !== null && hostname === suggestedName;
 
   async function handleSave() {
     await createReservation.mutateAsync({
@@ -80,7 +126,7 @@ export function CreateReservationInline({
               id="res-mac"
               data-testid="dhcp-reservation-mac"
               value={macAddress}
-              onChange={setMacAddress}
+              onChange={handleMacChange}
               readOnly={macReadOnly}
             />
           </Field>
@@ -101,12 +147,15 @@ export function CreateReservationInline({
             label="Hostname (optional)"
             htmlFor="res-hostname"
             className="flex-1"
+            help={
+              hostnameIsSuggested ? "Suggested from device name" : undefined
+            }
           >
             <Input
               id="res-hostname"
               data-testid="dhcp-reservation-hostname"
               value={hostname}
-              onChange={(e) => setHostname(e.target.value)}
+              onChange={(e) => handleHostnameChange(e.target.value)}
               placeholder="my-printer"
             />
           </Field>
