@@ -23,7 +23,9 @@ interface RecentErrorsCardProps {
 /** Dashboard card showing the most recent warnings and errors. */
 export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
   return (
-    <Card>
+    // `dashboard-recent-errors` lets the visual-regression suite mask this
+    // card (#628): live error rows carry per-run timestamps and messages.
+    <Card data-testid="dashboard-recent-errors">
       <CardHeader>
         <CardTitle>Recent errors</CardTitle>
       </CardHeader>

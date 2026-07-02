@@ -41,6 +41,11 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
         page.getByTestId("stat-memory"),
         page.getByTestId("stat-disk"),
         page.getByTestId("stat-dhcp"),
+        // Below the stat grid but leaking into the viewport bottom: both
+        // stream live, per-run content (error rows with timestamps; the live
+        // log tail).
+        page.getByTestId("dashboard-recent-errors"),
+        page.getByTestId("dashboard-log-widget"),
       ],
     });
   });
