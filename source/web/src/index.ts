@@ -71,6 +71,19 @@ export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";
 export { RoutingSelector } from "./components/RoutingSelector";
+export { SubnetInput } from "./components/SubnetInput";
+
+// CIDR helpers
+export {
+  parseCidr,
+  buildCidr,
+  isValidCidr,
+  usableHosts,
+  prefixForHosts,
+  networkOctets,
+  octetsValid,
+} from "./lib/cidr";
+export type { ParsedCidr } from "./lib/cidr";
 
 // Hooks — auth
 export { useAuth } from "./hooks/useAuth";

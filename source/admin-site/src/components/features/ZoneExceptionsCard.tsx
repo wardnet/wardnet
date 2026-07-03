@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Trash2 } from "lucide-react";
+import { Plus as PlusIcon } from "lucide-react";
+import { Button } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
+import { Input } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
@@ -26,9 +29,12 @@ import {
 import type {
   ExceptionEndpoint,
   ExceptionEndpointKind,
+  PortSpec,
+  Proto,
   ServiceSpec,
   ZoneException,
 } from "@wardnet/js";
+import { SERVICE_OPTIONS, matchServiceLabel } from "@/lib/serviceBundles";
 
 /** Encode an endpoint as `kind:id` for the Select value. */
 function encodeEndpoint(kind: ExceptionEndpointKind, id: string): string {
@@ -40,8 +46,11 @@ function decodeEndpoint(value: string): ExceptionEndpoint {
 }
 
 function serviceLabel(service: ServiceSpec): string {
-  if (service.type === "preset") return "Casting";
-  const count = service.ports.length;
+  // Short pill label: match a known bundle (dropping the parenthetical), else
+  // a generic port count for a custom list.
+  const matched = matchServiceLabel(service);
+  if (matched) return matched.replace(/\s*\(.*\)$/, "");
+  const count = service.type === "ports" ? service.ports.length : 0;
   return `${count} port${count === 1 ? "" : "s"}`;
 }
 
@@ -214,18 +223,28 @@ function ExceptionForm({
 }: ExceptionFormProps) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [serviceId, setServiceId] = useState("casting");
+  const [customPorts, setCustomPorts] = useState<PortRow[]>([emptyPortRow()]);
 
-  const canSave = from && to && from !== to;
+  const validPorts = customPorts
+    .map(parsePortRow)
+    .filter((p): p is PortSpec => p !== null);
+  const customOk = serviceId !== "custom" || validPorts.length > 0;
+  const canSave = Boolean(from) && Boolean(to) && from !== to && customOk;
 
   function handleSubmit() {
     if (!canSave) return;
-    // Only the casting preset is offered here — it's the one intent this
-    // surface exists for. Custom port lists are a power-user concern the
-    // daemon still supports via the API.
+    const option = SERVICE_OPTIONS.find((o) => o.id === serviceId);
+    const service: ServiceSpec =
+      serviceId === "custom" || !option || option.spec === "custom"
+        ? { type: "ports", ports: validPorts }
+        : option.spec;
     onCreate({
       from: decodeEndpoint(from),
       to: decodeEndpoint(to),
-      service: { type: "preset", set: "casting" },
+      service,
+      // Cross-zone allowances are stateful (conntrack carries the return
+      // path); bidirectional matches the casting default and the common intent.
       bidirectional: true,
     });
   }
@@ -233,7 +252,7 @@ function ExceptionForm({
   return (
     <Card className="border-dashed">
       <CardHeader>
-        <CardTitle>Allow casting</CardTitle>
+        <CardTitle>Add exception</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <EndpointField
@@ -257,9 +276,33 @@ function ExceptionForm({
             Pick two different endpoints.
           </Text>
         )}
+
+        <Field label="Service" htmlFor="exception-service">
+          <Select value={serviceId} onValueChange={setServiceId}>
+            <SelectTrigger
+              id="exception-service"
+              data-testid="exception-service"
+              className="w-full sm:w-80"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SERVICE_OPTIONS.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        {serviceId === "custom" && (
+          <CustomPortsEditor rows={customPorts} onChange={setCustomPorts} />
+        )}
+
         <Text size="xs" className="text-ink-3">
-          Opens the casting ports (mDNS, DLNA, Chromecast, AirPlay) both ways
-          between the two endpoints.
+          Grants access for the selected service both ways between the two
+          endpoints.
         </Text>
       </CardContent>
       <FormActions
@@ -269,7 +312,7 @@ function ExceptionForm({
           onClick: onCancel,
           disabled: isSaving,
         }}
-        primaryLabel={isSaving ? "Saving…" : "Allow casting"}
+        primaryLabel={isSaving ? "Saving…" : "Add exception"}
         primaryProps={{
           type: "button",
           onClick: handleSubmit,
@@ -278,6 +321,110 @@ function ExceptionForm({
         }}
       />
     </Card>
+  );
+}
+
+interface PortRow {
+  proto: Proto;
+  from: string;
+  to: string;
+}
+
+function emptyPortRow(): PortRow {
+  return { proto: "tcp", from: "", to: "" };
+}
+
+/** Parse a UI row into a PortSpec, or null if incomplete/invalid. */
+function parsePortRow(row: PortRow): PortSpec | null {
+  const from = Number(row.from);
+  const to = row.to === "" ? from : Number(row.to);
+  if (row.from === "" || !Number.isInteger(from) || from < 0 || from > 65535) {
+    return null;
+  }
+  if (!Number.isInteger(to) || to < from || to > 65535) return null;
+  return { proto: row.proto, from, to };
+}
+
+interface CustomPortsEditorProps {
+  rows: PortRow[];
+  onChange: (rows: PortRow[]) => void;
+}
+
+/** Repeatable proto + port-range rows for a custom service. */
+function CustomPortsEditor({ rows, onChange }: CustomPortsEditorProps) {
+  function update(i: number, patch: Partial<PortRow>) {
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <Text size="2xs" className="uppercase tracking-wide text-ink-3">
+        Ports
+      </Text>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Select
+            value={row.proto}
+            onValueChange={(v) => update(i, { proto: v as Proto })}
+          >
+            <SelectTrigger
+              className="w-24"
+              aria-label={`Protocol for port row ${i + 1}`}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tcp">TCP</SelectItem>
+              <SelectItem value="udp">UDP</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            aria-label={`From port row ${i + 1}`}
+            data-testid={`exception-port-from-${i}`}
+            inputMode="numeric"
+            className="w-24"
+            placeholder="from"
+            value={row.from}
+            onChange={(e) =>
+              update(i, { from: e.target.value.replace(/\D/g, "") })
+            }
+          />
+          <span className="text-ink-3">–</span>
+          <Input
+            aria-label={`To port row ${i + 1}`}
+            data-testid={`exception-port-to-${i}`}
+            inputMode="numeric"
+            className="w-24"
+            placeholder="to"
+            value={row.to}
+            onChange={(e) =>
+              update(i, { to: e.target.value.replace(/\D/g, "") })
+            }
+          />
+          {rows.length > 1 && (
+            <button
+              type="button"
+              aria-label={`Remove port row ${i + 1}`}
+              data-testid={`exception-port-remove-${i}`}
+              onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
+              className="text-ink-3 hover:text-danger"
+            >
+              <Trash2 aria-hidden className="size-4" />
+            </button>
+          )}
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        type="button"
+        data-testid="exception-port-add"
+        onClick={() => onChange([...rows, emptyPortRow()])}
+        className="self-start"
+      >
+        <PlusIcon aria-hidden className="mr-1 size-3.5" />
+        Add port
+      </Button>
+    </div>
   );
 }
 

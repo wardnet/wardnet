@@ -133,9 +133,17 @@ describe("ZonesCard", () => {
 
     // Drop tunnel so only direct remains; flip the two boolean toggles.
     await user.click(screen.getByLabelText("Allow tunnel routing"));
-    await user.click(screen.getByLabelText("Member isolation"));
     await user.click(screen.getByLabelText("Admin UI reachable"));
-    await user.type(screen.getByTestId("zone-subnet"), "10.44.0.0/24");
+    // Set the subnet (10.44.0.0/24 via advanced mode) — member isolation is
+    // gated on a subnet, so this must come first.
+    await user.type(screen.getByTestId("zone-subnet-octet-0"), "10");
+    await user.type(screen.getByTestId("zone-subnet-octet-1"), "44");
+    await user.type(screen.getByTestId("zone-subnet-octet-2"), "0");
+    await user.type(screen.getByTestId("zone-subnet-octet-3"), "0");
+    await user.click(screen.getByTestId("zone-subnet-mode-advanced"));
+    await user.clear(screen.getByTestId("zone-subnet-prefix"));
+    await user.type(screen.getByTestId("zone-subnet-prefix"), "24");
+    await user.click(screen.getByLabelText("Member isolation"));
 
     await user.click(screen.getByTestId("zone-submit"));
     expect(createMutate).toHaveBeenCalledWith(
@@ -162,6 +170,19 @@ describe("ZonesCard", () => {
       screen.getByText(/Allow at least one routing target/i),
     ).toBeInTheDocument();
     expect(screen.getByTestId("zone-submit")).toBeDisabled();
+  });
+
+  it("gates member isolation on a zone subnet", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getByTestId("zone-add"));
+    // No subnet yet → the toggle is disabled.
+    expect(screen.getByLabelText("Member isolation")).toBeDisabled();
+    await user.type(screen.getByTestId("zone-subnet-octet-0"), "10");
+    await user.type(screen.getByTestId("zone-subnet-octet-1"), "44");
+    await user.type(screen.getByTestId("zone-subnet-octet-2"), "0");
+    await user.type(screen.getByTestId("zone-subnet-octet-3"), "0");
+    expect(screen.getByLabelText("Member isolation")).toBeEnabled();
   });
 
   it("edits an existing zone via the row menu", async () => {

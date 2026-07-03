@@ -108,14 +108,14 @@ describe("ZoneExceptionsCard", () => {
     expect(screen.getByText("↔")).toBeInTheDocument();
   });
 
-  it("shows the empty state and opens the casting form", async () => {
+  it("shows the empty state and opens the add-exception form", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ZoneExceptionsCard />);
     expect(
       screen.getByText(/No cross-zone exceptions yet/i),
     ).toBeInTheDocument();
     await user.click(screen.getByTestId("exception-add"));
-    expect(screen.getByText(/Opens the casting ports/i)).toBeInTheDocument();
+    expect(screen.getByTestId("exception-service")).toBeInTheDocument();
     // Submit is disabled until two distinct endpoints are picked.
     expect(screen.getByTestId("exception-submit")).toBeDisabled();
   });
@@ -170,6 +170,80 @@ describe("ZoneExceptionsCard", () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+  });
+
+  it("creates an exception for a curated service bundle (SSH)", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(screen.getByTestId("exception-service"));
+    await user.click(await screen.findByRole("option", { name: "SSH" }));
+    await user.click(screen.getByTestId("exception-submit"));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: { type: "ports", ports: [{ proto: "tcp", from: 22, to: 22 }] },
+        bidirectional: true,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("creates a custom-ports exception", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(screen.getByTestId("exception-service"));
+    await user.click(
+      await screen.findByRole("option", { name: "Custom ports…" }),
+    );
+    // Submit stays disabled until a valid port is entered.
+    expect(screen.getByTestId("exception-submit")).toBeDisabled();
+    await user.type(screen.getByTestId("exception-port-from-0"), "8080");
+    await user.click(screen.getByTestId("exception-submit"));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: {
+          type: "ports",
+          ports: [{ proto: "tcp", from: 8080, to: 8080 }],
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("labels a known service bundle by name in the list", () => {
+    setup({
+      exceptions: [
+        {
+          ...casting,
+          id: "e3",
+          service: {
+            type: "ports",
+            ports: [{ proto: "tcp", from: 22, to: 22 }],
+          },
+        },
+      ],
+    });
+    renderWithProviders(<ZoneExceptionsCard />);
+    expect(screen.getByText("SSH")).toBeInTheDocument();
   });
 
   it("rejects picking the same endpoint for both sides", async () => {

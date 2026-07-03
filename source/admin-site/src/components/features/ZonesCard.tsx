@@ -9,6 +9,7 @@ import { Input } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { SubnetInput } from "@wardnet/web";
 import {
   Select,
   SelectContent,
@@ -78,12 +79,20 @@ export function ZonesCard() {
             <Text as="span" size="sm" className="font-medium">
               {row.original.name}
             </Text>
-            {row.original.is_default && <Pill variant="ghost">Home</Pill>}
+            {row.original.is_default && (
+              <span title="The home zone — your main trusted network. Full trust, exactly one, can't be deleted.">
+                <Pill variant="ghost">Home</Pill>
+              </span>
+            )}
             {row.original.is_default_for_new && (
-              <Pill variant="ghost">New devices</Pill>
+              <span title="Newly-discovered devices land here until an admin moves them.">
+                <Pill variant="ghost">New devices</Pill>
+              </span>
             )}
             {row.original.provenance === "system" && (
-              <Pill variant="ghost">System</Pill>
+              <span title="Built-in zone seeded by Wardnet — can't be deleted (unlike zones you create).">
+                <Pill variant="ghost">System</Pill>
+              </span>
             )}
           </span>
         ),
@@ -95,7 +104,9 @@ export function ZonesCard() {
         cell: ({ row }) => (
           <Text as="span" size="sm">
             {STANCE_LABEL[row.original.isolation_stance]}
-            {row.original.member_isolation ? " · members" : ""}
+            {row.original.member_isolation && row.original.subnet
+              ? " · members"
+              : ""}
           </Text>
         ),
       },
@@ -277,6 +288,9 @@ function ZoneForm({
 
   // At least one routing target must be allowed (the daemon rejects empty).
   const noTarget = !allowDirect && !allowTunnel;
+  // Member isolation only has any effect once the zone owns a subnet, so the
+  // toggle is gated on one being set (see the isolation model in CONTEXT.md).
+  const hasSubnet = subnet.trim().length > 0;
 
   function handleSave(values: { name: string }) {
     const allowed_targets: AllowedTargetKind[] = [];
@@ -289,7 +303,8 @@ function ZoneForm({
       name: values.name.trim(),
       isolation_stance: stance,
       allowed_targets,
-      member_isolation: memberIsolation,
+      // Never persist an inert member-isolation flag on a subnet-less zone.
+      member_isolation: trimmedSubnet ? memberIsolation : false,
       admin_ui_reachable: adminUiReachable,
       subnet: trimmedSubnet ? { cidr: trimmedSubnet } : null,
     };
@@ -380,16 +395,13 @@ function ZoneForm({
           </Field>
 
           <Field
-            label="Zone subnet (CIDR)"
-            htmlFor="zone-subnet"
+            label="Zone subnet"
             help="Optional. Gives the zone its own address space for cross-subnet isolation. Requires Wardnet to be the DHCP server; recorded but inactive otherwise."
           >
-            <Input
-              id="zone-subnet"
-              data-testid="zone-subnet"
+            <SubnetInput
               value={subnet}
-              onChange={(e) => setSubnet(e.target.value)}
-              placeholder="10.44.0.0/24"
+              onChange={setSubnet}
+              testId="zone-subnet"
             />
           </Field>
 
@@ -397,12 +409,15 @@ function ZoneForm({
             <span className="flex flex-col">
               <Text size="sm">Member isolation</Text>
               <Text size="xs" className="text-ink-3">
-                Isolate same-zone peers. Needs a zone subnet + DHCP-mode.
+                {hasSubnet
+                  ? "Isolate same-zone peers from each other (requires Wardnet DHCP)."
+                  : "Set a zone subnet above to enable — has no effect without one."}
               </Text>
             </span>
             <Toggle
               aria-label="Member isolation"
-              checked={memberIsolation}
+              checked={hasSubnet && memberIsolation}
+              disabled={!hasSubnet}
               onCheckedChange={setMemberIsolation}
             />
           </label>
