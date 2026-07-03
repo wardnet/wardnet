@@ -5,7 +5,7 @@
 //!    tag list, a spot-check of paths, and the empty-security marker on
 //!    unauthenticated endpoints).
 //! 2. Router-level checks that `/api/openapi.json`, `/api/docs`, and
-//!    `/api/docs/logo.png` are registered and admin-gated.
+//!    `/api/docs/logo.svg` are registered and admin-gated.
 //!
 //! The shape assertions are the important ones — they protect against
 //! silent drift in the annotations (e.g. someone adds a new endpoint but
@@ -191,13 +191,13 @@ fn scalar_html_wires_runtime_config() {
     // parser.
     for needle in [
         "/api/openapi.json",
-        "/api/docs/logo.png",
+        "/api/docs/logo.svg",
         "/api/docs/scalar.js",
         "/favicon-32.png",
         "agent: { disabled: true }",
         "mcp: { disabled: true }",
         "showDeveloperTools: 'never'",
-        "wardnet-brand",
+        "wardnet-nav",
         "hideDarkModeToggle: true",
         "Scalar.createApiReference",
     ] {
@@ -234,18 +234,17 @@ async fn scalar_js_rejects_unauthenticated_callers() {
 }
 
 #[test]
-fn scalar_logo_png_is_non_empty_and_has_png_magic() {
-    let bytes = crate::openapi::LOGO_PNG;
+fn scalar_logo_svg_is_non_empty_and_looks_like_svg() {
+    let bytes = crate::openapi::LOGO_SVG;
     assert!(
-        bytes.len() > 1024,
-        "logo bundle looks truncated: {} bytes",
+        bytes.len() > 512,
+        "vendored logo SVG looks truncated: {} bytes",
         bytes.len()
     );
-    // PNG signature is 89 50 4E 47 0D 0A 1A 0A.
-    assert_eq!(
-        &bytes[..8],
-        &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
-        "logo bytes don't start with the PNG magic signature"
+    let text = std::str::from_utf8(bytes).expect("logo SVG should be valid UTF-8");
+    assert!(
+        text.contains("<svg"),
+        "logo doesn't contain an <svg> element"
     );
 }
 
@@ -282,7 +281,7 @@ async fn scalar_docs_page_rejects_unauthenticated_callers() {
 #[tokio::test]
 async fn scalar_logo_rejects_unauthenticated_callers() {
     assert_eq!(
-        unauth_status("/api/docs/logo.png").await,
+        unauth_status("/api/docs/logo.svg").await,
         StatusCode::UNAUTHORIZED
     );
 }

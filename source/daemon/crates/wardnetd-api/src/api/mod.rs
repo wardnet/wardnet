@@ -173,7 +173,7 @@ pub fn router(state: AppState) -> Router {
 
     // Scalar UI: a hand-rolled HTML shell with our palette applied to Scalar's
     // sidebar CSS variables. The spec is fetched from `/api/openapi.json` and
-    // the brand logo from `/api/docs/logo.png` at runtime — all three endpoints
+    // the brand logo from `/api/docs/logo.svg` at runtime — all three endpoints
     // share the same admin-gating extractor.
     let api_router = api_router
         .route(
@@ -183,11 +183,22 @@ pub fn router(state: AppState) -> Router {
             }),
         )
         .route(
-            "/api/docs/logo.png",
+            "/api/docs/logo.svg",
             get(|_: middleware::AdminAuth| async {
+                // Unlike the PNG it replaced, SVG is an active document type:
+                // scripts inside it would run in the admin origin if the URL
+                // is opened directly. The asset is vendored and reviewed, but
+                // the CSP neuters any script/fetch a future re-vendor might
+                // smuggle in (it doesn't affect <img> usage in the docs page).
                 (
-                    [(axum::http::header::CONTENT_TYPE, "image/png")],
-                    crate::openapi::LOGO_PNG,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "image/svg+xml"),
+                        (
+                            axum::http::header::CONTENT_SECURITY_POLICY,
+                            "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+                        ),
+                    ],
+                    crate::openapi::LOGO_SVG,
                 )
             }),
         )
