@@ -1848,7 +1848,7 @@ pub(crate) fn build_forwarding_resolver(config: &DnsConfig) -> TokioResolver {
 }
 
 /// How often the background prober measures each upstream's latency.
-const LATENCY_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const LATENCY_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 /// Per-upstream probe deadline; a probe that doesn't answer in time counts as
 /// a miss for that round (see `LATENCY_UNREACHABLE_STREAK`).
 const LATENCY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -1980,7 +1980,7 @@ async fn latency_probe_round(
 /// on a miss (timeout, error, or a non-IP address we can't probe). This is the
 /// network-touching half of a round; the pure folding lives in
 /// [`fold_probe_outcomes`].
-async fn probe_upstreams(
+pub(crate) async fn probe_upstreams(
     upstreams: &[UpstreamDns],
     dnssec: bool,
     resolvers: &mut HashMap<String, Arc<TokioResolver>>,

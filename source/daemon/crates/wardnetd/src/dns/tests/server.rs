@@ -32,9 +32,10 @@ use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
-    TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver, duration_to_ms,
-    effective_upstreams, fold_probe_outcomes, forwarder_ordering, get_or_build_tunnel_forwarder,
-    resolve_via_recursor, spawn_cache_invalidator, upstream_label,
+    LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
+    duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
+    get_or_build_tunnel_forwarder, probe_upstreams, resolve_via_recursor, spawn_cache_invalidator,
+    spawn_upstream_latency_prober, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -2651,4 +2652,121 @@ fn fold_probe_missing_upstream_with_no_prior_sample_has_no_latency() {
         l.reachable,
         "one miss alone is still within the debounce window"
     );
+}
+
+// ---------------------------------------------------------------------------
+// probe_upstreams + spawn_upstream_latency_prober — the network/async half.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn probe_upstreams_non_ip_is_miss_and_builds_no_resolver() {
+    // A non-IP address can't be probed (build_resolver needs an IP literal),
+    // so it's reported as a miss and no resolver is cached for it.
+    let mut resolvers = std::collections::HashMap::new();
+    let ups = vec![UpstreamDns {
+        address: "dns.example.com".to_owned(),
+        name: "hostname".to_owned(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }];
+    let out = probe_upstreams(&ups, false, &mut resolvers).await;
+    assert_eq!(out, vec![("dns.example.com".to_owned(), None)]);
+    assert!(
+        resolvers.is_empty(),
+        "no resolver built for a non-IP upstream"
+    );
+}
+
+#[tokio::test]
+async fn probe_upstreams_unreachable_ip_is_miss_and_caches_resolver() {
+    // 127.0.0.1:53 has no DNS server in the test env, so the probe misses —
+    // but a resolver is still built and cached for reuse.
+    let mut resolvers = std::collections::HashMap::new();
+    let ups = vec![named_udp_upstream("127.0.0.1", "loopback")];
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        probe_upstreams(&ups, false, &mut resolvers),
+    )
+    .await
+    .expect("probe_upstreams returns within its own timeout");
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].0, "127.0.0.1");
+    assert_eq!(out[0].1, None, "no DNS server on loopback:53 -> miss");
+    assert_eq!(resolvers.len(), 1, "resolver cached for the IP upstream");
+}
+
+#[tokio::test(start_paused = true)]
+async fn prober_inactive_clears_snapshot_and_sends_no_probe() {
+    // DNS disabled -> the forwarding path isn't serving, so the prober must
+    // publish an empty snapshot and emit no probe traffic.
+    let config = Arc::new(RwLock::new(DnsConfig {
+        enabled: false,
+        resolution_mode: DnsResolutionMode::Forwarding,
+        upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
+        ..DnsConfig::default()
+    }));
+    let snapshot = Arc::new(ArcSwap::from_pointee(vec![
+        wardnet_common::dns::UpstreamLatency {
+            address: "stale".to_owned(),
+            avg_latency_ms: Some(9.0),
+            reachable: true,
+        },
+    ]));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+
+    // Let the spawned task register its interval timer before advancing, then
+    // step time forward until the (deferred) first tick fires and the gating
+    // branch clears the snapshot. No network is touched on this path.
+    tokio::task::yield_now().await;
+    let mut cleared = false;
+    for _ in 0..60 {
+        tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
+        tokio::task::yield_now().await;
+        if snapshot.load().is_empty() {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(cleared, "an inactive prober clears the snapshot");
+    cancel.cancel();
+}
+
+#[tokio::test(start_paused = true)]
+async fn prober_active_publishes_snapshot_for_each_upstream() {
+    // Active forwarding path: the prober probes each upstream and publishes a
+    // per-upstream snapshot. The loopback upstream has no server, so it's an
+    // (eventually) reachable=true single-miss entry with no latency yet.
+    let config = Arc::new(RwLock::new(DnsConfig {
+        enabled: true,
+        resolution_mode: DnsResolutionMode::Forwarding,
+        upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
+        ..DnsConfig::default()
+    }));
+    let snapshot: Arc<ArcSwap<Vec<wardnet_common::dns::UpstreamLatency>>> =
+        Arc::new(ArcSwap::from_pointee(Vec::new()));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+
+    tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
+    // Let the probe round run; advance past the per-probe timeout so any
+    // timer-based waits inside the lookup resolve to a miss.
+    let mut populated = false;
+    for _ in 0..40 {
+        tokio::task::yield_now().await;
+        if !snapshot.load().is_empty() {
+            populated = true;
+            break;
+        }
+        tokio::time::advance(std::time::Duration::from_secs(3)).await;
+    }
+    assert!(
+        populated,
+        "active prober publishes a snapshot after the first tick"
+    );
+    let snap = snapshot.load();
+    assert_eq!(snap.len(), 1);
+    assert_eq!(snap[0].address, "127.0.0.1");
+    cancel.cancel();
 }

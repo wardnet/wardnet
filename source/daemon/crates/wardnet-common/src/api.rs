@@ -953,7 +953,7 @@ pub struct DnsConfigResponse {
 }
 
 /// Request body for PUT /api/dns/config.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDnsConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution_mode: Option<DnsResolutionMode>,
