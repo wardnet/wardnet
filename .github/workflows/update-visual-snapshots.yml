@@ -25,11 +25,11 @@ name: Update Visual Snapshots
 on:
   workflow_dispatch:
 
+# Workflow-level permissions stay read-only. The single job elevates to the
+# writes it actually needs via its own `permissions:` block — keeps
+# Scorecard's Token-Permissions check from flagging a top-level write.
 permissions:
-  # Commit the regenerated baselines back to the branch.
-  contents: write
-  # `make build-web` pulls @wardnet/{ui,styles,brand} from GitHub Packages.
-  packages: read
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,6 +39,12 @@ jobs:
   update-snapshots:
     name: Regenerate visual baselines
     runs-on: ubuntu-latest
+    permissions:
+      # `contents: write` scoped to this job — commits the regenerated
+      # baselines back to the branch (`git push` in the final step).
+      contents: write
+      # `make build-web` pulls @wardnet/{ui,styles,brand} from GitHub Packages.
+      packages: read
     # Matches the e2e-ui job: a real-asset wardnetd-ui image is compiled in
     # Docker (~7-10 min cold) before the Playwright run.
     timeout-minutes: 40
