@@ -240,7 +240,9 @@ export type {
 export type {
   DnsProtocol,
   DnsResolutionMode,
+  ForwarderSelectionMode,
   UpstreamDns,
+  UpstreamLatency,
   DnsConfig,
   DnsConfigResponse,
   UpdateDnsConfigRequest,
