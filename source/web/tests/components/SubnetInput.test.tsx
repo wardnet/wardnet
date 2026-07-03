@@ -39,6 +39,18 @@ describe("SubnetInput", () => {
     expect(screen.getByTestId("subnet-cidr")).toHaveTextContent("62 usable");
   });
 
+  it("resolves once the network octets are filled (host octet stays locked)", async () => {
+    const user = userEvent.setup();
+    render(<SubnetInput value="" onChange={onChange} />);
+    const octets = baseOctets();
+    // Only the first three octets are editable at /24; the 4th is locked to 0.
+    await user.type(octets[0], "10");
+    await user.type(octets[1], "44");
+    await user.type(octets[2], "0");
+    expect(onChange).toHaveBeenLastCalledWith("10.44.0.0/24");
+    expect(screen.getByTestId("subnet-cidr")).toHaveTextContent("10.44.0.0/24");
+  });
+
   it("locks the host octet to 0 for a /24", () => {
     render(<SubnetInput value="10.44.0.0/24" onChange={onChange} />);
     const octets = baseOctets();

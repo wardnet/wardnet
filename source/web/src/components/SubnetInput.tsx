@@ -47,18 +47,34 @@ interface SubnetInputProps {
 
 type Mode = "simple" | "advanced";
 
-function ipToNumericOctets(
-  ip: string,
-): [number, number, number, number] | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  const nums = parts.map((p) => (p === "" ? NaN : Number(p)));
-  return octetsValid(nums) ? (nums as [number, number, number, number]) : null;
-}
-
 /** How many trailing octets are entirely host bits for a given prefix. */
 function fullHostOctets(prefix: number): number {
   return Math.floor((32 - prefix) / 8);
+}
+
+/**
+ * Resolve the network octets for a base address + prefix. The host octets are
+ * locked to `0` in the UI (the prefix decides them), so only the *network*
+ * octets need to be filled — the rest default to `0`. Returns null while a
+ * network octet is still missing or invalid.
+ */
+function resolveOctets(
+  ip: string,
+  prefix: number,
+): [number, number, number, number] | null {
+  const parts = ip.split(".");
+  const networkCount = 4 - fullHostOctets(prefix);
+  const out: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    if (i >= networkCount) {
+      out.push(0);
+      continue;
+    }
+    const raw = parts[i];
+    if (raw === undefined || raw === "") return null;
+    out.push(Number(raw));
+  }
+  return octetsValid(out) ? (out as [number, number, number, number]) : null;
 }
 
 /**
@@ -79,12 +95,12 @@ export function SubnetInput({ value, onChange, id, testId }: SubnetInputProps) {
   const [prefix, setPrefix] = useState<number>(parsed ? parsed.prefix : 24);
 
   const t = testId ?? "subnet";
-  const octets = ipToNumericOctets(baseIp);
+  const octets = resolveOctets(baseIp, prefix);
   const resolved = octets ? buildCidr(octets, prefix) : "";
   const isPrivate = resolved !== "" && isPrivateCidr(resolved);
 
   function emit(ip: string, nextPrefix: number) {
-    const n = ipToNumericOctets(ip);
+    const n = resolveOctets(ip, nextPrefix);
     const cidr = n ? buildCidr(n, nextPrefix) : "";
     onChange(cidr && isPrivateCidr(cidr) ? cidr : "");
   }
