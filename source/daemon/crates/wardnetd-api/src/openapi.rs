@@ -69,11 +69,15 @@ pub struct ApiDoc;
 /// the scheme name in their `security(...)` block.
 struct SecurityAddon;
 
-/// Wardnet logo served from `/api/docs/logo.png` and referenced by Scalar's
-/// `logoUrl` config so the docs page shows the brand mark at the top of the
-/// sidebar. Shared with the web UI — `include_bytes!` pulls the single
-/// canonical copy so the daemon rebuilds whenever the asset changes.
-pub const LOGO_PNG: &[u8] = include_bytes!("../../../../admin-site/src/assets/logo.png");
+/// Wardnet logo lockup (mark + WARDNET wordmark, dark-surface variant) served
+/// from `/api/docs/logo.svg` and injected at the top of Scalar's sidebar.
+/// Vendored from the design system's `@wardnet/brand` package
+/// (`assets/dist/wardnet-logo-dark.svg`) — the same lockup the admin web UI
+/// renders via `<Logo variant="dark" />`. Current pin: `@wardnet/brand@0.1.0`;
+/// refresh by re-copying that file from the published package (`npm pack
+/// @wardnet/brand` → `package/assets/dist/wardnet-logo-dark.svg`) when the
+/// brand assets change.
+pub const LOGO_SVG: &[u8] = include_bytes!("../assets/wardnet-logo-dark.svg");
 
 /// Vendored `@scalar/api-reference` standalone bundle, served from
 /// `/api/docs/scalar.js`. Embedding the bundle (instead of loading from a
@@ -111,49 +115,75 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Wardnet API</title>
   <style>
+    /* Wardnet design-system tokens (@wardnet/styles — packages/styles/styles.css).
+       These are the exact brand values, not approximations. The sidebar uses
+       the DS "chrome on dark surfaces" palette (the Ink sidebar), so the
+       values below are the light-theme --side-* tokens plus the Emerald
+       accent. Kept in lockstep with wardnet-cloud's api-docs-site.
+       Current pin: @wardnet/styles@0.1.0; refresh by re-copying the --side-*
+       values from that package's styles.css when the tokens change. */
+    :root {
+      --wn-side-bg: #11152b; /* --side-bg (Ink) */
+      --wn-side-line: #2a3155; /* --side-line */
+      --wn-side-ink: #c9cce0; /* --side-ink */
+      --wn-side-ink-2: #7e859b; /* --side-ink-2 (Mist, dark) */
+      --wn-side-ink-active: #ffffff; /* --side-ink-active */
+      --wn-side-active-bg: #1b2140; /* --side-active-bg (Ink 2) */
+      --wn-accent: #12b981; /* --accent (Wardnet Emerald) */
+    }
+    /* Dark-theme --side-* set from the same styles.css ([data-theme="dark"]
+       block; the omitted tokens keep their light-theme values there too).
+       Scalar stamps .dark-mode on its app root from the system preference,
+       so scoping the overrides there keeps the docs sidebar matched to the
+       admin app's sidebar in both themes. */
+    .dark-mode {
+      --wn-side-bg: #080b16;
+      --wn-side-line: #1c2444;
+      --wn-side-ink: #b6bbcf;
+    }
     /* Modern Scalar attaches the sidebar CSS vars to its `.dark-mode`
        / `.light-mode` scope on the app root, not to a nested `.sidebar`
        container. Targeting the same scope lets us override at equal
        specificity without needing `!important`. */
     .dark-mode,
     .light-mode {
-      --scalar-sidebar-background-1: oklch(0.2 0.1 275);
-      --scalar-sidebar-color-1: oklch(0.9 0.01 240);
-      --scalar-sidebar-color-2: oklch(0.9 0.01 240 / 0.55);
-      --scalar-sidebar-color-active: oklch(0.72 0.16 145);
-      --scalar-sidebar-item-hover-background: oklch(0.26 0.1 275);
-      --scalar-sidebar-item-hover-color: oklch(0.95 0.005 240);
-      --scalar-sidebar-item-active-background: oklch(0.26 0.1 275);
-      --scalar-sidebar-border-color: oklch(1 0 0 / 10%);
-      --scalar-sidebar-search-background: oklch(0.26 0.1 275);
-      --scalar-sidebar-search-border-color: oklch(1 0 0 / 10%);
-      --scalar-sidebar-search-color: oklch(0.9 0.01 240);
+      --scalar-sidebar-background-1: var(--wn-side-bg);
+      --scalar-sidebar-color-1: var(--wn-side-ink);
+      --scalar-sidebar-color-2: var(--wn-side-ink-2);
+      --scalar-sidebar-color-active: var(--wn-accent);
+      --scalar-sidebar-item-hover-background: var(--wn-side-active-bg);
+      --scalar-sidebar-item-hover-color: var(--wn-side-ink-active);
+      --scalar-sidebar-item-active-background: var(--wn-side-active-bg);
+      --scalar-sidebar-border-color: var(--wn-side-line);
+      --scalar-sidebar-search-background: var(--wn-side-active-bg);
+      --scalar-sidebar-search-border-color: var(--wn-side-line);
+      --scalar-sidebar-search-color: var(--wn-side-ink);
     }
-    /* Custom brand mark prepended into Scalar's sidebar by the script below.
+    /* Brand block prepended into Scalar's sidebar by the script below.
        Scalar doesn't ship a top-of-sidebar logo config yet
        (github.com/scalar/scalar/discussions/914); DOM injection is the
-       documented workaround. The container matches the sidebar palette
-       and spacing so the logo feels native. */
-    /* Mirror the admin web UI sidebar header exactly:
-       container `p-4` + `gap-2.5`; logo 28px; title `text-lg` bold
-       `tracking-tight`, color `--primary` (green). Kept in lockstep so the
-       docs page feels like a continuation of the admin app. */
-    .wardnet-brand {
+       documented workaround. Mirrors wardnet-cloud's api-docs-site nav
+       (logo lockup + subtitle) minus its service/version pickers, which
+       don't apply to the single self-hosted daemon spec. */
+    .wardnet-nav {
       display: flex;
-      align-items: center;
-      gap: 0.625rem;
-      padding: 1rem;
+      flex-direction: column;
+      gap: 0.85rem;
+      padding: 1rem 0.75rem 0.875rem;
+      border-bottom: 1px solid var(--wn-side-line);
     }
-    .wardnet-brand img {
-      width: 28px;
-      height: 28px;
-      border-radius: 0.375rem;
+    .wardnet-logo {
+      width: 132px;
+      height: auto;
+      display: block;
     }
-    .wardnet-brand span {
-      font-size: 1.125rem;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      color: oklch(0.72 0.16 145);
+    .wardnet-subtitle {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--wn-side-ink-2);
+      margin-top: -0.2rem;
     }
   </style>
 </head>
@@ -166,12 +196,8 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
     // attribute can't round-trip cleanly. The Ask-AI composer is disabled
     // because Wardnet is a privacy tool and we don't want to ship an LLM
     // widget in our own docs. `/favicon-32.png` is the same file the admin
-    // SPA uses, served by the daemon's rust-embed static handler.
-    //
-    // `logoUrl` is a per-source property in modern Scalar (not top-level),
-    // so the brand logo lives inside the `sources` entry rather than on the
-    // config root. The standalone bundle exposes the factory under
-    // `window.Scalar`.
+    // SPA uses, served by the daemon's rust-embed static handler. The
+    // standalone bundle exposes the factory under `window.Scalar`.
     Scalar.createApiReference('#wardnet-api-docs', {
       url: '/api/openapi.json',
       favicon: '/favicon-32.png',
@@ -182,7 +208,7 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
       hideClientButton: true,
     });
 
-    // Inject the Wardnet brand mark at the top of Scalar's sidebar. The
+    // Inject the Wardnet brand block at the top of Scalar's sidebar. The
     // top-of-sidebar logo isn't a config knob upstream
     // (see github.com/scalar/scalar/discussions/914 — PR #4215 tracks it),
     // so we watch for the sidebar element to mount and prepend our own node.
@@ -193,12 +219,13 @@ pub const SCALAR_HTML: &str = r#"<!doctype html>
       // children like the search placeholder and inject in the wrong place).
       const observer = new MutationObserver(() => {
         const sidebar = document.querySelector('.t-doc__sidebar');
-        if (!sidebar || sidebar.querySelector('.wardnet-brand')) return;
-        const brand = document.createElement('div');
-        brand.className = 'wardnet-brand';
-        brand.innerHTML =
-          '<img src="/api/docs/logo.png" alt="" /><span>Wardnet</span>';
-        sidebar.prepend(brand);
+        if (!sidebar || sidebar.querySelector('.wardnet-nav')) return;
+        const nav = document.createElement('div');
+        nav.className = 'wardnet-nav';
+        nav.innerHTML =
+          '<img class="wardnet-logo" src="/api/docs/logo.svg" alt="Wardnet" />' +
+          '<div class="wardnet-subtitle">API Reference</div>';
+        sidebar.prepend(nav);
         observer.disconnect();
       });
       observer.observe(document.body, { childList: true, subtree: true });
