@@ -2680,10 +2680,12 @@ async fn probe_upstreams_non_ip_is_miss_and_builds_no_resolver() {
 
 #[tokio::test]
 async fn probe_upstreams_unreachable_ip_is_miss_and_caches_resolver() {
-    // 127.0.0.1:53 has no DNS server in the test env, so the probe misses —
-    // but a resolver is still built and cached for reuse.
+    // 192.0.2.1 is TEST-NET-1 (RFC 5737): reserved and non-routable, so no
+    // DNS server can ever answer — the probe deterministically misses (unlike
+    // loopback:53, which CI runners answer via systemd-resolved). A resolver
+    // is still built and cached for reuse.
     let mut resolvers = std::collections::HashMap::new();
-    let ups = vec![named_udp_upstream("127.0.0.1", "loopback")];
+    let ups = vec![named_udp_upstream("192.0.2.1", "test-net")];
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         probe_upstreams(&ups, false, &mut resolvers),
@@ -2691,8 +2693,8 @@ async fn probe_upstreams_unreachable_ip_is_miss_and_caches_resolver() {
     .await
     .expect("probe_upstreams returns within its own timeout");
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0].0, "127.0.0.1");
-    assert_eq!(out[0].1, None, "no DNS server on loopback:53 -> miss");
+    assert_eq!(out[0].0, "192.0.2.1");
+    assert_eq!(out[0].1, None, "non-routable upstream -> miss");
     assert_eq!(resolvers.len(), 1, "resolver cached for the IP upstream");
 }
 
