@@ -354,11 +354,11 @@ function ZoneForm({
             </Select>
           </Field>
 
-          <Field
-            label="Allowed routing"
-            help="Which routing targets a device in this zone may pick. At least one is required."
-            className="md:col-span-2"
-          >
+          <Field label="Allowed routing" className="md:col-span-2">
+            <Text size="xs" className="mb-2 text-ink-3">
+              Which routing targets a device in this zone may pick. At least one
+              is required.
+            </Text>
             <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
               <label className="flex h-9 items-center justify-between">
                 <Text size="sm" className="text-ink-3">
