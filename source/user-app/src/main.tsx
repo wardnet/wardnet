@@ -20,7 +20,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-registerSW({ swPath: "/sw.js" });
+// `immediate` auto-updates the precached shell after a daemon upgrade so clients
+// aren't stranded on a stale build (see `RegisterSWOptions.immediate`).
+registerSW({ swPath: "/sw.js", immediate: true });
 
 const queryClient = new QueryClient({
   defaultOptions: {

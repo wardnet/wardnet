@@ -4,6 +4,7 @@ import {
   STORAGE_STATE,
   UI_BASE_URL,
   UI_FRESH_BASE_URL,
+  UI_HTTP_BASE_URL,
   UI_LAN_BASE_URL,
 } from "./fixtures/seed.js";
 
@@ -149,6 +150,20 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         baseURL: `${UI_FRESH_BASE_URL}/admin/`,
+        launchOptions: { args: CHROMIUM_ARGS },
+      },
+    },
+    {
+      // Regression guard for the plain-HTTP `:7411` admin surface: same daemon
+      // as `admin-site`, but reached DIRECTLY over http:// (no TLS proxy). Proves
+      // the session cookie is storable over http:// (not `Secure`) so login works
+      // on the pre-provisioning surface. Logs in fresh, so no storageState.
+      name: "admin-site-http",
+      testMatch: "tests/admin-site-http/**/*.spec.ts",
+      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: `${UI_HTTP_BASE_URL}/admin/`,
         launchOptions: { args: CHROMIUM_ARGS },
       },
     },

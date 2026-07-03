@@ -354,6 +354,9 @@ services:
     environment:
       WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
       WARDNET_UI_FRESH_BASE_URL: "https://wardnetd-ui-fresh-tls"
+      # Plain-HTTP :7411 admin origin, reached directly (no TLS proxy) — backs
+      # the `admin-site-http` regression project.
+      WARDNET_UI_HTTP_BASE_URL: "http://wardnetd-ui:7411"
       WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
       WARDNET_TEST_DEBIAN_AGENT: "http://test_debian:3001"
       WARDNET_BLOCKLIST_FIXTURE_URL: "http://10.90.0.20/hosts.txt"
@@ -368,6 +371,8 @@ services:
       - admin-site
       - --project
       - admin-site-setup
+      - --project
+      - admin-site-http
       - --project
       - admin-app
     # Reports bind-mounted (not a named volume) to the same host dir the

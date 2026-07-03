@@ -29,15 +29,16 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
-use axum::Router;
 use axum::extract::Request;
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::{Extension, Router};
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use wardnetd_api::api::middleware::SecureTransport;
 use wardnetd_services::CertActivator;
 
 /// How long in-flight `:443` connections get to drain on shutdown.
@@ -203,6 +204,14 @@ fn unprovisioned_response() -> Response {
 /// Spawn the always-bound `:443` HTTPS listener serving `app` (already wrapped
 /// by [`guarded_https_app`]). Graceful shutdown is driven off `shutdown`. A bind
 /// failure is logged, not fatal — `:7411` keeps serving.
+///
+/// Stamps every request with the [`SecureTransport`] marker so cookie-issuing
+/// handlers add the `Secure` attribute. This is the TLS-termination seam — the
+/// point that holds the [`RustlsConfig`] and adopts the socket — so the marker is
+/// tied to the actual encrypted transport. Any HTTPS surface necessarily flows
+/// through here; the plain-HTTP `:7411` listener and the mock/dev server do not,
+/// so their cookies stay non-`Secure` and remain storable by browsers over
+/// `http://`.
 pub fn spawn_https_listener(
     listener: std::net::TcpListener,
     app: Router,
@@ -210,6 +219,7 @@ pub fn spawn_https_listener(
     shutdown: &CancellationToken,
     parent: &tracing::Span,
 ) -> tokio::task::JoinHandle<()> {
+    let app = app.layer(Extension(SecureTransport));
     let addr = listener
         .local_addr()
         .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));

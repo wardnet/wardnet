@@ -62,6 +62,18 @@ export const LAN_PROXY_IP = "10.91.0.20";
 export const API_BASE_URL =
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd-ui:7411/api";
 
+/**
+ * Browser base URL of the daemon's plain-HTTP `:7411` admin surface, reached
+ * DIRECTLY (no TLS proxy). This is the pre-provisioning admin endpoint most
+ * instances actually use — HTTPS only exists once a cert is issued via the
+ * DDNS / BYO-domain flow. Used by the `admin-site-http` project to regression-
+ * guard that the session cookie is storable by a browser over `http://` (i.e.
+ * NOT marked `Secure`); the rest of the suite runs over the HTTPS proxy, where a
+ * `Secure` cookie would be stored regardless and hide that bug.
+ */
+export const UI_HTTP_BASE_URL =
+  process.env.WARDNET_UI_HTTP_BASE_URL ?? "http://wardnetd-ui:7411";
+
 /** Where the `setup` project writes the admin session for authed surfaces. */
 export const STORAGE_STATE = ".auth/admin.json";
 

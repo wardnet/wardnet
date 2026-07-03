@@ -7,7 +7,9 @@ import { ConnectionGate, registerSW } from "@wardnet/web";
 import App from "./App";
 import "./index.css";
 
-registerSW({ swPath: "/admin-app/sw.js" });
+// `immediate` auto-updates the precached shell after a daemon upgrade so clients
+// aren't stranded on a stale build (see `RegisterSWOptions.immediate`).
+registerSW({ swPath: "/admin-app/sw.js", immediate: true });
 
 const queryClient = new QueryClient({
   defaultOptions: {
