@@ -7,7 +7,7 @@ use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
     DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
-    DnsResolutionMode, DnsZone, UpstreamDns,
+    DnsResolutionMode, DnsZone, ForwarderSelectionMode, UpstreamDns, UpstreamLatency,
 };
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::network_zone::{AllowedTargetKind, NetworkZone, ZoneStance, ZoneSubnet};
@@ -937,6 +937,13 @@ pub struct UpdateDnsConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_servers: Option<Vec<UpstreamDnsRequest>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub forwarder_selection_mode: Option<ForwarderSelectionMode>,
+    /// The chosen single upstream's `address`. Only consulted when the
+    /// resulting mode is `single`; ignored (and forced clear) in the other
+    /// modes. Omit to leave the current selection unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub single_upstream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_size: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl_min_secs: Option<u32>,
@@ -994,6 +1001,10 @@ pub struct DnsStatusResponse {
     pub cache_size: u64,
     pub cache_capacity: u32,
     pub cache_hit_rate: f64,
+    /// Rolling-average latency per configured upstream, from the background
+    /// prober. One entry per `upstream_servers` address; empty until the
+    /// prober has run at least once.
+    pub upstream_latencies: Vec<UpstreamLatency>,
 }
 
 /// Response for POST /api/dns/cache/flush.

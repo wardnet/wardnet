@@ -4,6 +4,27 @@ export type DnsProtocol = "udp" | "tcp" | "tls" | "https";
 /** DNS resolution mode. */
 export type DnsResolutionMode = "forwarding" | "recursive";
 
+/**
+ * How the configured upstreams are used on the forwarding path (only
+ * meaningful in `"forwarding"` mode):
+ * - `"failover"` — use servers in listed order; fall back to the next only if
+ *   one fails (list order = priority). The default.
+ * - `"fastest"` — forward to all upstreams and route to the fastest-responding
+ *   one (order ignored).
+ * - `"single"` — forward exclusively to {@link DnsConfig.single_upstream}.
+ */
+export type ForwarderSelectionMode = "failover" | "fastest" | "single";
+
+/** Rolling-average latency telemetry for one configured upstream. */
+export interface UpstreamLatency {
+  /** The upstream's `address`, matching {@link UpstreamDns.address}. */
+  address: string;
+  /** Rolling-average round-trip time in ms, or absent until the first probe. */
+  avg_latency_ms?: number;
+  /** Whether the most recent probe reached the upstream. */
+  reachable: boolean;
+}
+
 /** A configured upstream DNS server. */
 export interface UpstreamDns {
   address: string;
@@ -23,6 +44,14 @@ export interface DnsConfig {
   enabled: boolean;
   resolution_mode: DnsResolutionMode;
   upstream_servers: UpstreamDns[];
+  /** How the configured upstreams are used on the forwarding path. */
+  forwarder_selection_mode: ForwarderSelectionMode;
+  /**
+   * The chosen single upstream's `address`. Present iff
+   * `forwarder_selection_mode` is `"single"`, and always one of the
+   * `upstream_servers` addresses.
+   */
+  single_upstream?: string;
   cache_size: number;
   cache_ttl_min_secs: number;
   cache_ttl_max_secs: number;
@@ -44,6 +73,13 @@ export interface DnsConfigResponse {
 export interface UpdateDnsConfigRequest {
   resolution_mode?: DnsResolutionMode;
   upstream_servers?: UpstreamDns[];
+  forwarder_selection_mode?: ForwarderSelectionMode;
+  /**
+   * The chosen single upstream's `address`. Only consulted when the resulting
+   * mode is `"single"`; ignored (forced clear) in the other modes. Omit to
+   * leave the current selection unchanged.
+   */
+  single_upstream?: string;
   cache_size?: number;
   cache_ttl_min_secs?: number;
   cache_ttl_max_secs?: number;
@@ -65,6 +101,8 @@ export interface DnsStatusResponse {
   cache_size: number;
   cache_capacity: number;
   cache_hit_rate: number;
+  /** Rolling-average latency per configured upstream (from the prober). */
+  upstream_latencies: UpstreamLatency[];
 }
 
 export interface DnsCacheFlushResponse {

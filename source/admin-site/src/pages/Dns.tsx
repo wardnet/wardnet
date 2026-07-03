@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import {
   Card,
@@ -35,7 +35,7 @@ import {
   useUpdateDnsConfig,
 } from "@wardnet/web";
 import { RANGES, type StatsRange } from "@wardnet/web";
-import type { DnsResolutionMode } from "@wardnet/js";
+import type { DnsResolutionMode, ForwarderSelectionMode } from "@wardnet/js";
 
 /** DNS server configuration page (admin only). */
 export default function Dns() {
@@ -48,6 +48,27 @@ export default function Dns() {
 
   const status = statusData;
   const config = configData?.config;
+
+  // Stable callbacks so UpstreamServersCard's `columns` memo isn't rebuilt on
+  // every render (e.g. the 15s status poll). `updateConfig.mutate` is stable.
+  const handleModeChange = useCallback(
+    (mode: ForwarderSelectionMode) => {
+      updateConfig.mutate({
+        forwarder_selection_mode: mode,
+        single_upstream: undefined,
+      });
+    },
+    [updateConfig],
+  );
+  const handleSelectServer = useCallback(
+    (address: string) => {
+      updateConfig.mutate({
+        forwarder_selection_mode: "single",
+        single_upstream: address,
+      });
+    },
+    [updateConfig],
+  );
 
   // Retention edit-mode state — follows DhcpConfigCard pattern. The
   // draft is reset when leaving edit mode so subsequent edits start
@@ -293,9 +314,14 @@ export default function Dns() {
             servers={config.upstream_servers}
             isSaving={updateConfig.isPending}
             fallbackOnly={config.resolution_mode === "recursive"}
+            latencies={status?.upstream_latencies}
+            mode={config.forwarder_selection_mode}
+            selectedUpstream={config.single_upstream}
             onUpdate={(servers) =>
               updateConfig.mutate({ upstream_servers: servers })
             }
+            onModeChange={handleModeChange}
+            onSelectServer={handleSelectServer}
           />
 
           {/* DNS query stats — range tabs above the section; state lifted

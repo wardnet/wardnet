@@ -142,6 +142,7 @@ pub async fn status(
         cache_size: server.cache_size().await,
         cache_capacity: config.cache_size,
         cache_hit_rate: server.cache_hit_rate().await,
+        upstream_latencies: server.upstream_latencies(),
     }))
 }
 

@@ -18,6 +18,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
 use hickory_proto::rr::RecordType;
+use hickory_resolver::config::ServerOrderingStrategy;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, DnsResolutionMode, UpstreamDns, UpstreamId};
@@ -32,7 +33,8 @@ use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
     TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver, duration_to_ms,
-    get_or_build_tunnel_forwarder, resolve_via_recursor, spawn_cache_invalidator, upstream_label,
+    effective_upstreams, get_or_build_tunnel_forwarder, resolve_via_recursor,
+    spawn_cache_invalidator, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -1114,7 +1116,11 @@ fn build_resolver_with_udp_upstream_succeeds() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1126,7 +1132,11 @@ fn build_resolver_with_tcp_upstream_succeeds() {
         port: Some(53),
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1149,7 +1159,11 @@ fn build_resolver_builds_dot_and_doh_with_sni() {
             tls_server_name: Some("cloudflare-dns.com".into()),
         },
     ];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1164,7 +1178,11 @@ fn build_resolver_skips_encrypted_upstream_without_sni() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1178,7 +1196,11 @@ fn build_resolver_enables_dnssec_validation() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, true);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        true,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1193,7 +1215,11 @@ fn build_resolver_skips_invalid_ip_addresses() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2169,7 +2195,11 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
     // Recursor absent (None) → the fallback branch runs. With upstreams
     // configured, it must forward via the resolver, not SERVFAIL.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&upstreams, false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: upstreams,
@@ -2220,7 +2250,11 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
     // Recursor absent AND no upstreams configured (pure recursive) → the
     // server must SERVFAIL rather than leak to a default public resolver.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &[],
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: vec![],
@@ -2351,7 +2385,11 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     use hickory_proto::serialize::binary::BinDecodable;
 
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &[],
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         ..DnsConfig::default()
@@ -2388,4 +2426,81 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     assert_eq!(frames.len(), 1, "exactly one response sent");
     let response = Message::from_bytes(&frames[0]).expect("parse response");
     assert_eq!(response.metadata.response_code, ResponseCode::ServFail);
+}
+
+// ---------------------------------------------------------------------------
+// effective_upstreams — failover/fastest keep the full pool; single yields one.
+// ---------------------------------------------------------------------------
+
+fn named_udp_upstream(address: &str, name: &str) -> UpstreamDns {
+    UpstreamDns {
+        address: address.to_owned(),
+        name: name.to_owned(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }
+}
+
+#[test]
+fn effective_upstreams_non_single_modes_keep_full_pool() {
+    use wardnet_common::dns::ForwarderSelectionMode;
+    for mode in [
+        ForwarderSelectionMode::Failover,
+        ForwarderSelectionMode::Fastest,
+    ] {
+        let cfg = DnsConfig {
+            upstream_servers: vec![
+                named_udp_upstream("1.1.1.1", "CF"),
+                named_udp_upstream("8.8.8.8", "G"),
+            ],
+            forwarder_selection_mode: mode,
+            single_upstream: None,
+            ..DnsConfig::default()
+        };
+        let result = effective_upstreams(&cfg);
+        assert_eq!(result.len(), 2, "{mode:?} keeps every upstream in the pool");
+    }
+}
+
+#[test]
+fn effective_upstreams_single_yields_only_selected() {
+    use wardnet_common::dns::ForwarderSelectionMode;
+    let cfg = DnsConfig {
+        upstream_servers: vec![
+            named_udp_upstream("1.1.1.1", "CF"),
+            named_udp_upstream("8.8.8.8", "G"),
+            named_udp_upstream("9.9.9.9", "Q9"),
+        ],
+        forwarder_selection_mode: ForwarderSelectionMode::Single,
+        single_upstream: Some("8.8.8.8".to_owned()),
+        ..DnsConfig::default()
+    };
+    let result = effective_upstreams(&cfg);
+    assert_eq!(result.len(), 1, "single yields exactly the chosen server");
+    assert_eq!(result[0].address, "8.8.8.8");
+}
+
+#[test]
+fn effective_upstreams_single_missing_address_falls_back_to_full_pool() {
+    // Should be prevented by API validation, but if the chosen address is not
+    // in the list we degrade to the full configured pool (NOT an empty set,
+    // which would make build_resolver route everything to hard-coded
+    // Cloudflare — a privacy regression).
+    use wardnet_common::dns::ForwarderSelectionMode;
+    let cfg = DnsConfig {
+        upstream_servers: vec![
+            named_udp_upstream("1.1.1.1", "CF"),
+            named_udp_upstream("8.8.8.8", "G"),
+        ],
+        forwarder_selection_mode: ForwarderSelectionMode::Single,
+        single_upstream: Some("9.9.9.9".to_owned()),
+        ..DnsConfig::default()
+    };
+    let result = effective_upstreams(&cfg);
+    assert_eq!(
+        result.len(),
+        2,
+        "orphaned selection degrades to the full pool"
+    );
 }

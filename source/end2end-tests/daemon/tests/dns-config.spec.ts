@@ -187,6 +187,78 @@ describe("dns config", () => {
     expect(status).toBe(400);
   });
 
+  it("round-trips forwarder routing modes and guards single-server selection", async () => {
+    // Known two-server pool to select within.
+    await dns.updateConfig({
+      resolution_mode: "forwarding",
+      upstream_servers: [
+        { address: "1.1.1.1", name: "Cloudflare", protocol: "udp" },
+        { address: "8.8.8.8", name: "Google", protocol: "udp" },
+      ],
+    });
+
+    // Fastest mode round-trips.
+    const fastest = await dns.updateConfig({
+      forwarder_selection_mode: "fastest",
+    });
+    expect(fastest.config.forwarder_selection_mode).toBe("fastest");
+    expect(fastest.config.single_upstream ?? null).toBeNull();
+
+    // Single-server mode pinned to Cloudflare.
+    const single = await dns.updateConfig({
+      forwarder_selection_mode: "single",
+      single_upstream: "1.1.1.1",
+    });
+    expect(single.config.forwarder_selection_mode).toBe("single");
+    expect(single.config.single_upstream).toBe("1.1.1.1");
+    expect((await dns.getConfig()).config.single_upstream).toBe("1.1.1.1");
+
+    // Selecting an address that isn't in the list is rejected.
+    let badSelectStatus: number | undefined;
+    try {
+      await dns.updateConfig({
+        forwarder_selection_mode: "single",
+        single_upstream: "9.9.9.9",
+      });
+    } catch (e) {
+      badSelectStatus = (e as { status?: number }).status;
+    }
+    expect(badSelectStatus).toBe(400);
+
+    // Removing the currently-selected server (while still single) is rejected.
+    let removeStatus: number | undefined;
+    try {
+      await dns.updateConfig({
+        upstream_servers: [{ address: "8.8.8.8", name: "Google", protocol: "udp" }],
+      });
+    } catch (e) {
+      removeStatus = (e as { status?: number }).status;
+    }
+    expect(removeStatus).toBe(400);
+
+    // The rejection must not have mutated persisted state (validation runs
+    // before any write): the selected server is still in the pool and chosen.
+    const afterReject = (await dns.getConfig()).config;
+    expect(afterReject.upstream_servers.map((s) => s.address)).toContain(
+      "1.1.1.1",
+    );
+    expect(afterReject.forwarder_selection_mode).toBe("single");
+    expect(afterReject.single_upstream).toBe("1.1.1.1");
+
+    // status exposes per-upstream latency (one entry per address; values
+    // may still be null on the very first tick).
+    const status = await dns.status();
+    expect(Array.isArray(status.upstream_latencies)).toBe(true);
+
+    // Back to failover (the default) clears the selection so downstream specs
+    // use the full pool.
+    const failover = await dns.updateConfig({
+      forwarder_selection_mode: "failover",
+    });
+    expect(failover.config.forwarder_selection_mode).toBe("failover");
+    expect(failover.config.single_upstream ?? null).toBeNull();
+  });
+
   it("flushCache returns a count and a message", async () => {
     // Turn DNS on so the server-side cache exists; flushing while
     // disabled is also legal but the call exercises a less interesting

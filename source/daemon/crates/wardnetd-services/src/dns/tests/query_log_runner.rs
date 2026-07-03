@@ -91,6 +91,8 @@ impl DnsService for MockService {
             enabled: false,
             resolution_mode: DnsResolutionMode::Forwarding,
             upstream_servers: vec![],
+            forwarder_selection_mode: wardnet_common::dns::ForwarderSelectionMode::Failover,
+            single_upstream: None,
             cache_size: 0,
             cache_ttl_min_secs: 0,
             cache_ttl_max_secs: 0,

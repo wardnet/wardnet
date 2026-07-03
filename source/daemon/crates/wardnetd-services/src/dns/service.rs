@@ -19,7 +19,8 @@ use wardnet_common::api::{
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, UpstreamDns,
+    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode,
+    ForwarderSelectionMode, UpstreamDns,
 };
 use wardnet_common::event::WardnetEvent;
 
@@ -140,10 +141,24 @@ impl DnsServiceImpl {
         let query_log_retention_days =
             Self::parse_u32(get("dns_query_log_retention_days").await?, 7)?;
 
+        let forwarder_selection_mode = ForwarderSelectionMode::from_wire(
+            &get("dns_forwarder_selection_mode")
+                .await?
+                .unwrap_or_default(),
+        );
+        // The single-server address is only meaningful in `single` mode; drop a
+        // stale value in the other modes so the loaded config stays consistent.
+        let single_upstream = match forwarder_selection_mode {
+            ForwarderSelectionMode::Single => get("dns_single_upstream").await?,
+            ForwarderSelectionMode::Failover | ForwarderSelectionMode::Fastest => None,
+        };
+
         Ok(DnsConfig {
             enabled,
             resolution_mode,
             upstream_servers,
+            forwarder_selection_mode,
+            single_upstream,
             cache_size,
             cache_ttl_min_secs,
             cache_ttl_max_secs,
@@ -166,6 +181,39 @@ impl DnsServiceImpl {
         self.events.publish(WardnetEvent::DnsConfigChanged {
             timestamp: chrono::Utc::now(),
         });
+    }
+}
+
+/// Resolve the forwarder selection (mode + single-server address) an update
+/// results in, and validate the selection against the upstream list the update
+/// produces.
+///
+/// Pure so it can be unit-tested without the full service. In `Failover` and
+/// `Fastest` the single-server address is always cleared. In `Single` the
+/// effective address is the request's (or the current one, if the request left
+/// it unchanged) and MUST be present in `effective_upstreams` — this is what
+/// rejects both selecting an unknown server and removing the currently-selected
+/// server. `Err` carries a human message for a `400` response.
+fn resolve_forwarder_selection(
+    current_mode: ForwarderSelectionMode,
+    current_single: Option<&str>,
+    req_mode: Option<ForwarderSelectionMode>,
+    req_single: Option<&str>,
+    effective_upstreams: &[String],
+) -> Result<(ForwarderSelectionMode, Option<String>), String> {
+    let mode = req_mode.unwrap_or(current_mode);
+    match mode {
+        ForwarderSelectionMode::Failover | ForwarderSelectionMode::Fastest => Ok((mode, None)),
+        ForwarderSelectionMode::Single => {
+            let addr = req_single.or(current_single).map(str::to_owned);
+            match addr {
+                Some(a) if effective_upstreams.iter().any(|u| u == &a) => Ok((mode, Some(a))),
+                Some(a) => Err(format!(
+                    "selected upstream '{a}' is not one of the configured upstream servers"
+                )),
+                None => Err("single-server mode requires a single_upstream address".to_owned()),
+            }
+        }
     }
 }
 
@@ -192,18 +240,16 @@ impl DnsService for DnsServiceImpl {
             )));
         }
 
-        if let Some(mode) = req.resolution_mode {
-            self.system_config
-                .set("dns_resolution_mode", mode.as_str())
-                .await
-                .map_err(AppError::Internal)?;
-        }
+        // ---- Validation phase ----
+        // All rejections happen here, BEFORE any `system_config` write, so a
+        // rejected request never leaves the persisted config half-mutated
+        // (each `set`/`delete` is an independent, non-transactional write).
+
+        // DoT/DoH need a hostname SNI for certificate validation; reject
+        // encrypted upstreams that omit it or give a value that can't be a cert
+        // hostname (URL, IP literal, whitespace) — those would only surface as
+        // opaque per-query handshake failures, not a clear config error.
         if let Some(ref servers) = req.upstream_servers {
-            // DoT/DoH need a hostname SNI for certificate validation;
-            // reject encrypted upstreams that omit it or give a value that
-            // can't be a cert hostname (URL, IP literal, whitespace) —
-            // those would only surface as opaque per-query handshake
-            // failures, not a clear config error.
             for s in servers {
                 if matches!(s.protocol, DnsProtocol::Tls | DnsProtocol::Https) {
                     let sni = s.tls_server_name.as_deref().map_or("", str::trim);
@@ -218,6 +264,51 @@ impl DnsService for DnsServiceImpl {
                     }
                 }
             }
+        }
+
+        // Forwarder selection (pin/auto). Resolve the effective mode + pinned
+        // address this update results in and validate it against the resulting
+        // upstream list. Computed here — before any write — so that pinning an
+        // unlisted server, or removing the currently-pinned one, is rejected
+        // without having already persisted the new upstream list.
+        let forwarder_decision = if req.forwarder_selection_mode.is_some()
+            || req.single_upstream.is_some()
+            || req.upstream_servers.is_some()
+        {
+            let current = self.load_config().await?;
+            // Addresses the config will have after this update.
+            let effective_upstreams: Vec<String> = req.upstream_servers.as_ref().map_or_else(
+                || {
+                    current
+                        .upstream_servers
+                        .iter()
+                        .map(|u| u.address.clone())
+                        .collect()
+                },
+                |servers| servers.iter().map(|s| s.address.clone()).collect(),
+            );
+            Some(
+                resolve_forwarder_selection(
+                    current.forwarder_selection_mode,
+                    current.single_upstream.as_deref(),
+                    req.forwarder_selection_mode,
+                    req.single_upstream.as_deref(),
+                    &effective_upstreams,
+                )
+                .map_err(AppError::BadRequest)?,
+            )
+        } else {
+            None
+        };
+
+        // ---- Write phase ---- (every value below is already validated)
+        if let Some(mode) = req.resolution_mode {
+            self.system_config
+                .set("dns_resolution_mode", mode.as_str())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        if let Some(ref servers) = req.upstream_servers {
             let upstream: Vec<UpstreamDns> = servers
                 .iter()
                 .map(|s| UpstreamDns {
@@ -234,6 +325,24 @@ impl DnsService for DnsServiceImpl {
                 .set("dns_upstream_servers", &json)
                 .await
                 .map_err(AppError::Internal)?;
+        }
+        if let Some((mode, single)) = forwarder_decision {
+            self.system_config
+                .set("dns_forwarder_selection_mode", mode.as_str())
+                .await
+                .map_err(AppError::Internal)?;
+            match single {
+                Some(a) => self
+                    .system_config
+                    .set("dns_single_upstream", &a)
+                    .await
+                    .map_err(AppError::Internal)?,
+                None => self
+                    .system_config
+                    .delete("dns_single_upstream")
+                    .await
+                    .map_err(AppError::Internal)?,
+            }
         }
         if let Some(v) = req.cache_size {
             self.system_config
@@ -319,6 +428,10 @@ impl DnsService for DnsServiceImpl {
             cache_size: 0,
             cache_capacity: config.cache_size,
             cache_hit_rate: 0.0,
+            // Live per-upstream latency comes from the server/prober; the API
+            // status handler populates it. This service-level path is a
+            // placeholder that never carries telemetry.
+            upstream_latencies: Vec::new(),
         })
     }
 
@@ -424,4 +537,94 @@ fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>>
     use chrono::NaiveDateTime;
     let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?;
     Ok(chrono::TimeZone::from_utc_datetime(&chrono::Utc, &naive))
+}
+
+#[cfg(test)]
+mod forwarder_selection_tests {
+    use super::resolve_forwarder_selection;
+    use wardnet_common::dns::ForwarderSelectionMode::{Failover, Fastest, Single};
+
+    fn upstreams() -> Vec<String> {
+        vec![
+            "1.1.1.1".to_owned(),
+            "8.8.8.8".to_owned(),
+            "9.9.9.9".to_owned(),
+        ]
+    }
+
+    #[test]
+    fn non_single_modes_clear_the_selection() {
+        // Switching away from Single drops the address, even a stale one.
+        for target in [Failover, Fastest] {
+            let (mode, single) = resolve_forwarder_selection(
+                Single,
+                Some("8.8.8.8"),
+                Some(target),
+                None,
+                &upstreams(),
+            )
+            .unwrap();
+            assert_eq!(mode, target);
+            assert_eq!(single, None);
+        }
+    }
+
+    #[test]
+    fn selecting_a_listed_server_is_accepted() {
+        let (mode, single) = resolve_forwarder_selection(
+            Failover,
+            None,
+            Some(Single),
+            Some("9.9.9.9"),
+            &upstreams(),
+        )
+        .unwrap();
+        assert_eq!(mode, Single);
+        assert_eq!(single.as_deref(), Some("9.9.9.9"));
+    }
+
+    #[test]
+    fn selecting_an_unlisted_server_is_rejected() {
+        let err = resolve_forwarder_selection(
+            Failover,
+            None,
+            Some(Single),
+            Some("4.4.4.4"),
+            &upstreams(),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("4.4.4.4"),
+            "message names the bad address: {err}"
+        );
+    }
+
+    #[test]
+    fn single_mode_without_any_address_is_rejected() {
+        let err = resolve_forwarder_selection(Failover, None, Some(Single), None, &upstreams())
+            .unwrap_err();
+        assert!(err.contains("requires a single_upstream"));
+    }
+
+    #[test]
+    fn removing_the_selected_server_is_rejected() {
+        // Mode unchanged (stays Single via current), request only changes the
+        // upstream list to one that no longer contains the selected address.
+        let remaining = vec!["1.1.1.1".to_owned(), "9.9.9.9".to_owned()];
+        let err = resolve_forwarder_selection(Single, Some("8.8.8.8"), None, None, &remaining)
+            .unwrap_err();
+        assert!(
+            err.contains("8.8.8.8"),
+            "rejects orphaning the selection: {err}"
+        );
+    }
+
+    #[test]
+    fn keeping_the_selected_server_while_editing_list_is_accepted() {
+        let remaining = vec!["8.8.8.8".to_owned(), "9.9.9.9".to_owned()];
+        let (mode, single) =
+            resolve_forwarder_selection(Single, Some("8.8.8.8"), None, None, &remaining).unwrap();
+        assert_eq!(mode, Single);
+        assert_eq!(single.as_deref(), Some("8.8.8.8"));
+    }
 }

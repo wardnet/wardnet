@@ -11,6 +11,7 @@ use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use hickory_resolver::Resolver;
 use hickory_resolver::config::{
     CLOUDFLARE, ConnectionConfig, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts,
+    ServerOrderingStrategy,
 };
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
@@ -20,9 +21,11 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+use tracing::Instrument;
 use uuid::Uuid;
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsRecordType, DnsResolutionMode, FilterAction, UpstreamDns, UpstreamId,
+    DnsConfig, DnsProtocol, DnsRecordType, DnsResolutionMode, FilterAction, ForwarderSelectionMode,
+    UpstreamDns, UpstreamId, UpstreamLatency,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
@@ -147,6 +150,16 @@ pub struct UdpDnsServer {
     /// spoofing window). The pool is capped at [`CONDITIONAL_SOCKET_POOL_SIZE`];
     /// under-capacity sockets are created on demand.
     conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+    /// Lock-free snapshot of per-upstream rolling-average latency, produced by
+    /// the background prober spawned in `with_bind_addr`. Read by
+    /// `upstream_latencies()` to fold into the DNS status response. One entry
+    /// per configured upstream address; empty until the first probe.
+    latency_snapshot: Arc<ArcSwap<Vec<UpstreamLatency>>>,
+    /// Cancellation token for the background latency prober. Like the
+    /// cache-invalidator, the prober lives for the whole process (independent
+    /// of the DNS `enabled` toggle) so latency stays fresh while an admin is
+    /// configuring upstreams. Cancelled in `Drop`.
+    latency_prober_cancel: CancellationToken,
 }
 
 /// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
@@ -159,6 +172,8 @@ impl Drop for UdpDnsServer {
         // doesn't await the join — the bus has already been closed by
         // its publisher (or soon will be) and the task self-terminates.
         self.cache_invalidator_cancel.cancel();
+        // Stop the background latency prober.
+        self.latency_prober_cancel.cancel();
     }
 }
 
@@ -206,10 +221,7 @@ impl UdpDnsServer {
     ) -> Self {
         let cache_capacity = config.cache_size as usize;
         let cache = Arc::new(RwLock::new(DnsCache::new(cache_capacity)));
-        let resolver = Arc::new(RwLock::new(build_resolver(
-            &config.upstream_servers,
-            config.dnssec_enabled,
-        )));
+        let resolver = Arc::new(RwLock::new(build_forwarding_resolver(&config)));
         // Build the recursor only in recursive mode (the default forwarding
         // mode carries no recursor state).
         let recursor = Arc::new(RwLock::new(
@@ -232,8 +244,16 @@ impl UdpDnsServer {
             event_rx,
             cache_invalidator_cancel.clone(),
         );
+        let config = Arc::new(RwLock::new(config));
+        let latency_snapshot = Arc::new(ArcSwap::from_pointee(Vec::new()));
+        let latency_prober_cancel = CancellationToken::new();
+        spawn_upstream_latency_prober(
+            Arc::clone(&config),
+            Arc::clone(&latency_snapshot),
+            latency_prober_cancel.clone(),
+        );
         Self {
-            config: Arc::new(RwLock::new(config)),
+            config,
             resolver,
             recursor,
             rate_limiter,
@@ -254,6 +274,8 @@ impl UdpDnsServer {
             cache_invalidator_cancel,
             authoritative_view: Arc::new(ArcSwap::from_pointee(AuthoritativeView::empty())),
             conditional_socket_pool: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            latency_snapshot,
+            latency_prober_cancel,
         }
     }
 
@@ -401,23 +423,25 @@ impl DnsServer for UdpDnsServer {
     }
 
     async fn update_config(&self, config: DnsConfig) {
-        let (upstream_changed, dnssec_changed, rebinding_changed, mode_changed) = {
+        let (upstream_changed, dnssec_changed, rebinding_changed, mode_changed, forwarder_changed) = {
             let prev = self.config.read().await;
             (
                 prev.upstream_servers != config.upstream_servers,
                 prev.dnssec_enabled != config.dnssec_enabled,
                 prev.rebinding_protection != config.rebinding_protection,
                 prev.resolution_mode != config.resolution_mode,
+                prev.forwarder_selection_mode != config.forwarder_selection_mode
+                    || prev.single_upstream != config.single_upstream,
             )
         };
 
         // Rebuild the upstream resolver only when something it depends on
         // changed, so unrelated edits (rebinding, rate limit) don't tear
-        // down warm DoT/DoH connections. Applied live — the cache and
-        // bound socket survive.
-        if upstream_changed || dnssec_changed {
-            let new_resolver = build_resolver(&config.upstream_servers, config.dnssec_enabled);
-            *self.resolver.write().await = new_resolver;
+        // down warm DoT/DoH connections. Applied live — the cache and bound
+        // socket survive. A forwarder-mode change alters which servers the pool
+        // contains and/or their ordering strategy, so it triggers a rebuild too.
+        if upstream_changed || dnssec_changed || forwarder_changed {
+            *self.resolver.write().await = build_forwarding_resolver(&config);
         }
 
         // (Re)build or clear the recursor when the mode or DNSSEC toggle
@@ -435,7 +459,12 @@ impl DnsServer for UdpDnsServer {
         // policy so a toggle takes effect at once rather than after TTL
         // (e.g. enabling rebinding must not keep serving cached private
         // IPs; changing upstreams/DNSSEC/mode must not serve stale answers).
-        if upstream_changed || dnssec_changed || rebinding_changed || mode_changed {
+        if upstream_changed
+            || dnssec_changed
+            || rebinding_changed
+            || mode_changed
+            || forwarder_changed
+        {
             self.cache.write().await.flush();
         }
 
@@ -454,6 +483,10 @@ impl DnsServer for UdpDnsServer {
         if removed > 0 {
             tracing::debug!(domain, removed, "evicted DNS cache entries for domain");
         }
+    }
+
+    fn upstream_latencies(&self) -> Vec<UpstreamLatency> {
+        self.latency_snapshot.load().as_ref().clone()
     }
 }
 
@@ -1754,7 +1787,268 @@ async fn return_socket_to_pool(pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>, s
 
 type TokioResolver = Resolver<TokioRuntimeProvider>;
 
-pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) -> TokioResolver {
+/// The upstream set the forwarding resolver pool should actually contain,
+/// given the configured selection mode. In `Failover`/`Fastest` this is the
+/// full list; in `Single` it is just the chosen server (exclusive — the others
+/// are not used).
+///
+/// If the chosen address is absent from the list (should be prevented by API
+/// validation, but reachable via an out-of-band KV edit / stale upgrade), we
+/// fall back to the **full configured pool** rather than an empty set. An empty
+/// set would make `build_resolver` silently route every query to hard-coded
+/// Cloudflare — surprising, and a privacy regression for an operator who never
+/// configured Cloudflare. Degrading to the user's own pool is the safe choice.
+pub(crate) fn effective_upstreams(config: &DnsConfig) -> Vec<UpstreamDns> {
+    match (
+        config.forwarder_selection_mode,
+        config.single_upstream.as_deref(),
+    ) {
+        (ForwarderSelectionMode::Single, Some(addr)) => {
+            let selected: Vec<UpstreamDns> = config
+                .upstream_servers
+                .iter()
+                .filter(|u| u.address == addr)
+                .cloned()
+                .collect();
+            if selected.is_empty() {
+                tracing::warn!(
+                    single_upstream = %addr,
+                    "selected upstream not found in the configured pool; falling back to the full pool"
+                );
+                config.upstream_servers.clone()
+            } else {
+                selected
+            }
+        }
+        _ => config.upstream_servers.clone(),
+    }
+}
+
+/// The name-server ordering strategy for a forwarder mode. `Failover` honors
+/// the user's listed order (try the first, fall back to the next); `Fastest`
+/// lets the resolver route by live round-trip statistics. `Single` has one
+/// server so ordering is irrelevant.
+fn forwarder_ordering(mode: ForwarderSelectionMode) -> ServerOrderingStrategy {
+    match mode {
+        ForwarderSelectionMode::Failover => ServerOrderingStrategy::UserProvidedOrder,
+        ForwarderSelectionMode::Fastest | ForwarderSelectionMode::Single => {
+            ServerOrderingStrategy::QueryStatistics
+        }
+    }
+}
+
+/// Build the default forwarding resolver from a full `DnsConfig`: the effective
+/// upstream set and the ordering strategy implied by the forwarder mode.
+pub(crate) fn build_forwarding_resolver(config: &DnsConfig) -> TokioResolver {
+    build_resolver(
+        &effective_upstreams(config),
+        config.dnssec_enabled,
+        forwarder_ordering(config.forwarder_selection_mode),
+    )
+}
+
+/// How often the background prober measures each upstream's latency.
+const LATENCY_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// Per-upstream probe deadline; a probe that doesn't answer in time counts as
+/// a miss for that round (see `LATENCY_UNREACHABLE_STREAK`).
+const LATENCY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// Benign, universally-served name resolved against each upstream to measure
+/// round-trip time. IANA-reserved and stable, so it won't skew one provider.
+const LATENCY_PROBE_CANARY: &str = "example.com.";
+/// Exponential-moving-average weight for the newest sample. Higher = more
+/// reactive; lower = smoother.
+const LATENCY_EWMA_ALPHA: f64 = 0.3;
+/// Consecutive missed probes before an upstream is reported `reachable=false`.
+/// A single dropped UDP packet (routine) must not flap the UI, so we debounce.
+const LATENCY_UNREACHABLE_STREAK: u32 = 2;
+
+/// Stable cache key for a probe resolver — distinguishes upstreams that share
+/// an address but differ in transport (so an encrypted and a plaintext entry
+/// on the same IP don't collide in the reuse cache).
+fn latency_probe_key(u: &UpstreamDns) -> String {
+    format!(
+        "{}#{:?}#{:?}#{:?}",
+        u.address, u.protocol, u.port, u.tls_server_name
+    )
+}
+
+/// Spawn the background per-upstream latency prober.
+///
+/// Each `LATENCY_PROBE_INTERVAL` tick, it reads the *current* configured
+/// upstreams (so config changes are picked up without an event subscription)
+/// and — only while the forwarding path is actually serving queries — probes
+/// every upstream concurrently, folds the round-trip time into a per-upstream
+/// EWMA, and publishes the snapshot into `snapshot` for `upstream_latencies()`.
+/// Runs for the process lifetime; exits when `cancel` fires (on `Drop`).
+///
+/// Notes:
+/// - Probes run concurrently, so one slow/unreachable upstream can't stall the
+///   others and a whole round is bounded by a single timeout.
+/// - Resolvers are reused across ticks so DoT/DoH probes keep warm connections
+///   and measure steady-state RTT instead of a fresh handshake each sample.
+/// - When DNS is disabled or resolving recursively, no probe traffic is sent.
+/// - The first probe is deferred by one full interval so short-lived servers
+///   (every unit-test server) never emit real outbound DNS.
+pub(crate) fn spawn_upstream_latency_prober(
+    config: Arc<RwLock<DnsConfig>>,
+    snapshot: Arc<ArcSwap<Vec<UpstreamLatency>>>,
+    cancel: CancellationToken,
+) {
+    let span = tracing::info_span!("dns_upstream_latency_prober");
+    tokio::spawn(
+        async move {
+            let mut ewma: HashMap<String, f64> = HashMap::new();
+            let mut fail_streak: HashMap<String, u32> = HashMap::new();
+            // Per-upstream resolvers reused across ticks (see fn doc).
+            let mut resolvers: HashMap<String, Arc<TokioResolver>> = HashMap::new();
+            let mut cached_dnssec: Option<bool> = None;
+
+            let mut ticker = tokio::time::interval_at(
+                tokio::time::Instant::now() + LATENCY_PROBE_INTERVAL,
+                LATENCY_PROBE_INTERVAL,
+            );
+            // A slow round (many timing-out upstreams) must not queue up
+            // back-to-back ticks; skip missed ticks rather than bursting.
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    () = cancel.cancelled() => break,
+                    _ = ticker.tick() => {}
+                }
+
+                let (upstreams, dnssec, active) = {
+                    let cfg = config.read().await;
+                    (
+                        cfg.upstream_servers.clone(),
+                        cfg.dnssec_enabled,
+                        cfg.enabled && cfg.resolution_mode == DnsResolutionMode::Forwarding,
+                    )
+                };
+
+                // Don't emit probe traffic to third-party upstreams when the
+                // forwarding path isn't serving queries (DNS off, or recursive).
+                if !active {
+                    if !snapshot.load().is_empty() {
+                        snapshot.store(Arc::new(Vec::new()));
+                    }
+                    continue;
+                }
+
+                // Rebuild all resolvers if the DNSSEC policy changed (their
+                // validation setting is baked in at build time).
+                if cached_dnssec != Some(dnssec) {
+                    resolvers.clear();
+                    cached_dnssec = Some(dnssec);
+                }
+
+                let results = latency_probe_round(
+                    &upstreams,
+                    dnssec,
+                    &mut ewma,
+                    &mut fail_streak,
+                    &mut resolvers,
+                )
+                .await;
+                snapshot.store(Arc::new(results));
+            }
+            tracing::debug!("upstream latency prober stopped");
+        }
+        .instrument(span),
+    );
+}
+
+/// Run one probe round: prune state for removed upstreams, probe every current
+/// upstream concurrently, and fold the results into the rolling per-upstream
+/// EWMA + failure-streak state. Returns the snapshot to publish.
+async fn latency_probe_round(
+    upstreams: &[UpstreamDns],
+    dnssec: bool,
+    ewma: &mut HashMap<String, f64>,
+    fail_streak: &mut HashMap<String, u32>,
+    resolvers: &mut HashMap<String, Arc<TokioResolver>>,
+) -> Vec<UpstreamLatency> {
+    // Drop per-upstream state for servers no longer configured.
+    resolvers.retain(|k, _| upstreams.iter().any(|u| latency_probe_key(u) == *k));
+    ewma.retain(|addr, _| upstreams.iter().any(|u| &u.address == addr));
+    fail_streak.retain(|addr, _| upstreams.iter().any(|u| &u.address == addr));
+
+    // Resolve (or lazily build) a resolver per upstream. This is the only step
+    // that touches the shared cache; done before any await so the probe futures
+    // below own everything they need.
+    let targets: Vec<(String, Option<Arc<TokioResolver>>)> = upstreams
+        .iter()
+        .map(|u| {
+            // build_resolver only accepts IP-literal addresses; a non-IP
+            // upstream would fall back to Cloudflare and misattribute its
+            // latency, so skip and report a miss.
+            let resolver = if u.address.parse::<IpAddr>().is_ok() {
+                Some(Arc::clone(
+                    resolvers.entry(latency_probe_key(u)).or_insert_with(|| {
+                        // One server per probe resolver, so ordering is moot.
+                        Arc::new(build_resolver(
+                            std::slice::from_ref(u),
+                            dnssec,
+                            ServerOrderingStrategy::QueryStatistics,
+                        ))
+                    }),
+                ))
+            } else {
+                None
+            };
+            (u.address.clone(), resolver)
+        })
+        .collect();
+
+    let outcomes =
+        futures::future::join_all(targets.into_iter().map(|(addr, resolver)| async move {
+            let Some(resolver) = resolver else {
+                return (addr, None);
+            };
+            let start = std::time::Instant::now();
+            let ok = matches!(
+                tokio::time::timeout(
+                    LATENCY_PROBE_TIMEOUT,
+                    resolver.lookup(LATENCY_PROBE_CANARY, hickory_proto::rr::RecordType::A),
+                )
+                .await,
+                Ok(Ok(_))
+            );
+            (addr, ok.then(|| duration_to_ms(start.elapsed())))
+        }))
+        .await;
+
+    let mut results = Vec::with_capacity(outcomes.len());
+    for (addr, rtt) in outcomes {
+        match rtt {
+            Some(rtt_ms) => {
+                fail_streak.insert(addr.clone(), 0);
+                let avg = ewma.get(&addr).map_or(rtt_ms, |prev| {
+                    LATENCY_EWMA_ALPHA * rtt_ms + (1.0 - LATENCY_EWMA_ALPHA) * prev
+                });
+                ewma.insert(addr.clone(), avg);
+            }
+            None => {
+                *fail_streak.entry(addr.clone()).or_insert(0) += 1;
+            }
+        }
+        // Debounce: only report unreachable after several consecutive misses;
+        // keep serving the last-known latency meanwhile.
+        let reachable = fail_streak.get(&addr).copied().unwrap_or(0) < LATENCY_UNREACHABLE_STREAK;
+        results.push(UpstreamLatency {
+            address: addr.clone(),
+            avg_latency_ms: ewma.get(&addr).copied(),
+            reachable,
+        });
+    }
+    results
+}
+
+pub(crate) fn build_resolver(
+    upstreams: &[UpstreamDns],
+    dnssec_enabled: bool,
+    ordering: ServerOrderingStrategy,
+) -> TokioResolver {
     let mut resolver_config = ResolverConfig::default();
 
     for upstream in upstreams {
@@ -1804,6 +2098,9 @@ pub(crate) fn build_resolver(upstreams: &[UpstreamDns], dnssec_enabled: bool) ->
     let mut opts = ResolverOpts::default();
     opts.cache_size = 0;
     opts.use_hosts_file = ResolveHosts::Never;
+    // Forwarder mode: `UserProvidedOrder` honors the configured list order
+    // (failover), `QueryStatistics` routes to the fastest by live RTT.
+    opts.server_ordering_strategy = ordering;
     // DNS Stage 4 — local DNSSEC validation (opt-in; default off). hickory
     // validates signatures via the upstream as forwarder and surfaces bogus
     // responses as resolution errors (→ SERVFAIL on the forward path).

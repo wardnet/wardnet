@@ -53,9 +53,10 @@ test("an upstream server can be added and then removed", async ({ page }) => {
   await page.goto("./dns");
 
   // Distinctive name/address so the row can be located unambiguously and
-  // create can't collide with a seeded default upstream.
+  // create can't collide with a seeded default upstream (Cloudflare
+  // 1.1.1.1, Google 8.8.8.8, Quad9 9.9.9.9).
   const name = "e2e-upstream";
-  const address = "9.9.9.9";
+  const address = "208.67.222.222";
 
   // Open the inline add form (UDP is the default protocol).
   await page.getByTestId("upstream-add").click();
@@ -73,6 +74,38 @@ test("an upstream server can be added and then removed", async ({ page }) => {
   await page.getByTestId("upstream-remove").click();
 
   await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
+});
+
+test("forwarder routing: switch modes and pick a single server", async ({
+  page,
+}) => {
+  await page.goto("./dns");
+
+  // The Routing dropdown defaults to Failover, with a behaviour description.
+  const mode = page.getByTestId("upstream-mode");
+  await expect(mode).toBeVisible();
+  await expect(mode).toContainText("Failover");
+  await expect(page.getByTestId("upstream-mode-desc")).toBeVisible();
+
+  // The Latency column header renders.
+  await expect(
+    page.getByRole("columnheader", { name: "Latency" }),
+  ).toBeVisible();
+
+  // No per-server radios outside single-server mode.
+  await expect(page.getByTestId("upstream-select")).toHaveCount(0);
+
+  // Switch to Single server → per-server radios appear, first auto-selected.
+  await mode.click();
+  await page.getByRole("option", { name: "Single server" }).click();
+  const firstSelect = page.getByTestId("upstream-select").first();
+  await expect(firstSelect).toBeVisible();
+  await expect(firstSelect).toBeChecked();
+
+  // Restore Failover so downstream specs see the full pool.
+  await page.getByTestId("upstream-mode").click();
+  await page.getByRole("option", { name: "Failover (in order)" }).click();
+  await expect(page.getByTestId("upstream-select")).toHaveCount(0);
 });
 
 test("the cache can be flushed", async ({ page }) => {
