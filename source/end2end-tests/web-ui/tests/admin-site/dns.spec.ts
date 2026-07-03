@@ -76,36 +76,33 @@ test("an upstream server can be added and then removed", async ({ page }) => {
   await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
 });
 
-test("forwarder routing: switch modes and pick a single server", async ({
+test("forwarder routing: the mode dropdown switches behaviour", async ({
   page,
 }) => {
   await page.goto("./dns");
 
   // The Routing dropdown defaults to Failover, with a behaviour description.
+  // (Per-server radios / Latency column are covered by the component unit
+  // test; this spec only exercises the mode round-trip through the daemon,
+  // which doesn't depend on the current upstream list.)
   const mode = page.getByTestId("upstream-mode");
   await expect(mode).toBeVisible();
   await expect(mode).toContainText("Failover");
-  await expect(page.getByTestId("upstream-mode-desc")).toBeVisible();
+  const desc = page.getByTestId("upstream-mode-desc");
+  await expect(desc).toBeVisible();
+  const failoverDesc = (await desc.textContent()) ?? "";
 
-  // The Latency column header renders.
-  await expect(
-    page.getByRole("columnheader", { name: "Latency" }),
-  ).toBeVisible();
-
-  // No per-server radios outside single-server mode.
-  await expect(page.getByTestId("upstream-select")).toHaveCount(0);
-
-  // Switch to Single server → per-server radios appear, first auto-selected.
+  // Switch to Fastest → the selection persists (round-trips through the API)
+  // and the behaviour description changes.
   await mode.click();
-  await page.getByRole("option", { name: "Single server" }).click();
-  const firstSelect = page.getByTestId("upstream-select").first();
-  await expect(firstSelect).toBeVisible();
-  await expect(firstSelect).toBeChecked();
+  await page.getByRole("option", { name: "Fastest response" }).click();
+  await expect(mode).toContainText("Fastest");
+  await expect(desc).not.toHaveText(failoverDesc);
 
-  // Restore Failover so downstream specs see the full pool.
+  // Restore Failover (the default) so downstream specs are unaffected.
   await page.getByTestId("upstream-mode").click();
   await page.getByRole("option", { name: "Failover (in order)" }).click();
-  await expect(page.getByTestId("upstream-select")).toHaveCount(0);
+  await expect(mode).toContainText("Failover");
 });
 
 test("the cache can be flushed", async ({ page }) => {

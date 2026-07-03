@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, Lock } from "lucide-react";
 import { Button } from "@wardnet/web";
@@ -101,23 +101,24 @@ export function UpstreamServersCard({
 
   // Optimistic routing selection so the dropdown/radios reflect a change
   // instantly rather than reverting while the PUT round-trips (the props only
-  // update after the mutation's refetch lands). Cleared once the server state
-  // catches up. Without this the controls flicker on every change.
+  // update after the mutation's refetch lands). Without this the controls
+  // flicker on every change.
+  //
+  // The override is *derived* out once the server props catch up (no effect,
+  // no setState-in-effect): while it still disagrees with the props it wins;
+  // once they match, we fall through to the props and the stale state is
+  // simply ignored until the next change overwrites it.
   const [optimistic, setOptimistic] = useState<{
     mode: ForwarderSelectionMode;
     selected?: string;
   } | null>(null);
-  const effMode = optimistic?.mode ?? mode;
-  const effSelected = optimistic ? optimistic.selected : selectedUpstream;
-  useEffect(() => {
-    if (
-      optimistic &&
-      optimistic.mode === mode &&
-      (optimistic.selected ?? undefined) === (selectedUpstream ?? undefined)
-    ) {
-      setOptimistic(null);
-    }
-  }, [optimistic, mode, selectedUpstream]);
+  const optimisticPending =
+    optimistic !== null &&
+    (optimistic.mode !== mode ||
+      (optimistic.selected ?? undefined) !== (selectedUpstream ?? undefined));
+  const effMode = optimistic && optimisticPending ? optimistic.mode : mode;
+  const effSelected =
+    optimistic && optimisticPending ? optimistic.selected : selectedUpstream;
 
   // Selecting a specific server (single-server mode).
   const handleSelectServer = useCallback(
@@ -176,7 +177,9 @@ export function UpstreamServersCard({
     setAdding(false);
   }
 
-  const columns = useMemo<ColumnDef<UpstreamDns & { __index: number }>[]>(() => {
+  const columns = useMemo<
+    ColumnDef<UpstreamDns & { __index: number }>[]
+  >(() => {
     const cols: ColumnDef<UpstreamDns & { __index: number }>[] = [];
     // The per-server radio only appears in single-server mode — that's the
     // only mode where "which one" is a choice.

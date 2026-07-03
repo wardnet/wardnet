@@ -67,9 +67,9 @@ describe("UpstreamServersCard", () => {
 
   it("shows the selected mode's behaviour description", () => {
     renderCard({ mode: "fastest" });
-    expect(
-      screen.getByTestId("upstream-mode-desc").textContent ?? "",
-    ).toMatch(/fastest/i);
+    expect(screen.getByTestId("upstream-mode-desc").textContent ?? "").toMatch(
+      /fastest/i,
+    );
   });
 
   it("shows per-server radios only in single-server mode", () => {
