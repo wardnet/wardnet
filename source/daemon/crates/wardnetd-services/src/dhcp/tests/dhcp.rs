@@ -668,6 +668,23 @@ async fn update_config_rejects_public_pool() {
 }
 
 #[tokio::test]
+async fn update_config_rejects_public_pool_end() {
+    let svc = build_service();
+    // Private start but a public end must be rejected (the end check is
+    // distinct from the start check).
+    let req = UpdateDhcpConfigRequest {
+        pool_start: "192.168.1.100".to_owned(),
+        pool_end: "200.0.0.200".to_owned(),
+        subnet_mask: "255.255.255.0".to_owned(),
+        upstream_dns: vec!["1.1.1.1".to_owned()],
+        lease_duration_secs: 86400,
+        router_ip: None,
+    };
+    let result = auth_context::with_context(admin_ctx(), svc.update_config(req)).await;
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+#[tokio::test]
 async fn update_config_rejects_public_router_ip() {
     let svc = build_service();
     let req = UpdateDhcpConfigRequest {

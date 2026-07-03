@@ -262,6 +262,27 @@ describe("ZoneExceptionsCard", () => {
     expect(screen.getByTestId("exception-port-error")).toBeInTheDocument();
   });
 
+  it("adds and removes custom port rows", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+    await user.click(screen.getByTestId("exception-service"));
+    await user.click(
+      await screen.findByRole("option", { name: "Custom ports…" }),
+    );
+    // Add a second row, fill both, then remove the first.
+    await user.click(screen.getByTestId("exception-port-add"));
+    await user.type(screen.getByTestId("exception-port-from-0"), "80");
+    await user.type(screen.getByTestId("exception-port-to-1"), "443");
+    await user.type(screen.getByTestId("exception-port-from-1"), "443");
+    expect(screen.getByTestId("exception-port-from-1")).toBeInTheDocument();
+    await user.click(screen.getByTestId("exception-port-remove-0"));
+    // Row 0 removed → the old row 1 is now row 0.
+    expect(
+      screen.queryByTestId("exception-port-from-1"),
+    ).not.toBeInTheDocument();
+  });
+
   it("rejects picking the same endpoint for both sides", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderWithProviders(<ZoneExceptionsCard />);
