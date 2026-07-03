@@ -74,15 +74,16 @@ export function Ipv4Input({
       next[index] = num;
       onChange(joinOctets(next));
 
-      // Auto-tab to next segment when 3 digits entered or value is complete.
+      // Auto-tab to next segment when 3 digits entered or value is complete —
+      // but never into a locked (read-only) octet.
       if (num.length === 3 || (num.length > 0 && parseInt(num, 10) > 25)) {
-        if (index < 3) {
+        if (index + 1 < lockedFrom) {
           refs[index + 1].current?.focus();
           refs[index + 1].current?.select();
         }
       }
     },
-    [octets, onChange, refs],
+    [octets, onChange, refs, lockedFrom],
   );
 
   const handleKeyDown = useCallback(
@@ -91,7 +92,7 @@ export function Ipv4Input({
 
       if (e.key === "." || e.key === "Tab") {
         if (e.key === ".") e.preventDefault();
-        if (index < 3 && e.key === ".") {
+        if (index + 1 < lockedFrom && e.key === ".") {
           refs[index + 1].current?.focus();
           refs[index + 1].current?.select();
         }
@@ -118,7 +119,7 @@ export function Ipv4Input({
         refs[index + 1].current?.focus();
       }
     },
-    [refs],
+    [refs, lockedFrom],
   );
 
   const handlePaste = useCallback(

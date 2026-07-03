@@ -303,6 +303,15 @@ function ExceptionForm({
         {serviceId === "custom" && (
           <CustomPortsEditor rows={customPorts} onChange={setCustomPorts} />
         )}
+        {serviceId === "custom" && !customOk && (
+          <Text
+            size="xs"
+            className="text-danger"
+            data-testid="exception-port-error"
+          >
+            Add at least one valid port (0–65535, with end ≥ start).
+          </Text>
+        )}
 
         <Text size="xs" className="text-ink-3">
           Grants access for the selected service both ways between the two

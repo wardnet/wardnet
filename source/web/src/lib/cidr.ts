@@ -106,10 +106,30 @@ export function octetsPrivate(
   return false;
 }
 
-/** True when `cidr` parses and its network address is RFC 1918 private. */
+/** The three RFC 1918 private blocks, as `{ octets, prefix }`. */
+const RFC1918_BLOCKS: {
+  octets: [number, number, number, number];
+  prefix: number;
+}[] = [
+  { octets: [10, 0, 0, 0], prefix: 8 },
+  { octets: [172, 16, 0, 0], prefix: 12 },
+  { octets: [192, 168, 0, 0], prefix: 16 },
+];
+
+/**
+ * True when the *entire* `cidr` range sits inside one RFC 1918 block. Checking
+ * only the base address is not enough: a supernet like `192.168.0.0/15` has a
+ * private base but straddles into public `192.169.x`. A subnet is fully private
+ * iff its prefix is at least the block's prefix and its base masks to the block.
+ */
 export function isPrivateCidr(cidr: string): boolean {
   const parsed = parseCidr(cidr);
-  return parsed !== null && octetsPrivate(parsed.octets);
+  if (!parsed) return false;
+  return RFC1918_BLOCKS.some((block) => {
+    if (parsed.prefix < block.prefix) return false;
+    const net = networkOctets(parsed.octets, block.prefix);
+    return net.every((o, i) => o === block.octets[i]);
+  });
 }
 
 /** True when a dotted IPv4 address parses and is RFC 1918 private. */

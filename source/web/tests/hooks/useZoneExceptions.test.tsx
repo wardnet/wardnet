@@ -58,28 +58,6 @@ describe("useZoneExceptions", () => {
     expect(toast.success).toHaveBeenCalledWith("Exception removed");
   });
 
-  it("castBetween builds a bidirectional casting-preset exception", async () => {
-    zoneExceptionsService.create.mockResolvedValue({ exception: {} });
-    const { result } = renderHook(() => z.useCreateCastingException(), {
-      wrapper: w(),
-    });
-    await act(async () => {
-      result.current.castBetween(
-        { kind: "device", id: "phone" },
-        { kind: "device", id: "tv" },
-      );
-    });
-    await waitFor(() =>
-      expect(zoneExceptionsService.create).toHaveBeenCalledWith({
-        from: { kind: "device", id: "phone" },
-        to: { kind: "device", id: "tv" },
-        service: { type: "preset", set: "casting" },
-        bidirectional: true,
-      }),
-    );
-    expect(toast.success).toHaveBeenCalledWith("Exception created");
-  });
-
   it("surfaces an error toast when create fails", async () => {
     zoneExceptionsService.create.mockRejectedValue(new Error("nope"));
     const { result } = renderHook(() => z.useCreateZoneException(), {

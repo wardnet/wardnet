@@ -3,7 +3,7 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "../test-utils";
 
-const { networkZonesService, toast } = vi.hoisted(() => ({
+const { networkZonesService, deviceService, toast } = vi.hoisted(() => ({
   networkZonesService: {
     list: vi.fn(),
     create: vi.fn(),
@@ -13,9 +13,10 @@ const { networkZonesService, toast } = vi.hoisted(() => ({
     getQuarantineNewDevices: vi.fn(),
     setQuarantineNewDevices: vi.fn(),
   },
+  deviceService: { list: vi.fn() },
   toast: { success: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../../src/lib/sdk", () => ({ networkZonesService }));
+vi.mock("../../src/lib/sdk", () => ({ networkZonesService, deviceService }));
 vi.mock("@wardnet/ui", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, toast };
@@ -183,5 +184,50 @@ describe("useNetworkZones", () => {
     expect(toast.success).toHaveBeenCalledWith(
       "New-device notifications disabled",
     );
+  });
+});
+
+describe("usePendingDevices", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("derives the inbox: default-for-new members, most-recent-first, + home", async () => {
+    networkZonesService.list.mockResolvedValue({
+      zones: [
+        { id: "home", is_default: true, is_default_for_new: false },
+        { id: "guest", is_default: false, is_default_for_new: true },
+      ],
+    });
+    deviceService.list.mockResolvedValue({
+      devices: [
+        { id: "old", zone_id: "guest", first_seen: "2026-01-01T00:00:00Z" },
+        { id: "new", zone_id: "guest", first_seen: "2026-06-01T00:00:00Z" },
+        { id: "home-dev", zone_id: "home", first_seen: "2026-06-02T00:00:00Z" },
+      ],
+    });
+    const { result } = renderHook(() => z.usePendingDevices(), {
+      wrapper: w(),
+    });
+    await waitFor(() => expect(result.current.pending.length).toBe(2));
+    // Most-recent-first, home-zone device excluded.
+    expect(result.current.pending.map((d) => d.id)).toEqual(["new", "old"]);
+    expect(result.current.defaultForNew?.id).toBe("guest");
+    expect(result.current.homeZone?.id).toBe("home");
+  });
+
+  it("returns an empty inbox when no zone is flagged default-for-new", async () => {
+    networkZonesService.list.mockResolvedValue({
+      zones: [{ id: "home", is_default: true, is_default_for_new: false }],
+    });
+    deviceService.list.mockResolvedValue({
+      devices: [
+        { id: "d", zone_id: "home", first_seen: "2026-01-01T00:00:00Z" },
+      ],
+    });
+    const { result } = renderHook(() => z.usePendingDevices(), {
+      wrapper: w(),
+    });
+    await waitFor(() => expect(result.current.homeZone?.id).toBe("home"));
+    expect(result.current.pending).toEqual([]);
+    expect(result.current.defaultForNew).toBeUndefined();
   });
 });

@@ -25,6 +25,39 @@ pub fn is_reserved_ipv4(addr: Ipv4Addr) -> bool {
         }
 }
 
+/// Shared human-readable hint naming the RFC 1918 ranges, so the several
+/// "must be …" validation errors (zone subnet, DHCP pool start/end, router)
+/// don't drift apart.
+pub const PRIVATE_RANGE_HINT: &str =
+    "a private range (10.x, 172.16-31.x, or 192.168.x)";
+
+/// `true` when the *entire* IPv4 subnet (`base`/`prefix`, where `base` is the
+/// network address) sits inside a single RFC 1918 block: `10/8`, `172.16/12`,
+/// or `192.168/16`. Checking only the base is insufficient — a supernet like
+/// `192.168.0.0/15` has a private base but straddles into public space; the
+/// subnet is fully private only if its prefix is at least the block's and its
+/// base masks to the block.
+#[must_use]
+pub fn is_rfc1918_subnet(base: Ipv4Addr, prefix: u8) -> bool {
+    const BLOCKS: [(Ipv4Addr, u8); 3] = [
+        (Ipv4Addr::new(10, 0, 0, 0), 8),
+        (Ipv4Addr::new(172, 16, 0, 0), 12),
+        (Ipv4Addr::new(192, 168, 0, 0), 16),
+    ];
+    let base_u = u32::from(base);
+    BLOCKS.iter().any(|&(net, block_prefix)| {
+        if prefix < block_prefix {
+            return false;
+        }
+        let mask = if block_prefix == 0 {
+            0
+        } else {
+            u32::MAX << (32 - block_prefix)
+        };
+        (base_u & mask) == u32::from(net)
+    })
+}
+
 /// `true` when `ip` is a private / reserved / non-public address (v4 or
 /// v6). IPv6 covers loopback, unspecified, unique-local (`fc00::/7`),
 /// link-local (`fe80::/10`), and **IPv4-mapped** addresses
@@ -59,7 +92,25 @@ fn is_link_local_v6(addr: Ipv6Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_private_ip, is_reserved_ipv4};
+    use super::{is_private_ip, is_reserved_ipv4, is_rfc1918_subnet};
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn rfc1918_subnet_requires_the_whole_range_inside_a_block() {
+        let p = |s: &str, n: u8| is_rfc1918_subnet(s.parse::<Ipv4Addr>().unwrap(), n);
+        // Fully-contained subnets.
+        assert!(p("10.44.0.0", 24));
+        assert!(p("192.168.1.0", 24));
+        assert!(p("172.16.0.0", 12)); // the canonical /12
+        assert!(p("10.0.0.0", 15)); // within 10/8
+        // Straddlers: private base, range spills into public space.
+        assert!(!p("192.168.0.0", 15)); // → 192.169.x
+        assert!(!p("172.16.0.0", 11)); // → 172.0–15 / 172.32+
+        assert!(!p("10.0.0.0", 7)); // → 11.x
+        // Plain public.
+        assert!(!p("8.8.0.0", 16));
+    }
+
 
     #[test]
     fn reserved_ipv4_covers_private_cgnat_and_special() {

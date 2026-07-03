@@ -1,8 +1,12 @@
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@wardnet/ui";
 import { networkZonesService } from "../lib/sdk";
+import { useDevices } from "./useDevices";
 import type {
+  Device,
   ListNetworkZonesResponse,
+  NetworkZoneView,
   CreateNetworkZoneRequest,
   UpdateNetworkZoneRequest,
   QuarantineNewDevicesResponse,
@@ -17,6 +21,41 @@ export function useNetworkZones() {
     queryKey: ["network-zones"],
     queryFn: () => networkZonesService.list(),
   });
+}
+
+export interface PendingDevices {
+  /** Devices sitting in the default-for-new zone, most-recent-first. */
+  pending: Device[];
+  /** The zone new devices land in, if one is flagged. */
+  defaultForNew: NetworkZoneView | undefined;
+  /** The anchor "home" zone (the usual approve target). */
+  homeZone: NetworkZoneView | undefined;
+  zones: NetworkZoneView[];
+}
+
+/**
+ * The client-derived new-device "inbox": devices currently in the
+ * default-for-new zone, most-recent-first. Shared by the admin-site quarantine
+ * settings and the admin-PWA Devices screen so the two surfaces can't drift.
+ * (Quarantine is notification-only — approving a device just reassigns its
+ * zone; there is no persisted review state.)
+ */
+export function usePendingDevices(): PendingDevices {
+  const { data: zoneData } = useNetworkZones();
+  const { data: deviceData } = useDevices();
+  const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
+  const defaultForNew = zones.find((z) => z.is_default_for_new);
+  const homeZone = zones.find((z) => z.is_default);
+  const pending = useMemo(() => {
+    if (!defaultForNew) return [];
+    return (deviceData?.devices ?? [])
+      .filter((d) => d.zone_id === defaultForNew.id)
+      .sort(
+        (a, b) =>
+          new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime(),
+      );
+  }, [deviceData, defaultForNew]);
+  return { pending, defaultForNew, homeZone, zones };
 }
 
 export function useCreateNetworkZone() {

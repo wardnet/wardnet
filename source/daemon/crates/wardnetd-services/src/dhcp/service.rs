@@ -426,14 +426,16 @@ impl DhcpServiceImpl {
         // LAN addressing must be RFC 1918 private — a public range would hand
         // out addresses that belong to real internet hosts.
         if !start.is_private() {
-            return Err(AppError::BadRequest(
-                "pool_start must be a private range (10.x, 172.16-31.x, or 192.168.x)".to_owned(),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "pool_start must be {}",
+                wardnet_common::net::PRIVATE_RANGE_HINT
+            )));
         }
         if !end.is_private() {
-            return Err(AppError::BadRequest(
-                "pool_end must be a private range (10.x, 172.16-31.x, or 192.168.x)".to_owned(),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "pool_end must be {}",
+                wardnet_common::net::PRIVATE_RANGE_HINT
+            )));
         }
         Ok((start, end))
     }
@@ -623,10 +625,10 @@ impl DhcpService for DhcpServiceImpl {
                 .parse()
                 .map_err(|_| AppError::BadRequest("invalid router_ip address".to_owned()))?;
             if !parsed.is_private() {
-                return Err(AppError::BadRequest(
-                    "router_ip must be a private range (10.x, 172.16-31.x, or 192.168.x)"
-                        .to_owned(),
-                ));
+                return Err(AppError::BadRequest(format!(
+                    "router_ip must be {}",
+                    wardnet_common::net::PRIVATE_RANGE_HINT
+                )));
             }
         }
 

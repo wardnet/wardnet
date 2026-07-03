@@ -246,6 +246,22 @@ describe("ZoneExceptionsCard", () => {
     expect(screen.getByText("SSH")).toBeInTheDocument();
   });
 
+  it("shows an error and blocks submit for an out-of-range custom port", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+    await user.click(screen.getByTestId("exception-service"));
+    await user.click(
+      await screen.findByRole("option", { name: "Custom ports…" }),
+    );
+    // No valid port yet → inline error + disabled submit.
+    expect(screen.getByTestId("exception-port-error")).toBeInTheDocument();
+    expect(screen.getByTestId("exception-submit")).toBeDisabled();
+    // 70000 is out of range → still invalid.
+    await user.type(screen.getByTestId("exception-port-from-0"), "70000");
+    expect(screen.getByTestId("exception-port-error")).toBeInTheDocument();
+  });
+
   it("rejects picking the same endpoint for both sides", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderWithProviders(<ZoneExceptionsCard />);

@@ -77,10 +77,16 @@ describe("cidr helpers", () => {
     expect(octetsPrivate([100, 64, 0, 0])).toBe(false); // CGNAT is not RFC 1918
   });
 
-  it("isPrivateCidr requires a private network address", () => {
+  it("isPrivateCidr requires the whole range inside one RFC 1918 block", () => {
     expect(isPrivateCidr("10.44.0.0/24")).toBe(true);
     expect(isPrivateCidr("192.168.1.0/24")).toBe(true);
+    expect(isPrivateCidr("172.16.0.0/12")).toBe(true); // the canonical /12
+    expect(isPrivateCidr("10.0.0.0/15")).toBe(true); // within 10/8
     expect(isPrivateCidr("8.8.0.0/16")).toBe(false);
+    // Straddlers: private base but the range extends into public space.
+    expect(isPrivateCidr("192.168.0.0/15")).toBe(false); // → 192.169.x
+    expect(isPrivateCidr("172.16.0.0/11")).toBe(false); // → 172.0–172.15 / 172.32+
+    expect(isPrivateCidr("10.0.0.0/7")).toBe(false); // → 11.x
     expect(isPrivateCidr("not a cidr")).toBe(false);
   });
 });

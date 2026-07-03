@@ -213,6 +213,7 @@ export {
 // Hooks — network zones (epic #244)
 export {
   useNetworkZones,
+  usePendingDevices,
   useCreateNetworkZone,
   useUpdateNetworkZone,
   useDeleteNetworkZone,
@@ -220,11 +221,11 @@ export {
   useQuarantineNewDevices,
   useSetQuarantineNewDevices,
 } from "./hooks/useNetworkZones";
+export type { PendingDevices } from "./hooks/useNetworkZones";
 export {
   useZoneExceptions,
   useCreateZoneException,
   useDeleteZoneException,
-  useCreateCastingException,
 } from "./hooks/useZoneExceptions";
 
 export {

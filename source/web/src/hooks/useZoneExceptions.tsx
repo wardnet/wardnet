@@ -4,7 +4,6 @@ import { zoneExceptionsService } from "../lib/sdk";
 import type {
   ListZoneExceptionsResponse,
   CreateZoneExceptionRequest,
-  ExceptionEndpoint,
 } from "@wardnet/js";
 
 // ---------------------------------------------------------------------------
@@ -41,24 +40,4 @@ export function useDeleteZoneException() {
     },
     onError: () => toast.error("Failed to remove exception"),
   });
-}
-
-/**
- * One-click casting preset: open the built-in casting service set (mDNS,
- * SSDP/DLNA, Chromecast, AirPlay) bidirectionally between two endpoints
- * (each a device or a whole zone). Thin wrapper over
- * {@link useCreateZoneException} that fills in `service` + `bidirectional`.
- */
-export function useCreateCastingException() {
-  const create = useCreateZoneException();
-  return {
-    ...create,
-    castBetween: (from: ExceptionEndpoint, to: ExceptionEndpoint) =>
-      create.mutate({
-        from,
-        to,
-        service: { type: "preset", set: "casting" },
-        bidirectional: true,
-      }),
-  };
 }

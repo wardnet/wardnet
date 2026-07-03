@@ -11,9 +11,8 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     ...actual,
     useQuarantineNewDevices: vi.fn(),
     useSetQuarantineNewDevices: vi.fn(),
-    useNetworkZones: vi.fn(),
+    usePendingDevices: vi.fn(),
     useUpdateNetworkZone: vi.fn(),
-    useDevices: vi.fn(),
     useAssignDeviceZone: vi.fn(),
   };
 });
@@ -21,9 +20,8 @@ vi.mock("@wardnet/web", async (importOriginal) => {
 import {
   useQuarantineNewDevices,
   useSetQuarantineNewDevices,
-  useNetworkZones,
+  usePendingDevices,
   useUpdateNetworkZone,
-  useDevices,
   useAssignDeviceZone,
 } from "@wardnet/web";
 
@@ -71,15 +69,21 @@ function setup({
     mutate: setQuarantine,
     isPending: false,
   } as unknown as ReturnType<typeof useSetQuarantineNewDevices>);
-  vi.mocked(useNetworkZones).mockReturnValue({
-    data: { zones },
-  } as unknown as ReturnType<typeof useNetworkZones>);
+  const pending = devices
+    .filter((d) => d.zone_id === "zone-guest")
+    .sort(
+      (a, b) =>
+        new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime(),
+    );
+  vi.mocked(usePendingDevices).mockReturnValue({
+    pending,
+    defaultForNew: zones[1],
+    homeZone: zones[0],
+    zones,
+  });
   vi.mocked(useUpdateNetworkZone).mockReturnValue({
     mutate: setDefaultForNew,
   } as unknown as ReturnType<typeof useUpdateNetworkZone>);
-  vi.mocked(useDevices).mockReturnValue({
-    data: { devices },
-  } as unknown as ReturnType<typeof useDevices>);
   vi.mocked(useAssignDeviceZone).mockReturnValue({
     mutate: assign,
     isPending: false,

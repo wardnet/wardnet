@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
@@ -12,8 +12,7 @@ import {
   SelectValue,
 } from "@wardnet/web";
 import {
-  useDevices,
-  useNetworkZones,
+  usePendingDevices,
   useUpdateNetworkZone,
   useAssignDeviceZone,
   useQuarantineNewDevices,
@@ -34,25 +33,10 @@ import type { Device, NetworkZoneView } from "@wardnet/js";
 export function QuarantineSettingsCard() {
   const { data: quarantine } = useQuarantineNewDevices();
   const setQuarantine = useSetQuarantineNewDevices();
-  const { data: zoneData } = useNetworkZones();
   const setDefaultForNew = useUpdateNetworkZone({
     successMessage: "Default-for-new zone updated",
   });
-  const { data: deviceData } = useDevices();
-
-  const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
-  const defaultForNew = zones.find((z) => z.is_default_for_new);
-  const homeZone = zones.find((z) => z.is_default);
-
-  const pending = useMemo(() => {
-    if (!defaultForNew) return [];
-    return (deviceData?.devices ?? [])
-      .filter((d) => d.zone_id === defaultForNew.id)
-      .sort(
-        (a, b) =>
-          new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime(),
-      );
-  }, [deviceData, defaultForNew]);
+  const { pending, defaultForNew, homeZone, zones } = usePendingDevices();
 
   return (
     <Card>
