@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
 import type { UpstreamDns } from "@wardnet/js";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
 import { renderWithProviders } from "../../test-utils";
@@ -23,53 +24,63 @@ const servers: UpstreamDns[] = [
   { name: "Quad9", address: "9.9.9.9", protocol: "tls", port: 853 },
 ];
 
+type Props = ComponentProps<typeof UpstreamServersCard>;
+
+/** Render with all required props defaulted (Failover mode so the up/down and
+ *  remove row actions are present); override per test. Returns the resolved
+ *  props so tests can assert against the mocks. */
+function renderCard(overrides: Partial<Props> = {}): Props {
+  const props: Props = {
+    servers,
+    isSaving: false,
+    mode: "failover",
+    onUpdate: vi.fn(),
+    onModeChange: vi.fn(),
+    onSelectServer: vi.fn(),
+    ...overrides,
+  };
+  renderWithProviders(<UpstreamServersCard {...props} />);
+  return props;
+}
+
 describe("UpstreamServersCard", () => {
   it("renders the empty state when there are no servers", () => {
-    renderWithProviders(
-      <UpstreamServersCard servers={[]} isSaving={false} onUpdate={vi.fn()} />,
-    );
+    renderCard({ servers: [] });
     expect(
       screen.getByText("No upstream servers configured."),
     ).toBeInTheDocument();
   });
 
   it("renders servers with address and protocol", () => {
-    renderWithProviders(
-      <UpstreamServersCard
-        servers={servers}
-        isSaving={false}
-        onUpdate={vi.fn()}
-      />,
-    );
+    renderCard();
     expect(screen.getByText("Cloudflare")).toBeInTheDocument();
     expect(screen.getByText("9.9.9.9:853")).toBeInTheDocument();
     expect(screen.getByText("TLS")).toBeInTheDocument();
   });
 
   it("shows the fallback-only note in recursive mode", () => {
-    renderWithProviders(
-      <UpstreamServersCard
-        servers={servers}
-        isSaving={false}
-        fallbackOnly
-        onUpdate={vi.fn()}
-      />,
-    );
+    renderCard({ fallbackOnly: true });
     expect(
       screen.getByText(/Recursive resolution is active/),
     ).toBeInTheDocument();
   });
 
-  it("moves a server down via the row menu", async () => {
+  it("shows the selected mode's behaviour description", () => {
+    renderCard({ mode: "fastest" });
+    expect(
+      screen.getByTestId("upstream-mode-desc").textContent ?? "",
+    ).toMatch(/fastest/i);
+  });
+
+  it("shows per-server radios only in single-server mode", () => {
+    renderCard({ mode: "single", selectedUpstream: "1.1.1.1" });
+    const radios = screen.getAllByTestId("upstream-select");
+    expect(radios).toHaveLength(servers.length);
+  });
+
+  it("moves a server down via the row menu (failover mode)", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const onUpdate = vi.fn();
-    renderWithProviders(
-      <UpstreamServersCard
-        servers={servers}
-        isSaving={false}
-        onUpdate={onUpdate}
-      />,
-    );
+    const { onUpdate } = renderCard();
     const menus = screen.getAllByTestId("upstream-row-menu");
     await user.click(menus[0]);
     await user.click(
@@ -80,14 +91,7 @@ describe("UpstreamServersCard", () => {
 
   it("ignores moving the first server up (out of bounds)", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const onUpdate = vi.fn();
-    renderWithProviders(
-      <UpstreamServersCard
-        servers={servers}
-        isSaving={false}
-        onUpdate={onUpdate}
-      />,
-    );
+    const { onUpdate } = renderCard();
     const menus = screen.getAllByTestId("upstream-row-menu");
     await user.click(menus[0]);
     await user.click(await screen.findByRole("menuitem", { name: "Move up" }));
@@ -96,14 +100,7 @@ describe("UpstreamServersCard", () => {
 
   it("removes a server via the row menu", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const onUpdate = vi.fn();
-    renderWithProviders(
-      <UpstreamServersCard
-        servers={servers}
-        isSaving={false}
-        onUpdate={onUpdate}
-      />,
-    );
+    const { onUpdate } = renderCard();
     const menus = screen.getAllByTestId("upstream-row-menu");
     await user.click(menus[1]);
     await user.click(await screen.findByTestId("upstream-remove"));
@@ -112,10 +109,7 @@ describe("UpstreamServersCard", () => {
 
   it("adds a plain UDP server through the inline form", async () => {
     const user = userEvent.setup();
-    const onUpdate = vi.fn();
-    renderWithProviders(
-      <UpstreamServersCard servers={[]} isSaving={false} onUpdate={onUpdate} />,
-    );
+    const { onUpdate } = renderCard({ servers: [] });
     await user.click(screen.getByTestId("upstream-add"));
     await user.type(screen.getByTestId("upstream-name"), "Google");
     await user.type(screen.getByTestId("upstream-address"), "8.8.8.8");
@@ -133,13 +127,11 @@ describe("UpstreamServersCard", () => {
 
   it("requires a TLS server name when protocol is encrypted", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const onUpdate = vi.fn();
-    renderWithProviders(
-      <UpstreamServersCard servers={[]} isSaving={false} onUpdate={onUpdate} />,
-    );
+    const { onUpdate } = renderCard({ servers: [] });
     await user.click(screen.getByTestId("upstream-add"));
-    // Pick the TLS protocol to reveal the SNI field.
-    await user.click(screen.getByRole("combobox"));
+    // Pick the TLS protocol to reveal the SNI field. Target the protocol
+    // select by its test id (the Routing dropdown is also a combobox).
+    await user.click(screen.getByTestId("upstream-protocol"));
     await user.click(await screen.findByRole("option", { name: "TLS" }));
     await user.type(screen.getByTestId("upstream-name"), "Quad9");
     await user.type(screen.getByTestId("upstream-address"), "9.9.9.9");
@@ -160,9 +152,7 @@ describe("UpstreamServersCard", () => {
 
   it("cancelling the add form hides it", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <UpstreamServersCard servers={[]} isSaving={false} onUpdate={vi.fn()} />,
-    );
+    renderCard({ servers: [] });
     await user.click(screen.getByTestId("upstream-add"));
     expect(screen.getByTestId("upstream-name")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));

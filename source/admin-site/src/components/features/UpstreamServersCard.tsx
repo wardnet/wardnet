@@ -454,7 +454,7 @@ function AddServerForm({ onCancel, onSubmit, isSaving }: AddServerFormProps) {
                 value={protocol}
                 onValueChange={(v) => setProtocol(v as DnsProtocol)}
               >
-                <SelectTrigger id="ups-proto">
+                <SelectTrigger id="ups-proto" data-testid="upstream-protocol">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
