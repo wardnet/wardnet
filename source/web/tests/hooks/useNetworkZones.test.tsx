@@ -106,6 +106,51 @@ describe("useNetworkZones", () => {
     expect(toast.error).toHaveBeenCalledWith("Failed to delete zone");
   });
 
+  it("surfaces error toasts for create, update, and assign failures", async () => {
+    networkZonesService.create.mockRejectedValue(new Error("x"));
+    networkZonesService.update.mockRejectedValue(new Error("x"));
+    networkZonesService.assignDevice.mockRejectedValue(new Error("x"));
+
+    const { result: c } = renderHook(() => z.useCreateNetworkZone(), {
+      wrapper: w(),
+    });
+    await act(async () => {
+      await c.current.mutateAsync({ name: "x" } as never).catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to create zone");
+
+    const { result: u } = renderHook(() => z.useUpdateNetworkZone(), {
+      wrapper: w(),
+    });
+    await act(async () => {
+      await u.current.mutateAsync({ id: "z1", body: {} }).catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to update zone");
+
+    const { result: a } = renderHook(() => z.useAssignDeviceZone(), {
+      wrapper: w(),
+    });
+    await act(async () => {
+      await a.current
+        .mutateAsync({ deviceId: "d1", zoneId: "z1" })
+        .catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to reassign zone");
+  });
+
+  it("surfaces an error toast when toggling quarantine fails", async () => {
+    networkZonesService.setQuarantineNewDevices.mockRejectedValue(
+      new Error("x"),
+    );
+    const { result } = renderHook(() => z.useSetQuarantineNewDevices(), {
+      wrapper: w(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync(true).catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to update setting");
+  });
+
   it("reads and toggles the quarantine setting", async () => {
     networkZonesService.getQuarantineNewDevices.mockResolvedValue({
       enabled: false,

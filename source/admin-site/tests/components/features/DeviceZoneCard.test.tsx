@@ -68,6 +68,22 @@ describe("DeviceZoneCard", () => {
     expect(screen.getByText(/isolated from each other/i)).toBeInTheDocument();
   });
 
+  it("shows a dash when the device's zone is not in the list", () => {
+    renderWithProviders(
+      <DeviceZoneCard device={makeDevice({ zone_id: "gone" })} />,
+    );
+    expect(screen.getByTestId("device-zone-value")).toHaveTextContent("—");
+    expect(screen.queryByText("Home")).not.toBeInTheDocument();
+  });
+
+  it("omits the Home pill for a non-default zone", () => {
+    renderWithProviders(
+      <DeviceZoneCard device={makeDevice({ zone_id: "zone-2" })} />,
+    );
+    expect(screen.getByTestId("device-zone-value")).toHaveTextContent("Guest");
+    expect(screen.queryByText("Home")).not.toBeInTheDocument();
+  });
+
   it("enters edit mode and saves the (unchanged) zone", async () => {
     const user = userEvent.setup();
     renderWithProviders(

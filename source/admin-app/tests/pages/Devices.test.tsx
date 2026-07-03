@@ -137,6 +137,22 @@ describe("Devices page", () => {
     expect(h.approve).toHaveBeenCalledWith({ deviceId: "new-1", zoneId: "z-home" });
   });
 
+  it("lists a pending device without an approve button when there is no home zone", () => {
+    h.useNetworkZones.mockReturnValue({
+      data: {
+        zones: [{ id: "z-guest", name: "Guest", is_default: false, is_default_for_new: true }],
+      },
+    });
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: { devices: [makeDevice({ id: "new-1", name: "Unknown", zone_id: "z-guest", last_seen: now })] },
+    });
+    renderWithProviders(<Devices />);
+    const section = screen.getByTestId("new-devices-section");
+    expect(within(section).getByText("Unknown")).toBeInTheDocument();
+    expect(within(section).queryByTestId("new-device-approve")).not.toBeInTheDocument();
+  });
+
   it("hides the review section when no device is in the default-for-new zone", () => {
     h.useNetworkZones.mockReturnValue({
       data: {

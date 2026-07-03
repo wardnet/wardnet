@@ -119,6 +119,87 @@ describe("ZonesCard", () => {
     );
   });
 
+  it("creates a zone with edited fields (stance, targets, subnet, toggles)", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getByTestId("zone-add"));
+    await user.type(screen.getByTestId("zone-name"), "Cameras");
+
+    // Isolation stance → Isolate members.
+    await user.click(screen.getByRole("combobox"));
+    await user.click(
+      await screen.findByRole("option", { name: "Isolate members" }),
+    );
+
+    // Drop tunnel so only direct remains; flip the two boolean toggles.
+    await user.click(screen.getByLabelText("Allow tunnel routing"));
+    await user.click(screen.getByLabelText("Member isolation"));
+    await user.click(screen.getByLabelText("Admin UI reachable"));
+    await user.type(screen.getByTestId("zone-subnet"), "10.44.0.0/24");
+
+    await user.click(screen.getByTestId("zone-submit"));
+    expect(createMutate).toHaveBeenCalledWith(
+      {
+        name: "Cameras",
+        isolation_stance: "isolate_members",
+        allowed_targets: ["direct"],
+        member_isolation: true,
+        admin_ui_reachable: false,
+        subnet: { cidr: "10.44.0.0/24" },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("blocks submit when no routing target is allowed", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getByTestId("zone-add"));
+    await user.type(screen.getByTestId("zone-name"), "Nowhere");
+    await user.click(screen.getByLabelText("Allow direct routing"));
+    await user.click(screen.getByLabelText("Allow tunnel routing"));
+    expect(
+      screen.getByText(/Allow at least one routing target/i),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("zone-submit")).toBeDisabled();
+  });
+
+  it("edits an existing zone via the row menu", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getAllByTestId("zone-row-menu")[1]);
+    await user.click(await screen.findByTestId("zone-edit"));
+    const name = screen.getByTestId("zone-name") as HTMLInputElement;
+    expect(name.value).toBe("IoT");
+    await user.clear(name);
+    await user.type(name, "Sensors");
+    await user.click(screen.getByTestId("zone-submit"));
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "z-iot" }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("sets a zone as the default for new devices via the row menu", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getAllByTestId("zone-row-menu")[1]);
+    await user.click(await screen.findByTestId("zone-set-default-for-new"));
+    expect(updateMutate).toHaveBeenCalledWith({
+      id: "z-iot",
+      body: { is_default_for_new: true },
+    });
+  });
+
+  it("cancels the add form", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ZonesCard />);
+    await user.click(screen.getByTestId("zone-add"));
+    expect(screen.getByTestId("zone-name")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("zone-name")).not.toBeInTheDocument();
+  });
+
   it("promotes a zone to home via the row menu", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderWithProviders(<ZonesCard />);

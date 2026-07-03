@@ -99,6 +99,19 @@ describe("QuarantineSettingsCard", () => {
     expect(setQuarantine).toHaveBeenCalledWith(true);
   });
 
+  it("changes the default-for-new zone via the picker", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.scrollIntoView ??= () => {};
+    renderWithProviders(<QuarantineSettingsCard />);
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Trusted" }));
+    expect(setDefaultForNew).toHaveBeenCalledWith({
+      id: "zone-1",
+      body: { is_default_for_new: true },
+    });
+  });
+
   it("shows an empty review queue when no device sits in the default-for-new zone", () => {
     renderWithProviders(<QuarantineSettingsCard />);
     expect(screen.getByText(/Awaiting review \(0\)/)).toBeInTheDocument();

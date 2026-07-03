@@ -120,6 +120,81 @@ describe("ZoneExceptionsCard", () => {
     expect(screen.getByTestId("exception-submit")).toBeDisabled();
   });
 
+  it("labels a custom-port service by its port count", () => {
+    setup({
+      exceptions: [
+        {
+          ...casting,
+          id: "e2",
+          service: {
+            type: "ports",
+            ports: [
+              { proto: "tcp", from: 8008, to: 8009 },
+              { proto: "udp", from: 5353, to: 5353 },
+            ],
+          },
+          bidirectional: false,
+        },
+      ],
+    });
+    renderWithProviders(<ZoneExceptionsCard />);
+    expect(screen.getByText("2 ports")).toBeInTheDocument();
+    // one-directional renders the → glyph.
+    expect(screen.getByText("→")).toBeInTheDocument();
+  });
+
+  it("creates a casting exception between two chosen endpoints", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+
+    const submit = screen.getByTestId("exception-submit");
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+    expect(createMutate).toHaveBeenCalledWith(
+      {
+        from: { kind: "device", id: "d1" },
+        to: { kind: "zone", id: "z-guest" },
+        service: { type: "preset", set: "casting" },
+        bidirectional: true,
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("rejects picking the same endpoint for both sides", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen
+        .findAllByRole("option", { name: "Zone: Guest" })
+        .then((o) => o[0]),
+    );
+
+    expect(
+      screen.getByText(/Pick two different endpoints/i),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("exception-submit")).toBeDisabled();
+  });
+
   it("deletes an exception after confirming", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     setup({ exceptions: [casting] });

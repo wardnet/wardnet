@@ -97,4 +97,15 @@ describe("useZoneExceptions", () => {
     });
     expect(toast.error).toHaveBeenCalledWith("Failed to create exception");
   });
+
+  it("surfaces an error toast when delete fails", async () => {
+    zoneExceptionsService.delete.mockRejectedValue(new Error("nope"));
+    const { result } = renderHook(() => z.useDeleteZoneException(), {
+      wrapper: w(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync("e1").catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to remove exception");
+  });
 });
