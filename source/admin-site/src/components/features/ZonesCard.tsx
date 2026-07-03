@@ -369,17 +369,21 @@ function ZoneForm({
             label="Allowed routing"
             help="Which routing targets a device in this zone may pick. At least one is required."
           >
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center justify-between">
-                <Text size="sm">Direct (no VPN)</Text>
+            <div className="flex flex-col">
+              <label className="flex h-9 items-center justify-between">
+                <Text size="sm" className="text-ink-3">
+                  Direct (no VPN)
+                </Text>
                 <Toggle
                   aria-label="Allow direct routing"
                   checked={allowDirect}
                   onCheckedChange={setAllowDirect}
                 />
               </label>
-              <label className="flex items-center justify-between">
-                <Text size="sm">Tunnel (VPN)</Text>
+              <label className="flex h-9 items-center justify-between">
+                <Text size="sm" className="text-ink-3">
+                  Tunnel (VPN)
+                </Text>
                 <Toggle
                   aria-label="Allow tunnel routing"
                   checked={allowTunnel}
@@ -405,36 +409,40 @@ function ZoneForm({
             />
           </Field>
 
-          <label className="flex items-center justify-between">
-            <span className="flex flex-col">
-              <Text size="sm">Member isolation</Text>
-              <Text size="xs" className="text-ink-3">
+          <Field
+            label="Member isolation"
+            help="Isolate same-zone peers from each other. Requires a zone subnet and Wardnet DHCP."
+          >
+            <div className="flex h-9 items-center justify-between">
+              <Text size="sm" className="text-ink-3">
                 {hasSubnet
-                  ? "Isolate same-zone peers from each other (requires Wardnet DHCP)."
-                  : "Set a zone subnet above to enable — has no effect without one."}
+                  ? "Isolate devices within this zone"
+                  : "Set a zone subnet above to enable"}
               </Text>
-            </span>
-            <Toggle
-              aria-label="Member isolation"
-              checked={hasSubnet && memberIsolation}
-              disabled={!hasSubnet}
-              onCheckedChange={setMemberIsolation}
-            />
-          </label>
+              <Toggle
+                aria-label="Member isolation"
+                checked={hasSubnet && memberIsolation}
+                disabled={!hasSubnet}
+                onCheckedChange={setMemberIsolation}
+              />
+            </div>
+          </Field>
 
-          <label className="flex items-center justify-between">
-            <span className="flex flex-col">
-              <Text size="sm">Admin UI reachable</Text>
-              <Text size="xs" className="text-ink-3">
-                May devices in this zone reach the Pi's admin surfaces?
+          <Field
+            label="Admin UI reachable"
+            help="May devices in this zone reach the Pi's admin surfaces?"
+          >
+            <div className="flex h-9 items-center justify-between">
+              <Text size="sm" className="text-ink-3">
+                Reach the Pi's admin pages
               </Text>
-            </span>
-            <Toggle
-              aria-label="Admin UI reachable"
-              checked={adminUiReachable}
-              onCheckedChange={setAdminUiReachable}
-            />
-          </label>
+              <Toggle
+                aria-label="Admin UI reachable"
+                checked={adminUiReachable}
+                onCheckedChange={setAdminUiReachable}
+              />
+            </div>
+          </Field>
         </CardContent>
         <FormActions
           secondaryLabel="Cancel"

@@ -71,6 +71,7 @@ export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";
 export { RoutingSelector } from "./components/RoutingSelector";
+export { Ipv4Input } from "./components/Ipv4Input";
 export { SubnetInput } from "./components/SubnetInput";
 
 // CIDR helpers
@@ -78,6 +79,9 @@ export {
   parseCidr,
   buildCidr,
   isValidCidr,
+  isPrivateCidr,
+  isPrivateIpv4,
+  octetsPrivate,
   usableHosts,
   prefixForHosts,
   networkOctets,

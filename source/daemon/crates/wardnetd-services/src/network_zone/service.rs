@@ -194,6 +194,15 @@ impl NetworkZoneServiceImpl {
             let net = ipnetwork::Ipv4Network::from_str(&subnet.cidr).map_err(|_| {
                 AppError::BadRequest(format!("subnet cidr '{}' is not a valid CIDR", subnet.cidr))
             })?;
+            // A LAN subnet must be RFC 1918 private — a public range would make
+            // the Pi alias a gateway on address space that belongs to real
+            // internet hosts and blackhole them.
+            if !net.network().is_private() {
+                return Err(AppError::BadRequest(format!(
+                    "subnet cidr '{}' must be a private range (10.x, 172.16-31.x, or 192.168.x)",
+                    subnet.cidr
+                )));
+            }
             if crate::subnet::pool_bounds(net).is_none() {
                 return Err(AppError::BadRequest(format!(
                     "subnet cidr '{}' is too small to host a DHCP pool",

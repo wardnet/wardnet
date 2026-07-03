@@ -90,3 +90,34 @@ export function parseCidr(cidr: string): ParsedCidr | null {
 export function isValidCidr(cidr: string): boolean {
   return parseCidr(cidr) !== null;
 }
+
+/**
+ * True when the octets fall in an RFC 1918 private range:
+ * `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`. LAN subnets and DHCP
+ * pools must be private — a public range would blackhole real internet hosts.
+ */
+export function octetsPrivate(
+  octets: [number, number, number, number],
+): boolean {
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+/** True when `cidr` parses and its network address is RFC 1918 private. */
+export function isPrivateCidr(cidr: string): boolean {
+  const parsed = parseCidr(cidr);
+  return parsed !== null && octetsPrivate(parsed.octets);
+}
+
+/** True when a dotted IPv4 address parses and is RFC 1918 private. */
+export function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => (p === "" ? NaN : Number(p)));
+  return (
+    octetsValid(nums) && octetsPrivate(nums as [number, number, number, number])
+  );
+}

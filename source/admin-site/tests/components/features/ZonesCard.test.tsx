@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -125,8 +125,9 @@ describe("ZonesCard", () => {
     await user.click(screen.getByTestId("zone-add"));
     await user.type(screen.getByTestId("zone-name"), "Cameras");
 
-    // Isolation stance → Isolate members.
-    await user.click(screen.getByRole("combobox"));
+    // Isolation stance → Isolate members. (The stance select is the first
+    // combobox; the subnet size dropdown is another.)
+    await user.click(screen.getAllByRole("combobox")[0]);
     await user.click(
       await screen.findByRole("option", { name: "Isolate members" }),
     );
@@ -134,15 +135,13 @@ describe("ZonesCard", () => {
     // Drop tunnel so only direct remains; flip the two boolean toggles.
     await user.click(screen.getByLabelText("Allow tunnel routing"));
     await user.click(screen.getByLabelText("Admin UI reachable"));
-    // Set the subnet (10.44.0.0/24 via advanced mode) — member isolation is
-    // gated on a subnet, so this must come first.
-    await user.type(screen.getByTestId("zone-subnet-octet-0"), "10");
-    await user.type(screen.getByTestId("zone-subnet-octet-1"), "44");
-    await user.type(screen.getByTestId("zone-subnet-octet-2"), "0");
-    await user.type(screen.getByTestId("zone-subnet-octet-3"), "0");
-    await user.click(screen.getByTestId("zone-subnet-mode-advanced"));
-    await user.clear(screen.getByTestId("zone-subnet-prefix"));
-    await user.type(screen.getByTestId("zone-subnet-prefix"), "24");
+    // Set the subnet (default size is /24) — member isolation is gated on a
+    // subnet, so this must come first.
+    const base = within(screen.getByTestId("zone-subnet-ip")).getAllByRole(
+      "textbox",
+    )[0];
+    await user.click(base);
+    await user.paste("10.44.0.0");
     await user.click(screen.getByLabelText("Member isolation"));
 
     await user.click(screen.getByTestId("zone-submit"));
@@ -178,10 +177,11 @@ describe("ZonesCard", () => {
     await user.click(screen.getByTestId("zone-add"));
     // No subnet yet → the toggle is disabled.
     expect(screen.getByLabelText("Member isolation")).toBeDisabled();
-    await user.type(screen.getByTestId("zone-subnet-octet-0"), "10");
-    await user.type(screen.getByTestId("zone-subnet-octet-1"), "44");
-    await user.type(screen.getByTestId("zone-subnet-octet-2"), "0");
-    await user.type(screen.getByTestId("zone-subnet-octet-3"), "0");
+    const base = within(screen.getByTestId("zone-subnet-ip")).getAllByRole(
+      "textbox",
+    )[0];
+    await user.click(base);
+    await user.paste("10.44.0.0");
     expect(screen.getByLabelText("Member isolation")).toBeEnabled();
   });
 

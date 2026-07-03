@@ -255,22 +255,26 @@ function ExceptionForm({
         <CardTitle>Add exception</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <EndpointField
-          label="From"
-          id="exception-from"
-          value={from}
-          onChange={setFrom}
-          zones={zones}
-          devices={devices}
-        />
-        <EndpointField
-          label="To"
-          id="exception-to"
-          value={to}
-          onChange={setTo}
-          zones={zones}
-          devices={devices}
-        />
+        <div className="flex flex-col gap-5 sm:flex-row">
+          <EndpointField
+            label="From"
+            id="exception-from"
+            value={from}
+            onChange={setFrom}
+            zones={zones}
+            devices={devices}
+            className="flex-1"
+          />
+          <EndpointField
+            label="To"
+            id="exception-to"
+            value={to}
+            onChange={setTo}
+            zones={zones}
+            devices={devices}
+            className="flex-1"
+          />
+        </div>
         {from && to && from === to && (
           <Text size="xs" className="text-danger">
             Pick two different endpoints.
@@ -282,7 +286,7 @@ function ExceptionForm({
             <SelectTrigger
               id="exception-service"
               data-testid="exception-service"
-              className="w-full sm:w-80"
+              className="w-full"
             >
               <SelectValue />
             </SelectTrigger>
@@ -381,11 +385,12 @@ function CustomPortsEditor({ rows, onChange }: CustomPortsEditorProps) {
             aria-label={`From port row ${i + 1}`}
             data-testid={`exception-port-from-${i}`}
             inputMode="numeric"
-            className="w-24"
+            maxLength={5}
+            className="w-20"
             placeholder="from"
             value={row.from}
             onChange={(e) =>
-              update(i, { from: e.target.value.replace(/\D/g, "") })
+              update(i, { from: e.target.value.replace(/\D/g, "").slice(0, 5) })
             }
           />
           <span className="text-ink-3">–</span>
@@ -393,11 +398,12 @@ function CustomPortsEditor({ rows, onChange }: CustomPortsEditorProps) {
             aria-label={`To port row ${i + 1}`}
             data-testid={`exception-port-to-${i}`}
             inputMode="numeric"
-            className="w-24"
+            maxLength={5}
+            className="w-20"
             placeholder="to"
             value={row.to}
             onChange={(e) =>
-              update(i, { to: e.target.value.replace(/\D/g, "") })
+              update(i, { to: e.target.value.replace(/\D/g, "").slice(0, 5) })
             }
           />
           {rows.length > 1 && (
@@ -435,6 +441,7 @@ interface EndpointFieldProps {
   onChange: (value: string) => void;
   zones: EntityOption[];
   devices: EntityOption[];
+  className?: string;
 }
 
 function EndpointField({
@@ -444,11 +451,12 @@ function EndpointField({
   onChange,
   zones,
   devices,
+  className,
 }: EndpointFieldProps) {
   return (
-    <Field label={label} htmlFor={id}>
+    <Field label={label} htmlFor={id} className={className}>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full sm:w-80">
+        <SelectTrigger id={id} className="w-full">
           <SelectValue placeholder="Select a zone or device" />
         </SelectTrigger>
         <SelectContent>

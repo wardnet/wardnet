@@ -205,6 +205,20 @@ async fn create_zone_rejects_bad_cidr() {
 }
 
 #[tokio::test]
+async fn create_zone_rejects_public_cidr() {
+    let h = build().await;
+    let mut req = create_req("PublicSubnet");
+    // A syntactically valid but non-RFC-1918 range must be rejected.
+    req.subnet = Some(ZoneSubnet {
+        cidr: "8.8.0.0/24".to_owned(),
+    });
+    assert!(matches!(
+        as_admin(h.svc.create_zone(req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
 async fn create_zone_rejects_subnet_too_small_for_pool() {
     // FIX 4: a syntactically-valid CIDR whose pool bounds are empty (a /30 has
     // no usable .10..broadcast-6 range) is rejected up front so the DHCP

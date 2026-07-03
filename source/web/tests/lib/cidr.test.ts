@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCidr,
+  isPrivateCidr,
   isValidCidr,
   networkOctets,
+  octetsPrivate,
   octetsValid,
   parseCidr,
   prefixForHosts,
@@ -61,5 +63,24 @@ describe("cidr helpers", () => {
   it("isValidCidr mirrors parseCidr", () => {
     expect(isValidCidr("10.0.0.0/8")).toBe(true);
     expect(isValidCidr("10.0.0.0")).toBe(false);
+  });
+
+  it("recognizes RFC 1918 private ranges", () => {
+    expect(octetsPrivate([10, 0, 0, 0])).toBe(true);
+    expect(octetsPrivate([172, 16, 0, 0])).toBe(true);
+    expect(octetsPrivate([172, 31, 255, 0])).toBe(true);
+    expect(octetsPrivate([172, 32, 0, 0])).toBe(false); // outside 172.16/12
+    expect(octetsPrivate([172, 15, 0, 0])).toBe(false);
+    expect(octetsPrivate([192, 168, 1, 0])).toBe(true);
+    expect(octetsPrivate([192, 169, 0, 0])).toBe(false);
+    expect(octetsPrivate([8, 8, 0, 0])).toBe(false); // public
+    expect(octetsPrivate([100, 64, 0, 0])).toBe(false); // CGNAT is not RFC 1918
+  });
+
+  it("isPrivateCidr requires a private network address", () => {
+    expect(isPrivateCidr("10.44.0.0/24")).toBe(true);
+    expect(isPrivateCidr("192.168.1.0/24")).toBe(true);
+    expect(isPrivateCidr("8.8.0.0/16")).toBe(false);
+    expect(isPrivateCidr("not a cidr")).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import { FormActions } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
-import { Ipv4Input } from "@/components/core/ui/ipv4-input";
+import { Ipv4Input } from "@wardnet/web";
 import { MacInput } from "@/components/core/ui/mac-input";
 import { ApiErrorAlert } from "@wardnet/web";
 import { useCreateReservation, suggestHostnameForMac } from "@wardnet/web";

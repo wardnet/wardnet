@@ -423,6 +423,18 @@ impl DhcpServiceImpl {
                 "pool_end must be >= pool_start".to_owned(),
             ));
         }
+        // LAN addressing must be RFC 1918 private — a public range would hand
+        // out addresses that belong to real internet hosts.
+        if !start.is_private() {
+            return Err(AppError::BadRequest(
+                "pool_start must be a private range (10.x, 172.16-31.x, or 192.168.x)".to_owned(),
+            ));
+        }
+        if !end.is_private() {
+            return Err(AppError::BadRequest(
+                "pool_end must be a private range (10.x, 172.16-31.x, or 192.168.x)".to_owned(),
+            ));
+        }
         Ok((start, end))
     }
 
@@ -607,9 +619,15 @@ impl DhcpService for DhcpServiceImpl {
         }
 
         if let Some(ref router_ip) = req.router_ip {
-            let _: Ipv4Addr = router_ip
+            let parsed: Ipv4Addr = router_ip
                 .parse()
                 .map_err(|_| AppError::BadRequest("invalid router_ip address".to_owned()))?;
+            if !parsed.is_private() {
+                return Err(AppError::BadRequest(
+                    "router_ip must be a private range (10.x, 172.16-31.x, or 192.168.x)"
+                        .to_owned(),
+                ));
+            }
         }
 
         // Store validated config.
