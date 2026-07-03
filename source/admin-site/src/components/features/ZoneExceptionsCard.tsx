@@ -255,26 +255,22 @@ function ExceptionForm({
         <CardTitle>Add exception</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <div className="flex flex-col gap-5 sm:flex-row">
-          <EndpointField
-            label="From"
-            id="exception-from"
-            value={from}
-            onChange={setFrom}
-            zones={zones}
-            devices={devices}
-            className="flex-1"
-          />
-          <EndpointField
-            label="To"
-            id="exception-to"
-            value={to}
-            onChange={setTo}
-            zones={zones}
-            devices={devices}
-            className="flex-1"
-          />
-        </div>
+        <EndpointField
+          label="From"
+          id="exception-from"
+          value={from}
+          onChange={setFrom}
+          zones={zones}
+          devices={devices}
+        />
+        <EndpointField
+          label="To"
+          id="exception-to"
+          value={to}
+          onChange={setTo}
+          zones={zones}
+          devices={devices}
+        />
         {from && to && from === to && (
           <Text size="xs" className="text-danger">
             Pick two different endpoints.
