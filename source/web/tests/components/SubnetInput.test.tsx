@@ -60,6 +60,14 @@ describe("SubnetInput", () => {
     expect(octets[2]).not.toHaveAttribute("readonly");
   });
 
+  it("locks every octet the prefix forces to 0 (/16 locks the last two)", () => {
+    render(<SubnetInput value="10.44.0.0/16" onChange={onChange} />);
+    const octets = baseOctets();
+    expect(octets[2]).toHaveAttribute("readonly");
+    expect(octets[3]).toHaveAttribute("readonly");
+    expect(octets[1]).not.toHaveAttribute("readonly");
+  });
+
   it("accepts an explicit prefix from the advanced dropdown", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<SubnetInput value="" onChange={onChange} />);

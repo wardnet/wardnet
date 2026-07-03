@@ -47,9 +47,14 @@ interface SubnetInputProps {
 
 type Mode = "simple" | "advanced";
 
-/** How many trailing octets are entirely host bits for a given prefix. */
-function fullHostOctets(prefix: number): number {
-  return Math.floor((32 - prefix) / 8);
+/**
+ * How many trailing octets are locked to `0`. Rounds **up** so any octet the
+ * prefix forces to 0 is locked — e.g. a /26 keeps the whole last octet at 0
+ * (the operator picks the /26 within a /24 via the network octets), and a /16
+ * locks the last two.
+ */
+function lockedOctets(prefix: number): number {
+  return Math.ceil((32 - prefix) / 8);
 }
 
 /**
@@ -63,7 +68,7 @@ function resolveOctets(
   prefix: number,
 ): [number, number, number, number] | null {
   const parts = ip.split(".");
-  const networkCount = 4 - fullHostOctets(prefix);
+  const networkCount = 4 - lockedOctets(prefix);
   const out: number[] = [];
   for (let i = 0; i < 4; i++) {
     if (i >= networkCount) {
@@ -125,7 +130,7 @@ export function SubnetInput({ value, onChange, id, testId }: SubnetInputProps) {
         <Ipv4Input
           value={baseIp}
           onChange={setBase}
-          readOnlyOctets={fullHostOctets(prefix)}
+          readOnlyOctets={lockedOctets(prefix)}
           data-testid={`${t}-ip`}
           className="w-fit"
         />
