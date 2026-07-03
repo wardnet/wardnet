@@ -261,6 +261,7 @@ impl DeviceService for DeviceServiceImpl {
             current_rule,
             admin_locked,
             available_tunnels: vec![], // Enriched by the API handler.
+            zone: None,                // Enriched by the API handler.
         })
     }
 

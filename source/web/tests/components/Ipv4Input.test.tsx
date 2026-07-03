@@ -2,7 +2,7 @@ import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Ipv4Input } from "@/components/core/ui/ipv4-input";
+import { Ipv4Input } from "../../src/components/Ipv4Input";
 
 function Harness({ initial = "" }: { initial?: string }) {
   const [value, setValue] = useState(initial);

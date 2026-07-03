@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@wardnet/web";
 import { Field } from "@wardnet/web";
-import { Ipv4Input } from "@/components/core/ui/ipv4-input";
+import { Ipv4Input } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import {

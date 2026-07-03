@@ -20,6 +20,8 @@ import {
   UpdateService,
   RemoteAccessService,
   RuleRequestService,
+  NetworkZonesService,
+  ZoneExceptionsService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -48,3 +50,5 @@ export const updateService = new UpdateService(client);
 export const backupService = new BackupService(client);
 export const remoteAccessService = new RemoteAccessService(client);
 export const ruleRequestService = new RuleRequestService(client);
+export const networkZonesService = new NetworkZonesService(client);
+export const zoneExceptionsService = new ZoneExceptionsService(client);

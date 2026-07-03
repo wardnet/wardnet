@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Drawer, DrawerContent, DrawerTitle, Text } from "@wardnet/web";
-import { useUpdateDevice, countryFlag } from "@wardnet/web";
+import { useUpdateDevice, useNetworkZones, useAssignDeviceZone, countryFlag } from "@wardnet/web";
 import type { Device, Tunnel, RoutingTarget } from "@wardnet/js";
 import { CheckIcon } from "lucide-react";
 
@@ -65,6 +65,9 @@ function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect, 
 
 export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Props) {
   const updateDevice = useUpdateDevice({ successMessage: "Routing updated" });
+  const { data: zoneData } = useNetworkZones();
+  const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
+  const zones = zoneData?.zones ?? [];
 
   // Keep the last non-null device in a ref so the exit animation can complete
   // even if the parent clears selectedDevice while the sheet is animating closed.
@@ -74,12 +77,21 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
 
   const current = activeKey(activeDevice?.current_rule ?? null);
   const deviceLabel = activeDevice?.name ?? activeDevice?.hostname ?? activeDevice?.mac ?? "";
+  const busy = updateDevice.isPending || assignZone.isPending;
 
   function handleSelect(target: RoutingTarget) {
     if (!activeDevice) return;
     const id = activeDevice.id;
     updateDevice.mutate(
       { id, body: { routing_target: target } },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  }
+
+  function handleZoneSelect(zoneId: string) {
+    if (!activeDevice || zoneId === activeDevice.zone_id) return;
+    assignZone.mutate(
+      { deviceId: activeDevice.id, zoneId },
       { onSuccess: () => onOpenChange(false) },
     );
   }
@@ -98,13 +110,13 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
         >
           <OptionRow
             label="Default" sublabel="Follow gateway policy"
-            active={current === "default"} disabled={updateDevice.isPending}
+            active={current === "default"} disabled={busy}
             onSelect={() => handleSelect({ type: "default" })}
             testId="device-routing-default"
           />
           <OptionRow
             label="Direct" sublabel="No VPN"
-            active={current === "direct"} disabled={updateDevice.isPending}
+            active={current === "direct"} disabled={busy}
             onSelect={() => handleSelect({ type: "direct" })}
             testId="device-routing-direct"
           />
@@ -118,11 +130,31 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
                 sublabel={statusLabel || undefined}
                 sublabelTone={tone === "ok" ? undefined : tone}
                 active={current === tunnel.id}
-                disabled={updateDevice.isPending}
+                disabled={busy}
                 onSelect={() => handleSelect({ type: "tunnel", tunnel_id: tunnel.id })}
               />
             );
           })}
+
+          {zones.length > 0 && (
+            <>
+              <div className="mx-4 my-2 h-px bg-line" />
+              <Text as="p" size="xs" weight="medium" className="px-4 pt-1 pb-0.5 uppercase tracking-wider text-ink-3">
+                Zone
+              </Text>
+              {zones.map((zone) => (
+                <OptionRow
+                  key={zone.id}
+                  label={zone.name}
+                  sublabel={zone.is_default ? "Home" : undefined}
+                  active={activeDevice?.zone_id === zone.id}
+                  disabled={busy}
+                  onSelect={() => handleZoneSelect(zone.id)}
+                  testId="device-zone-option"
+                />
+              ))}
+            </>
+          )}
         </div>
       </DrawerContent>
     </Drawer>

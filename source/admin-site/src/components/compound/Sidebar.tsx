@@ -2,6 +2,7 @@ import { type ComponentType, type SVGProps } from "react";
 import { NavLink, useNavigate } from "react-router";
 import {
   Archive,
+  Boxes,
   Cable,
   Globe,
   GlobeLock,
@@ -65,6 +66,7 @@ const adminSections: NavSection[] = [
         testId: "nav-devices",
       },
       { to: "/tunnels", label: "Tunnels", icon: Cable, testId: "nav-tunnels" },
+      { to: "/zones", label: "Zones", icon: Boxes, testId: "nav-zones" },
       { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },
     ],
   },

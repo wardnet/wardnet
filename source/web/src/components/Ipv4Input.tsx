@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type ClipboardEvent,
 } from "react";
-import { cn } from "@wardnet/web";
+import { cn } from "../lib/utils";
 
 interface Ipv4InputProps {
   value: string;
@@ -13,6 +13,9 @@ interface Ipv4InputProps {
   placeholder?: string;
   disabled?: boolean;
   readOnly?: boolean;
+  /** Lock the last N octets to `0` (read-only) — used by the subnet picker to
+   *  keep the host portion out of the operator's hands. */
+  readOnlyOctets?: number;
   className?: string;
   id?: string;
   /** Forwarded onto the field wrapper so e2e specs can locate it and
@@ -40,10 +43,12 @@ export function Ipv4Input({
   placeholder = "0.0.0.0",
   disabled,
   readOnly,
+  readOnlyOctets = 0,
   className,
   id,
   "data-testid": dataTestId,
 }: Ipv4InputProps) {
+  const lockedFrom = 4 - Math.min(4, Math.max(0, readOnlyOctets));
   const ref0 = useRef<HTMLInputElement>(null);
   const ref1 = useRef<HTMLInputElement>(null);
   const ref2 = useRef<HTMLInputElement>(null);
@@ -69,15 +74,16 @@ export function Ipv4Input({
       next[index] = num;
       onChange(joinOctets(next));
 
-      // Auto-tab to next segment when 3 digits entered or value is complete.
+      // Auto-tab to next segment when 3 digits entered or value is complete —
+      // but never into a locked (read-only) octet.
       if (num.length === 3 || (num.length > 0 && parseInt(num, 10) > 25)) {
-        if (index < 3) {
+        if (index + 1 < lockedFrom) {
           refs[index + 1].current?.focus();
           refs[index + 1].current?.select();
         }
       }
     },
-    [octets, onChange, refs],
+    [octets, onChange, refs, lockedFrom],
   );
 
   const handleKeyDown = useCallback(
@@ -86,7 +92,7 @@ export function Ipv4Input({
 
       if (e.key === "." || e.key === "Tab") {
         if (e.key === ".") e.preventDefault();
-        if (index < 3 && e.key === ".") {
+        if (index + 1 < lockedFrom && e.key === ".") {
           refs[index + 1].current?.focus();
           refs[index + 1].current?.select();
         }
@@ -113,7 +119,7 @@ export function Ipv4Input({
         refs[index + 1].current?.focus();
       }
     },
-    [refs],
+    [refs, lockedFrom],
   );
 
   const handlePaste = useCallback(
@@ -147,27 +153,31 @@ export function Ipv4Input({
         className,
       )}
     >
-      {octets.map((octet, i) => (
-        <div key={i} className="flex items-center">
-          <input
-            ref={refs[i]}
-            id={i === 0 ? id : undefined}
-            type="text"
-            inputMode="numeric"
-            value={octet}
-            placeholder={placeholders[i]}
-            disabled={disabled}
-            readOnly={readOnly}
-            onChange={(e) => updateOctet(i, e.target.value)}
-            onKeyDown={(e) => handleKeyDown(i, e)}
-            onPaste={i === 0 ? handlePaste : undefined}
-            onFocus={(e) => e.target.select()}
-            className="!w-10"
-            maxLength={3}
-          />
-          {i < 3 && <span className="text-ink-3/40">.</span>}
-        </div>
-      ))}
+      {octets.map((octet, i) => {
+        const locked = i >= lockedFrom;
+        return (
+          <div key={i} className="flex items-center">
+            <input
+              ref={refs[i]}
+              id={i === 0 ? id : undefined}
+              type="text"
+              inputMode="numeric"
+              value={locked ? "0" : octet}
+              placeholder={placeholders[i]}
+              disabled={disabled}
+              readOnly={readOnly || locked}
+              tabIndex={locked ? -1 : undefined}
+              onChange={(e) => !locked && updateOctet(i, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              onPaste={i === 0 ? handlePaste : undefined}
+              onFocus={(e) => e.target.select()}
+              className={cn("!w-10", locked && "text-ink-3/50")}
+              maxLength={3}
+            />
+            {i < 3 && <span className="text-ink-3/40">.</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }

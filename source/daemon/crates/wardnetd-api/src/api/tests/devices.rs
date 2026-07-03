@@ -222,6 +222,7 @@ impl DeviceService for MockDeviceService {
             current_rule: self.rule.clone(),
             admin_locked: self.admin_locked,
             available_tunnels: vec![],
+            zone: None,
         })
     }
 
@@ -637,6 +638,10 @@ async fn get_me_returns_device_when_found() {
     assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["current_rule"]["type"], "direct");
     assert_eq!(json["admin_locked"], false);
+    // The handler enriches the response with the caller's own zone (resolved
+    // under an internal admin context) for the read-only user-PWA display.
+    assert_eq!(json["zone"]["name"], "Trusted");
+    assert_eq!(json["zone"]["is_default"], false);
 }
 
 #[tokio::test]

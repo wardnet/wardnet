@@ -194,6 +194,16 @@ impl NetworkZoneServiceImpl {
             let net = ipnetwork::Ipv4Network::from_str(&subnet.cidr).map_err(|_| {
                 AppError::BadRequest(format!("subnet cidr '{}' is not a valid CIDR", subnet.cidr))
             })?;
+            // A LAN subnet must sit entirely inside an RFC 1918 block — a public
+            // (or boundary-straddling) range would make the Pi alias a gateway
+            // on address space that belongs to real internet hosts.
+            if !wardnet_common::net::is_rfc1918_subnet(net.network(), net.prefix()) {
+                return Err(AppError::BadRequest(format!(
+                    "subnet cidr '{}' must be {}",
+                    subnet.cidr,
+                    wardnet_common::net::PRIVATE_RANGE_HINT
+                )));
+            }
             if crate::subnet::pool_bounds(net).is_none() {
                 return Err(AppError::BadRequest(format!(
                     "subnet cidr '{}' is too small to host a DHCP pool",

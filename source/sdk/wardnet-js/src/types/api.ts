@@ -5,6 +5,7 @@ import type {
   NetworkZoneView,
   ZoneStance,
   ZoneSubnet,
+  ZoneSummary,
 } from "./network-zone.js";
 import type { ExceptionEndpoint, ServiceSpec, ZoneException } from "./zone-exception.js";
 import type { TunnelStatus } from "./tunnel.js";
@@ -40,6 +41,8 @@ export interface DeviceMeResponse {
   current_rule: RoutingTarget | null;
   admin_locked: boolean;
   available_tunnels: TunnelSummary[];
+  /** The caller device's zone, resolved server-side. `null` if unresolved. */
+  zone: ZoneSummary | null;
 }
 
 /** Request body for PUT /api/devices/me/rule. */
@@ -335,6 +338,19 @@ export interface DeleteNetworkZoneResponse {
 
 export interface AssignDeviceZoneRequest {
   zone_id: string;
+}
+
+// -- New-device quarantine toggle (issue #738) -------------------------------
+
+/** Response for GET /api/network/quarantine-new-devices. */
+export interface QuarantineNewDevicesResponse {
+  /** Whether new-device quarantine is on. Off by default. */
+  enabled: boolean;
+}
+
+/** Request body for PUT /api/network/quarantine-new-devices. */
+export interface SetQuarantineNewDevicesRequest {
+  enabled: boolean;
 }
 
 // -- Cross-zone exceptions (issue #737) --------------------------------------

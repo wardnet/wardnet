@@ -69,6 +69,24 @@ pub struct TunnelSummary {
     pub last_handshake: Option<DateTime<Utc>>,
 }
 
+/// Minimal Network Zone info exposed to a self-service caller for the
+/// read-only zone display in the user PWA.
+///
+/// The caller is device-keyed and has no admin session, so it cannot call the
+/// admin-gated `GET /api/network/zones`. `GET /api/devices/me` resolves the
+/// caller's own zone (via an internal admin context) and hands back just the
+/// name plus whether it is the anchor "home" zone — enough for
+/// "You're on: Guest — isolated from the home network" without leaking the
+/// full zone policy.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ZoneSummary {
+    /// Human-readable zone name (e.g. "Guest").
+    pub name: String,
+    /// Whether this is the protected anchor "home" zone. When `false` the
+    /// device sits in a non-home zone that is isolated from it.
+    pub is_default: bool,
+}
+
 /// Response for GET /api/devices/me.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DeviceMeResponse {
@@ -77,6 +95,10 @@ pub struct DeviceMeResponse {
     pub admin_locked: bool,
     /// Available tunnels for self-service routing selection.
     pub available_tunnels: Vec<TunnelSummary>,
+    /// The caller device's Network Zone, resolved server-side for the
+    /// read-only zone display. `None` if the device or its zone can't be
+    /// resolved.
+    pub zone: Option<ZoneSummary>,
 }
 
 /// Request body for PUT /api/devices/me/rule.

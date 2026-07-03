@@ -11,7 +11,8 @@ import { FormActions } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Text } from "@wardnet/web";
-import { Ipv4Input } from "@/components/core/ui/ipv4-input";
+import { Ipv4Input } from "@wardnet/web";
+import { isPrivateIpv4 } from "@wardnet/web";
 import { isCompleteIpv4, ipv4ToInt } from "@wardnet/js";
 import { ApiErrorAlert } from "@wardnet/web";
 import { useUpdateDhcpConfig, usePreviewDhcpConfig } from "@wardnet/web";
@@ -99,6 +100,13 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
       return "Enter a complete fallback router address.";
     if (ipv4ToInt(poolEnd) < ipv4ToInt(poolStart))
       return "Pool end must be at or after pool start.";
+    // LAN addressing must be private (RFC 1918) — a public range would
+    // blackhole real internet hosts.
+    const privateHint = "a private range (10.x, 172.16–31.x, or 192.168.x)";
+    if (!isPrivateIpv4(poolStart)) return `Pool start must be ${privateHint}.`;
+    if (!isPrivateIpv4(poolEnd)) return `Pool end must be ${privateHint}.`;
+    if (routerIp !== "" && !isPrivateIpv4(routerIp))
+      return `Fallback router must be ${privateHint}.`;
     return null;
   }, [editing, poolStart, poolEnd, subnetMask, routerIp]);
 

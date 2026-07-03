@@ -114,6 +114,23 @@ describe("DhcpConfigCard", () => {
     expect(screen.getByTestId("dhcp-config-save")).toBeDisabled();
   });
 
+  it("rejects a non-private (public) pool", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <DhcpConfigCard
+        config={makeConfig({
+          pool_start: "8.8.8.100",
+          pool_end: "8.8.8.200",
+        })}
+      />,
+    );
+    await user.click(screen.getByTestId("dhcp-config-edit"));
+    expect(screen.getByTestId("dhcp-config-validation")).toHaveTextContent(
+      /Pool start must be a private range/,
+    );
+    expect(screen.getByTestId("dhcp-config-save")).toBeDisabled();
+  });
+
   it("cancels back to the read view", async () => {
     const user = userEvent.setup();
     renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
