@@ -321,14 +321,9 @@ function ZoneForm({
         <CardTitle>{zone ? "Edit zone" : "Add zone"}</CardTitle>
       </CardHeader>
       <Form values={{ name }} onSubmit={handleSave}>
-        <CardContent className="flex flex-col gap-5">
-          <div className="flex flex-col gap-5 sm:flex-row">
-            <Field
-              label="Name"
-              htmlFor="zone-name"
-              name="name"
-              className="flex-1"
-            >
+        <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+          <div>
+            <Field label="Name" htmlFor="zone-name" name="name">
               <Input
                 id="zone-name"
                 data-testid="zone-name"
@@ -342,34 +337,29 @@ function ZoneForm({
               rule="required"
               message="Name is required."
             />
-
-            <Field
-              label="Isolation stance"
-              htmlFor="zone-stance"
-              className="sm:w-56"
-            >
-              <Select
-                value={stance}
-                onValueChange={(v) => setStance(v as ZoneStance)}
-              >
-                <SelectTrigger id="zone-stance">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="shared_subnet">Shared subnet</SelectItem>
-                  <SelectItem value="isolate_members">
-                    Isolate members
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
           </div>
+
+          <Field label="Isolation stance" htmlFor="zone-stance">
+            <Select
+              value={stance}
+              onValueChange={(v) => setStance(v as ZoneStance)}
+            >
+              <SelectTrigger id="zone-stance" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="shared_subnet">Shared subnet</SelectItem>
+                <SelectItem value="isolate_members">Isolate members</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
 
           <Field
             label="Allowed routing"
             help="Which routing targets a device in this zone may pick. At least one is required."
+            className="md:col-span-2"
           >
-            <div className="flex flex-col">
+            <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
               <label className="flex h-9 items-center justify-between">
                 <Text size="sm" className="text-ink-3">
                   Direct (no VPN)
@@ -391,7 +381,7 @@ function ZoneForm({
                 />
               </label>
               {noTarget && (
-                <Text size="xs" className="text-danger">
+                <Text size="xs" className="text-danger sm:col-span-2">
                   Allow at least one routing target.
                 </Text>
               )}
@@ -401,6 +391,7 @@ function ZoneForm({
           <Field
             label="Zone subnet"
             help="Optional. Gives the zone its own address space for cross-subnet isolation. Requires Wardnet to be the DHCP server; recorded but inactive otherwise."
+            className="md:col-span-2"
           >
             <SubnetInput
               value={subnet}

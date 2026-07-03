@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import {
-  Input,
   Select,
   SelectContent,
   SelectItem,
@@ -29,6 +28,12 @@ const SIZE_OPTIONS: { hosts: number; prefix: number }[] = [
   { hosts: 510, prefix: 23 },
   { hosts: 1022, prefix: 22 },
 ];
+
+/** Prefix lengths offered in advanced mode (a private LAN never needs < /8). */
+const ADVANCED_PREFIXES: number[] = Array.from(
+  { length: 23 },
+  (_, i) => 30 - i, // 30 → 8
+);
 
 interface SubnetInputProps {
   /** Current value as a normalized network CIDR (e.g. "10.44.0.0/26"), or "". */
@@ -144,21 +149,25 @@ export function SubnetInput({ value, onChange, id, testId }: SubnetInputProps) {
             </SelectContent>
           </Select>
         ) : (
-          <label className="flex items-center gap-2">
-            <Text size="xs" className="text-ink-3">
-              Prefix /
-            </Text>
-            <Input
-              aria-label="Prefix length"
+          <Select
+            value={String(prefix)}
+            onValueChange={(v) => setPrefixValue(v)}
+          >
+            <SelectTrigger
               data-testid={`${t}-prefix`}
-              inputMode="numeric"
-              className="w-14"
-              value={String(prefix)}
-              onChange={(e) =>
-                setPrefixValue(e.target.value.replace(/\D/g, ""))
-              }
-            />
-          </label>
+              aria-label="Prefix length"
+              className="w-28"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ADVANCED_PREFIXES.map((p) => (
+                <SelectItem key={p} value={String(p)}>
+                  /{p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
 

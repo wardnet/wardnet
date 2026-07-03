@@ -48,13 +48,13 @@ describe("SubnetInput", () => {
     expect(octets[2]).not.toHaveAttribute("readonly");
   });
 
-  it("accepts an explicit prefix in advanced mode", async () => {
-    const user = userEvent.setup();
+  it("accepts an explicit prefix from the advanced dropdown", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<SubnetInput value="" onChange={onChange} />);
     await setBase(user, "192.168.1.0");
     await user.click(screen.getByTestId("subnet-mode-toggle"));
-    await user.clear(screen.getByTestId("subnet-prefix"));
-    await user.type(screen.getByTestId("subnet-prefix"), "24");
+    await user.click(screen.getByTestId("subnet-prefix"));
+    await user.click(await screen.findByRole("option", { name: "/24" }));
     expect(onChange).toHaveBeenLastCalledWith("192.168.1.0/24");
   });
 

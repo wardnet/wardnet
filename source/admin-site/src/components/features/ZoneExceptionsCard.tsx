@@ -255,22 +255,26 @@ function ExceptionForm({
         <CardTitle>Add exception</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <EndpointField
-          label="From"
-          id="exception-from"
-          value={from}
-          onChange={setFrom}
-          zones={zones}
-          devices={devices}
-        />
-        <EndpointField
-          label="To"
-          id="exception-to"
-          value={to}
-          onChange={setTo}
-          zones={zones}
-          devices={devices}
-        />
+        <div className="flex gap-3">
+          <EndpointField
+            label="From"
+            id="exception-from"
+            value={from}
+            onChange={setFrom}
+            zones={zones}
+            devices={devices}
+            className="flex-1"
+          />
+          <EndpointField
+            label="To"
+            id="exception-to"
+            value={to}
+            onChange={setTo}
+            zones={zones}
+            devices={devices}
+            className="flex-1"
+          />
+        </div>
         {from && to && from === to && (
           <Text size="xs" className="text-danger">
             Pick two different endpoints.
@@ -421,7 +425,7 @@ function CustomPortsEditor({ rows, onChange }: CustomPortsEditorProps) {
         type="button"
         data-testid="exception-port-add"
         onClick={() => onChange([...rows, emptyPortRow()])}
-        className="self-start"
+        className="self-end"
       >
         <PlusIcon aria-hidden className="mr-1 size-3.5" />
         Add port
