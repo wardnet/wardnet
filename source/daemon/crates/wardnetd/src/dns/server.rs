@@ -1828,7 +1828,7 @@ pub(crate) fn effective_upstreams(config: &DnsConfig) -> Vec<UpstreamDns> {
 /// the user's listed order (try the first, fall back to the next); `Fastest`
 /// lets the resolver route by live round-trip statistics. `Single` has one
 /// server so ordering is irrelevant.
-fn forwarder_ordering(mode: ForwarderSelectionMode) -> ServerOrderingStrategy {
+pub(crate) fn forwarder_ordering(mode: ForwarderSelectionMode) -> ServerOrderingStrategy {
     match mode {
         ForwarderSelectionMode::Failover => ServerOrderingStrategy::UserProvidedOrder,
         ForwarderSelectionMode::Fastest | ForwarderSelectionMode::Single => {
@@ -1959,8 +1959,8 @@ pub(crate) fn spawn_upstream_latency_prober(
 }
 
 /// Run one probe round: prune state for removed upstreams, probe every current
-/// upstream concurrently, and fold the results into the rolling per-upstream
-/// EWMA + failure-streak state. Returns the snapshot to publish.
+/// upstream concurrently over the network, and fold the results into the
+/// rolling per-upstream state. Returns the snapshot to publish.
 async fn latency_probe_round(
     upstreams: &[UpstreamDns],
     dnssec: bool,
@@ -1968,11 +1968,23 @@ async fn latency_probe_round(
     fail_streak: &mut HashMap<String, u32>,
     resolvers: &mut HashMap<String, Arc<TokioResolver>>,
 ) -> Vec<UpstreamLatency> {
-    // Drop per-upstream state for servers no longer configured.
+    // Drop cached resolvers for servers no longer configured (the ewma /
+    // fail_streak maps are pruned by `fold_probe_outcomes` below).
     resolvers.retain(|k, _| upstreams.iter().any(|u| latency_probe_key(u) == *k));
-    ewma.retain(|addr, _| upstreams.iter().any(|u| &u.address == addr));
-    fail_streak.retain(|addr, _| upstreams.iter().any(|u| &u.address == addr));
+    let outcomes = probe_upstreams(upstreams, dnssec, resolvers).await;
+    fold_probe_outcomes(&outcomes, ewma, fail_streak)
+}
 
+/// Measure each upstream's round-trip time concurrently. Returns
+/// `(address, Some(rtt_ms))` on a successful canary lookup, `(address, None)`
+/// on a miss (timeout, error, or a non-IP address we can't probe). This is the
+/// network-touching half of a round; the pure folding lives in
+/// [`fold_probe_outcomes`].
+async fn probe_upstreams(
+    upstreams: &[UpstreamDns],
+    dnssec: bool,
+    resolvers: &mut HashMap<String, Arc<TokioResolver>>,
+) -> Vec<(String, Option<f64>)> {
     // Resolve (or lazily build) a resolver per upstream. This is the only step
     // that touches the shared cache; done before any await so the probe futures
     // below own everything they need.
@@ -2000,30 +2012,48 @@ async fn latency_probe_round(
         })
         .collect();
 
-    let outcomes =
-        futures::future::join_all(targets.into_iter().map(|(addr, resolver)| async move {
-            let Some(resolver) = resolver else {
-                return (addr, None);
-            };
-            let start = std::time::Instant::now();
-            let ok = matches!(
-                tokio::time::timeout(
-                    LATENCY_PROBE_TIMEOUT,
-                    resolver.lookup(LATENCY_PROBE_CANARY, hickory_proto::rr::RecordType::A),
-                )
-                .await,
-                Ok(Ok(_))
-            );
-            (addr, ok.then(|| duration_to_ms(start.elapsed())))
-        }))
-        .await;
+    futures::future::join_all(targets.into_iter().map(|(addr, resolver)| async move {
+        let Some(resolver) = resolver else {
+            return (addr, None);
+        };
+        let start = std::time::Instant::now();
+        let ok = matches!(
+            tokio::time::timeout(
+                LATENCY_PROBE_TIMEOUT,
+                resolver.lookup(LATENCY_PROBE_CANARY, hickory_proto::rr::RecordType::A),
+            )
+            .await,
+            Ok(Ok(_))
+        );
+        (addr, ok.then(|| duration_to_ms(start.elapsed())))
+    }))
+    .await
+}
+
+/// Fold a round's raw probe `outcomes` (`address` → `Some(rtt_ms)` on success,
+/// `None` on a miss) into the rolling per-upstream state and produce the
+/// snapshot. Pure and synchronous — no network — so it is unit-testable:
+///
+/// - A success updates the EWMA and resets the failure streak.
+/// - A miss increments the failure streak but leaves the last-known EWMA.
+/// - `reachable` is `false` only after [`LATENCY_UNREACHABLE_STREAK`]
+///   consecutive misses (debounce), so a single dropped packet doesn't flap.
+/// - State for addresses absent from `outcomes` (removed upstreams) is pruned.
+pub(crate) fn fold_probe_outcomes(
+    outcomes: &[(String, Option<f64>)],
+    ewma: &mut HashMap<String, f64>,
+    fail_streak: &mut HashMap<String, u32>,
+) -> Vec<UpstreamLatency> {
+    let present = |a: &String| outcomes.iter().any(|(addr, _)| addr == a);
+    ewma.retain(|a, _| present(a));
+    fail_streak.retain(|a, _| present(a));
 
     let mut results = Vec::with_capacity(outcomes.len());
     for (addr, rtt) in outcomes {
         match rtt {
             Some(rtt_ms) => {
                 fail_streak.insert(addr.clone(), 0);
-                let avg = ewma.get(&addr).map_or(rtt_ms, |prev| {
+                let avg = ewma.get(addr).map_or(*rtt_ms, |prev| {
                     LATENCY_EWMA_ALPHA * rtt_ms + (1.0 - LATENCY_EWMA_ALPHA) * prev
                 });
                 ewma.insert(addr.clone(), avg);
@@ -2034,10 +2064,10 @@ async fn latency_probe_round(
         }
         // Debounce: only report unreachable after several consecutive misses;
         // keep serving the last-known latency meanwhile.
-        let reachable = fail_streak.get(&addr).copied().unwrap_or(0) < LATENCY_UNREACHABLE_STREAK;
+        let reachable = fail_streak.get(addr).copied().unwrap_or(0) < LATENCY_UNREACHABLE_STREAK;
         results.push(UpstreamLatency {
             address: addr.clone(),
-            avg_latency_ms: ewma.get(&addr).copied(),
+            avg_latency_ms: ewma.get(addr).copied(),
             reachable,
         });
     }

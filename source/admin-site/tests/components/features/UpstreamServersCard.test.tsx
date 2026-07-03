@@ -150,6 +150,37 @@ describe("UpstreamServersCard", () => {
     ]);
   });
 
+  it("selecting a server radio in single mode calls onSelectServer", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { onSelectServer } = renderCard({
+      mode: "single",
+      selectedUpstream: "1.1.1.1",
+    });
+    const radios = screen.getAllByTestId("upstream-select");
+    await user.click(radios[1]); // pick Quad9
+    expect(onSelectServer).toHaveBeenCalledWith("9.9.9.9");
+  });
+
+  it("choosing Fastest from the routing dropdown calls onModeChange", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { onModeChange } = renderCard();
+    await user.click(screen.getByTestId("upstream-mode"));
+    await user.click(
+      await screen.findByRole("option", { name: "Fastest response" }),
+    );
+    expect(onModeChange).toHaveBeenCalledWith("fastest");
+  });
+
+  it("choosing Single from the dropdown auto-selects the first server", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { onSelectServer } = renderCard();
+    await user.click(screen.getByTestId("upstream-mode"));
+    await user.click(
+      await screen.findByRole("option", { name: "Single server" }),
+    );
+    expect(onSelectServer).toHaveBeenCalledWith("1.1.1.1");
+  });
+
   it("cancelling the add form hides it", async () => {
     const user = userEvent.setup();
     renderCard({ servers: [] });

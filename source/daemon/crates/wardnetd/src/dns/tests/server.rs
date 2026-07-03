@@ -33,8 +33,8 @@ use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
     TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver, duration_to_ms,
-    effective_upstreams, get_or_build_tunnel_forwarder, resolve_via_recursor,
-    spawn_cache_invalidator, upstream_label,
+    effective_upstreams, fold_probe_outcomes, forwarder_ordering, get_or_build_tunnel_forwarder,
+    resolve_via_recursor, spawn_cache_invalidator, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -2502,5 +2502,153 @@ fn effective_upstreams_single_missing_address_falls_back_to_full_pool() {
         result.len(),
         2,
         "orphaned selection degrades to the full pool"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// forwarder_ordering — mode → hickory name-server ordering strategy.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn forwarder_ordering_maps_modes_to_strategies() {
+    use hickory_resolver::config::ServerOrderingStrategy;
+    use wardnet_common::dns::ForwarderSelectionMode;
+    // Failover honors the user's list order; the other two don't care.
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Failover),
+        ServerOrderingStrategy::UserProvidedOrder
+    );
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Fastest),
+        ServerOrderingStrategy::QueryStatistics
+    );
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Single),
+        ServerOrderingStrategy::QueryStatistics
+    );
+}
+
+// ---------------------------------------------------------------------------
+// fold_probe_outcomes — EWMA + failure-streak/hysteresis + pruning.
+// ---------------------------------------------------------------------------
+
+fn find_latency<'a>(
+    results: &'a [wardnet_common::dns::UpstreamLatency],
+    addr: &str,
+) -> &'a wardnet_common::dns::UpstreamLatency {
+    results
+        .iter()
+        .find(|l| l.address == addr)
+        .expect("address present in results")
+}
+
+#[test]
+fn fold_probe_first_success_seeds_ewma_and_is_reachable() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    let out = vec![("1.1.1.1".to_owned(), Some(20.0))];
+    let results = fold_probe_outcomes(&out, &mut ewma, &mut streak);
+    let l = find_latency(&results, "1.1.1.1");
+    assert_eq!(l.avg_latency_ms, Some(20.0), "first sample seeds the EWMA");
+    assert!(l.reachable);
+}
+
+#[test]
+fn fold_probe_blends_ewma_across_samples() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    // Seed at 20ms, then a 40ms sample: EWMA = 0.3*40 + 0.7*20 = 26.
+    fold_probe_outcomes(
+        &[("8.8.8.8".to_owned(), Some(20.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    let results = fold_probe_outcomes(
+        &[("8.8.8.8".to_owned(), Some(40.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    let avg = find_latency(&results, "8.8.8.8").avg_latency_ms.unwrap();
+    assert!((avg - 26.0).abs() < 1e-9, "EWMA blended: got {avg}");
+}
+
+#[test]
+fn fold_probe_debounces_unreachable_over_two_misses() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    // Establish a latency first.
+    fold_probe_outcomes(
+        &[("9.9.9.9".to_owned(), Some(15.0))],
+        &mut ewma,
+        &mut streak,
+    );
+
+    // One miss: still reachable (debounce), last-known latency preserved.
+    let r1 = fold_probe_outcomes(&[("9.9.9.9".to_owned(), None)], &mut ewma, &mut streak);
+    let l1 = find_latency(&r1, "9.9.9.9");
+    assert!(l1.reachable, "a single miss must not flip to unreachable");
+    assert_eq!(l1.avg_latency_ms, Some(15.0), "keeps last-known latency");
+
+    // Second consecutive miss: now unreachable.
+    let r2 = fold_probe_outcomes(&[("9.9.9.9".to_owned(), None)], &mut ewma, &mut streak);
+    assert!(
+        !find_latency(&r2, "9.9.9.9").reachable,
+        "two consecutive misses report unreachable"
+    );
+
+    // A success clears the streak → reachable again.
+    let r3 = fold_probe_outcomes(
+        &[("9.9.9.9".to_owned(), Some(18.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    assert!(
+        find_latency(&r3, "9.9.9.9").reachable,
+        "success resets streak"
+    );
+}
+
+#[test]
+fn fold_probe_prunes_state_for_removed_upstreams() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    fold_probe_outcomes(
+        &[
+            ("1.1.1.1".to_owned(), Some(10.0)),
+            ("8.8.8.8".to_owned(), None),
+        ],
+        &mut ewma,
+        &mut streak,
+    );
+    assert!(ewma.contains_key("1.1.1.1"));
+    assert!(streak.contains_key("8.8.8.8"));
+
+    // Next round only has 1.1.1.1 → 8.8.8.8's state is pruned.
+    let results = fold_probe_outcomes(
+        &[("1.1.1.1".to_owned(), Some(12.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    assert_eq!(results.len(), 1);
+    assert!(
+        !ewma.contains_key("8.8.8.8"),
+        "removed upstream pruned from ewma"
+    );
+    assert!(
+        !streak.contains_key("8.8.8.8"),
+        "removed upstream pruned from fail_streak"
+    );
+}
+
+#[test]
+fn fold_probe_missing_upstream_with_no_prior_sample_has_no_latency() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    let results = fold_probe_outcomes(&[("1.0.0.1".to_owned(), None)], &mut ewma, &mut streak);
+    let l = find_latency(&results, "1.0.0.1");
+    assert_eq!(l.avg_latency_ms, None, "no sample yet → no latency");
+    assert!(
+        l.reachable,
+        "one miss alone is still within the debounce window"
     );
 }
