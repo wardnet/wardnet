@@ -7,6 +7,9 @@ const h = vi.hoisted(() => ({
   useTunnels: vi.fn(),
   useDefaultPolicy: vi.fn(),
   useUpdateDevice: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useNetworkZones: vi.fn(),
+  useAssignDeviceZone: vi.fn(),
+  approve: vi.fn(),
   ctx: { value: { showingLastKnownState: false } },
 }));
 vi.mock("@wardnet/web", async (importOriginal) => {
@@ -17,6 +20,8 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useTunnels: h.useTunnels,
     useDefaultPolicy: h.useDefaultPolicy,
     useUpdateDevice: h.useUpdateDevice,
+    useNetworkZones: h.useNetworkZones,
+    useAssignDeviceZone: h.useAssignDeviceZone,
   };
 });
 vi.mock("@/context/OnlineStatusContext", () => ({
@@ -36,6 +41,10 @@ describe("Devices page", () => {
     h.useTunnels.mockReturnValue({ data: { tunnels: [makeTunnel({ id: "t1", label: "US" })] } });
     h.useDefaultPolicy.mockReturnValue({ data: { policy: "direct" }, isLoading: false });
     h.useUpdateDevice.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    // Default: no zones → the "new devices awaiting review" section stays hidden
+    // so the existing specs are unaffected.
+    h.useNetworkZones.mockReturnValue({ data: { zones: [] } });
+    h.useAssignDeviceZone.mockReturnValue({ mutate: h.approve, isPending: false });
   });
 
   it("shows a skeleton while loading", () => {
@@ -98,5 +107,47 @@ describe("Devices page", () => {
     await userEvent.click(screen.getByText("Tap-Me"));
     const sheet = await screen.findByTestId("device-routing-sheet");
     expect(within(sheet).getByTestId("device-routing-default")).toBeInTheDocument();
+  });
+
+  it("lists new devices awaiting review and approves one to the home zone", async () => {
+    h.useNetworkZones.mockReturnValue({
+      data: {
+        zones: [
+          { id: "z-home", name: "Trusted", is_default: true, is_default_for_new: false },
+          { id: "z-guest", name: "Guest", is_default: false, is_default_for_new: true },
+        ],
+      },
+    });
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: {
+        devices: [
+          makeDevice({ id: "new-1", name: "Unknown", zone_id: "z-guest", first_seen: now, last_seen: now }),
+          makeDevice({ id: "known", name: "Laptop", zone_id: "z-home", last_seen: now }),
+        ],
+      },
+    });
+    renderWithProviders(<Devices />);
+
+    const section = screen.getByTestId("new-devices-section");
+    expect(within(section).getByText("Unknown")).toBeInTheDocument();
+    expect(within(section).queryByText("Laptop")).not.toBeInTheDocument();
+
+    await userEvent.click(within(section).getByTestId("new-device-approve"));
+    expect(h.approve).toHaveBeenCalledWith({ deviceId: "new-1", zoneId: "z-home" });
+  });
+
+  it("hides the review section when no device is in the default-for-new zone", () => {
+    h.useNetworkZones.mockReturnValue({
+      data: {
+        zones: [{ id: "z-guest", name: "Guest", is_default: false, is_default_for_new: true }],
+      },
+    });
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: { devices: [makeDevice({ id: "a", name: "Laptop", zone_id: "z-home", last_seen: now })] },
+    });
+    renderWithProviders(<Devices />);
+    expect(screen.queryByTestId("new-devices-section")).not.toBeInTheDocument();
   });
 });

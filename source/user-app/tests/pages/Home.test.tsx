@@ -212,4 +212,28 @@ describe("Home page", () => {
     );
     expect(refetch).toHaveBeenCalled();
   });
+
+  it("shows the read-only zone card for a non-home zone", () => {
+    setMyDevice({ zone: { name: "Guest", is_default: false } });
+    renderWithProviders(<Home />);
+    const card = screen.getByTestId("zone-readonly");
+    expect(card).toHaveTextContent(
+      "You're on: Guest — isolated from the home network.",
+    );
+    expect(card).toHaveTextContent(/network administrator can change/i);
+  });
+
+  it("labels the home zone as the home network", () => {
+    setMyDevice({ zone: { name: "Trusted", is_default: true } });
+    renderWithProviders(<Home />);
+    expect(screen.getByTestId("zone-readonly")).toHaveTextContent(
+      "You're on: Trusted — the home network.",
+    );
+  });
+
+  it("omits the zone card when no zone is present", () => {
+    setMyDevice();
+    renderWithProviders(<Home />);
+    expect(screen.queryByTestId("zone-readonly")).not.toBeInTheDocument();
+  });
 });
