@@ -14,6 +14,7 @@ export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
 export { NetworkService } from "./services/network.js";
 export { NetworkZonesService } from "./services/network-zones.js";
+export { ZoneExceptionsService } from "./services/zone-exceptions.js";
 export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
@@ -48,7 +49,19 @@ export type {
   ZoneProvenance,
   AllowedTargetKind,
   ZoneSubnet,
+  ZoneSummary,
 } from "./types/network-zone.js";
+
+// Types — cross-zone exceptions
+export type {
+  ZoneException,
+  ExceptionEndpoint,
+  ExceptionEndpointKind,
+  ServiceSpec,
+  ServiceSet,
+  PortSpec,
+  Proto,
+} from "./types/zone-exception.js";
 
 // Types — tunnels
 export type { Tunnel, TunnelStatus } from "./types/tunnel.js";
@@ -166,6 +179,15 @@ export type {
   UpdateNetworkZoneResponse,
   DeleteNetworkZoneResponse,
   AssignDeviceZoneRequest,
+  QuarantineNewDevicesResponse,
+  SetQuarantineNewDevicesRequest,
+  ListZoneExceptionsResponse,
+  GetZoneExceptionResponse,
+  CreateZoneExceptionRequest,
+  CreateZoneExceptionResponse,
+  UpdateZoneExceptionRequest,
+  UpdateZoneExceptionResponse,
+  DeleteZoneExceptionResponse,
 } from "./types/api.js";
 
 // Services — DNS

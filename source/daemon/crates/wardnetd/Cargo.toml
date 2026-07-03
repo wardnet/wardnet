@@ -49,6 +49,8 @@ clap.workspace = true
 wireguard-control.workspace = true
 # https://crates.io/crates/ipnetwork
 ipnetwork.workspace = true
+# https://crates.io/crates/ipnet
+ipnet.workspace = true
 # https://crates.io/crates/tokio-util
 tokio-util.workspace = true
 # https://crates.io/crates/pnet

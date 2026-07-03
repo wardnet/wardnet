@@ -328,8 +328,8 @@ impl PacketCapture for PnetCapture {
             .ips
             .iter()
             .find_map(|net| match net {
-                ipnetwork::IpNetwork::V4(v4) => Some(*v4),
-                ipnetwork::IpNetwork::V6(_) => None,
+                pnet::ipnetwork::IpNetwork::V4(v4) => Some(*v4),
+                pnet::ipnetwork::IpNetwork::V6(_) => None,
             })
             .ok_or_else(|| anyhow::anyhow!("interface '{interface}' has no IPv4 address"))?;
 

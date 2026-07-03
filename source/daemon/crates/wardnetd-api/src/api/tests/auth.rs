@@ -166,6 +166,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 
@@ -232,6 +233,148 @@ async fn login_success_returns_200_and_set_cookie() {
     let resp_body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
     assert_eq!(json["message"], "logged in");
+}
+
+#[tokio::test]
+async fn login_over_plain_http_omits_secure_attribute() {
+    // The plain-HTTP `:7411` surface has no `SecureTransport` marker, so the
+    // session cookie must NOT carry `Secure` — browsers drop `Secure` cookies
+    // over `http://`, which would strand the session and break login.
+    let state = make_state(MockAuthService {
+        login_result: Ok(LoginResult {
+            token: "plain-http-token".to_owned(),
+            max_age_seconds: 86400,
+        }),
+    });
+
+    let app = login_app(state);
+    let body = serde_json::json!({ "username": "admin", "password": "password123" });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("expected Set-Cookie header")
+        .to_str()
+        .unwrap();
+
+    assert!(cookie.contains("wardnet_session=plain-http-token"));
+    assert!(cookie.contains("HttpOnly"));
+    assert!(
+        !cookie.contains("Secure"),
+        "plain-HTTP cookie must not be Secure, got: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn login_over_tls_includes_secure_attribute() {
+    // With the `SecureTransport` marker (present only on the `:443` TLS app),
+    // the cookie must carry `Secure`.
+    let state = make_state(MockAuthService {
+        login_result: Ok(LoginResult {
+            token: "tls-token".to_owned(),
+            max_age_seconds: 86400,
+        }),
+    });
+
+    let app = login_app(state);
+    let body = serde_json::json!({ "username": "admin", "password": "password123" });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .extension(crate::api::middleware::SecureTransport)
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("expected Set-Cookie header")
+        .to_str()
+        .unwrap();
+
+    assert!(cookie.contains("wardnet_session=tls-token"));
+    assert!(
+        cookie.contains("Secure"),
+        "TLS cookie must be Secure, got: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn refresh_over_plain_http_omits_secure_attribute() {
+    let state = make_state(MockRefreshAuthService {
+        refresh_result: Ok(()),
+    });
+    let app = refresh_app(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie expected")
+        .to_str()
+        .unwrap();
+    assert!(
+        !cookie.contains("Secure"),
+        "plain-HTTP refresh cookie must not be Secure, got: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn refresh_over_tls_includes_secure_attribute() {
+    let state = make_state(MockRefreshAuthService {
+        refresh_result: Ok(()),
+    });
+    let app = refresh_app(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/refresh")
+        .header("Cookie", "wardnet_session=valid-token")
+        .extension(connect_info_ext())
+        .extension(crate::api::middleware::SecureTransport)
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie expected")
+        .to_str()
+        .unwrap();
+    assert!(
+        cookie.contains("Secure"),
+        "TLS refresh cookie must be Secure, got: {cookie}"
+    );
 }
 
 #[tokio::test]

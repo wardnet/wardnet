@@ -19,6 +19,7 @@ use wardnetd_data::oui;
 use wardnetd_data::repository::DeviceRepository;
 use wardnetd_data::repository::DhcpRepository;
 use wardnetd_data::repository::NetworkZoneRepository;
+use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::device::DeviceRow;
 
 /// In-memory tracking state for a device.
@@ -110,6 +111,9 @@ pub struct DeviceDiscoveryServiceImpl {
     devices: Arc<dyn DeviceRepository>,
     zones: Arc<dyn NetworkZoneRepository>,
     dhcp: Arc<dyn DhcpRepository>,
+    /// Read-only: the `quarantine_new_devices` toggle (#738). Gates the
+    /// `NewDeviceQuarantined` admin-notification event on truly-new devices.
+    system_config: Arc<dyn SystemConfigRepository>,
     events: Arc<dyn EventPublisher>,
     resolver: Arc<dyn HostnameResolver>,
     /// LAN subnet — only observations from IPs within this range are processed.
@@ -125,6 +129,7 @@ impl DeviceDiscoveryServiceImpl {
         devices: Arc<dyn DeviceRepository>,
         zones: Arc<dyn NetworkZoneRepository>,
         dhcp: Arc<dyn DhcpRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         events: Arc<dyn EventPublisher>,
         resolver: Arc<dyn HostnameResolver>,
         lan_subnet: ipnetwork::Ipv4Network,
@@ -133,6 +138,7 @@ impl DeviceDiscoveryServiceImpl {
             devices,
             zones,
             dhcp,
+            system_config,
             events,
             resolver,
             lan_subnet,
@@ -259,6 +265,32 @@ impl DeviceDiscoveryServiceImpl {
             hostname: None,
             timestamp: chrono::Utc::now(),
         });
+
+        // New-device quarantine (#738): this is the only truly-first-ever path
+        // (reached solely when the MAC had no prior DB row), so gating the
+        // notification here is idempotent by construction — a reconnecting
+        // device never reaches this. Placement already happened above (the
+        // device landed in the default-for-new zone); the toggle only controls
+        // whether admins are nudged to approve. A read failure must not block
+        // discovery, so it degrades to "no notification".
+        match self.system_config.is_quarantine_new_devices().await {
+            Ok(true) => {
+                self.events.publish(WardnetEvent::NewDeviceQuarantined {
+                    device_id,
+                    mac: obs.mac.clone(),
+                    zone_name: zone.name.clone(),
+                    timestamp: chrono::Utc::now(),
+                });
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    mac = %obs.mac,
+                    "failed to read quarantine_new_devices toggle; skipping notification",
+                );
+            }
+        }
 
         Ok(ObservationResult::NewDevice {
             device_id,

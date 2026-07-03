@@ -135,11 +135,92 @@ spec — so the destructive restarts run last and a slow/flaky restart
 can't cascade into the read-only specs. Put any future restart/reboot/
 shutdown spec there too; keep order-independent specs at the top level.
 
+The mirror case is the visual-regression specs (`_visual.spec.ts`): the `_`
+prefix sorts *before* every feature spec, so they run **first**, capturing
+the pristine seeded state before any spec mutates it or restarts the daemon
+(see "Visual regression snapshots" below).
+
 ## Local overrides
 
 - `WARDNET_UI_BASE_URL` — daemon base URL the browser hits (default
   `http://wardnetd-ui:7411`; e.g. `http://localhost:7411` against a
   locally port-mapped daemon).
+
+## Visual regression snapshots (V1, #628)
+
+A thin layer of Playwright screenshot baselines guards representative pages
+against unintended visual regressions (broken CSS, layout shifts, the
+pending branding re-skin). The specs are the `@visual`-tagged tests that
+live alongside each surface's feature specs:
+
+| Surface      | Page(s) snapshotted                        |
+| ------------ | ------------------------------------------ |
+| `admin-site` | Dashboard, Ad Blocking, Login              |
+| `admin-app`  | Dashboard                                  |
+| `user-app`   | Home                                       |
+
+They run inside the existing projects (no new project), so they inherit
+each surface's `baseURL`, device, and seeded state — no extra topology.
+
+### Where baselines live
+
+Baselines are committed under **`snapshots/`** (not Playwright's default
+co-located `*-snapshots/` folders). The runner image *COPYs* `tests/` at
+build time, so a co-located baseline would be baked into the image and
+impossible to regenerate; instead `snapshots/` is **bind-mounted** into both
+runners (like `reports/`). The mount shadows anything in the image, so
+comparison reads the committed host baselines and an update run writes back
+to the host. `playwright.config.ts` points there via
+`snapshotPathTemplate: "snapshots/{projectName}/{arg}{ext}"`.
+
+Baselines are **Linux/Chromium** images generated in the pinned Playwright
+runner container. **Never commit baselines generated on a dev host** — font
+rendering differs and every CI comparison would fail. Always regenerate
+through the Make target below.
+
+### Determinism
+
+`toHaveScreenshot` defaults (`playwright.config.ts` → `expect`) disable
+animations and hide the caret. Genuinely dynamic content — live DNS
+query / blocked counters, uptime/CPU/memory/disk system tiles, last-updated
+timestamps, live status/stats — is **masked** at each call site
+(`toHaveScreenshot({ mask: [...] })`), *not* absorbed by widening pixel
+tolerance (`maxDiffPixelRatio` is a small antialiasing cushion only).
+Seed-deterministic values (device / tunnel counts) are left visible. Each
+visual spec is self-contained: it seeds or masks anything it depends on and
+runs before the `stateful/` restart specs, so it never observes another
+spec's mutations.
+
+### Updating baselines
+
+After an **intentional** UI change, regenerate and review the diff:
+
+```sh
+make e2e-ui-update-snapshots   # PW_UPDATE_SNAPSHOTS=1 → updateSnapshots:"all"
+git status source/end2end-tests/web-ui/snapshots/   # inspect changed PNGs
+git add source/end2end-tests/web-ui/snapshots/
+```
+
+This reuses the exact `e2e-ui` stack bring-up but sets `PW_UPDATE_SNAPSHOTS=1`
+in both runners, so Playwright rewrites every baseline into the bind-mounted
+`snapshots/`. A normal `make e2e-ui` run stays comparison-only
+(`updateSnapshots:"none"`): a **missing or mismatched** baseline fails the
+run. On failure Playwright writes actual/diff images under `reports/` /
+`test-results/`, which upload as the existing CI artifact.
+
+The very first baselines are bootstrapped the same way — run
+`make e2e-ui-update-snapshots` once and commit `snapshots/`.
+
+**Bootstrapping without a local stack.** The daemon runs as systemd-in-a-
+container, which needs a runtime that delegates cgroups to it (Docker, or a
+Linux host); it does not boot under a stock macOS **podman** VM. If you can't
+run the stack locally, harvest the baselines from CI instead: push the specs
+with no `snapshots/`, let the `e2e-ui` job run (the visual tests fail with "a
+snapshot doesn't exist"), download the **`end2end-tests-ui-reports`**
+artifact, and copy the generated `reports/test-results/**/*-actual.png` files
+into `snapshots/<project>/…` under their baseline names (drop the `-actual`
+suffix). Those actuals are rendered in the same pinned Linux runner CI
+compares in, so they're valid baselines. Commit them and the job goes green.
 
 ## Selector convention
 

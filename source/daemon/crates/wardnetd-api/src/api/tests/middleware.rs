@@ -114,6 +114,7 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 
@@ -387,6 +388,7 @@ impl DeviceService for MockDeviceService {
             current_rule: None,
             admin_locked: false,
             available_tunnels: vec![],
+            zone: None,
         })
     }
     async fn set_rule_for_ip(
@@ -486,6 +488,7 @@ fn make_state_with_device(
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 

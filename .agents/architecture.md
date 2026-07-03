@@ -423,4 +423,19 @@ is recorded in the ADR.
 never sees it on a flat L2 segment (the AP's job, or the isolate-members rung
 #737).
 
+### New-device quarantine (issue #738)
+
+An off-by-default `quarantine_new_devices` `system_config` toggle (owned by
+`NetworkZoneService`, exposed at `GET/PUT /api/network/quarantine-new-devices`).
+It is **notification-only**: placement is unchanged — every new device already
+lands in the `is_default_for_new` zone unconditionally (`DeviceDiscoveryServiceImpl::insert_new_device`),
+and enforcement already reacts to `DeviceDiscovered`. When the toggle is on, the
+**truly-first-ever** discovery path (only `insert_new_device`, never the reappear
+path — so idempotent by construction) publishes a dedicated
+`WardnetEvent::NewDeviceQuarantined`; `PushService` turns it into an admin
+"approve this device" push. A real quarantine is achieved by pointing
+`is_default_for_new` at a restrictive Guest zone (the #735 lever). Approve =
+existing `PUT /api/devices/{id}/zone`. Note `DeviceDiscovered` is **not** a
+valid first-ever signal (it also fires on every reconnect).
+
 [`NetworkZone`]: ../source/daemon/crates/wardnet-common/src/network_zone.rs

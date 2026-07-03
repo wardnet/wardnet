@@ -22,8 +22,9 @@ use repository::{
     SqliteDnsRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
     SqlitePushRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
     SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, StatsRepository,
-    SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository, UpdateRepository,
+    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
+    StatsRepository, SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository,
+    UpdateRepository, ZoneExceptionRepository,
 };
 use sqlx::SqlitePool;
 
@@ -36,6 +37,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn api_key(&self) -> Arc<dyn ApiKeyRepository>;
     fn device(&self) -> Arc<dyn DeviceRepository>;
     fn network_zone(&self) -> Arc<dyn NetworkZoneRepository>;
+    fn zone_exception(&self) -> Arc<dyn ZoneExceptionRepository>;
     fn system_config(&self) -> Arc<dyn SystemConfigRepository>;
     fn dhcp(&self) -> Arc<dyn DhcpRepository>;
     fn dns(&self) -> Arc<dyn DnsRepository>;
@@ -149,6 +151,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn network_zone(&self) -> Arc<dyn NetworkZoneRepository> {
         Arc::new(SqliteNetworkZoneRepository::new_pools(self.pools.clone()))
+    }
+
+    fn zone_exception(&self) -> Arc<dyn ZoneExceptionRepository> {
+        Arc::new(SqliteZoneExceptionRepository::new_pools(self.pools.clone()))
     }
 
     fn system_config(&self) -> Arc<dyn SystemConfigRepository> {

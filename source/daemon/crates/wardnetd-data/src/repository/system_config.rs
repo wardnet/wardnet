@@ -131,6 +131,22 @@ pub trait SystemConfigRepository: Send + Sync {
         self.set("setup_completed", value).await
     }
 
+    /// Check whether new-device quarantine is enabled (issue #738).
+    ///
+    /// When on, a freshly-discovered device triggers an admin push to approve
+    /// it. Reads the `quarantine_new_devices` key; returns `false` if the key is
+    /// missing or set to any value other than `"true"` (off by default).
+    async fn is_quarantine_new_devices(&self) -> anyhow::Result<bool> {
+        let value = self.get("quarantine_new_devices").await?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    /// Enable or disable new-device quarantine (issue #738).
+    async fn set_quarantine_new_devices(&self, enabled: bool) -> anyhow::Result<()> {
+        let value = if enabled { "true" } else { "false" };
+        self.set("quarantine_new_devices", value).await
+    }
+
     /// Read the global default routing policy.
     ///
     /// Stored as either `"direct"` or a tunnel UUID (as plain string).

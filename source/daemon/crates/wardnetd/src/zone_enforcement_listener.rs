@@ -102,13 +102,10 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
             with_admin("apply_zone", enforcer.apply_zone(zone_id)).await;
         }
 
-        // A device moved zones — re-apply just that device.
+        // A device moved zones — release its lease so it re-IPs into the new
+        // subnet, then re-apply its rules and recompute the L3 isolation state.
         WardnetEvent::DeviceZoneChanged { device_id, .. } => {
-            with_admin(
-                "apply_device (zone change)",
-                enforcer.apply_device(device_id),
-            )
-            .await;
+            with_admin("handle_zone_change", enforcer.handle_zone_change(device_id)).await;
         }
 
         // A freshly-discovered device lands in the default-for-new zone — install
@@ -179,6 +176,19 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         | WardnetEvent::UpdateCompleted { .. }
         | WardnetEvent::UpdateFailed { .. }
         | WardnetEvent::DeviceCaptureSettingsChanged { .. }
+        // New-device quarantine (#738) only drives an admin push; the device
+        // already landed in the default-for-new zone via `DeviceDiscovered`.
+        | WardnetEvent::NewDeviceQuarantined { .. }
         | WardnetEvent::DnsEventInserted { .. } => {}
+
+        // A cross-zone exception changed — rebuild the L3 isolation state so its
+        // ACCEPT rules are re-derived (issue #737).
+        WardnetEvent::ZoneExceptionsChanged { .. } => {
+            with_admin(
+                "handle_exceptions_changed",
+                enforcer.handle_exceptions_changed(),
+            )
+            .await;
+        }
     }
 }

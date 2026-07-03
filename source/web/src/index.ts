@@ -42,6 +42,7 @@ export {
   apiErrorMessage,
   apiRequestId,
   deviceDisplayName,
+  suggestHostnameForMac,
 } from "./lib/utils";
 
 // Country / device helpers
@@ -70,6 +71,23 @@ export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";
 export { RoutingSelector } from "./components/RoutingSelector";
+export { Ipv4Input } from "./components/Ipv4Input";
+export { SubnetInput } from "./components/SubnetInput";
+
+// CIDR helpers
+export {
+  parseCidr,
+  buildCidr,
+  isValidCidr,
+  isPrivateCidr,
+  isPrivateIpv4,
+  octetsPrivate,
+  usableHosts,
+  prefixForHosts,
+  networkOctets,
+  octetsValid,
+} from "./lib/cidr";
+export type { ParsedCidr } from "./lib/cidr";
 
 // Hooks — auth
 export { useAuth } from "./hooks/useAuth";
@@ -191,6 +209,24 @@ export {
   useUpdateForwardingRule,
   useDeleteForwardingRule,
 } from "./hooks/useDnsLocal";
+
+// Hooks — network zones (epic #244)
+export {
+  useNetworkZones,
+  usePendingDevices,
+  useCreateNetworkZone,
+  useUpdateNetworkZone,
+  useDeleteNetworkZone,
+  useAssignDeviceZone,
+  useQuarantineNewDevices,
+  useSetQuarantineNewDevices,
+} from "./hooks/useNetworkZones";
+export type { PendingDevices } from "./hooks/useNetworkZones";
+export {
+  useZoneExceptions,
+  useCreateZoneException,
+  useDeleteZoneException,
+} from "./hooks/useZoneExceptions";
 
 export {
   useDnsFilterProfiles,

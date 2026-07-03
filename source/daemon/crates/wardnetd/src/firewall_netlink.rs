@@ -19,13 +19,19 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
 
 use async_trait::async_trait;
-use rustables::expr::{Bitwise, Cmp, CmpOp, Meta, MetaType, Payload, Register, Reject, RejectType};
+use ipnetwork::IpNetwork;
+use rustables::expr::{
+    Bitwise, Cmp, CmpOp, Immediate, Meta, MetaType, Payload, Register, Reject, RejectType,
+    VerdictKind,
+};
 use rustables::{
     Batch, Chain, ChainPolicy, ChainType, Hook, HookClass, MsgType, Protocol, ProtocolFamily, Rule,
     Table, list_rules_for_chain,
 };
 
-use wardnetd_services::routing::firewall::{FirewallManager, ZoneRules};
+use wardnetd_services::routing::firewall::{
+    ExceptionAllow, FirewallManager, ZoneIsolationRules, ZoneRules,
+};
 
 const TABLE_NAME: &str = "wardnet";
 const POSTROUTING: &str = "postrouting";
@@ -48,6 +54,20 @@ const ADMIN_UI_PORTS: [u16; 2] = [443, 7411];
 /// Comment-UDATA prefix shared by every Network-Zone rule, keyed by device IP.
 const ZONE_COMMENT_PREFIX: &str = "wardnet:zone:";
 
+/// Regular (hookless) forward sub-chain that carries the Network-Zone L3
+/// isolation rules (issue #737): cross-subnet allows/denies + member isolation.
+/// The base `forward` chain jumps to it. The enforcer owns the whole chain and
+/// rebuilds it atomically (flush + re-add) on every relevant change.
+const ZONE_ISOLATION: &str = "zone_isolation";
+
+/// Comment on the base-forward jump into the `zone_isolation` chain.
+const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
+
+/// Destination-port field offset within the transport header (both TCP and UDP
+/// carry `dport` at bytes 2..4), for rendering a port *range* match that the
+/// `rustables` `.dport` helper (single-port only) cannot express.
+const L4_DPORT_OFFSET: u32 = 2;
+
 /// nftables comment UDATA TLV type (`NFTNL_UDATA_RULE_COMMENT`).
 const UDATA_TYPE_COMMENT: u8 = 0;
 
@@ -57,6 +77,8 @@ const TCP_FLAGS_OFFSET: u32 = 13;
 const TCP_FLAGS_MASK: u8 = 0x07;
 /// `IPPROTO_TCP`, compared against `meta l4proto` to scope the flags test.
 const IPPROTO_TCP: u8 = 6;
+/// `IPPROTO_UDP`, compared against `meta l4proto` to scope a UDP dport range.
+const IPPROTO_UDP: u8 = 17;
 
 /// Production [`FirewallManager`] using nftables over netlink.
 ///
@@ -214,6 +236,58 @@ fn zone_rule_ip(comment: &str) -> Option<&str> {
     })
 }
 
+/// Parse a `"a.b.c.d/prefix"` string into an [`IpNetwork`] for the network
+/// matches of the L3 isolation rules (issue #737).
+fn parse_cidr(cidr: &str) -> anyhow::Result<IpNetwork> {
+    cidr.parse::<IpNetwork>()
+        .map_err(|e| anyhow::anyhow!("invalid CIDR {cidr}: {e}"))
+}
+
+/// Append one cross-zone ACCEPT rule to `batch` in the `zone_isolation` chain:
+/// `ip saddr <from> ip daddr <to> <proto> dport <start>-<end> accept`. A single
+/// port (`start == end`) uses the `.dport` helper; a range is rendered as an
+/// explicit `>= start && <= end` match on the transport-header dport field,
+/// which the single-port helper cannot express.
+fn add_allow_rule(chain: &Chain, allow: &ExceptionAllow, batch: &mut Batch) -> anyhow::Result<()> {
+    let proto = match allow.proto.as_str() {
+        "tcp" => Protocol::TCP,
+        "udp" => Protocol::UDP,
+        other => anyhow::bail!("unknown proto {other} in zone allow"),
+    };
+    let from = parse_cidr(&allow.from_cidr)?;
+    let to = parse_cidr(&allow.to_cidr)?;
+    let mut rule = Rule::new(chain)?.snetwork(from)?.dnetwork(to)?;
+
+    if allow.port_start == allow.port_end {
+        rule = rule.dport(allow.port_start, proto);
+    } else {
+        // Scope to the transport protocol, then bound the dport field both ways.
+        let l4 = match proto {
+            Protocol::TCP => IPPROTO_TCP,
+            Protocol::UDP => IPPROTO_UDP,
+        };
+        let dport_payload = || {
+            Payload::default()
+                .with_base(rustables::sys::NFT_PAYLOAD_TRANSPORT_HEADER)
+                .with_offset(L4_DPORT_OFFSET)
+                .with_len(2u32)
+                .with_dreg(Register::Reg1)
+        };
+        rule = rule
+            .with_expr(Meta::new(MetaType::L4Proto))
+            .with_expr(Cmp::new(CmpOp::Eq, [l4]))
+            .with_expr(dport_payload())
+            .with_expr(Cmp::new(CmpOp::Gte, allow.port_start.to_be_bytes()))
+            .with_expr(dport_payload())
+            .with_expr(Cmp::new(CmpOp::Lte, allow.port_end.to_be_bytes()));
+    }
+
+    rule.accept()
+        .with_userdata(comment_udata("wardnet:zone:allow"))
+        .add_to_batch(batch);
+    Ok(())
+}
+
 #[async_trait]
 impl FirewallManager for NetlinkFirewallManager {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
@@ -254,9 +328,34 @@ impl FirewallManager for NetlinkFirewallManager {
                 &base_chain(&table, INPUT, HookClass::In, 0, ChainType::Filter),
                 MsgType::Add,
             );
+            // Network-Zone L3 isolation (issue #737): a regular (hookless)
+            // sub-chain the base forward chain jumps to. `Add` is idempotent, so
+            // re-adding the chain is a no-op.
+            batch.add(&chain_ref(&table, ZONE_ISOLATION), MsgType::Add);
             batch
                 .send()
                 .map_err(|e| anyhow::anyhow!("init wardnet table: {e}"))?;
+
+            // Add the base-forward jump into `zone_isolation` only if it is not
+            // already present — unlike chains, a duplicate rule would stack, so
+            // guard on the comment (mirrors the other base-rule guards).
+            let forward = chain_ref(&table, FORWARD);
+            let have_jump = list_rules_for_chain(&forward)
+                .map_err(|e| anyhow::anyhow!("list forward chain: {e}"))?
+                .iter()
+                .any(|r| rule_comment(r).as_deref() == Some(ZONE_ISOJUMP_COMMENT));
+            if !have_jump {
+                let mut jump_batch = Batch::new();
+                Rule::new(&forward)?
+                    .with_expr(Immediate::new_verdict(VerdictKind::Jump {
+                        chain: ZONE_ISOLATION.to_owned(),
+                    }))
+                    .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT))
+                    .add_to_batch(&mut jump_batch);
+                jump_batch
+                    .send()
+                    .map_err(|e| anyhow::anyhow!("add zone_isolation jump: {e}"))?;
+            }
             Ok(())
         })
         .await?;
@@ -587,6 +686,84 @@ impl FirewallManager for NetlinkFirewallManager {
             Ok(ips.into_iter().collect())
         })
         .await
+    }
+
+    async fn apply_zone_isolation(&self, rules: ZoneIsolationRules) -> anyhow::Result<()> {
+        let allows = rules.allows.len();
+        let denies = rules.deny_pairs.len();
+        let members = rules.member_isolation_subnets.len();
+        run_blocking(move || {
+            let table = wardnet_table();
+            let iso = chain_ref(&table, ZONE_ISOLATION);
+            let mut batch = Batch::new();
+
+            // 1. Flush the whole chain: the enforcer owns it and rebuilds the
+            //    full desired state, so drop everything currently in it. A
+            //    handle-less DELRULE addressed to the chain flushes it while
+            //    leaving the chain intact. Flush and re-add ride separate
+            //    batches so an absent/empty chain doesn't abort the rebuild.
+            {
+                let mut flush = Batch::new();
+                flush.add(&Rule::new(&iso)?, MsgType::Del);
+                if let Err(e) = flush.send() {
+                    tracing::debug!(error = %e, "nftables: flush of zone_isolation skipped: {e}");
+                }
+            }
+
+            // 2. Allows first (ACCEPT) so a curated cross-subnet service beats
+            //    the cross-subnet deny that follows.
+            for allow in &rules.allows {
+                add_allow_rule(&iso, allow, &mut batch)?;
+                if allow.bidirectional {
+                    // The swapped direction on the same ports carries the
+                    // return/handshake traffic.
+                    let reverse = ExceptionAllow {
+                        from_cidr: allow.to_cidr.clone(),
+                        to_cidr: allow.from_cidr.clone(),
+                        ..allow.clone()
+                    };
+                    add_allow_rule(&iso, &reverse, &mut batch)?;
+                }
+            }
+
+            // 3. Cross-subnet denies (DROP).
+            for (src, dst) in &rules.deny_pairs {
+                let src_net = parse_cidr(src)?;
+                let dst_net = parse_cidr(dst)?;
+                Rule::new(&iso)?
+                    .snetwork(src_net)?
+                    .dnetwork(dst_net)?
+                    .drop()
+                    .with_userdata(comment_udata("wardnet:zone:xdeny"))
+                    .add_to_batch(&mut batch);
+            }
+
+            // 4. Member-isolation intra-subnet peer denies (DROP). Peer↔peer
+            //    only: device→gateway is INPUT, not forward, so the gateway
+            //    stays reachable.
+            for net in &rules.member_isolation_subnets {
+                let n = parse_cidr(net)?;
+                Rule::new(&iso)?
+                    .snetwork(n)?
+                    .dnetwork(n)?
+                    .drop()
+                    .with_userdata(comment_udata("wardnet:zone:memberiso"))
+                    .add_to_batch(&mut batch);
+            }
+
+            batch
+                .send()
+                .map_err(|e| anyhow::anyhow!("rebuild zone_isolation chain: {e}"))?;
+            Ok(())
+        })
+        .await?;
+        tracing::debug!(
+            allows,
+            denies,
+            members,
+            "nftables: rebuilt zone_isolation chain"
+        );
+        Ok(())
     }
 
     async fn check_tools_available(&self) -> anyhow::Result<()> {

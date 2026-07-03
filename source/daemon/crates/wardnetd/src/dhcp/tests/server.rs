@@ -14,7 +14,7 @@ use wardnet_common::api::{
     PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
     ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
-use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus};
+use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpScope};
 
 use crate::dhcp::server::{self, UdpDhcpServer};
 use wardnetd_services::dhcp::DhcpService;
@@ -213,6 +213,10 @@ impl DhcpService for MockDhcpService {
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         Ok(test_config())
     }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+        Ok(test_scope())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +233,22 @@ fn test_config() -> DhcpConfig {
         upstream_dns: vec![Ipv4Addr::new(1, 1, 1, 1)],
         lease_duration_secs: 86400,
         router_ip: Some(Ipv4Addr::new(192, 168, 1, 1)),
+    }
+}
+
+/// The base-pool scope mirroring [`test_config`], used to render responses in
+/// server tests (#737 moved rendering from `DhcpConfig` to `DhcpScope`).
+fn test_scope() -> DhcpScope {
+    DhcpScope {
+        gateway_ip: Ipv4Addr::new(192, 168, 1, 1),
+        pool_start: Ipv4Addr::new(192, 168, 1, 100),
+        pool_end: Ipv4Addr::new(192, 168, 1, 200),
+        subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
+        dns: vec![Ipv4Addr::new(1, 1, 1, 1)],
+        lease_duration_secs: 86400,
+        router_ip: Some(Ipv4Addr::new(192, 168, 1, 1)),
+        member_isolation: false,
+        subnet_prefix: None,
     }
 }
 
@@ -286,18 +306,16 @@ fn client_addr() -> SocketAddr {
 async fn run_server_loop_until_idle(
     socket: Arc<MockDhcpSocket>,
     service: Arc<dyn DhcpService>,
-    config: DhcpConfig,
 ) -> Arc<MockDhcpSocket> {
     let running = Arc::new(AtomicBool::new(true));
     let cancel = tokio_util::sync::CancellationToken::new();
-    let config = Arc::new(tokio::sync::RwLock::new(config));
 
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, config, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
     });
 
     // Give the loop time to process all queued packets.
@@ -362,10 +380,10 @@ fn extract_hostname_returns_none_when_absent() {
 fn build_response_creates_valid_offer() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
 
     let response =
-        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
+        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &scope);
 
     assert_eq!(response.opcode(), Opcode::BootReply);
     assert_eq!(response.xid(), request.xid());
@@ -386,9 +404,9 @@ fn build_response_creates_valid_offer() {
 fn build_response_creates_valid_ack() {
     let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
 
-    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &config);
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
 
     assert_eq!(response.opcode(), Opcode::BootReply);
     assert_eq!(response.opts().msg_type(), Some(MessageType::Ack));
@@ -398,10 +416,10 @@ fn build_response_creates_valid_ack() {
 fn build_response_includes_router_and_dns() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
 
     let response =
-        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
+        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &scope);
 
     // Encode and decode to check options survive the round-trip.
     let mut buf = Vec::new();
@@ -454,15 +472,15 @@ fn build_response_includes_router_and_dns() {
 fn build_response_siaddr_is_wardnet_gateway_ip() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
-    let mut config = test_config();
-    config.router_ip = None;
+    let mut scope = test_scope();
+    scope.router_ip = None;
 
     let response =
-        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
+        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &scope);
 
-    // siaddr is always wardnet's own LAN IP (auto-detected into `gateway_ip`),
+    // siaddr is always wardnet's own IP for the scope (its gateway alias),
     // independent of the optional upstream router fallback.
-    assert_eq!(response.siaddr(), config.gateway_ip);
+    assert_eq!(response.siaddr(), scope.gateway_ip);
 }
 
 #[test]
@@ -470,9 +488,9 @@ fn build_response_copies_chaddr() {
     let mac_bytes = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
     let request = build_discover(mac_bytes);
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
 
-    let response = server::build_response(&request, MessageType::Offer, &lease, &config);
+    let response = server::build_response(&request, MessageType::Offer, &lease, &scope);
     assert_eq!(&response.chaddr()[..6], &mac_bytes);
 }
 
@@ -486,9 +504,8 @@ async fn handle_discover_calls_assign_lease_and_returns_offer() {
     let mock = Arc::new(MockDhcpService::new(lease.clone()));
     let service: Arc<dyn DhcpService> = Arc::clone(&mock) as Arc<dyn DhcpService>;
     let msg = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let config = test_config();
 
-    let response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -507,9 +524,8 @@ async fn handle_discover_extracts_hostname_from_message() {
     let mock = Arc::new(MockDhcpService::new(lease));
     let service: Arc<dyn DhcpService> = Arc::clone(&mock) as Arc<dyn DhcpService>;
     let msg = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let config = test_config();
 
-    let _response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let _response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -525,9 +541,8 @@ async fn handle_discover_preserves_xid() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let mut msg = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     msg.set_xid(0x1234_5678);
-    let config = test_config();
 
-    let response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -540,9 +555,8 @@ async fn handle_request_calls_renew_lease_and_returns_ack() {
     let mock = Arc::new(MockDhcpService::new(lease.clone()));
     let service: Arc<dyn DhcpService> = Arc::clone(&mock) as Arc<dyn DhcpService>;
     let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -566,9 +580,8 @@ async fn handle_request_naks_when_assigned_ip_differs_from_requested() {
 
     let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     msg.set_ciaddr(Ipv4Addr::new(192, 168, 1, 50)); // old, now out-of-range IP
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -587,9 +600,8 @@ async fn handle_request_acks_when_requested_ip_matches_assigned() {
 
     let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     msg.set_ciaddr(lease.ip_address);
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config)
+    let response = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff")
         .await
         .unwrap();
 
@@ -603,9 +615,8 @@ async fn handle_request_preserves_xid() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let mut msg = build_request([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
     msg.set_xid(0xdead_beef);
-    let config = test_config();
 
-    let response = server::handle_request(&service, &msg, "11:22:33:44:55:66", &config)
+    let response = server::handle_request(&service, &msg, "11:22:33:44:55:66")
         .await
         .unwrap();
 
@@ -686,13 +697,15 @@ async fn handle_discover_returns_error_when_service_fails() {
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Ok(test_config())
         }
+        async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+            Ok(test_scope())
+        }
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(FailingService);
     let msg = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let config = test_config();
 
-    let result = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff", &config).await;
+    let result = server::handle_discover(&service, &msg, "aa:bb:cc:dd:ee:ff").await;
     assert!(result.is_err());
 }
 
@@ -770,13 +783,15 @@ async fn handle_request_returns_error_when_service_fails() {
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Ok(test_config())
         }
+        async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+            Ok(test_scope())
+        }
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(FailingRenewService);
     let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let config = test_config();
 
-    let result = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff", &config).await;
+    let result = server::handle_request(&service, &msg, "aa:bb:cc:dd:ee:ff").await;
     assert!(result.is_err());
 }
 
@@ -788,9 +803,9 @@ async fn handle_request_returns_error_when_service_fails() {
 async fn send_response_encodes_and_sends() {
     let socket = MockDhcpSocket::new();
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let response = server::build_response(&request, MessageType::Offer, &lease, &config);
+    let response = server::build_response(&request, MessageType::Offer, &lease, &scope);
     let dest: SocketAddr = "192.168.1.50:68".parse().unwrap();
 
     server::send_response(&socket, &response, dest).await;
@@ -818,7 +833,7 @@ async fn server_loop_responds_to_discover_with_offer() {
     let discover = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&discover, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     let messages = socket.sent_messages().await;
     assert_eq!(messages.len(), 1, "expected exactly one response");
@@ -843,7 +858,7 @@ async fn server_loop_responds_to_request_with_ack() {
     let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&request, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     let messages = socket.sent_messages().await;
     assert_eq!(messages.len(), 1, "expected exactly one response");
@@ -861,7 +876,7 @@ async fn server_loop_handles_release_without_response() {
     let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&release, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // No response should be sent for a RELEASE.
     let messages = socket.sent_messages().await;
@@ -889,7 +904,7 @@ async fn server_loop_ignores_garbage_packets() {
     let discover = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&discover, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // The server should have recovered and responded to the DISCOVER.
     let messages = socket.sent_messages().await;
@@ -915,7 +930,7 @@ async fn server_loop_ignores_message_without_type() {
     // No MessageType inserted.
     socket.push_message(&msg, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // No response and no service calls.
     let messages = socket.sent_messages().await;
@@ -935,14 +950,13 @@ async fn server_loop_stops_on_cancellation() {
 
     let running = Arc::new(AtomicBool::new(true));
     let cancel = tokio_util::sync::CancellationToken::new();
-    let config = Arc::new(tokio::sync::RwLock::new(test_config()));
 
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, config, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
     });
 
     // Immediately cancel.
@@ -967,7 +981,7 @@ async fn udp_server_start_sets_running_flag() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     assert!(server.is_running(), "server should be running after start");
@@ -981,7 +995,7 @@ async fn udp_server_stop_clears_running_flag() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     assert!(server.is_running());
@@ -1002,7 +1016,7 @@ async fn udp_server_start_when_already_running() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     server.start().await.unwrap();
     // Second start should be a no-op (returns Ok).
@@ -1018,7 +1032,7 @@ async fn udp_server_stop_when_not_running() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     // Stop without start should be a no-op.
     server.stop().await.unwrap();
@@ -1044,7 +1058,7 @@ async fn server_loop_handles_discover_then_request_sequence() {
     let request = build_request(mac);
     socket.push_message(&request, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     let messages = socket.sent_messages().await;
     assert_eq!(messages.len(), 2, "expected OFFER + ACK");
@@ -1106,14 +1120,13 @@ async fn server_loop_continues_after_recv_error() {
 
     let running = Arc::new(AtomicBool::new(true));
     let cancel = tokio_util::sync::CancellationToken::new();
-    let config = Arc::new(tokio::sync::RwLock::new(test_config()));
 
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, config, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
     });
 
     // Give the loop time to hit the error and continue.
@@ -1145,7 +1158,7 @@ async fn server_loop_ignores_unsupported_message_type() {
         .insert(DhcpOption::MessageType(MessageType::Inform));
     socket.push_message(&msg, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // No response should be sent for an unsupported type.
     let messages = socket.sent_messages().await;
@@ -1181,32 +1194,13 @@ impl DhcpSocket for SendErrorSocket {
 async fn send_response_handles_send_error_gracefully() {
     let socket = SendErrorSocket;
     let lease = test_lease();
-    let config = test_config();
+    let scope = test_scope();
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    let response = server::build_response(&request, MessageType::Offer, &lease, &config);
+    let response = server::build_response(&request, MessageType::Offer, &lease, &scope);
     let dest: SocketAddr = "192.168.1.50:68".parse().unwrap();
 
     // Should not panic -- just logs the error.
     server::send_response(&socket, &response, dest).await;
-}
-
-// ---------------------------------------------------------------------------
-// UdpDhcpServer::update_config
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn udp_server_update_config() {
-    let lease = test_lease();
-    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
-    let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
-
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
-
-    // Update the config and verify it does not panic.
-    let mut new_config = test_config();
-    new_config.lease_duration_secs = 7200;
-    new_config.pool_end = Ipv4Addr::new(192, 168, 1, 250);
-    server.update_config(new_config).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -1217,12 +1211,12 @@ async fn udp_server_update_config() {
 fn build_response_router_ip_same_as_server_ip_no_duplicate() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let lease = test_lease();
-    let mut config = test_config();
-    // Set router_ip == server_ip (which is pool_start when router_ip is present).
-    config.router_ip = Some(Ipv4Addr::new(192, 168, 1, 1));
+    let mut scope = test_scope();
+    // Set router_ip == gateway_ip so the duplicate is elided from the list.
+    scope.router_ip = Some(Ipv4Addr::new(192, 168, 1, 1));
 
     let response =
-        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &config);
+        crate::dhcp::server::build_response(&request, MessageType::Offer, &lease, &scope);
 
     // Encode/decode to inspect the Router option.
     let mut buf = Vec::new();
@@ -1321,6 +1315,9 @@ async fn server_loop_handles_discover_error_gracefully() {
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Ok(test_config())
         }
+        async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+            Ok(test_scope())
+        }
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(FailAssignService);
@@ -1333,7 +1330,7 @@ async fn server_loop_handles_discover_error_gracefully() {
     let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&release, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // No OFFER should be sent (discover failed), and no response for RELEASE.
     let messages = socket.sent_messages().await;
@@ -1414,6 +1411,9 @@ async fn server_loop_handles_request_error_gracefully() {
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Ok(test_config())
         }
+        async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+            Ok(test_scope())
+        }
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(FailRenewService);
@@ -1422,7 +1422,7 @@ async fn server_loop_handles_request_error_gracefully() {
     let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     socket.push_message(&request, client_addr()).await;
 
-    let socket = run_server_loop_until_idle(socket, service, test_config()).await;
+    let socket = run_server_loop_until_idle(socket, service).await;
 
     // No ACK should be sent (renew failed).
     let messages = socket.sent_messages().await;
@@ -1439,7 +1439,7 @@ async fn udp_server_restart_cycle() {
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
     let socket: Arc<dyn DhcpSocket> = Arc::new(MockDhcpSocket::new());
 
-    let server = UdpDhcpServer::with_socket(service, test_config(), socket);
+    let server = UdpDhcpServer::with_socket(service, socket);
 
     // First cycle.
     server.start().await.unwrap();

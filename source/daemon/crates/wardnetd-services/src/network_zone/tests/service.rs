@@ -138,6 +138,31 @@ async fn every_method_rejects_non_admin() {
         h.svc.set_default(IOT.parse().unwrap()).await,
         Err(AppError::Forbidden(_))
     ));
+    assert!(matches!(
+        h.svc.get_quarantine_new_devices().await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        h.svc.set_quarantine_new_devices(true).await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+#[tokio::test]
+async fn quarantine_toggle_defaults_off_and_round_trips() {
+    let h = build().await;
+    // Off by default (key absent).
+    assert!(!as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
+    // Enable, then read back.
+    as_admin(h.svc.set_quarantine_new_devices(true))
+        .await
+        .unwrap();
+    assert!(as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
+    // Disable again.
+    as_admin(h.svc.set_quarantine_new_devices(false))
+        .await
+        .unwrap();
+    assert!(!as_admin(h.svc.get_quarantine_new_devices()).await.unwrap());
 }
 
 // ── Create ─────────────────────────────────────────────────────────────────
@@ -177,6 +202,68 @@ async fn create_zone_rejects_bad_cidr() {
         as_admin(h.svc.create_zone(req)).await,
         Err(AppError::BadRequest(_))
     ));
+}
+
+#[tokio::test]
+async fn create_zone_rejects_public_cidr() {
+    let h = build().await;
+    let mut req = create_req("PublicSubnet");
+    // A syntactically valid but non-RFC-1918 range must be rejected.
+    req.subnet = Some(ZoneSubnet {
+        cidr: "8.8.0.0/24".to_owned(),
+    });
+    assert!(matches!(
+        as_admin(h.svc.create_zone(req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
+async fn create_zone_rejects_boundary_straddling_supernet() {
+    let h = build().await;
+    let mut req = create_req("Straddle");
+    // Private base (192.168.0.0) but /15 extends into public 192.169.x — the
+    // whole range must be inside one RFC 1918 block, so this is rejected.
+    req.subnet = Some(ZoneSubnet {
+        cidr: "192.168.0.0/15".to_owned(),
+    });
+    assert!(matches!(
+        as_admin(h.svc.create_zone(req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
+async fn create_zone_accepts_the_canonical_private_12() {
+    let h = build().await;
+    let mut req = create_req("Private12");
+    // 172.16.0.0/12 is fully within the 172.16/12 block — must be accepted.
+    req.subnet = Some(ZoneSubnet {
+        cidr: "172.16.0.0/12".to_owned(),
+    });
+    assert!(as_admin(h.svc.create_zone(req)).await.is_ok());
+}
+
+#[tokio::test]
+async fn create_zone_rejects_subnet_too_small_for_pool() {
+    // FIX 4: a syntactically-valid CIDR whose pool bounds are empty (a /30 has
+    // no usable .10..broadcast-6 range) is rejected up front so the DHCP
+    // resolver never has to silently fall back to the base scope.
+    let h = build().await;
+    let mut req = create_req("TinySubnet");
+    req.subnet = Some(ZoneSubnet {
+        cidr: "10.44.0.0/30".to_owned(),
+    });
+    let err = as_admin(h.svc.create_zone(req)).await;
+    match err {
+        Err(AppError::BadRequest(msg)) => {
+            assert!(
+                msg.contains("too small to host a DHCP pool"),
+                "unexpected message: {msg}"
+            );
+        }
+        other => panic!("expected BadRequest, got {other:?}"),
+    }
 }
 
 #[tokio::test]

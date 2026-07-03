@@ -222,6 +222,7 @@ impl DeviceService for MockDeviceService {
             current_rule: self.rule.clone(),
             admin_locked: self.admin_locked,
             available_tunnels: vec![],
+            zone: None,
         })
     }
 
@@ -405,6 +406,9 @@ impl DhcpService for MockDhcpService {
     async fn get_dhcp_config(&self) -> Result<wardnet_common::dhcp::DhcpConfig, AppError> {
         unimplemented!()
     }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 /// Mock `DeviceDiscoveryService` for admin device endpoints.
@@ -522,6 +526,7 @@ fn build_state_with_dhcp(
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 
@@ -554,6 +559,7 @@ fn build_state_with_tunnel_svc(
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 
@@ -632,6 +638,10 @@ async fn get_me_returns_device_when_found() {
     assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["current_rule"]["type"], "direct");
     assert_eq!(json["admin_locked"], false);
+    // The handler enriches the response with the caller's own zone (resolved
+    // under an internal admin context) for the read-only user-PWA display.
+    assert_eq!(json["zone"]["name"], "Trusted");
+    assert_eq!(json["zone"]["is_default"], false);
 }
 
 #[tokio::test]

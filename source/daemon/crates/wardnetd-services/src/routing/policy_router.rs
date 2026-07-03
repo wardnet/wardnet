@@ -48,4 +48,53 @@ pub trait PolicyRouter: Send + Sync {
 
     /// Verify that required routing tools are available on the system.
     async fn check_tools_available(&self) -> anyhow::Result<()>;
+
+    // --- Network-Zone DHCP-mode surface (issue #737) ---
+    //
+    // These give the recorded-only per-zone `subnet` / `member_isolation` fields
+    // teeth when Wardnet owns DHCP: a per-zone gateway alias on the LAN
+    // interface, proxy-ARP for isolate-members, and per-device `/32` host routes.
+    // They are inert unless a zone has a subnet and DHCP-mode is on.
+
+    /// Add a secondary IPv4 address (a per-zone gateway alias) to `interface`.
+    ///
+    /// `ip` is the gateway host address (e.g. the `.1` of a zone subnet) and
+    /// `prefix` the subnet prefix length. Idempotent: an already-present address
+    /// is treated as success.
+    async fn add_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()>;
+
+    /// Remove a secondary IPv4 address from `interface`. Idempotent: a missing
+    /// address is treated as success.
+    async fn remove_interface_alias(
+        &self,
+        interface: &str,
+        ip: &str,
+        prefix: u8,
+    ) -> anyhow::Result<()>;
+
+    /// List the IPv4 addresses currently configured on `interface` as
+    /// `(ip, prefix)` pairs (includes the primary address and every alias). Used
+    /// by the gateway-alias reconciler to drop aliases no longer backed by a zone.
+    async fn list_interface_aliases(&self, interface: &str) -> anyhow::Result<Vec<(String, u8)>>;
+
+    /// Enable or disable proxy-ARP on `interface`
+    /// (`/proc/sys/net/ipv4/conf/<iface>/proxy_arp`).
+    ///
+    /// An isolate-members zone hands each device a `/32`, so the device treats
+    /// every peer as off-link and ARPs the gateway for it; proxy-ARP makes the
+    /// Pi answer, pulling intra-subnet peer traffic through the forward chain
+    /// where it can be filtered. Cooperating devices only (see the ADR).
+    async fn set_proxy_arp(&self, interface: &str, enabled: bool) -> anyhow::Result<()>;
+
+    /// Add a `/32` host route for `ip` via `interface` so the Pi has an on-link
+    /// path to an isolate-members device. Idempotent.
+    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
+
+    /// Remove the `/32` host route for `ip` via `interface`. Idempotent.
+    async fn remove_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
 }

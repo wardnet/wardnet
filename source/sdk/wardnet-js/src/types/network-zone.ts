@@ -48,3 +48,15 @@ export interface NetworkZone {
 export interface NetworkZoneView extends NetworkZone {
   member_count: number;
 }
+
+/**
+ * Minimal zone info the daemon attaches to `GET /api/devices/me` for the
+ * read-only zone display in the user PWA. The caller is device-keyed and can't
+ * read the admin-only zone catalog, so this is the only zone data it sees.
+ */
+export interface ZoneSummary {
+  /** Human-readable zone name (e.g. "Guest"). */
+  name: string;
+  /** Whether this is the protected anchor "home" zone. */
+  is_default: boolean;
+}

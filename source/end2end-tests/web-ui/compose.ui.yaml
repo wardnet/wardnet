@@ -71,6 +71,19 @@ services:
         else
           echo "wardnetd-ui e2e fixture: WARNING no NIC holds 10.91.0.1; leaving lan_interface as-is" >&2
         fi
+        # Point the NordVPN provider at the nordvpn_mock container instead of
+        # the real api.nordvpn.com (issue #248), so the admin-site providers
+        # spec can drive the wizard offline. Mirrors ../daemon/compose.yaml:
+        # idempotent on the nordvpn_api_url key, injecting under an existing
+        # [vpn_providers] table or appending a fresh one.
+        if ! grep -q '^nordvpn_api_url' /etc/wardnet/wardnet.toml; then
+          if grep -q '^\[vpn_providers\]' /etc/wardnet/wardnet.toml; then
+            sed -i '/^\[vpn_providers\]/a nordvpn_api_url = "http://10.92.0.52:8080"' /etc/wardnet/wardnet.toml
+          else
+            printf '\n[vpn_providers]\nnordvpn_api_url = "http://10.92.0.52:8080"\n' >> /etc/wardnet/wardnet.toml
+          fi
+          echo "wardnetd-ui e2e fixture: pinned nordvpn_api_url=http://10.92.0.52:8080" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     networks:
       wardnet_mgmt:
@@ -281,6 +294,33 @@ services:
       retries: 30
       start_period: 5s
 
+  # NordVPN API mock (issue #248) for the admin-site providers spec (A7,
+  # #622). Reuses the daemon stack's mock image/fixtures verbatim (a
+  # dependency-free Node HTTP server backed by fixtures/nordvpn JSON) — do
+  # not duplicate them. Pinned to 10.92.0.52 on wardnet_wan so the
+  # wardnetd-ui config's nordvpn_api_url can reference a stable URL. The
+  # provider wizard's validate/list/setup calls hit this instead of the real
+  # api.nordvpn.com, which is unreachable inside the isolated compose net.
+  nordvpn_mock:
+    build:
+      context: ../daemon/mocks/nordvpn
+      dockerfile: Dockerfile
+    image: wardnet-nordvpn-mock:dev
+    volumes:
+      - ../daemon/fixtures/nordvpn:/fixtures:ro
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.52
+    healthcheck:
+      # node:22-slim ships neither curl nor wget; probe with node itself.
+      test:
+        - "CMD-SHELL"
+        - "node -e \"require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 3s
+
   ui_runner:
     build:
       context: ../../..
@@ -306,9 +346,17 @@ services:
       # refresh; gate the runner on it being healthy.
       blocklist_server:
         condition: service_healthy
+      # The providers spec drives the NordVPN wizard against this mock; gate
+      # the runner on it being healthy (the mock is a firm invariant — the
+      # spec hard-fails, not skips, if the provider can't be reached).
+      nordvpn_mock:
+        condition: service_healthy
     environment:
       WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
       WARDNET_UI_FRESH_BASE_URL: "https://wardnetd-ui-fresh-tls"
+      # Plain-HTTP :7411 admin origin, reached directly (no TLS proxy) — backs
+      # the `admin-site-http` regression project.
+      WARDNET_UI_HTTP_BASE_URL: "http://wardnetd-ui:7411"
       WARDNET_API_BASE_URL: "http://wardnetd-ui:7411/api"
       WARDNET_TEST_DEBIAN_AGENT: "http://test_debian:3001"
       WARDNET_BLOCKLIST_FIXTURE_URL: "http://10.90.0.20/hosts.txt"
@@ -324,12 +372,20 @@ services:
       - --project
       - admin-site-setup
       - --project
+      - admin-site-http
+      - --project
       - admin-app
     # Reports bind-mounted (not a named volume) to the same host dir the
     # Makefile trap writes compose-logs.txt / inspect.json into, so the
     # JUnit + HTML report land alongside them in the CI artefact.
     volumes:
       - ./reports:/work/source/end2end-tests/web-ui/reports
+      # Visual-regression baselines (V1, #628). Bind-mounted (not COPYed into
+      # the image) so the host's committed baselines are what Playwright
+      # compares against, and `PW_UPDATE_SNAPSHOTS=1` runs write regenerated
+      # PNGs back to the host. The mount shadows any `snapshots/` baked into
+      # the image, keeping the source-of-truth on the host / in git.
+      - ./snapshots:/work/source/end2end-tests/web-ui/snapshots
     networks:
       wardnet_mgmt:
         ipv4_address: 10.90.0.10
@@ -371,6 +427,12 @@ services:
       - user-app
     volumes:
       - ./reports:/work/source/end2end-tests/web-ui/reports
+      # Visual-regression baselines (V1, #628). Bind-mounted (not COPYed into
+      # the image) so the host's committed baselines are what Playwright
+      # compares against, and `PW_UPDATE_SNAPSHOTS=1` runs write regenerated
+      # PNGs back to the host. The mount shadows any `snapshots/` baked into
+      # the image, keeping the source-of-truth on the host / in git.
+      - ./snapshots:/work/source/end2end-tests/web-ui/snapshots
     networks:
       wardnet_mgmt: {}
       wardnet_lan: {}

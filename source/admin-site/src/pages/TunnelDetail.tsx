@@ -279,6 +279,7 @@ export default function TunnelDetail() {
         </Button>
         <Button
           variant="destructive"
+          data-testid="tunnel-detail-delete"
           onClick={() => {
             deleteTunnel.mutate(tunnel.id, {
               onSuccess: () => navigate("/tunnels"),

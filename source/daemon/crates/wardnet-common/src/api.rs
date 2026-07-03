@@ -17,6 +17,7 @@ use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStat
 use crate::vpn_provider::{
     CountryInfo, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
+use crate::zone_exception::{ExceptionEndpoint, ServiceSpec, ZoneException};
 use uuid::Uuid;
 
 /// Login request body.
@@ -68,6 +69,24 @@ pub struct TunnelSummary {
     pub last_handshake: Option<DateTime<Utc>>,
 }
 
+/// Minimal Network Zone info exposed to a self-service caller for the
+/// read-only zone display in the user PWA.
+///
+/// The caller is device-keyed and has no admin session, so it cannot call the
+/// admin-gated `GET /api/network/zones`. `GET /api/devices/me` resolves the
+/// caller's own zone (via an internal admin context) and hands back just the
+/// name plus whether it is the anchor "home" zone — enough for
+/// "You're on: Guest — isolated from the home network" without leaking the
+/// full zone policy.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ZoneSummary {
+    /// Human-readable zone name (e.g. "Guest").
+    pub name: String,
+    /// Whether this is the protected anchor "home" zone. When `false` the
+    /// device sits in a non-home zone that is isolated from it.
+    pub is_default: bool,
+}
+
 /// Response for GET /api/devices/me.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DeviceMeResponse {
@@ -76,6 +95,10 @@ pub struct DeviceMeResponse {
     pub admin_locked: bool,
     /// Available tunnels for self-service routing selection.
     pub available_tunnels: Vec<TunnelSummary>,
+    /// The caller device's Network Zone, resolved server-side for the
+    /// read-only zone display. `None` if the device or its zone can't be
+    /// resolved.
+    pub zone: Option<ZoneSummary>,
 }
 
 /// Request body for PUT /api/devices/me/rule.
@@ -1842,4 +1865,72 @@ pub struct DeleteNetworkZoneResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AssignDeviceZoneRequest {
     pub zone_id: Uuid,
+}
+
+/// Response for GET /api/network/quarantine-new-devices (issue #738).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct QuarantineNewDevicesResponse {
+    /// Whether new-device quarantine is on. Off by default.
+    pub enabled: bool,
+}
+
+/// Request body for PUT /api/network/quarantine-new-devices (issue #738).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetQuarantineNewDevicesRequest {
+    pub enabled: bool,
+}
+
+// --- Zone Exceptions (epic #244, issue #737) -------------------------------
+
+/// Response for GET /api/network/zones/exceptions.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListZoneExceptionsResponse {
+    pub exceptions: Vec<ZoneException>,
+}
+
+/// Response for GET /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Request body for POST /api/network/zones/exceptions.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneExceptionRequest {
+    pub from: ExceptionEndpoint,
+    pub to: ExceptionEndpoint,
+    pub service: ServiceSpec,
+    pub bidirectional: bool,
+}
+
+/// Response for POST /api/network/zones/exceptions.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Request body for PUT /api/network/zones/exceptions/{id} (partial update).
+/// Every field is optional; absent fields are left unchanged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneExceptionRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<ExceptionEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<ExceptionEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<ServiceSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidirectional: Option<bool>,
+}
+
+/// Response for PUT /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateZoneExceptionResponse {
+    pub exception: ZoneException,
+}
+
+/// Response for DELETE /api/network/zones/exceptions/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteZoneExceptionResponse {
+    pub deleted: bool,
 }

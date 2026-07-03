@@ -85,17 +85,11 @@ pub async fn update_config(
     _auth: AdminAuth,
     Json(body): Json<UpdateDhcpConfigRequest>,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
+    // No running-server hot-reload needed: the DHCP server resolves each
+    // client's scope per packet from live zone/device state (#737), so a
+    // pool/option change via `dhcp_service().update_config` takes effect on the
+    // next request without swapping any cached config on the server.
     let response = state.dhcp_service().update_config(body).await?;
-
-    // Hot-reload the running server so the new pool/options take effect without
-    // a daemon restart (issue #227). The swap is cheap and safe whether or not
-    // the server is currently running. Mirrors the toggle handler, which
-    // start/stops the same shared `DhcpServer` instance directly.
-    state
-        .dhcp_server()
-        .update_config(response.config.clone())
-        .await;
-
     Ok(Json(response))
 }
 

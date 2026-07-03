@@ -34,6 +34,21 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
+/// Per-listener marker inserted **only** on the TLS (`:443`) app by
+/// `guarded_https_app`. Its presence tells cookie-issuing handlers
+/// ([`auth::login`](crate::api::auth::login) / [`auth::refresh`](crate::api::auth::refresh))
+/// to add the `Secure` attribute to the session cookie.
+///
+/// It is deliberately **absent** on the plain-HTTP `:7411` surface (the
+/// pre-provisioning admin endpoint, which is the only reachable surface until a
+/// real cert is issued via the DDNS/BYO-domain flow) and on the mock/dev server.
+/// A browser silently drops a `Secure` cookie delivered over `http://`, so
+/// marking those surfaces would strand the session cookie and break login there.
+/// Fail direction is intentional: forgetting the marker yields a non-`Secure`
+/// cookie (login works) rather than a silently-dropped one.
+#[derive(Clone, Copy)]
+pub struct SecureTransport;
+
 /// Extractor that validates admin authentication.
 ///
 /// Tries session cookie first, then `Authorization: Bearer <token>`

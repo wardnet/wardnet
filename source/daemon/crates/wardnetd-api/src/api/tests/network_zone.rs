@@ -23,7 +23,7 @@ use crate::tests::stubs::{
     StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
     StubEventPublisher, StubJobService, StubLogService, StubProviderService, StubRoutingService,
     StubRuleRequestService, StubStatsService, StubSystemService, StubTlsService, StubTunnelService,
-    StubUpdateService,
+    StubUpdateService, StubZoneExceptionService,
 };
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
@@ -129,6 +129,12 @@ impl NetworkZoneService for MockNetworkZoneService {
     async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
         Ok(())
     }
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+    async fn set_quarantine_new_devices(&self, _enabled: bool) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 fn connect_info() -> ConnectInfo<SocketAddr> {
@@ -163,6 +169,7 @@ fn build_state() -> AppState {
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }
 
@@ -177,6 +184,11 @@ fn zone_router() -> Router {
             get(crate::api::network_zone::get_zone)
                 .put(crate::api::network_zone::update_zone)
                 .delete(crate::api::network_zone::delete_zone),
+        )
+        .route(
+            "/api/network/quarantine-new-devices",
+            get(crate::api::network_zone::get_quarantine_new_devices)
+                .put(crate::api::network_zone::set_quarantine_new_devices),
         )
         .with_state(build_state())
 }
@@ -219,6 +231,26 @@ async fn get_zone_returns_view() {
     let (status, json) = send("GET", &format!("/api/network/zones/{TRUSTED}"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["zone"]["member_count"], 3);
+}
+
+#[tokio::test]
+async fn get_quarantine_new_devices_returns_enabled() {
+    // The mock reports the toggle as on.
+    let (status, json) = send("GET", "/api/network/quarantine-new-devices", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["enabled"], true);
+}
+
+#[tokio::test]
+async fn set_quarantine_new_devices_echoes_request() {
+    let (status, json) = send(
+        "PUT",
+        "/api/network/quarantine-new-devices",
+        Some(r#"{"enabled":false}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["enabled"], false);
 }
 
 #[tokio::test]

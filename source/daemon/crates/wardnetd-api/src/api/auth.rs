@@ -1,15 +1,28 @@
-use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::http::header::SET_COOKIE;
 use axum::response::IntoResponse;
+use axum::{Extension, Json};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::api::{ApiError, LoginRequest, LoginResponse};
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::{AdminAuth, SecureTransport};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
+
+/// Build the `wardnet_session` `Set-Cookie` value.
+///
+/// `Secure` is appended only when the request arrived over TLS — signalled by
+/// the [`SecureTransport`] marker that `guarded_https_app` layers onto the
+/// `:443` app. The plain-HTTP `:7411` surface (and the mock/dev server) omit it,
+/// because browsers refuse to store a `Secure` cookie delivered over `http://`.
+fn session_cookie(token: &str, max_age_seconds: u64, secure: bool) -> String {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "wardnet_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age_seconds}{secure_attr}"
+    )
+}
 
 /// Register auth routes onto the given [`OpenApiRouter`]. Each module owns its
 /// own route list so `api::mod::router` stays a simple composition point.
@@ -39,6 +52,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn login(
     State(state): State<AppState>,
+    secure_transport: Option<Extension<SecureTransport>>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let result = state
@@ -46,9 +60,10 @@ pub async fn login(
         .login(&body.username, &body.password, body.remember_me)
         .await?;
 
-    let cookie_value = format!(
-        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}; Secure",
-        result.token, result.max_age_seconds
+    let cookie_value = session_cookie(
+        &result.token,
+        result.max_age_seconds,
+        secure_transport.is_some(),
     );
 
     Ok((
@@ -82,6 +97,7 @@ pub async fn login(
 )]
 pub async fn refresh(
     State(state): State<AppState>,
+    secure_transport: Option<Extension<SecureTransport>>,
     auth: AdminAuth,
 ) -> Result<impl IntoResponse, AppError> {
     let token = auth
@@ -90,9 +106,10 @@ pub async fn refresh(
 
     let result = state.auth_service().refresh_session(&token).await?;
 
-    let cookie_value = format!(
-        "wardnet_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}; Secure",
-        result.token, result.max_age_seconds
+    let cookie_value = session_cookie(
+        &result.token,
+        result.max_age_seconds,
+        secure_transport.is_some(),
     );
 
     Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, cookie_value)]))

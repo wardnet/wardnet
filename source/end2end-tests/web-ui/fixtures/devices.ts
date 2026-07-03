@@ -22,6 +22,10 @@
 
 import { api, ensureAdminSetup } from "./seed";
 import { TEST_DEBIAN_AGENT } from "./dhcp";
+import {
+  TUNNEL_CONFIG,
+  type ListTunnelsResponse,
+} from "./tunnels";
 
 /**
  * Synthetic LAN client we conjure for the Devices specs. The MAC is
@@ -44,15 +48,6 @@ interface SeededDevice {
 
 interface ListDevicesResponse {
   devices: SeededDevice[];
-}
-
-interface TunnelSummary {
-  id: string;
-  label: string;
-}
-
-interface ListTunnelsResponse {
-  tunnels: TunnelSummary[];
 }
 
 /** POST JSON to a test-agent serve URL. Throws on non-2xx. */
@@ -135,31 +130,11 @@ export async function seedDiscoveredDevice(
 }
 
 /**
- * A deterministic, syntactically-valid WireGuard config. The daemon's
- * parser (`wardnet-common/src/wireguard_config.rs`) only requires
- * `[Interface] PrivateKey` and `[Peer] PublicKey` and does not validate
- * the key material, so these throwaway base64 blobs are fine — the tunnel
- * is never brought up.
- */
-const SEED_TUNNEL_CONFIG = [
-  "[Interface]",
-  "PrivateKey = SHFlsItPbjj4u4nNZbR8Ej2cTSDDTNeWiR+ej8a4tEM=",
-  "Address = 10.99.0.2/32",
-  "DNS = 1.1.1.1",
-  "",
-  "[Peer]",
-  "PublicKey = HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw=",
-  "Endpoint = 198.51.100.1:51820",
-  "AllowedIPs = 0.0.0.0/0",
-  "",
-].join("\n");
-
-/**
  * Ensure a tunnel exists so the device routing selector offers a
  * non-Direct option. Idempotent: returns the existing tunnel's label if
- * one with this label is already configured, otherwise imports the
- * deterministic config above. Returns the label so the spec can match the
- * selector option by its accessible name.
+ * one with this label is already configured, otherwise imports the shared
+ * deterministic `TUNNEL_CONFIG` (see ./tunnels). Returns the label so the
+ * spec can match the selector option by its accessible name.
  */
 export async function seedTunnel(
   label = "E2E Test Tunnel",
@@ -176,7 +151,7 @@ export async function seedTunnel(
     body: JSON.stringify({
       label,
       country_code: countryCode,
-      config: SEED_TUNNEL_CONFIG,
+      config: TUNNEL_CONFIG,
     }),
   });
   return label;

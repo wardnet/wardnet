@@ -102,6 +102,7 @@ fn build_state(job_service: Arc<dyn JobService>) -> AppState {
         job_service,
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 

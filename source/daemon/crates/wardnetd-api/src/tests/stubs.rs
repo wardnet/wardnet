@@ -223,6 +223,9 @@ impl DhcpService for StubDhcpService {
     async fn get_dhcp_config(&self) -> Result<wardnet_common::dhcp::DhcpConfig, AppError> {
         unimplemented!()
     }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 pub struct StubDnsService;
@@ -723,6 +726,71 @@ impl NetworkZoneService for StubNetworkZoneService {
     async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
         Ok(())
     }
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        Ok(false)
+    }
+    async fn set_quarantine_new_devices(&self, _enabled: bool) -> Result<(), AppError> {
+        Ok(())
+    }
+}
+
+pub struct StubZoneExceptionService;
+
+impl StubZoneExceptionService {
+    fn stub_exception() -> wardnet_common::zone_exception::ZoneException {
+        use wardnet_common::zone_exception::{
+            ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
+        };
+        let now = chrono::Utc::now();
+        ZoneException {
+            id: Uuid::nil(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: Uuid::nil(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: Uuid::parse_str("00000000-0000-0000-0000-000000000202").unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[async_trait]
+impl wardnetd_services::ZoneExceptionService for StubZoneExceptionService {
+    async fn list_exceptions(
+        &self,
+    ) -> Result<Vec<wardnet_common::zone_exception::ZoneException>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_exception(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn create_exception(
+        &self,
+        _req: wardnet_common::api::CreateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn update_exception(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        Ok(Self::stub_exception())
+    }
+    async fn delete_exception(&self, _id: Uuid) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 pub struct StubSystemService;
@@ -903,7 +971,6 @@ impl DhcpServer for StubDhcpServer {
     fn is_running(&self) -> bool {
         false
     }
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 pub struct StubDnsServer;
@@ -1204,5 +1271,6 @@ pub fn test_app_state() -> AppState {
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
         Arc::new(StubRuleRequestService),
+        Arc::new(StubZoneExceptionService),
     )
 }

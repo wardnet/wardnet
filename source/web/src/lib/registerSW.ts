@@ -1,7 +1,14 @@
 export interface RegisterSWOptions {
   /** Path to the compiled service-worker file. Defaults to `"sw.js"` (vite-plugin-pwa default). */
   swPath?: string;
-  /** Skip the waiting SW and reload immediately when an update is found. Default: `false`. */
+  /**
+   * Auto-apply a waiting service worker instead of waiting for the app to call
+   * `updateSW()`: skip-waiting the new worker, which triggers one page reload so
+   * the fresh app shell takes over. A first install never reloads (there is no
+   * prior controller to replace). Use for appliance surfaces that should always
+   * match the daemon after an upgrade. When `false` (default), a waiting worker
+   * is surfaced through `onNeedRefresh` for the app to prompt instead.
+   */
   immediate?: boolean;
   /** Called when a new SW version is waiting to take over. Call the returned `updateSW()` fn to apply it. */
   onNeedRefresh?: () => void;
@@ -43,6 +50,19 @@ export function registerSW(
     waitingWorker?.postMessage({ type: "SKIP_WAITING" });
   };
 
+  // A newly-installed worker is waiting to take over. Auto-apply it when
+  // `immediate` (skip-waiting → `controllerchange` → one reload); otherwise
+  // surface it via `onNeedRefresh` for the app to prompt. Shared by the
+  // "already waiting at register time" and "just finished installing" paths.
+  const applyWaiting = (worker: ServiceWorker) => {
+    waitingWorker = worker;
+    if (immediate) {
+      updateSW();
+    } else {
+      onNeedRefresh?.();
+    }
+  };
+
   // Registered once — outside the `.then()` — so it fires exactly once even if
   // `register()` is called multiple times (e.g. HMR in dev). The `refreshing`
   // guard prevents double-reloads within the same listener.
@@ -60,10 +80,11 @@ export function registerSW(
       .then((registration) => {
         onRegistered?.(registration);
 
-        // A worker may already be waiting if the user refreshed while an update was pending.
+        // A worker may already be waiting if it installed in a prior session and
+        // was never activated — apply it too, so auto-update clients aren't
+        // stranded on the stale shell across reloads.
         if (registration.waiting) {
-          waitingWorker = registration.waiting;
-          onNeedRefresh?.();
+          applyWaiting(registration.waiting);
         }
 
         registration.addEventListener("updatefound", () => {
@@ -75,12 +96,7 @@ export function registerSW(
 
             if (navigator.serviceWorker.controller) {
               // An existing SW is active — this is an update waiting to activate.
-              waitingWorker = installing;
-              if (immediate) {
-                updateSW();
-              } else {
-                onNeedRefresh?.();
-              }
+              applyWaiting(installing);
             } else {
               // First install — app is now ready to serve requests offline.
               onOfflineReady?.();

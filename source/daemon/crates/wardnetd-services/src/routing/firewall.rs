@@ -23,6 +23,51 @@ pub struct ZoneRules {
     pub admin_ui_reachable: bool,
 }
 
+/// One resolved cross-zone allow (issue #737), emitted ahead of the zone denies.
+///
+/// Rendered as an `ACCEPT` in the `zone_isolation` chain so a curated
+/// cross-subnet service (e.g. a phone casting to a TV in another zone) survives
+/// the otherwise default-deny between subnets. Endpoints are already resolved to
+/// CIDRs (a device to its `/32`, a zone to its subnet) by the enforcer.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExceptionAllow {
+    /// Source CIDR, e.g. `"10.44.2.5/32"` or `"10.44.2.0/24"`.
+    pub from_cidr: String,
+    /// Destination CIDR, same forms as `from_cidr`.
+    pub to_cidr: String,
+    /// Transport protocol, `"tcp"` or `"udp"`.
+    pub proto: String,
+    /// Inclusive destination-port range start (a single port has `start == end`).
+    pub port_start: u16,
+    /// Inclusive destination-port range end.
+    pub port_end: u16,
+    /// When `true` the firewall also renders the reverse direction (`to → from`
+    /// on the same ports) so the return/handshake traffic is allowed.
+    pub bidirectional: bool,
+}
+
+/// The full desired L3 isolation state (issue #737), rebuilt atomically into the
+/// `zone_isolation` forward sub-chain.
+///
+/// The enforcer owns the *whole* chain: on any relevant change it recomputes
+/// this whole-state value and the firewall flushes + rebuilds the chain in a
+/// fixed order — allows first, then cross-subnet denies, then member-isolation
+/// denies. There is no per-rule identity bookkeeping, which makes the
+/// allows-before-denies ordering trivially correct. An empty value leaves the
+/// chain empty (no L3 isolation — the graceful-degrade state used when Wardnet
+/// does not own DHCP).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ZoneIsolationRules {
+    /// Cross-zone `ACCEPT`s, evaluated first.
+    pub allows: Vec<ExceptionAllow>,
+    /// Ordered `(src_cidr, dst_cidr)` pairs whose forwarded traffic is dropped
+    /// (the cross-subnet default-deny).
+    pub deny_pairs: Vec<(String, String)>,
+    /// Subnets whose forwarded intra-subnet peer traffic is dropped
+    /// (member isolation).
+    pub member_isolation_subnets: Vec<String>,
+}
+
 /// Abstraction over firewall operations for Wardnet policy routing.
 ///
 /// Manages NAT masquerade (postrouting) rules for tunnel interfaces and
@@ -94,6 +139,15 @@ pub trait FirewallManager: Send + Sync {
     /// enforcer's startup reconcile to drop rules for IPs no longer backed by a
     /// device.
     async fn list_zone_rule_ips(&self) -> anyhow::Result<Vec<String>>;
+
+    /// Atomically rebuild the `zone_isolation` forward sub-chain from `rules`
+    /// (issue #737): flush it, then install every allow (`ACCEPT`), then every
+    /// cross-subnet deny (`DROP`), then every member-isolation intra-subnet deny
+    /// (`DROP`). Empty `rules` leaves the chain empty (no L3 isolation — the
+    /// graceful-degrade state when Wardnet does not own DHCP). The enforcer owns
+    /// the whole chain, so this is a whole-state replace with no per-rule
+    /// identity bookkeeping.
+    async fn apply_zone_isolation(&self, rules: ZoneIsolationRules) -> anyhow::Result<()>;
 
     /// Verify that the required firewall tools are available on the system.
     async fn check_tools_available(&self) -> anyhow::Result<()>;

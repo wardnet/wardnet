@@ -6,6 +6,8 @@ import type {
   DeviceDetailResponse,
   GetNetworkZoneResponse,
   ListNetworkZonesResponse,
+  QuarantineNewDevicesResponse,
+  SetQuarantineNewDevicesRequest,
   UpdateNetworkZoneRequest,
   UpdateNetworkZoneResponse,
 } from "../types/api.js";
@@ -58,6 +60,21 @@ export class NetworkZonesService {
     return this.client.request<DeviceDetailResponse>(`/devices/${deviceId}/zone`, {
       method: "PUT",
       body: JSON.stringify({ zone_id: zoneId }),
+    });
+  }
+
+  /** Read the new-device quarantine toggle (issue #738). */
+  async getQuarantineNewDevices(): Promise<QuarantineNewDevicesResponse> {
+    return this.client.request<QuarantineNewDevicesResponse>("/network/quarantine-new-devices");
+  }
+
+  /** Enable or disable new-device quarantine (issue #738). */
+  async setQuarantineNewDevices(
+    body: SetQuarantineNewDevicesRequest,
+  ): Promise<QuarantineNewDevicesResponse> {
+    return this.client.request<QuarantineNewDevicesResponse>("/network/quarantine-new-devices", {
+      method: "PUT",
+      body: JSON.stringify(body),
     });
   }
 }

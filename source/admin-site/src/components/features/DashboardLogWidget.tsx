@@ -57,7 +57,9 @@ export function DashboardLogWidget() {
   }
 
   return (
-    <Card>
+    // `dashboard-log-widget` lets the visual-regression suite mask this card
+    // (#628): it streams live daemon logs (per-run, non-deterministic).
+    <Card data-testid="dashboard-log-widget">
       <CardHeader>
         <CardTitle>Live logs</CardTitle>
         <Pill variant={connected ? "ok" : "down"}>

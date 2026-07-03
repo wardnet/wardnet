@@ -136,6 +136,9 @@ jobs:
       github.event.pull_request.user.type != 'Bot' && (
         needs.preflight.outputs.daemon == 'true' ||
         needs.preflight.outputs.site == 'true' ||
+        needs.preflight.outputs['admin-web'] == 'true' ||
+        needs.preflight.outputs['admin-app'] == 'true' ||
+        needs.preflight.outputs['user-app'] == 'true' ||
         needs.preflight.outputs.ci == 'true'
       )
     # site-coverage reads @wardnet/{brand,styles} from GitHub Packages.
@@ -143,6 +146,12 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/coverage.yml
+    # Gate each coverage job on the relevant change bucket so a frontend-only
+    # PR doesn't spin up the 30-min daemon coverage (and vice versa).
+    with:
+      run-daemon: ${{ needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-frontend: ${{ needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
 
   tests-e2e:

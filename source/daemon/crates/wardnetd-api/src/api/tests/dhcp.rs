@@ -205,6 +205,10 @@ impl DhcpService for MockDhcpService {
             router_ip: None,
         })
     }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +244,7 @@ fn build_state(dhcp_svc: impl DhcpService + 'static) -> AppState {
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 

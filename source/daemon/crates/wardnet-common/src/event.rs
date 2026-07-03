@@ -232,6 +232,11 @@ pub enum WardnetEvent {
         new_zone_id: Uuid,
         timestamp: DateTime<Utc>,
     },
+    /// A cross-zone exception was created, updated, or deleted (issue #737). The
+    /// zone enforcer rebuilds its allow-rules; other listeners ignore it.
+    ZoneExceptionsChanged {
+        timestamp: DateTime<Utc>,
+    },
     /// The global default routing policy changed (e.g. `"direct"` → a tunnel
     /// UUID). Emitted by `RoutingService::set_default_policy`. The Network-Zone
     /// enforcer (issue #736) consumes this to re-validate every `Default`-ruled
@@ -241,6 +246,19 @@ pub enum WardnetEvent {
     /// tunnel binding back to direct.
     DefaultPolicyChanged {
         policy: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// A previously-unseen device was discovered while new-device quarantine is
+    /// enabled (issue #738). Fires exactly once per device — only from the
+    /// truly-new insert path, never on reconnect — so it is a valid "first-ever"
+    /// signal. The push subsystem consumes it to notify admins to approve the
+    /// device; other listeners ignore it. Placement/enforcement are unaffected
+    /// (the device already landed in the default-for-new zone via
+    /// `DeviceDiscovered`).
+    NewDeviceQuarantined {
+        device_id: Uuid,
+        mac: String,
+        zone_name: String,
         timestamp: DateTime<Utc>,
     },
 }

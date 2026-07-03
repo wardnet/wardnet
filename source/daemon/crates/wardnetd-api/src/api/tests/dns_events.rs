@@ -166,6 +166,7 @@ impl DeviceService for MockDnsEventsDeviceService {
                 current_rule: None,
                 admin_locked: false,
                 available_tunnels: vec![],
+                zone: None,
             }),
             None => Err(AppError::NotFound("device not found".to_owned())),
         }
@@ -322,6 +323,7 @@ fn build_state_with_publisher(
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
         Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
 

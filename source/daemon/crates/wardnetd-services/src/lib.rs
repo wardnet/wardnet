@@ -8,6 +8,7 @@ pub mod jobs;
 pub mod request_context;
 pub mod secret_store;
 pub mod stats;
+pub mod subnet;
 pub mod version;
 
 pub mod auth;
@@ -34,6 +35,7 @@ pub mod tunnel;
 pub mod update;
 pub mod vpn;
 pub mod zone_enforcement;
+pub mod zone_exception;
 
 #[cfg(test)]
 mod tests;
@@ -73,6 +75,7 @@ use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 use crate::zone_enforcement::ZoneEnforcementServiceImpl;
+use crate::zone_exception::ZoneExceptionServiceImpl;
 
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
@@ -103,6 +106,7 @@ pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
 pub use crate::vpn::VpnProviderService;
 pub use crate::zone_enforcement::ZoneEnforcementService;
+pub use crate::zone_exception::ZoneExceptionService;
 
 /// Backends provided by the caller (real or mock).
 ///
@@ -216,6 +220,9 @@ pub struct Services {
     /// Network-Zone packet enforcer: per-zone nftables egress + admin-UI gating
     /// (epic #244, issue #736). Driven by `ZoneEnforcementListener`.
     pub zone_enforcement: Arc<dyn ZoneEnforcementService>,
+    /// Cross-zone exceptions: admin-granted per-endpoint allowances across zone
+    /// boundaries (epic #244, issue #737).
+    pub zone_exception: Arc<dyn ZoneExceptionService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
     pub update: Arc<dyn UpdateService>,
@@ -473,6 +480,14 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    let zone_exception_service: Arc<dyn ZoneExceptionService> =
+        Arc::new(ZoneExceptionServiceImpl::new(
+            repo_factory.zone_exception(),
+            network_zone_repo.clone(),
+            device_repo.clone(),
+            event_publisher.clone(),
+        ));
+
     let rule_request_service: Arc<dyn RuleRequestService> = Arc::new(RuleRequestServiceImpl::new(
         repo_factory.rule_request(),
         device_service.clone(),
@@ -491,6 +506,8 @@ fn create_services(
         dhcp_repo.clone(),
         system_config_repo.clone(),
         event_publisher.clone(),
+        device_repo.clone(),
+        network_zone_repo.clone(),
         lan_ip,
     ));
 
@@ -551,7 +568,7 @@ fn create_services(
         Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
-        system_config_repo,
+        system_config_repo.clone(),
         tunnel_repo.clone(),
         started_at,
         backends.shutdown_token.clone(),
@@ -591,6 +608,7 @@ fn create_services(
         device_repo.clone(),
         network_zone_repo.clone(),
         dhcp_repo,
+        system_config_repo,
         event_publisher.clone(),
         backends.hostname_resolver,
         lan_ip,
@@ -616,10 +634,13 @@ fn create_services(
         network_zone_repo.clone(),
         device_repo.clone(),
         repo_factory.system_config(),
+        repo_factory.zone_exception(),
         backends.firewall,
         backends.policy_router,
         routing_service.clone(),
+        dhcp_service.clone(),
         config,
+        lan_ip,
     );
 
     let update_service = build_update_service(
@@ -655,6 +676,7 @@ fn create_services(
         routing: routing_service,
         network_zone: network_zone_service,
         zone_enforcement: zone_enforcement_service,
+        zone_exception: zone_exception_service,
         rule_request: rule_request_service,
         push: push_service,
         system: system_service,
@@ -683,6 +705,7 @@ fn build_discovery_service(
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
     dhcp_repo: Arc<dyn wardnetd_data::repository::DhcpRepository>,
+    system_config_repo: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
     event_publisher: Arc<dyn EventPublisher>,
     hostname_resolver: Arc<dyn device::HostnameResolver>,
     lan_ip: std::net::Ipv4Addr,
@@ -695,6 +718,7 @@ fn build_discovery_service(
         device_repo,
         network_zone_repo,
         dhcp_repo,
+        system_config_repo,
         event_publisher,
         hostname_resolver,
         lan_subnet,
@@ -737,19 +761,25 @@ fn build_zone_enforcement_service(
     network_zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository>,
     device_repo: Arc<dyn wardnetd_data::repository::DeviceRepository>,
     system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+    zone_exception_repo: Arc<dyn wardnetd_data::repository::ZoneExceptionRepository>,
     firewall: Arc<dyn routing::FirewallManager>,
     policy_router: Arc<dyn routing::PolicyRouter>,
     routing_service: Arc<dyn RoutingService>,
+    dhcp_service: Arc<dyn DhcpService>,
     config: &ApplicationConfiguration,
+    lan_ip: std::net::Ipv4Addr,
 ) -> Arc<dyn ZoneEnforcementService> {
     Arc::new(ZoneEnforcementServiceImpl::new(
         network_zone_repo,
         device_repo,
         system_config,
+        zone_exception_repo,
         firewall,
         policy_router,
         routing_service,
+        dhcp_service,
         config.network.lan_interface.clone(),
+        lan_ip,
     ))
 }
 
@@ -801,9 +831,10 @@ fn build_backup_service(
 
 /// Fresh handle to the `system_config` repo for the update service.
 ///
-/// `system_config_repo` has already been moved into `SystemService`, so we
-/// ask the factory for another instance. Each repo trait object wraps an
-/// `Arc<SqlitePool>`, so this is cheap.
+/// `system_config_repo` has already been consumed upstream (cloned into
+/// `SystemService`, moved into the discovery service), so we ask the factory
+/// for another instance. Each repo trait object wraps an `Arc<SqlitePool>`, so
+/// this is cheap.
 fn system_config_for_update(
     repo_factory: &dyn RepositoryFactory,
 ) -> Arc<dyn wardnetd_data::repository::SystemConfigRepository> {

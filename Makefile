@@ -58,7 +58,7 @@ COV_RUNNER ?=
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
-        end2end-daemon e2e-ui e2e-all \
+        end2end-daemon e2e-ui e2e-ui-update-snapshots e2e-all \
         run-dev run-dev-daemon run-dev-web run-dev-user-app run-dev-admin-app \
         sync-version check-version \
         clean help
@@ -492,9 +492,16 @@ end2end-daemon: image-test
 # dist/ trees (WEB_DIST=real via compose --build), then runs the
 # Playwright suite inside the ui_runner container. Mirrors end2end-daemon
 # (trap dumps logs/ps/inspect into reports/ then tears the stack down).
+# PW_RUN_FLAGS is injected into the two `compose run` invocations below.
+# Empty for a normal (comparison) run; `e2e-ui-update-snapshots` overrides
+# it with `-e PW_UPDATE_SNAPSHOTS=1` to regenerate visual baselines (V1,
+# issue #628). Both runners bind-mount ./snapshots, so regenerated baselines
+# land on the host ready to `git add`.
+PW_RUN_FLAGS ?=
+
 e2e-ui: build-web
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
-	@mkdir -p $(E2E_UI_DIR)/reports
+	@mkdir -p $(E2E_UI_DIR)/reports $(E2E_UI_DIR)/snapshots
 	@set -euo pipefail; \
 	REPORTS=$(E2E_UI_DIR)/reports; \
 	trap '$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a > '"$$REPORTS"'/compose-ps.txt 2>&1 || true; \
@@ -503,16 +510,28 @@ e2e-ui: build-web
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server nordvpn_mock; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait test_debian || \
 	    echo "warning: test_debian (LAN client) not healthy; running playwright anyway so failures surface as assertions"; \
 	echo "::group::compose ps before playwright"; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a; \
 	echo "::endgroup::"; \
 	rc=0; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) run --rm ui_runner || rc=$$?; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) run --rm ui_runner_lan || rc=$$?; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) run --rm $(PW_RUN_FLAGS) ui_runner || rc=$$?; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) run --rm $(PW_RUN_FLAGS) ui_runner_lan || rc=$$?; \
 	exit $$rc
+
+# Regenerate the visual-regression baselines (V1, issue #628). Same stack
+# bring-up as `e2e-ui`, but sets PW_UPDATE_SNAPSHOTS=1 in each runner so
+# Playwright's `updateSnapshots:"all"` rewrites every screenshot baseline
+# into the bind-mounted ./snapshots dir. Review the `git diff` of
+# source/end2end-tests/web-ui/snapshots/ and commit. Run this after any
+# intentional UI change; never commit baselines generated outside this
+# container (host font rendering differs). Delegates to `e2e-ui` so the
+# ~20-line compose bring-up + teardown trap stays defined once.
+e2e-ui-update-snapshots:
+	@mkdir -p $(E2E_UI_DIR)/snapshots
+	$(MAKE) e2e-ui PW_RUN_FLAGS='-e PW_UPDATE_SNAPSHOTS=1'
 
 # Run both end-to-end suites: daemon (Vitest API/kernel) then web-ui
 # (Playwright). Sequential so the two stacks never share host bridges.
@@ -570,6 +589,9 @@ help:
 	@echo "                 (depends on image-test). Reports under $(E2E_DAEMON_DIR)/reports/."
 	@echo "  e2e-ui         Build web + run the Playwright UI suite (3 surfaces) against a"
 	@echo "                 dedicated wardnetd-ui. Reports under $(E2E_UI_DIR)/reports/."
+	@echo "  e2e-ui-update-snapshots"
+	@echo "                 Regenerate the visual-regression baselines under"
+	@echo "                 $(E2E_UI_DIR)/snapshots/ (V1, #628). Review the diff and commit."
 	@echo "  e2e-all        Run both e2e suites: end2end-daemon then e2e-ui"
 	@echo ""
 	@echo "  sync-version   Propagate ./VERSION into daemon Cargo.toml + package.json files"

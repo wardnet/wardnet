@@ -50,6 +50,13 @@ pub trait NetworkZoneService: Send + Sync {
 
     /// Reassign a device to a different zone.
     async fn assign_device(&self, device_id: Uuid, zone_id: Uuid) -> Result<(), AppError>;
+
+    /// Read the new-device quarantine toggle (issue #738). When on, a
+    /// freshly-discovered device triggers an admin push to approve it.
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError>;
+
+    /// Enable or disable new-device quarantine (issue #738).
+    async fn set_quarantine_new_devices(&self, enabled: bool) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`NetworkZoneService`].
@@ -183,13 +190,26 @@ impl NetworkZoneServiceImpl {
                 "allowed_targets must not be empty".to_owned(),
             ));
         }
-        if let Some(subnet) = subnet
-            && ipnetwork::IpNetwork::from_str(&subnet.cidr).is_err()
-        {
-            return Err(AppError::BadRequest(format!(
-                "subnet cidr '{}' is not a valid CIDR",
-                subnet.cidr
-            )));
+        if let Some(subnet) = subnet {
+            let net = ipnetwork::Ipv4Network::from_str(&subnet.cidr).map_err(|_| {
+                AppError::BadRequest(format!("subnet cidr '{}' is not a valid CIDR", subnet.cidr))
+            })?;
+            // A LAN subnet must sit entirely inside an RFC 1918 block — a public
+            // (or boundary-straddling) range would make the Pi alias a gateway
+            // on address space that belongs to real internet hosts.
+            if !wardnet_common::net::is_rfc1918_subnet(net.network(), net.prefix()) {
+                return Err(AppError::BadRequest(format!(
+                    "subnet cidr '{}' must be {}",
+                    subnet.cidr,
+                    wardnet_common::net::PRIVATE_RANGE_HINT
+                )));
+            }
+            if crate::subnet::pool_bounds(net).is_none() {
+                return Err(AppError::BadRequest(format!(
+                    "subnet cidr '{}' is too small to host a DHCP pool",
+                    subnet.cidr
+                )));
+            }
         }
         Ok(())
     }
@@ -473,5 +493,21 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
             timestamp: chrono::Utc::now(),
         });
         Ok(())
+    }
+
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .is_quarantine_new_devices()
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn set_quarantine_new_devices(&self, enabled: bool) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.system_config
+            .set_quarantine_new_devices(enabled)
+            .await
+            .map_err(AppError::Internal)
     }
 }

@@ -130,6 +130,7 @@ impl DeviceService for MockDeviceService {
             current_rule: None,
             admin_locked: false,
             available_tunnels: vec![],
+            zone: None,
         })
     }
     async fn set_rule_for_ip(

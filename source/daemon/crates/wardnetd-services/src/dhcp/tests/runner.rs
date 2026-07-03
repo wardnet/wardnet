@@ -56,8 +56,6 @@ impl DhcpServer for MockDhcpServer {
     fn is_running(&self) -> bool {
         self.started.load(Ordering::SeqCst)
     }
-
-    async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +155,10 @@ impl DhcpService for MockRunnerDhcpService {
             lease_duration_secs: 86400,
             router_ip: Some(Ipv4Addr::new(192, 168, 1, 1)),
         })
+    }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
     }
 }
 
@@ -357,7 +359,6 @@ async fn runner_handles_start_failure_gracefully() {
         fn is_running(&self) -> bool {
             false
         }
-        async fn update_config(&self, _config: wardnet_common::dhcp::DhcpConfig) {}
     }
 
     let service: Arc<dyn DhcpService> = Arc::new(MockRunnerDhcpService::new(true));
@@ -455,6 +456,12 @@ async fn runner_handles_config_load_failure() {
         }
         async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
             Err(AppError::Internal(anyhow::anyhow!("db error")))
+        }
+        async fn scope_for_mac(
+            &self,
+            _mac: &str,
+        ) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+            unimplemented!()
         }
     }
 
