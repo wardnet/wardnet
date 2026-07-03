@@ -28,8 +28,7 @@ pub fn is_reserved_ipv4(addr: Ipv4Addr) -> bool {
 /// Shared human-readable hint naming the RFC 1918 ranges, so the several
 /// "must be …" validation errors (zone subnet, DHCP pool start/end, router)
 /// don't drift apart.
-pub const PRIVATE_RANGE_HINT: &str =
-    "a private range (10.x, 172.16-31.x, or 192.168.x)";
+pub const PRIVATE_RANGE_HINT: &str = "a private range (10.x, 172.16-31.x, or 192.168.x)";
 
 /// `true` when the *entire* IPv4 subnet (`base`/`prefix`, where `base` is the
 /// network address) sits inside a single RFC 1918 block: `10/8`, `172.16/12`,
@@ -110,7 +109,6 @@ mod tests {
         // Plain public.
         assert!(!p("8.8.0.0", 16));
     }
-
 
     #[test]
     fn reserved_ipv4_covers_private_cgnat_and_special() {
