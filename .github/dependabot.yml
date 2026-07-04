@@ -13,8 +13,15 @@ updates:
     cooldown:
       default-days: 3
 
+  # The web codebase is a Yarn-workspaces monorepo with a SINGLE lockfile
+  # at /source/yarn.lock. Dependabot must point at the workspace ROOT so
+  # every version bump also regenerates the lockfile — per-workspace
+  # entries (e.g. /source/admin-site) edit only that package.json, leave
+  # yarn.lock stale, and every PR fails CI's `yarn install --immutable`.
+  # This one entry covers the root manifest plus all workspaces
+  # (sdk/wardnet-js, web, admin-site, admin-app, user-app, marketing-site).
   - package-ecosystem: "npm"
-    directory: "/source/admin-site"
+    directory: "/source"
     schedule:
       interval: "weekly"
     commit-message:
@@ -22,49 +29,8 @@ updates:
     cooldown:
       default-days: 3
 
-  - package-ecosystem: "npm"
-    directory: "/source/admin-app"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
-  - package-ecosystem: "npm"
-    directory: "/source/user-app"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
-  - package-ecosystem: "npm"
-    directory: "/source/web"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
-  - package-ecosystem: "npm"
-    directory: "/source/marketing-site"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
-  - package-ecosystem: npm
-    directory: /source/sdk/wardnet-js
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 3
-
+  # Standalone package with its own yarn.lock — not part of the /source
+  # workspace, so it keeps its own entry.
   - package-ecosystem: "npm"
     directory: "/source/end2end-tests/daemon"
     schedule:
