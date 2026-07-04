@@ -187,7 +187,7 @@ socket2 = { version = "0.6", features = ["all"] }
 # https://crates.io/crates/surge-ping — async ICMP echo with SO_BINDTODEVICE
 # support, used by the per-tunnel latency prober to measure RTT through
 # a specific tunnel interface.
-surge-ping = "0.8"
+surge-ping = "0.9"
 # https://crates.io/crates/rtnetlink
 rtnetlink = "0.21"
 # https://crates.io/crates/netlink-packet-route
