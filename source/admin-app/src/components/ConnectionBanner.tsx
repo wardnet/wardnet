@@ -23,7 +23,9 @@ export function ConnectionBanner({ connState }: Props) {
   return (
     <Banner
       tone="warn"
-      icon={<RefreshCwIcon size={14} strokeWidth={2} className="animate-spin" />}
+      icon={
+        <RefreshCwIcon size={14} strokeWidth={2} className="animate-spin" />
+      }
     >
       Reconnecting to wardnet daemon…
     </Banner>

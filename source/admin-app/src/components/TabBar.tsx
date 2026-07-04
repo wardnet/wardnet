@@ -1,8 +1,19 @@
 import { NavLink } from "react-router";
-import { HomeIcon, MonitorIcon, NetworkIcon, GlobeIcon, SettingsIcon } from "lucide-react";
+import {
+  HomeIcon,
+  MonitorIcon,
+  NetworkIcon,
+  GlobeIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const TABS: Array<{ to: string; label: string; Icon: LucideIcon; end?: boolean }> = [
+const TABS: Array<{
+  to: string;
+  label: string;
+  Icon: LucideIcon;
+  end?: boolean;
+}> = [
   { to: "/", label: "Home", Icon: HomeIcon, end: true },
   { to: "/devices", label: "Devices", Icon: MonitorIcon },
   { to: "/tunnels", label: "Tunnels", Icon: NetworkIcon },

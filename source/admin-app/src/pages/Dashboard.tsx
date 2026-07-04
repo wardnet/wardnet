@@ -28,7 +28,13 @@ export default function Dashboard() {
         uptimeSeconds={daemonStatus?.uptimeSeconds ?? null}
       />
 
-      <div className={showingLastKnownState ? "opacity-40 pointer-events-none transition-opacity" : "transition-opacity"}>
+      <div
+        className={
+          showingLastKnownState
+            ? "opacity-40 pointer-events-none transition-opacity"
+            : "transition-opacity"
+        }
+      >
         <div className="flex flex-col gap-3">
           <DevicesCard
             deviceCount={status?.device_count ?? 0}

@@ -54,7 +54,9 @@ describe("OnlineStatusContext", () => {
         <OnlineStatusProvider>{children}</OnlineStatusProvider>
       </QueryClientProvider>
     );
-    const { rerender } = renderHook(() => useOnlineStatusContext(), { wrapper });
+    const { rerender } = renderHook(() => useOnlineStatusContext(), {
+      wrapper,
+    });
     expect(spy).not.toHaveBeenCalled();
 
     useOnlineStatus.mockReturnValue(makeStatus({ isDaemonReachable: true }));

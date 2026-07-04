@@ -72,11 +72,21 @@ const SpeedTestPanel = memo(function SpeedTestPanel({
                 ↓ tun / direct
               </Text>
               <div className="flex items-center gap-2">
-                <Text as="span" size="sm" weight="medium" className="font-mono text-ink">
+                <Text
+                  as="span"
+                  size="sm"
+                  weight="medium"
+                  className="font-mono text-ink"
+                >
                   {latest.tunnel_throughput_mbps.toFixed(1)} /{" "}
                   {latest.direct_throughput_mbps.toFixed(1)} Mbps
                 </Text>
-                <Text as="span" size="xs" weight="medium" className="text-ink-2">
+                <Text
+                  as="span"
+                  size="xs"
+                  weight="medium"
+                  className="text-ink-2"
+                >
                   {retentionPct(
                     latest.direct_throughput_mbps,
                     latest.tunnel_throughput_mbps,
@@ -138,11 +148,15 @@ function deviceCount(
   defaultPolicy: string | undefined,
 ): number {
   const explicit = devices.filter(
-    (d) => d.current_rule?.type === "tunnel" && d.current_rule.tunnel_id === tunnelId,
+    (d) =>
+      d.current_rule?.type === "tunnel" &&
+      d.current_rule.tunnel_id === tunnelId,
   ).length;
   const onDefault =
     defaultPolicy === tunnelId
-      ? devices.filter((d) => d.current_rule === null || d.current_rule.type === "default").length
+      ? devices.filter(
+          (d) => d.current_rule === null || d.current_rule.type === "default",
+        ).length
       : 0;
   return explicit + onDefault;
 }
@@ -186,7 +200,9 @@ const TunnelCard = memo(function TunnelCard({
             <Text as="p" weight="semibold" className="truncate text-ink">
               {tunnel.resolved_server_name ?? tunnel.label}
             </Text>
-            <Text as="p" size="xs" className="truncate text-ink-3">{subtitle}</Text>
+            <Text as="p" size="xs" className="truncate text-ink-3">
+              {subtitle}
+            </Text>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <TunnelStatusPill status={tunnel.status} />
@@ -208,13 +224,29 @@ const TunnelCard = memo(function TunnelCard({
         {/* 2×2 data grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-3">
           <div>
-            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
+            <Text
+              as="p"
+              size="2xs"
+              weight="semibold"
+              className="uppercase tracking-wider text-ink-3"
+            >
               Endpoint
             </Text>
-            <Text as="p" size="sm" className="mt-0.5 break-all font-mono text-ink">{tunnel.endpoint}</Text>
+            <Text
+              as="p"
+              size="sm"
+              className="mt-0.5 break-all font-mono text-ink"
+            >
+              {tunnel.endpoint}
+            </Text>
           </div>
           <div>
-            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
+            <Text
+              as="p"
+              size="2xs"
+              weight="semibold"
+              className="uppercase tracking-wider text-ink-3"
+            >
               Last Handshake
             </Text>
             <Text as="p" size="sm" className="mt-0.5 text-ink">
@@ -222,7 +254,12 @@ const TunnelCard = memo(function TunnelCard({
             </Text>
           </div>
           <div>
-            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
+            <Text
+              as="p"
+              size="2xs"
+              weight="semibold"
+              className="uppercase tracking-wider text-ink-3"
+            >
               Data ↓ / ↑
             </Text>
             <Text as="p" size="sm" className="mt-0.5 text-ink">
@@ -230,18 +267,29 @@ const TunnelCard = memo(function TunnelCard({
             </Text>
           </div>
           <div>
-            <Text as="p" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
+            <Text
+              as="p"
+              size="2xs"
+              weight="semibold"
+              className="uppercase tracking-wider text-ink-3"
+            >
               Devices
             </Text>
-            <Text as="p" size="sm" className="mt-0.5 text-ink">{devCount} routed</Text>
+            <Text as="p" size="sm" className="mt-0.5 text-ink">
+              {devCount} routed
+            </Text>
           </div>
         </div>
 
         {/* Live throughput — up tunnels only */}
         {tunnel.status === "up" && (
           <div className="flex items-center gap-3 border-t border-line pt-3">
-            <Text as="span" size="xs" className="text-ink-3">↓ {formatBytes(rxRate)}/s</Text>
-            <Text as="span" size="xs" className="text-ink-3">↑ {formatBytes(txRate)}/s</Text>
+            <Text as="span" size="xs" className="text-ink-3">
+              ↓ {formatBytes(rxRate)}/s
+            </Text>
+            <Text as="span" size="xs" className="text-ink-3">
+              ↑ {formatBytes(txRate)}/s
+            </Text>
           </div>
         )}
 
@@ -272,8 +320,12 @@ export default function Tunnels() {
     return (
       <div className="flex flex-col gap-4 p-4">
         <div>
-          <Heading level={1} size="3xl" weight="bold" className="text-ink">Tunnels</Heading>
-          <Text as="p" size="base" className="text-ink-3">VPN tunnel status and throughput.</Text>
+          <Heading level={1} size="3xl" weight="bold" className="text-ink">
+            Tunnels
+          </Heading>
+          <Text as="p" size="base" className="text-ink-3">
+            VPN tunnel status and throughput.
+          </Text>
         </div>
         <div className="h-24 animate-pulse rounded-xl bg-sunken" />
         {Array.from({ length: 3 }).map((_, i) => (
@@ -286,56 +338,90 @@ export default function Tunnels() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        <Heading level={1} size="3xl" weight="bold" className="text-ink">Tunnels</Heading>
-        <Text as="p" size="base" className="text-ink-3">VPN tunnel status and throughput.</Text>
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">
+          Tunnels
+        </Heading>
+        <Text as="p" size="base" className="text-ink-3">
+          VPN tunnel status and throughput.
+        </Text>
       </div>
 
-      <div className={showingLastKnownState ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}>
-      <div className="flex flex-col gap-4">
+      <div
+        className={
+          showingLastKnownState
+            ? "pointer-events-none opacity-40 transition-opacity"
+            : "transition-opacity"
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {/* Summary header */}
+          <Card className="card--flush">
+            <div
+              data-testid="tunnels-summary"
+              className="flex items-center gap-3 p-4"
+            >
+              <div className="min-w-0 shrink-0">
+                <Text
+                  as="div"
+                  size="2xs"
+                  weight="semibold"
+                  className="uppercase tracking-wider text-ink-3"
+                >
+                  Tunnels Up
+                </Text>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <Text
+                    as="span"
+                    size="2xl"
+                    weight="bold"
+                    className="text-ink tabular-nums"
+                  >
+                    {upCount}
+                  </Text>
+                  <Text as="span" size="sm" className="text-ink-3">
+                    / {tunnels.length}
+                  </Text>
+                </div>
+                <Text as="div" size="xs" className="mt-0.5 text-ink-3">
+                  ↓ {formatBytes(combinedRxRate)}/s · ↑{" "}
+                  {formatBytes(combinedTxRate)}/s
+                </Text>
+              </div>
 
-      {/* Summary header */}
-      <Card className="card--flush">
-        <div data-testid="tunnels-summary" className="flex items-center gap-3 p-4">
-          <div className="min-w-0 shrink-0">
-            <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-ink-3">
-              Tunnels Up
-            </Text>
-            <div className="mt-0.5 flex items-baseline gap-1.5">
-              <Text as="span" size="2xl" weight="bold" className="text-ink tabular-nums">{upCount}</Text>
-              <Text as="span" size="sm" className="text-ink-3">/ {tunnels.length}</Text>
+              <div className="h-12 flex-1 opacity-70">
+                {sparkValues.length > 0 && (
+                  <Sparkline
+                    values={sparkValues}
+                    color="var(--color-info)"
+                    area={false}
+                  />
+                )}
+              </div>
             </div>
-            <Text as="div" size="xs" className="mt-0.5 text-ink-3">
-              ↓ {formatBytes(combinedRxRate)}/s · ↑ {formatBytes(combinedTxRate)}/s
+          </Card>
+
+          {/* Per-tunnel cards */}
+          {tunnels.length === 0 ? (
+            <Text as="p" size="sm" className="py-16 text-center text-ink-3">
+              No tunnels configured.
             </Text>
-          </div>
-
-          <div className="h-12 flex-1 opacity-70">
-            {sparkValues.length > 0 && (
-              <Sparkline values={sparkValues} color="var(--color-info)" area={false} />
-            )}
-          </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {tunnels.map((tunnel) => (
+                <TunnelCard
+                  key={tunnel.id}
+                  tunnel={tunnel}
+                  devices={devices}
+                  defaultPolicy={defaultPolicy}
+                  onRebuild={rebuild.mutate}
+                  rebuildingId={
+                    rebuild.isPending ? rebuild.variables : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
-      </Card>
-
-      {/* Per-tunnel cards */}
-      {tunnels.length === 0 ? (
-        <Text as="p" size="sm" className="py-16 text-center text-ink-3">No tunnels configured.</Text>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {tunnels.map((tunnel) => (
-            <TunnelCard
-              key={tunnel.id}
-              tunnel={tunnel}
-              devices={devices}
-              defaultPolicy={defaultPolicy}
-              onRebuild={rebuild.mutate}
-              rebuildingId={rebuild.isPending ? rebuild.variables : undefined}
-            />
-          ))}
-        </div>
-      )}
-
-      </div>
       </div>
     </div>
   );

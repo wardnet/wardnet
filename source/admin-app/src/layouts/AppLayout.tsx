@@ -5,7 +5,10 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { TabBar } from "@/components/TabBar";
 import { InstallPrompt } from "@/features/InstallPrompt";
 
-function deriveConnState(isOnline: boolean, isDaemonReachable: boolean): ConnState {
+function deriveConnState(
+  isOnline: boolean,
+  isDaemonReachable: boolean,
+): ConnState {
   if (!isOnline) return "offline";
   if (!isDaemonReachable) return "reconnecting";
   return "online";

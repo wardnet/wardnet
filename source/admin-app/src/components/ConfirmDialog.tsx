@@ -22,11 +22,11 @@ export function ConfirmDialog({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
-          side="bottom"
-          data-testid="confirm-dialog"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
-        >
+        side="bottom"
+        data-testid="confirm-dialog"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         {/* Drag handle */}
         <div className="flex justify-center pb-1 pt-3">
           <div className="h-1 w-10 rounded-full bg-line" />
@@ -34,8 +34,17 @@ export function ConfirmDialog({
 
         {/* Copy */}
         <div className="px-6 pb-6 text-center">
-          <Text as="h2" size="xl" weight="bold" className="tracking-tight text-ink">{title}</Text>
-          <Text as="p" size="base" className="mt-2 leading-relaxed text-ink-3">{description}</Text>
+          <Text
+            as="h2"
+            size="xl"
+            weight="bold"
+            className="tracking-tight text-ink"
+          >
+            {title}
+          </Text>
+          <Text as="p" size="base" className="mt-2 leading-relaxed text-ink-3">
+            {description}
+          </Text>
         </div>
 
         {/* Buttons */}

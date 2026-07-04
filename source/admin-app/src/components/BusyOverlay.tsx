@@ -9,9 +9,15 @@ interface Props {
   action: BusyAction;
 }
 
-const COPY: Record<BusyAction, Record<BusyPhase, { title: string; subtitle: string }>> = {
+const COPY: Record<
+  BusyAction,
+  Record<BusyPhase, { title: string; subtitle: string }>
+> = {
   reboot: {
-    working: { title: "Rebooting device…", subtitle: "This takes about 60 seconds" },
+    working: {
+      title: "Rebooting device…",
+      subtitle: "This takes about 60 seconds",
+    },
     done: { title: "Device is back online", subtitle: "Connection restored" },
   },
   restart: {
@@ -36,8 +42,12 @@ export function BusyOverlay({ phase, action }: Props) {
         </div>
       )}
       <div className="flex flex-col items-center gap-2 text-center">
-        <Text as="p" size="lg" weight="semibold" className="tracking-tight">{title}</Text>
-        <Text as="p" size="xs" className="font-mono text-white/50">{subtitle}</Text>
+        <Text as="p" size="lg" weight="semibold" className="tracking-tight">
+          {title}
+        </Text>
+        <Text as="p" size="xs" className="font-mono text-white/50">
+          {subtitle}
+        </Text>
       </div>
     </div>
   );

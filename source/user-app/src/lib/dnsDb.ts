@@ -98,7 +98,10 @@ export function openDb(): Promise<IDBDatabase> {
  */
 export function applyEvent(db: IDBDatabase, item: DnsEventItem): Promise<void> {
   return new Promise((resolve, reject) => {
-    const tx = db.transaction([EVENTS_STORE, DAILY_STORE, META_STORE], "readwrite");
+    const tx = db.transaction(
+      [EVENTS_STORE, DAILY_STORE, META_STORE],
+      "readwrite",
+    );
     const events = tx.objectStore(EVENTS_STORE);
     const daily = tx.objectStore(DAILY_STORE);
     const meta = tx.objectStore(META_STORE);
@@ -117,7 +120,12 @@ export function applyEvent(db: IDBDatabase, item: DnsEventItem): Promise<void> {
       getReq.onsuccess = () => {
         const prev =
           (getReq.result as DailyStat | undefined) ??
-          ({ date, domain: item.domain, blocked: 0, allowed: 0 } satisfies DailyStat);
+          ({
+            date,
+            domain: item.domain,
+            blocked: 0,
+            allowed: 0,
+          } satisfies DailyStat);
         if (isBlocked(item.status)) {
           prev.blocked += 1;
         } else {

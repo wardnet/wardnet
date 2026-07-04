@@ -17,12 +17,7 @@ export type Provider = "wardnet" | "cloudflare";
 export type WardnetStep = "email" | "code" | "slug";
 
 export type Availability =
-  | "unknown"
-  | "checking"
-  | "available"
-  | "taken"
-  | "invalid"
-  | "error";
+  "unknown" | "checking" | "available" | "taken" | "invalid" | "error";
 
 /**
  * Shared enrollment state machine for the wardnet/Cloudflare provider form.

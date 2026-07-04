@@ -53,7 +53,10 @@ function rowsForDate(db: IDBDatabase, date: string): Promise<DailyStat[]> {
   });
 }
 
-async function dayHeadline(db: IDBDatabase, date: string): Promise<DayHeadline> {
+async function dayHeadline(
+  db: IDBDatabase,
+  date: string,
+): Promise<DayHeadline> {
   const rows = await rowsForDate(db, date);
   let blocked = 0;
   let allowed = 0;

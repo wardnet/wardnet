@@ -17,6 +17,8 @@ describe("ConnectionBanner", () => {
 
   it("shows the reconnecting banner for any non-offline, non-online state", () => {
     render(<ConnectionBanner connState="reconnecting" />);
-    expect(screen.getByText(/Reconnecting to wardnet daemon/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reconnecting to wardnet daemon/i),
+    ).toBeInTheDocument();
   });
 });

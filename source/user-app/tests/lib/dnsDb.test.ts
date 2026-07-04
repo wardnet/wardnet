@@ -169,10 +169,7 @@ describe("applyEvent", () => {
     const db = await openDb();
     // Force an abort by mocking transaction to a stub whose onabort fires.
     const realTx = db.transaction.bind(db);
-    const tx = realTx(
-      [EVENTS_STORE, DAILY_STORE, META_STORE],
-      "readwrite",
-    );
+    const tx = realTx([EVENTS_STORE, DAILY_STORE, META_STORE], "readwrite");
     const spy = vi.spyOn(db, "transaction").mockReturnValue(tx);
     const promise = applyEvent(db, ev({ id: 1 }));
     tx.abort();

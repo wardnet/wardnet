@@ -41,7 +41,9 @@ describe("Login page", () => {
     renderWithProviders(<Login onUnlock={onUnlock} />);
     await userEvent.click(screen.getByText("do-login"));
     expect(onUnlock).toHaveBeenCalledOnce();
-    expect(screen.queryByText("Enable biometric unlock?")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Enable biometric unlock?"),
+    ).not.toBeInTheDocument();
   });
 
   it("unlocks directly when a credential is already registered", async () => {

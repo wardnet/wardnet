@@ -44,7 +44,9 @@ vi.mock("@/hooks/useIpGeolocation", () => ({
   }),
 }));
 vi.mock("react-leaflet", () => ({
-  MapContainer: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  MapContainer: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
   TileLayer: () => null,
   Marker: () => null,
   useMapEvents: () => ({ setView: vi.fn(), getZoom: () => 8 }),

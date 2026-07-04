@@ -81,7 +81,11 @@ function DomainList({
                 key={r.domain}
                 className="flex items-center justify-between gap-3"
               >
-                <Text as="span" size="sm" className="truncate font-mono text-ink">
+                <Text
+                  as="span"
+                  size="sm"
+                  className="truncate font-mono text-ink"
+                >
                   {r.domain}
                 </Text>
                 <span className="flex shrink-0 items-center gap-2">
@@ -131,7 +135,11 @@ function ActivityFeed({
                   key={e.id}
                   className="flex items-center justify-between gap-3"
                 >
-                  <Text as="span" size="sm" className="truncate font-mono text-ink">
+                  <Text
+                    as="span"
+                    size="sm"
+                    className="truncate font-mono text-ink"
+                  >
                     {e.domain}
                   </Text>
                   <span className="flex shrink-0 items-center gap-2">
@@ -173,7 +181,9 @@ function ActivityFeed({
 export default function Stats() {
   const today = todayLocal();
   const [date, setDate] = useState(today);
-  const [requestTarget, setRequestTarget] = useState<RequestTarget | null>(null);
+  const [requestTarget, setRequestTarget] = useState<RequestTarget | null>(
+    null,
+  );
   const { data: me, isLoading: meLoading } = useMyDevice();
   const stats = useDnsStats(date);
 

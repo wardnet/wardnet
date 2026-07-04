@@ -32,8 +32,7 @@ export type ServiceSet = "casting";
 
 /** Either a named preset or an explicit custom port list. */
 export type ServiceSpec =
-  | { type: "preset"; set: ServiceSet }
-  | { type: "ports"; ports: PortSpec[] };
+  { type: "preset"; set: ServiceSet } | { type: "ports"; ports: PortSpec[] };
 
 /** A cross-zone exception. */
 export interface ZoneException {

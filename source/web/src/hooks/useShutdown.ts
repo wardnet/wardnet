@@ -6,13 +6,7 @@ import { useDaemonReachability } from "./useDaemonReachability";
 /** Phases the shutdown flow may surface. Resolves to `off` (the
  *  host is powered down) instead of `ready`/`ready_signed_out`. */
 export type ShutdownPhase =
-  | "idle"
-  | "scheduled"
-  | "down"
-  | "off"
-  | "did_not_fire"
-  | "timeout"
-  | "failed";
+  "idle" | "scheduled" | "down" | "off" | "did_not_fire" | "timeout" | "failed";
 
 /**
  * Lifecycle manager for a host shutdown from the web UI.

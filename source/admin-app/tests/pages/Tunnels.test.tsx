@@ -51,8 +51,12 @@ describe("Tunnels page", () => {
     h.ctx.value = { showingLastKnownState: false };
     h.useDevices.mockReturnValue({ data: { devices: [makeDevice()] } });
     h.useDefaultPolicy.mockReturnValue({ data: { policy: "direct" } });
-    h.useTunnelStats.mockReturnValue({ data: { points: [{ bytesRx: 6000, bytesTx: 1200 }] } });
-    h.useCombinedTunnelStats.mockReturnValue({ data: { sparkValues: [1, 2, 3], rxRate: 100, txRate: 50 } });
+    h.useTunnelStats.mockReturnValue({
+      data: { points: [{ bytesRx: 6000, bytesTx: 1200 }] },
+    });
+    h.useCombinedTunnelStats.mockReturnValue({
+      data: { sparkValues: [1, 2, 3], rxRate: 100, txRate: 50 },
+    });
     h.useSpeedTestResults.mockReturnValue({ data: { results: [] } });
     h.useStartSpeedTest.mockReturnValue({
       isRunning: false,
@@ -60,7 +64,11 @@ describe("Tunnels page", () => {
       percentage: 0,
       start: h.startSpeedTest,
     });
-    h.useRebuildTunnel.mockReturnValue({ mutate: h.rebuildMutate, isPending: false, variables: undefined });
+    h.useRebuildTunnel.mockReturnValue({
+      mutate: h.rebuildMutate,
+      isPending: false,
+      variables: undefined,
+    });
   });
 
   it("shows a skeleton while loading", () => {
@@ -80,7 +88,9 @@ describe("Tunnels page", () => {
   it("renders a tunnel card with its summary and throughput", () => {
     h.useTunnels.mockReturnValue({
       isLoading: false,
-      data: { tunnels: [makeTunnel({ id: "t1", label: "US East", status: "up" })] },
+      data: {
+        tunnels: [makeTunnel({ id: "t1", label: "US East", status: "up" })],
+      },
     });
     renderWithProviders(<Tunnels />);
     expect(screen.getByTestId("tunnel-card")).toBeInTheDocument();

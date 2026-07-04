@@ -20,7 +20,9 @@ describe("BiometricGate", () => {
   });
 
   it("shows a retry button on failure and re-attempts on click", async () => {
-    authenticate.mockRejectedValueOnce(new Error("nope")).mockResolvedValueOnce(undefined);
+    authenticate
+      .mockRejectedValueOnce(new Error("nope"))
+      .mockResolvedValueOnce(undefined);
     const onSuccess = vi.fn();
     render(<BiometricGate onSuccess={onSuccess} onUsePassword={vi.fn()} />);
 

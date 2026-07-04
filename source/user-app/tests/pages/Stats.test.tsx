@@ -27,8 +27,18 @@ function statsData(overrides: Partial<DnsStatsData> = {}): DnsStatsData {
     topBlocked: [{ domain: "bad.com", count: 4 }],
     topQueried: [{ domain: "good.com", count: 6 }],
     recent: [
-      { id: 2, domain: "bad.com", status: "blocked", captured_at: new Date().toISOString() },
-      { id: 1, domain: "good.com", status: "forwarded", captured_at: new Date(Date.now() - 3600_000).toISOString() },
+      {
+        id: 2,
+        domain: "bad.com",
+        status: "blocked",
+        captured_at: new Date().toISOString(),
+      },
+      {
+        id: 1,
+        domain: "good.com",
+        status: "forwarded",
+        captured_at: new Date(Date.now() - 3600_000).toISOString(),
+      },
     ],
     trend: [
       { date: "2026-06-30", blocked: 1, allowed: 2 },
@@ -146,7 +156,9 @@ describe("Stats page", () => {
       statsData({ topBlocked: [], topQueried: [], recent: [] }),
     );
     renderWithProviders(<Stats />);
-    expect(screen.getByText("Nothing blocked on this day.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing blocked on this day."),
+    ).toBeInTheDocument();
     expect(screen.getByText("No queries on this day.")).toBeInTheDocument();
     expect(screen.getByText("No recent activity.")).toBeInTheDocument();
   });

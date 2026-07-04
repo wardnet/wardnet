@@ -27,7 +27,9 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
       await biometric.register(username);
       onAccept();
     } catch {
-      setError("Biometric setup failed. You can enable it later from settings.");
+      setError(
+        "Biometric setup failed. You can enable it later from settings.",
+      );
       setLoading(false);
     }
   }
@@ -36,14 +38,20 @@ export function BiometricSetupPrompt({ username, onAccept, onDecline }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
       <Card className="w-full max-w-sm flex flex-col gap-4">
         <div>
-          <Text as="h2" size="base" weight="semibold" className="text-ink">Enable biometric unlock?</Text>
+          <Text as="h2" size="base" weight="semibold" className="text-ink">
+            Enable biometric unlock?
+          </Text>
           <Text as="p" size="sm" className="mt-1 text-ink-3">
-            Use FaceID, Touch ID, or your device fingerprint to unlock the app on future opens
-            without typing your password.
+            Use FaceID, Touch ID, or your device fingerprint to unlock the app
+            on future opens without typing your password.
           </Text>
         </div>
 
-        {error && <Text as="p" size="sm" className="text-danger">{error}</Text>}
+        {error && (
+          <Text as="p" size="sm" className="text-danger">
+            {error}
+          </Text>
+        )}
 
         <div className="flex gap-3">
           <button

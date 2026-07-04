@@ -83,9 +83,7 @@ describe("loadDnsStats", () => {
   it("respects the topN limit", async () => {
     const events: DnsEventItem[] = [];
     for (let i = 0; i < 5; i += 1) {
-      events.push(
-        ev({ id: i + 1, domain: `d${i}.com`, status: "blocked" }),
-      );
+      events.push(ev({ id: i + 1, domain: `d${i}.com`, status: "blocked" }));
     }
     await seed(events);
     const snap = await loadDnsStats("2026-07-02", ["2026-07-02"], 20, 2);

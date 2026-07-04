@@ -7,14 +7,7 @@
  * `wizard_step === "completed"`.
  */
 export type WizardStep =
-  | "admin"
-  | "network"
-  | "dhcp"
-  | "router_mac"
-  | "tunnel"
-  | "policy"
-  | "remote_access"
-  | "completed";
+  "admin" | "network" | "dhcp" | "router_mac" | "tunnel" | "policy" | "remote_access" | "completed";
 
 /**
  * Branch chosen at step 3 of the wizard.

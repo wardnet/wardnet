@@ -43,9 +43,7 @@ export interface Device {
 
 /** Where a device's traffic is routed. */
 export type RoutingTarget =
-  | { type: "tunnel"; tunnel_id: string }
-  | { type: "direct" }
-  | { type: "default" };
+  { type: "tunnel"; tunnel_id: string } | { type: "direct" } | { type: "default" };
 
 /** Who created the routing rule. */
 export type RuleCreator = "admin" | "user";

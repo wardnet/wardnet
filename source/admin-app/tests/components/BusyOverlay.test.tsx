@@ -4,7 +4,9 @@ import { BusyOverlay } from "@/components/BusyOverlay";
 
 describe("BusyOverlay", () => {
   it("shows the reboot working copy with a spinner", () => {
-    const { container } = render(<BusyOverlay action="reboot" phase="working" />);
+    const { container } = render(
+      <BusyOverlay action="reboot" phase="working" />,
+    );
     expect(screen.getByText("Rebooting device…")).toBeInTheDocument();
     expect(screen.getByText("This takes about 60 seconds")).toBeInTheDocument();
     expect(container.querySelector(".animate-spin")).not.toBeNull();

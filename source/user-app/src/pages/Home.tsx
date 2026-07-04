@@ -119,13 +119,14 @@ function KeepCentered({ center }: { center: [number, number] }) {
   return null;
 }
 
-function VerifyCard({
-  activeTunnel,
-}: {
-  activeTunnel: TunnelSummary | null;
-}) {
-  const { data: geo, isLoading, isError, refetch, isFetching } =
-    useIpGeolocation();
+function VerifyCard({ activeTunnel }: { activeTunnel: TunnelSummary | null }) {
+  const {
+    data: geo,
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useIpGeolocation();
 
   const matchState =
     geo && activeTunnel
@@ -143,8 +144,9 @@ function VerifyCard({
       <CardHeader>
         <CardTitle>Verify your route</CardTitle>
         <div className="ml-auto flex items-center gap-2">
-          {activeTunnel && matchState !== "neutral" && (
-            matchState === "match" ? (
+          {activeTunnel &&
+            matchState !== "neutral" &&
+            (matchState === "match" ? (
               <Pill variant="ok" className="flex items-center gap-1">
                 <ShieldCheckIcon className="size-3" />
                 Match
@@ -154,8 +156,7 @@ function VerifyCard({
                 <ShieldXIcon className="size-3" />
                 Mismatch
               </Pill>
-            )
-          )}
+            ))}
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -328,9 +329,9 @@ export default function Home() {
           Device not detected
         </Text>
         <Text as="p" size="sm" className="max-w-md text-ink-3">
-          Your device has not been detected on the network yet. Make sure you are
-          accessing Wardnet directly from the local network. Connections through
-          SSH tunnels or proxies cannot be matched to your device.
+          Your device has not been detected on the network yet. Make sure you
+          are accessing Wardnet directly from the local network. Connections
+          through SSH tunnels or proxies cannot be matched to your device.
         </Text>
       </div>
     );

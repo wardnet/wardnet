@@ -37,10 +37,20 @@ export function StatusCard({ reachable, uptimeSeconds }: Props) {
       {/* Health indicators */}
       <div className="flex gap-6">
         <div>
-          <Text as="div" size="2xs" weight="semibold" className="uppercase tracking-wider text-side-ink-2">
+          <Text
+            as="div"
+            size="2xs"
+            weight="semibold"
+            className="uppercase tracking-wider text-side-ink-2"
+          >
             Uptime
           </Text>
-          <Text as="div" size="sm" weight="medium" className="mt-0.5 text-side-ink">
+          <Text
+            as="div"
+            size="sm"
+            weight="medium"
+            className="mt-0.5 text-side-ink"
+          >
             {uptimeSeconds != null ? formatUptime(uptimeSeconds) : "—"}
           </Text>
         </div>

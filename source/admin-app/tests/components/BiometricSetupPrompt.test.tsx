@@ -16,7 +16,11 @@ describe("BiometricSetupPrompt", () => {
     register.mockResolvedValue(undefined);
     const onAccept = vi.fn();
     render(
-      <BiometricSetupPrompt username="alice" onAccept={onAccept} onDecline={vi.fn()} />,
+      <BiometricSetupPrompt
+        username="alice"
+        onAccept={onAccept}
+        onDecline={vi.fn()}
+      />,
     );
     await userEvent.click(screen.getByTestId("biometric-setup-enable"));
     await waitFor(() => expect(onAccept).toHaveBeenCalledOnce());
@@ -27,7 +31,11 @@ describe("BiometricSetupPrompt", () => {
     register.mockRejectedValue(new Error("denied"));
     const onAccept = vi.fn();
     render(
-      <BiometricSetupPrompt username="alice" onAccept={onAccept} onDecline={vi.fn()} />,
+      <BiometricSetupPrompt
+        username="alice"
+        onAccept={onAccept}
+        onDecline={vi.fn()}
+      />,
     );
     await userEvent.click(screen.getByTestId("biometric-setup-enable"));
     await waitFor(() =>
@@ -39,7 +47,11 @@ describe("BiometricSetupPrompt", () => {
   it("calls onDecline without registering on Not now", async () => {
     const onDecline = vi.fn();
     render(
-      <BiometricSetupPrompt username="alice" onAccept={vi.fn()} onDecline={onDecline} />,
+      <BiometricSetupPrompt
+        username="alice"
+        onAccept={vi.fn()}
+        onDecline={onDecline}
+      />,
     );
     await userEvent.click(screen.getByTestId("biometric-setup-decline"));
     expect(onDecline).toHaveBeenCalledOnce();

@@ -18,14 +18,26 @@ describe("Bar", () => {
   });
 
   it("usage variant: danger ≥90, warn ≥70, accent below", () => {
-    expect(fill(render(<Bar percent={95} />).container).className).toContain("bg-danger");
-    expect(fill(render(<Bar percent={75} />).container).className).toContain("bg-warn");
-    expect(fill(render(<Bar percent={40} />).container).className).toContain("bg-accent");
+    expect(fill(render(<Bar percent={95} />).container).className).toContain(
+      "bg-danger",
+    );
+    expect(fill(render(<Bar percent={75} />).container).className).toContain(
+      "bg-warn",
+    );
+    expect(fill(render(<Bar percent={40} />).container).className).toContain(
+      "bg-accent",
+    );
   });
 
   it("rate variant: accent ≥80, warn ≥50, danger below", () => {
-    expect(fill(render(<Bar percent={85} variant="rate" />).container).className).toContain("bg-accent");
-    expect(fill(render(<Bar percent={60} variant="rate" />).container).className).toContain("bg-warn");
-    expect(fill(render(<Bar percent={20} variant="rate" />).container).className).toContain("bg-danger");
+    expect(
+      fill(render(<Bar percent={85} variant="rate" />).container).className,
+    ).toContain("bg-accent");
+    expect(
+      fill(render(<Bar percent={60} variant="rate" />).container).className,
+    ).toContain("bg-warn");
+    expect(
+      fill(render(<Bar percent={20} variant="rate" />).container).className,
+    ).toContain("bg-danger");
   });
 });
