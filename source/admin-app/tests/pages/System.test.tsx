@@ -168,6 +168,81 @@ describe("System page", () => {
     ).toBeInTheDocument();
   });
 
+  it("tells iOS browser-tab users to install the app when push is unsupported", () => {
+    h.usePushNotifications.mockReturnValue({
+      state: "unsupported",
+      isBusy: false,
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    });
+    const originalUa = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      value:
+        "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+      configurable: true,
+    });
+    try {
+      renderWithProviders(<System />);
+      expect(
+        screen.getByText(
+          "Install the app to your Home Screen to enable notifications.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, "userAgent", {
+        value: originalUa,
+        configurable: true,
+      });
+    }
+  });
+
+  it("disables the toggle and explains when notifications are blocked", () => {
+    h.usePushNotifications.mockReturnValue({
+      state: "denied",
+      isBusy: false,
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    });
+    renderWithProviders(<System />);
+    expect(screen.getByTestId("system-notifications-toggle")).toBeDisabled();
+    expect(
+      screen.getByText("Notifications are blocked in your browser settings."),
+    ).toBeInTheDocument();
+  });
+
+  it("disables the toggle while a subscribe/unsubscribe is in flight", () => {
+    h.usePushNotifications.mockReturnValue({
+      state: "prompt",
+      isBusy: true,
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    });
+    renderWithProviders(<System />);
+    expect(screen.getByTestId("system-notifications-toggle")).toBeDisabled();
+  });
+
+  it("disables Clear while the mutation is pending", () => {
+    h.useRecentNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n1",
+          kind: "rule_request_created",
+          title: "Rule request",
+          body: "Phone asked to allow blocked.example.",
+          created_at: "2026-07-03T00:00:00Z",
+        },
+      ],
+    });
+    h.useClearNotifications.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    });
+    renderWithProviders(<System />);
+    expect(screen.getByTestId("system-notifications-clear")).toBeDisabled();
+    // The rule-request kind renders its own pill label.
+    expect(screen.getByText("Request")).toBeInTheDocument();
+  });
+
   it("renders the notification feed with a clear action", async () => {
     const clear = vi.fn();
     h.useRecentNotifications.mockReturnValue({

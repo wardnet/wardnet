@@ -178,7 +178,9 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         | WardnetEvent::DeviceCaptureSettingsChanged { .. }
         // New-device quarantine (#738) only drives an admin push; the device
         // already landed in the default-for-new zone via `DeviceDiscovered`.
+        // Rule requests (#482) likewise only drive an admin push.
         | WardnetEvent::NewDeviceQuarantined { .. }
+        | WardnetEvent::RuleRequestCreated { .. }
         | WardnetEvent::DnsEventInserted { .. } => {}
 
         // A cross-zone exception changed — rebuild the L3 isolation state so its

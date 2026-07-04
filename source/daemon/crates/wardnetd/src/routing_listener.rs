@@ -230,8 +230,10 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::NetworkZoneChanged { .. }
         | WardnetEvent::DeviceZoneChanged { .. }
         | WardnetEvent::ZoneExceptionsChanged { .. }
-        // New-device quarantine (#738) is a push-notification concern only.
+        // New-device quarantine (#738) and rule requests (#482) are
+        // push-notification concerns only.
         | WardnetEvent::NewDeviceQuarantined { .. }
+        | WardnetEvent::RuleRequestCreated { .. }
         | WardnetEvent::DefaultPolicyChanged { .. } => {}
     }
 }

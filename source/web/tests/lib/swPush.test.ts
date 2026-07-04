@@ -123,6 +123,47 @@ describe("registerPushHandlers", () => {
     expect(fake.showNotification).not.toHaveBeenCalled();
   });
 
+  it("ignores non-JSON push messages", async () => {
+    const waited: Promise<unknown>[] = [];
+    fake.handlers.push({
+      data: {
+        json: () => {
+          throw new SyntaxError("not json");
+        },
+      },
+      waitUntil: (p: Promise<unknown>) => waited.push(p),
+    });
+    await Promise.all(waited);
+    expect(fake.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("ignores push events with no payload at all", async () => {
+    const waited: Promise<unknown>[] = [];
+    fake.handlers.push({
+      data: undefined,
+      waitUntil: (p: Promise<unknown>) => waited.push(p),
+    });
+    await Promise.all(waited);
+    expect(fake.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("shows a data-less payload untagged", async () => {
+    const { event, settle } = pushEvent({
+      title: "Plain",
+      body: "No structured data.",
+    });
+    fake.handlers.push(event);
+    await settle();
+
+    expect(fake.showNotification).toHaveBeenCalledWith("Plain", {
+      body: "No structured data.",
+      tag: undefined,
+      icon: "icons/admin-192.png",
+      badge: "icons/badge-96.png",
+      data: {},
+    });
+  });
+
   it("opens a new window on the deep link when no app window exists", async () => {
     const { event, settle } = clickEvent({
       kind: "new_device_quarantined",

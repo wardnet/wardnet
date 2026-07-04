@@ -153,6 +153,80 @@ describe("usePushNotifications", () => {
     expect(pushService.subscribe).not.toHaveBeenCalled();
   });
 
+  it("subscribe() leaves the prompt state when the permission prompt is dismissed", async () => {
+    installPushApis();
+    notification.requestPermission.mockResolvedValue("default");
+
+    const { result } = renderHook(() => usePushNotifications());
+    await waitFor(() => expect(result.current.state).toBe("prompt"));
+    await act(async () => {
+      await result.current.subscribe();
+    });
+
+    expect(result.current.state).toBe("prompt");
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    expect(pushService.getVapidPublicKey).not.toHaveBeenCalled();
+  });
+
+  it("subscribe() reuses an existing browser subscription without re-subscribing", async () => {
+    installPushApis();
+    notification.permission = "granted";
+    const sub = makeSubscription("https://push.example/existing");
+    pushManager.getSubscription.mockResolvedValue(sub);
+    pushService.subscribe.mockResolvedValue(undefined);
+    notification.requestPermission.mockResolvedValue("granted");
+
+    const { result } = renderHook(() => usePushNotifications());
+    await waitFor(() => expect(result.current.state).toBe("subscribed"));
+    await act(async () => {
+      await result.current.subscribe();
+    });
+
+    // The browser subscription is reused: no new pushManager.subscribe and no
+    // VAPID key fetch — just the daemon upsert.
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    expect(pushService.getVapidPublicKey).not.toHaveBeenCalled();
+    expect(pushService.subscribe).toHaveBeenCalledWith({
+      endpoint: "https://push.example/existing",
+      keys: { p256dh: "pk", auth: "au" },
+    });
+  });
+
+  it("mount skips reconciliation when the browser subscription is incomplete", async () => {
+    installPushApis();
+    notification.permission = "granted";
+    pushManager.getSubscription.mockResolvedValue({
+      endpoint: "https://push.example/broken",
+      toJSON: () => ({ endpoint: "https://push.example/broken" }), // no keys
+      unsubscribe: vi.fn(),
+    });
+
+    const { result } = renderHook(() => usePushNotifications());
+    await waitFor(() => expect(result.current.state).toBe("subscribed"));
+    expect(pushService.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("mount leaves the initial state when the SW never becomes ready", async () => {
+    vi.useFakeTimers();
+    try {
+      installPushApis();
+      Object.defineProperty(navigator, "serviceWorker", {
+        value: { ready: new Promise(() => undefined) },
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => usePushNotifications());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(result.current.state).toBe("prompt");
+      expect(pushManager.getSubscription).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("subscribe() toasts an error when the daemon rejects the subscription", async () => {
     installPushApis();
     notification.requestPermission.mockImplementation(async () => {
@@ -225,5 +299,39 @@ describe("usePushNotifications", () => {
       "https://push.example/sub-1",
     );
     expect(result.current.state).toBe("unsubscribed");
+  });
+
+  it("unsubscribe() settles cleanly when no browser subscription exists", async () => {
+    installPushApis();
+    notification.permission = "granted";
+    pushManager.getSubscription.mockResolvedValue(null);
+
+    const { result } = renderHook(() => usePushNotifications());
+    await waitFor(() => expect(result.current.state).toBe("unsubscribed"));
+    await act(async () => {
+      await result.current.unsubscribe();
+    });
+
+    expect(pushService.unsubscribe).not.toHaveBeenCalled();
+    expect(result.current.state).toBe("unsubscribed");
+    expect(toast.success).toHaveBeenCalledWith("Notifications disabled");
+  });
+
+  it("unsubscribe() toasts an error when the browser rejects", async () => {
+    installPushApis();
+    notification.permission = "granted";
+    const sub = makeSubscription();
+    sub.unsubscribe.mockRejectedValue(new Error("boom"));
+    pushManager.getSubscription.mockResolvedValue(sub);
+    pushService.subscribe.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => usePushNotifications());
+    await waitFor(() => expect(result.current.state).toBe("subscribed"));
+    await act(async () => {
+      await result.current.unsubscribe();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("Failed to disable notifications");
+    expect(result.current.isBusy).toBe(false);
   });
 });

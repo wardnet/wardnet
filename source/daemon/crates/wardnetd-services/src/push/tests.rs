@@ -943,19 +943,23 @@ async fn rule_request_notifies_admins_and_lands_in_the_feed() {
     )
     .await;
 
-    let sent = h.sender.sent.lock().unwrap();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].endpoint, "https://push/admin");
-    let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
-    assert_eq!(payload["title"], "Rule request");
-    assert_eq!(
-        payload["body"],
-        "Kid's iPad asked to allow blocked.example."
-    );
-    assert_eq!(payload["data"]["kind"], "rule_request_created");
-    // No admin-app surface for rule requests yet — no deep link.
-    assert!(payload["data"].get("url").is_none());
-    assert_eq!(payload["data"]["subject_id"], "req-1");
+    // Scoped so the guard drops before the `.await` below (clippy:
+    // await_holding_lock).
+    {
+        let sent = h.sender.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].endpoint, "https://push/admin");
+        let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+        assert_eq!(payload["title"], "Rule request");
+        assert_eq!(
+            payload["body"],
+            "Kid's iPad asked to allow blocked.example."
+        );
+        assert_eq!(payload["data"]["kind"], "rule_request_created");
+        // No admin-app surface for rule requests yet — no deep link.
+        assert!(payload["data"].get("url").is_none());
+        assert_eq!(payload["data"]["subject_id"], "req-1");
+    }
 
     let feed = h.notifications.list_recent(10).await.unwrap();
     assert_eq!(feed.len(), 1);

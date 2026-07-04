@@ -60,6 +60,8 @@ use wardnetd_services::{Backends, HealthMonitor, UpdateBackends, init_services_w
     name = "wardnetd-mock",
     about = "Runs the Wardnet API on loopback with no-op network backends and seeded demo data."
 )]
+// Independent on/off CLI flags are the natural shape for a clap struct.
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// `SQLite` connection string. Use `:memory:` (default) for an ephemeral
     /// database or a file path for on-disk persistence between runs.
