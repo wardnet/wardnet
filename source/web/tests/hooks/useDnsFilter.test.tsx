@@ -313,4 +313,26 @@ describe("useDnsFilter device settings + config", () => {
       { id: "dns-filter-config-update" },
     );
   });
+
+  it("suppresses toasts when the update hook is silent", async () => {
+    const { result: upd } = renderHook(
+      () => f.useUpdateDnsFilterConfig({ silent: true }),
+      { wrapper: w() },
+    );
+
+    dnsFilterService.updateConfig.mockResolvedValueOnce({});
+    await act(async () => {
+      await upd.current.mutateAsync({ default_profile_ids: [PID] } as never);
+    });
+
+    dnsFilterService.updateConfig.mockRejectedValueOnce(new Error("x"));
+    await act(async () => {
+      await upd.current
+        .mutateAsync({ default_profile_ids: [PID] } as never)
+        .catch(() => {});
+    });
+
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 });

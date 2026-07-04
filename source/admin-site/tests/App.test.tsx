@@ -131,9 +131,9 @@ describe("App routing", () => {
     expect(screen.getByText("not-found-page")).toBeInTheDocument();
   });
 
-  it("renders the setup page inside the auth layout", () => {
+  it("renders the setup page on its own (outside the auth layout)", () => {
     renderAt("/setup");
-    expect(screen.getByTestId("auth-layout")).toBeInTheDocument();
+    expect(screen.queryByTestId("auth-layout")).not.toBeInTheDocument();
     expect(screen.getByText("setup-page")).toBeInTheDocument();
   });
 

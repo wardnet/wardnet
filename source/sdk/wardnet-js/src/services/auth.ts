@@ -1,5 +1,5 @@
 import type { WardnetClient } from "../client.js";
-import type { LoginRequest, LoginResponse } from "../types/auth.js";
+import type { LoginRequest, LoginResponse, MeResponse } from "../types/auth.js";
 
 /** Authentication service for the Wardnet daemon. */
 export class AuthService {
@@ -21,5 +21,10 @@ export class AuthService {
    */
   async refresh(): Promise<void> {
     await this.client.request<void>("/auth/refresh", { method: "POST" });
+  }
+
+  /** Return the authenticated admin's identity. */
+  async me(): Promise<MeResponse> {
+    return this.client.request<MeResponse>("/users/me");
   }
 }

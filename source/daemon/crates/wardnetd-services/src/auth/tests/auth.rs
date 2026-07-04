@@ -20,6 +20,9 @@ struct MockAdminRepo {
 
 #[async_trait]
 impl AdminRepository for MockAdminRepo {
+    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
+        Ok(Some("admin".to_owned()))
+    }
     async fn find_by_username(&self, _username: &str) -> anyhow::Result<Option<(String, String)>> {
         Ok(self.find_result.lock().unwrap().clone())
     }
@@ -282,6 +285,27 @@ async fn validate_api_key_skips_malformed_hash() {
 
     let result = svc.validate_api_key("valid-key").await.unwrap();
     assert!(result.is_some());
+}
+
+#[tokio::test]
+async fn current_admin_username_requires_admin() {
+    // No auth context → require_admin rejects before touching the repo.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = svc.current_admin_username().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn current_admin_username_returns_the_callers_username() {
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.current_admin_username().await },
+    )
+    .await;
+    assert_eq!(result.unwrap(), "admin");
 }
 
 #[tokio::test]

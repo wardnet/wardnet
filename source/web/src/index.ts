@@ -90,7 +90,7 @@ export {
 export type { ParsedCidr } from "./lib/cidr";
 
 // Hooks — auth
-export { useAuth } from "./hooks/useAuth";
+export { useAuth, useMe } from "./hooks/useAuth";
 
 // Hooks — push notifications (issues #482/#764)
 export { usePushNotifications } from "./hooks/usePushNotifications";

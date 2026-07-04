@@ -41,6 +41,9 @@ struct AlwaysAuthService {
 
 #[async_trait]
 impl AuthService for AlwaysAuthService {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
     async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -79,6 +82,9 @@ impl AuthService for AlwaysAuthService {
 struct NeverAuthService;
 #[async_trait]
 impl AuthService for NeverAuthService {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
     async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -188,6 +194,7 @@ impl SystemService for MockSystemService {
                 ip: r.ip,
                 gateway: r.gateway,
                 dhcp_source: r.dhcp_source,
+                router_mac: r.router_mac.clone(),
             }),
             Err(e) => Err(clone_app_error(e)),
         }
@@ -286,6 +293,7 @@ fn ok_status() -> NetworkStatusResponse {
         ip: Ipv4Addr::new(192, 168, 1, 2),
         gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
         dhcp_source: DhcpSource::Static,
+        router_mac: None,
     }
 }
 

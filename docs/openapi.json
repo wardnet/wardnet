@@ -16671,7 +16671,7 @@
         "tags": [
           "setup"
         ],
-        "description": "Advance the setup wizard to a new step. Admin-authenticated — the web UI auto-logs the operator in immediately after `POST /api/setup` and uses normal admin auth from then on. Step transitions only move forward; `wizard_mode` is recorded when the operator picks the DHCP onboarding branch at step 3.",
+        "description": "Advance the setup wizard to a new step. Admin-authenticated — the web UI auto-logs the operator in immediately after `POST /api/setup` and uses normal admin auth from then on. Forward transitions are always allowed; rewinds are allowed down to `network` (never back to `admin`), and `completed` is terminal. `wizard_mode` is recorded when the operator picks the DHCP onboarding branch at step 3.",
         "operationId": "setup_advance",
         "requestBody": {
           "content": {
@@ -21052,6 +21052,109 @@
         ]
       }
     },
+    "/api/users/me": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "description": "Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Authenticated admin identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -24348,6 +24451,19 @@
           }
         }
       },
+      "MeResponse": {
+        "type": "object",
+        "description": "Response for GET /api/users/me.",
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username of the authenticated admin."
+          }
+        }
+      },
       "NetworkStatusResponse": {
         "type": "object",
         "description": "Response for GET /api/network/status.",
@@ -24369,6 +24485,13 @@
           },
           "ip": {
             "type": "string"
+          },
+          "router_mac": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Upstream router MAC persisted by the wizard's discover step, if\nany — lets the review step display it without re-probing."
           }
         }
       },
@@ -26882,15 +27005,17 @@
       },
       "WizardStep": {
         "type": "string",
-        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy\n→ RemoteAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]\nand the `SetupGuard` redirect logic) is derived from\n`wizard_step == Completed`, so existing installs that already finished\nsetup are not re-routed through the new wizard after an upgrade.\n\nSteps are persisted by their stable storage string (not their ordinal), so\ninserting [`Self::RemoteAccess`] ahead of [`Self::Completed`] needs no\nmigration: finished installs (`\"completed\"`) and in-progress ones keep\nresolving to the same variant.",
+        "description": "Linear stage in the first-run setup wizard.\n\nThe wizard advances `Admin → Network → Dhcp → RouterMac → Dns → Tunnel →\nPolicy → RemoteAccess → Review → Completed`. `setup_completed` (in\n[`SetupStatusResponse`] and the `SetupGuard` redirect logic) is derived\nfrom `wizard_step == Completed`, so existing installs that already\nfinished setup are not re-routed through the new wizard after an upgrade.\n\nThe wizard may also rewind: any step down to [`Self::Network`] can be\nrevisited (never [`Self::Admin`] — admin creation is one-shot), except\nonce [`Self::Completed`] is reached, which is terminal.\n\nSteps are persisted by their stable storage string (not their ordinal), so\ninserting [`Self::Dns`] and [`Self::Review`] mid-sequence needs no\nmigration: finished installs (`\"completed\"`) and in-progress ones keep\nresolving to the same variant.",
         "enum": [
           "admin",
           "network",
           "dhcp",
           "router_mac",
+          "dns",
           "tunnel",
           "policy",
           "remote_access",
+          "review",
           "completed"
         ]
       },
@@ -26999,6 +27124,10 @@
     {
       "name": "auth",
       "description": "Session login / logout"
+    },
+    {
+      "name": "users",
+      "description": "Authenticated admin identity"
     },
     {
       "name": "setup",

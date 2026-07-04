@@ -1,6 +1,8 @@
 import { Button, Heading, Text } from "@wardnet/web";
 import { WardnetApiError } from "@wardnet/js";
-import { useAdvanceWizard, useTlsStatus } from "@wardnet/web";
+import { useTlsStatus } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 import { RemoteAccessProgress } from "@/components/features/RemoteAccessProgress";
 import {
   CloudflareFields,
@@ -15,7 +17,7 @@ import { useState } from "react";
 import { suggestName } from "@/lib/suggestName";
 
 /**
- * Step 7 — enable remote access (HTTPS).
+ * HTTPS step — enable remote access.
  *
  * Lets the operator give the gateway a public hostname and a real certificate
  * via either **wardnet** (the managed `<slug>.my.wardnet.services`, reached
@@ -29,8 +31,8 @@ import { suggestName } from "@/lib/suggestName";
  * shared {@link useWardnetEnrollment} hook; this step only wires success/error
  * and renders the wizard-specific progress/skip flow.
  */
-export default function Step7RemoteAccess() {
-  const advance = useAdvanceWizard();
+export default function StepRemoteAccess() {
+  const nav = useWizardNav("remote_access");
 
   const [formError, setFormError] = useState<string | null>(null);
   // Once provisioning has been kicked off we swap the form for live progress.
@@ -90,14 +92,10 @@ export default function Step7RemoteAccess() {
   // Poll TLS status only after we've started provisioning.
   const { data: tlsStatus } = useTlsStatus({ enabled: started });
 
-  async function finish() {
+  function finish() {
     setFormError(null);
-    try {
-      await advance.mutateAsync({ to_step: "completed" });
-    } catch (err) {
-      // Surface the failure instead of silently stalling on this step.
-      setFormError(describeError(err));
-    }
+    // Advance failures surface through `nav.isError` in each view.
+    nav.goNext();
   }
 
   // ── Post-registration: live provisioning progress ────────────────────────
@@ -127,23 +125,21 @@ export default function Step7RemoteAccess() {
           </Text>
         )}
 
-        {formError && (
+        {nav.isError && (
           <Text as="p" size="sm" className="text-danger">
-            {formError}
+            Couldn't save progress — try again.
           </Text>
         )}
 
-        <Button
-          onClick={finish}
-          disabled={advance.isPending}
-          className="w-full"
-        >
-          {advance.isPending
-            ? "Finishing…"
-            : phase === "issued"
-              ? "Finish"
-              : "Continue (issuance keeps running)"}
-        </Button>
+        <WizardFooter>
+          <Button onClick={finish} disabled={nav.isPending} className="w-full">
+            {nav.isPending
+              ? "Continuing…"
+              : phase === "issued"
+                ? "Continue"
+                : "Continue (issuance keeps running)"}
+          </Button>
+        </WizardFooter>
       </div>
     );
   }
@@ -173,25 +169,26 @@ export default function Step7RemoteAccess() {
           unaffected.
         </Text>
 
-        <div className="flex flex-col gap-2">
-          <Button
-            onClick={finish}
-            disabled={advance.isPending}
-            className="w-full"
-          >
-            {advance.isPending
-              ? "Continuing…"
-              : "Continue without remote access"}
+        <Button
+          variant="outline"
+          onClick={() => setUpstreamDown(false)}
+          disabled={nav.isPending}
+          className="w-full"
+        >
+          Back
+        </Button>
+
+        {nav.isError && (
+          <Text as="p" size="sm" className="text-danger">
+            Couldn't save progress — try again.
+          </Text>
+        )}
+
+        <WizardFooter>
+          <Button onClick={finish} disabled={nav.isPending} className="w-full">
+            {nav.isPending ? "Continuing…" : "Continue without remote access"}
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => setUpstreamDown(false)}
-            disabled={advance.isPending}
-            className="w-full"
-          >
-            Back
-          </Button>
-        </div>
+        </WizardFooter>
       </div>
     );
   }
@@ -247,13 +244,30 @@ export default function Step7RemoteAccess() {
         />
       )}
 
-      {formError && (
+      {(formError || nav.isError) && (
         <Text as="p" size="sm" className="text-danger">
-          {formError}
+          {formError ?? "Couldn't save progress — try again."}
         </Text>
       )}
 
-      <div className="flex flex-col gap-2">
+      {/* Quiet in-body skip: the docked footer stays the "proceed" action
+          (enroll), so skipping is a deliberate choice rather than the
+          button users hit by reflex. */}
+      <button
+        type="button"
+        onClick={finish}
+        disabled={nav.isPending}
+        data-testid="setup-remote-access-skip"
+        className="self-start text-ink-3 transition-colors hover:text-ink"
+      >
+        <Text as="span" size="sm" weight="medium" className="underline">
+          {nav.isPending ? "Skipping…" : "Skip for now"}
+        </Text>
+      </button>
+
+      {/* Docked primary: the enrollment action for the current sub-state
+          (Send code → Verify code → Enable remote access). */}
+      <WizardFooter>
         {provider === "wardnet" ? (
           <WardnetActions
             step={wardnetStep}
@@ -278,16 +292,7 @@ export default function Step7RemoteAccess() {
             {pending.configureCf ? "Configuring…" : "Enable remote access"}
           </Button>
         )}
-        <Button
-          variant="outline"
-          onClick={finish}
-          disabled={advance.isPending}
-          data-testid="setup-remote-access-skip"
-          className="w-full"
-        >
-          {advance.isPending ? "Skipping…" : "Skip for now"}
-        </Button>
-      </div>
+      </WizardFooter>
     </div>
   );
 }

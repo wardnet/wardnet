@@ -89,9 +89,10 @@ pub async fn setup(
     description = "Advance the setup wizard to a new step. Admin-authenticated — \
                    the web UI auto-logs the operator in immediately after \
                    `POST /api/setup` and uses normal admin auth from then on. \
-                   Step transitions only move forward; \
-                   `wizard_mode` is recorded when the operator picks the DHCP \
-                   onboarding branch at step 3.",
+                   Forward transitions are always allowed; rewinds are allowed \
+                   down to `network` (never back to `admin`), and `completed` \
+                   is terminal. `wizard_mode` is recorded when the operator \
+                   picks the DHCP onboarding branch at step 3.",
     request_body = AdvanceWizardRequest,
     responses(
         (status = 200, description = "Wizard state after advance", body = AdvanceWizardResponse),

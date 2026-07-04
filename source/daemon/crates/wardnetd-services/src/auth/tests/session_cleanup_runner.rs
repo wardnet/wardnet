@@ -57,6 +57,9 @@ impl MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
     async fn login(
         &self,
         _username: &str,

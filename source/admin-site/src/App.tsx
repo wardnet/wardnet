@@ -100,8 +100,8 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="setup" element={<Setup />} />
       <Route element={<AuthLayout />}>
-        <Route path="setup" element={<Setup />} />
         <Route
           path="login"
           element={

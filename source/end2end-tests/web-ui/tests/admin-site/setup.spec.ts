@@ -56,25 +56,60 @@ test("first-run wizard creates the admin and reaches the dashboard", async ({
   ).toBeVisible();
   await page.getByTestId("setup-router-mac-continue").click();
 
-  // Step 5 — first VPN tunnel (skip).
+  // Step 5 — DNS filtering baseline (continue with the seeded default).
+  await expect(
+    page.getByRole("heading", { name: /dns filtering/i }),
+  ).toBeVisible();
+
+  // Rewind detour: the rail's done rows navigate backward. Jump back
+  // to Network, then walk forward again — state is server-side, so the
+  // wizard resumes exactly where the rail points it.
+  await page.getByTestId("setup-rail-network").click();
+  await expect(
+    page.getByRole("heading", { name: /confirm network/i }),
+  ).toBeVisible();
+  await page.getByTestId("setup-network-continue").click();
+  await expect(
+    page.getByRole("heading", { name: /dhcp onboarding/i }),
+  ).toBeVisible();
+  await page.getByTestId("setup-dhcp-mode-locked").check();
+  await page.getByTestId("setup-dhcp-continue").click();
+  await expect(
+    page.getByRole("heading", { name: /router mac/i }),
+  ).toBeVisible();
+  await page.getByTestId("setup-router-mac-continue").click();
+  await expect(
+    page.getByRole("heading", { name: /dns filtering/i }),
+  ).toBeVisible();
+  await page.getByTestId("setup-dns-continue").click();
+
+  // Step 6 — first VPN tunnel (skip).
   await expect(
     page.getByRole("heading", { name: /first vpn tunnel/i }),
   ).toBeVisible();
   await page.getByTestId("setup-tunnel-skip").click();
 
-  // Step 6 — default routing policy (continue with the seeded default).
+  // Step 7 — default routing policy (continue with the seeded default).
   await expect(
     page.getByRole("heading", { name: /default routing/i }),
   ).toBeVisible();
   await page.getByTestId("setup-policy-continue").click();
 
-  // Step 7 — remote access (skip; DDNS/ACME isn't reachable in e2e).
+  // Step 8 — remote access (skip; DDNS/ACME isn't reachable in e2e).
   await expect(
     page.getByRole("heading", { name: /remote access/i }),
   ).toBeVisible();
   await page.getByTestId("setup-remote-access-skip").click();
 
-  // Step 8 — done. Jump to the dashboard.
+  // Step 9 — review. The summary reflects the walk (locked-router DHCP,
+  // skipped router MAC / remote access), then finishes setup.
+  await expect(
+    page.getByRole("heading", { name: /review & finish/i }),
+  ).toBeVisible();
+  await expect(page.getByText("Locked router")).toBeVisible();
+  await page.getByTestId("setup-review-finish").click();
+
+  // Step 10 — done. Jump to the dashboard.
   await expect(page.getByRole("heading", { name: /all set/i })).toBeVisible();
   await page.getByTestId("setup-go-dashboard").click();
 

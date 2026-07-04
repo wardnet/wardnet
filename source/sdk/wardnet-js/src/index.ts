@@ -84,7 +84,7 @@ export type {
 } from "./types/provider.js";
 
 // Types — auth
-export type { LoginRequest, LoginResponse } from "./types/auth.js";
+export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
 
 // Types — system
 export type {

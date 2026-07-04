@@ -1,19 +1,20 @@
 import { AlertTriangleIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
 import { Heading, Text } from "@wardnet/web";
-import { useAdvanceWizard } from "@wardnet/web";
 import { useNetworkStatus } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 
 /**
- * Step 2 — confirm the OS network state.
+ * Network step — confirm the OS network state.
  *
  * Reads `GET /api/network/status` to show the LAN interface, IP, and
  * gateway as currently seen by the kernel. Surfaces a remediation
  * panel pointing back at `install.sh --static-ip` whenever the IP is
  * still DHCP-derived; otherwise just confirms the values.
  */
-export default function Step2Network() {
-  const advance = useAdvanceWizard();
+export default function StepNetwork() {
+  const nav = useWizardNav("network");
   const { data, isLoading, isError } = useNetworkStatus();
 
   return (
@@ -77,14 +78,16 @@ export default function Step2Network() {
         </div>
       )}
 
-      <Button
-        onClick={() => advance.mutate({ to_step: "dhcp" })}
-        disabled={advance.isPending}
-        data-testid="setup-network-continue"
-        className="w-full"
-      >
-        {advance.isPending ? "Saving…" : "Continue"}
-      </Button>
+      <WizardFooter>
+        <Button
+          onClick={() => nav.goNext()}
+          disabled={nav.isPending}
+          data-testid="setup-network-continue"
+          className="w-full"
+        >
+          {nav.isPending ? "Saving…" : "Continue"}
+        </Button>
+      </WizardFooter>
     </div>
   );
 }

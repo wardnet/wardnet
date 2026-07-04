@@ -16,6 +16,11 @@ export interface NetworkStatusResponse {
   /** May be null when the inspector can't read a default route. */
   gateway: string | null;
   dhcp_source: DhcpSource;
+  /**
+   * Upstream router MAC persisted by the wizard's discover step, if
+   * any — lets the review step display it without re-probing.
+   */
+  router_mac: string | null;
 }
 
 /** How the upstream router MAC was obtained. */
