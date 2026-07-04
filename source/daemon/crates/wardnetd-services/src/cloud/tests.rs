@@ -40,14 +40,16 @@ fn pop_canonical_payload_is_stable_and_verifies() {
     let timestamp = 1_700_000_000i64;
     let body = br#"{"ip":"203.0.113.5"}"#;
 
-    let payload = pop::canonical_payload("PUT", "/v1/ip", timestamp, body);
+    // The signed path is the full gateway-facing path, `/<service>/` prefix
+    // included — the cloud verifies against the un-stripped `OriginalUri`.
+    let payload = pop::canonical_payload("PUT", "/ddns/v1/ip", timestamp, body);
     let expected = format!(
-        "PUT\n/v1/ip\n{timestamp}\n{}",
+        "PUT\n/ddns/v1/ip\n{timestamp}\n{}",
         hex::encode(Sha256::digest(body))
     );
     assert_eq!(payload, expected, "canonical payload format must not drift");
 
-    let signature_b64 = pop::sign(&key, "PUT", "/v1/ip", timestamp, body);
+    let signature_b64 = pop::sign(&key, "PUT", "/ddns/v1/ip", timestamp, body);
     let signature_bytes = base64::engine::general_purpose::STANDARD
         .decode(signature_b64)
         .expect("standard base64");
@@ -58,13 +60,29 @@ fn pop_canonical_payload_is_stable_and_verifies() {
 
     // Cross-check the signer matches a hand-rolled signature over the same bytes.
     assert_eq!(signature, key.sign(expected.as_bytes()));
+
+    // The query string participates in the signed path: the cloud verifies the
+    // full `OriginalUri` including `?…`, so a payload that drops the query must
+    // not equal one that carries it.
+    let with_query =
+        pop::canonical_payload("GET", "/tenants/v1/availability?slug=alice", timestamp, b"");
+    let expected_with_query = format!(
+        "GET\n/tenants/v1/availability?slug=alice\n{timestamp}\n{}",
+        hex::encode(Sha256::digest(b""))
+    );
+    assert_eq!(with_query, expected_with_query);
+    assert_ne!(
+        with_query,
+        pop::canonical_payload("GET", "/tenants/v1/availability", timestamp, b""),
+        "dropping the query string must change the signed payload"
+    );
 }
 
 #[tokio::test]
 async fn request_enrollment_code_posts_email_and_purpose() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/verification-codes"))
+        .and(path("/tenants/v1/verification-codes"))
         .and(body_json(
             json!({ "email": "a@b.com", "purpose": "enrollment" }),
         ))
@@ -81,7 +99,7 @@ async fn request_enrollment_code_posts_email_and_purpose() {
 async fn enroll_returns_tenant_id() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/enroll"))
+        .and(path("/tenants/v1/enroll"))
         .and(body_json(json!({ "code": "ABC123", "public_key": "pk" })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "tenant_id": "t-1" })))
         .mount(&server)
@@ -95,7 +113,7 @@ async fn enroll_returns_tenant_id() {
 async fn mint_token_403_flags_entitlement_lost() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .and(header_exists(pop::SIGNATURE_HEADER))
         .respond_with(ResponseTemplate::new(403).set_body_string("subscription is not active"))
         .mount(&server)
@@ -115,7 +133,7 @@ async fn token_is_cached_and_minted_once() {
     let server = MockServer::start().await;
     let exp = chrono::Utc::now().timestamp() + 3600;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
         .expect(1) // second call must hit the cache, not the server
         .mount(&server)
@@ -133,12 +151,12 @@ async fn availability_sends_jwt_and_pop() {
     let server = MockServer::start().await;
     let exp = chrono::Utc::now().timestamp() + 3600;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/v1/availability"))
+        .and(path("/tenants/v1/availability"))
         .and(query_param("slug", "alice"))
         .and(header_exists("authorization"))
         .and(header_exists(pop::SIGNATURE_HEADER))
@@ -160,12 +178,12 @@ async fn register_network_maps_view() {
     let server = MockServer::start().await;
     let exp = chrono::Utc::now().timestamp() + 3600;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(path("/v1/networks"))
+        .and(path("/tenants/v1/networks"))
         .and(body_json(json!({ "slug": "alice", "region": "use1" })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "n-1",
@@ -195,19 +213,19 @@ async fn ddns_report_ip_and_clear_acme() {
     let server = MockServer::start().await;
     let exp = chrono::Utc::now().timestamp() + 3600;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
         .mount(&server)
         .await;
     Mock::given(method("PUT"))
-        .and(path("/v1/ip"))
+        .and(path("/ddns/v1/ip"))
         .and(body_json(json!({ "ip": "203.0.113.7" })))
         .and(header_exists(pop::SIGNATURE_HEADER))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/acme-challenge"))
+        .and(path("/ddns/v1/acme-challenge"))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;

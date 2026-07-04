@@ -2,10 +2,14 @@
 //!
 //! wardnet-cloud is a service mesh — `tenants` (global identity/account
 //! authority), `ddns` and `tunneller` (regional), with `billing`/`subscriptions`
-//! internal to `tenants`. The daemon consumes `tenants` and `ddns`; each gets its
-//! **own** client with an **independently configured endpoint** so the current
-//! co-location (and any future split onto separate hosts) is a config change, not
-//! a code change.
+//! internal to `tenants`. Daemons reach it through per-scope north-south
+//! **gateways** (cloud ADR-0014 / inforge ADR-0032): the global gateway fronts
+//! `tenants`, each region's gateway fronts that region's `ddns` + `tunneller`,
+//! and the target service is the **first path segment** (`/tenants/v1/…`,
+//! `/ddns/v1/…`). The gateway is path-preserving, so the `PoP` signature covers
+//! that same prefixed path. The daemon consumes `tenants` and `ddns`; each gets
+//! its **own** client with an **independently configured gateway base URL**, so
+//! a topology change stays a config change, not a code change.
 //!
 //! Shared concerns live here:
 //!

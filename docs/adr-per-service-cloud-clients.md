@@ -11,15 +11,18 @@
 ## Context
 
 wardnet-cloud is decomposed into a **global tenants** service (accounts, billing
-linkage, the global naming authority — one instance, at
-`account.wardnet.network`) and **per-region ddns** services (network
-registration, A-record publishing, ACME DNS-01 — one instance per region, behind
-region-specific FQDNs). The daemon must reach both.
+linkage, the global naming authority — one instance) and **per-region ddns**
+services (network registration, A-record publishing, ACME DNS-01 — one instance
+per region). Daemons reach them through per-scope north-south **gateways**
+(wardnet-cloud ADR-0014 / inforge ADR-0032): the global gateway fronts tenants,
+each region's gateway fronts that region's services, and the target service is
+the first path segment (`/tenants/…`, `/ddns/…`). The daemon must reach both
+scopes.
 
 A single monolithic "cloud client" pointed at one base URL no longer fits: the
-two services live at different origins, scale independently, and a network is
-pinned to a *specific* region's ddns endpoint after registration. The daemon
-needs to address each by its own URL while still presenting one identity.
+two scopes live at different origins, scale independently, and a network is
+pinned to a *specific* region's gateway after registration. The daemon needs to
+address each by its own URL while still presenting one identity.
 
 ## Decision
 
@@ -28,12 +31,14 @@ needs to address each by its own URL while still presenting one identity.
 The daemon's `cloud/` module exposes a **`TenantsClient`** (global endpoint) and
 a **`DdnsClient`** (regional endpoint), constructed independently:
 
-- `TenantsClient` is bound to the **global** `TENANTS_BASE_URL`
-  (`account.wardnet.network`). It owns enrollment, verification-code requests,
-  slug availability, network registration, JWT minting, and per-daemon removal.
-- `DdnsClient` is bound to a **regional** ddns control base URL resolved from a
-  **hardcoded region catalog** (region slug → `ddns.svc.<...>.wardnet.network`).
-  It owns A-record publishing and the ACME DNS-01 challenge.
+- `TenantsClient` is bound to the **global** gateway `GLOBAL_GATEWAY_URL`
+  (`api.wardnet.network`) and prefixes every path with `/tenants`. It owns
+  enrollment, verification-code requests, slug availability, network
+  registration, JWT minting, and per-daemon removal.
+- `DdnsClient` is bound to a **regional** gateway base URL resolved from a
+  **hardcoded region catalog** (region slug → `api.<slug>.wardnet.network`) and
+  prefixes every path with `/ddns`. It owns A-record publishing and the ACME
+  DNS-01 challenge.
 
 The clients share the pooled `reqwest::Client` (connection reuse) but nothing
 else; each is cheap to build per use.

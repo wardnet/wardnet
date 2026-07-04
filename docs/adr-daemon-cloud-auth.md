@@ -10,7 +10,8 @@
 ## Context
 
 The daemon talks to a decomposed wardnet-cloud: a global **tenants** service
-(account + naming authority, at `account.wardnet.network`) and per-region
+(account + naming authority, reached via the global gateway under
+`/tenants/…`) and per-region
 **ddns** services. The daemon needs (a) a way to authenticate every cloud call
 as *this* enrolled box, and (b) a signal for whether the box's subscription is
 active, so it can self-degrade into Suspended mode.

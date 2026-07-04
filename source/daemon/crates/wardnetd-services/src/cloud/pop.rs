@@ -12,6 +12,12 @@
 //! `"<METHOD>\n<path_and_query>\n<timestamp>\n<hex-sha256(body)>"`. The two repos
 //! are separate workspaces, so [`tests`](super::tests) pins this format by
 //! constructing a signature and verifying its bytes.
+//!
+//! `path_and_query` is the **full gateway-facing path including the
+//! `/<service>/` prefix and any query string** (e.g. `/ddns/v1/ip`): the
+//! gateway is path-preserving and the cloud verifies against the original,
+//! un-stripped request URI (`OriginalUri`), so a signature over an un-prefixed
+//! path is rejected with `401`.
 
 use base64::Engine as _;
 use ed25519_dalek::{Signer, SigningKey};
