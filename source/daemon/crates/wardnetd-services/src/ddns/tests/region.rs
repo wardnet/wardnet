@@ -1,8 +1,8 @@
 //! Region selection tests: lowest-latency reachable region wins; unhealthy
 //! endpoints are skipped; all-unreachable is an error.
 //!
-//! Each region's `health_url` points at its wiremock server's `/v1/health`,
-//! while `ddns_base_url` is the server root — mirroring the production split
+//! Each region's `health_url` points at its wiremock server's `/ddns/v1/health`,
+//! while `gateway_base_url` is the server root — mirroring the production split
 //! between the plain-HTTP `:81` health probe and the `:443` control base.
 
 use std::time::Duration;
@@ -19,19 +19,19 @@ async fn health_server(delay: Option<Duration>, status: u16) -> MockServer {
         template = template.set_delay(delay);
     }
     Mock::given(method("GET"))
-        .and(path("/v1/health"))
+        .and(path("/ddns/v1/health"))
         .respond_with(template)
         .mount(&server)
         .await;
     server
 }
 
-/// A catalog entry whose health probe targets `server`'s `/v1/health`.
+/// A catalog entry whose health probe targets `server`'s `/ddns/v1/health`.
 fn entry(slug: &str, server: &MockServer) -> RegionEndpoint {
     RegionEndpoint {
         slug: slug.to_owned(),
-        ddns_base_url: server.uri(),
-        health_url: format!("{}/v1/health", server.uri()),
+        gateway_base_url: server.uri(),
+        health_url: format!("{}/ddns/v1/health", server.uri()),
     }
 }
 
@@ -45,7 +45,7 @@ async fn picks_lowest_latency() {
         .await
         .unwrap();
     assert_eq!(chosen.slug, "fast");
-    assert_eq!(chosen.ddns_base_url, fast.uri());
+    assert_eq!(chosen.gateway_base_url, fast.uri());
 }
 
 #[tokio::test]

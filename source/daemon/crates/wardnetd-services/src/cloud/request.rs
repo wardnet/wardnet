@@ -29,7 +29,11 @@ pub(crate) enum Auth<'a> {
 ///
 /// `path_and_query` is used **verbatim** both for the URL and for the signed
 /// payload, so callers must pre-encode any query string (our slugs/ids are
-/// already `[a-z0-9-]`). Returns the raw response; use [`ok`] to classify status.
+/// already `[a-z0-9-]`) and must pass the **full gateway-facing path including
+/// the `/<service>/` prefix** — the cloud verifies the `PoP` over the original,
+/// un-stripped URI, and this single-argument design is what makes "sign exactly
+/// what you send" structural. Returns the raw response; use [`ok`] to classify
+/// status.
 pub(crate) async fn send(
     http: &reqwest::Client,
     base_url: &str,

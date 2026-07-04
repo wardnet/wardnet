@@ -195,10 +195,11 @@ pub trait DdnsService: Send + Sync {
 
 /// Tunable base URLs, overridable in tests to point at wiremock servers.
 pub(crate) struct DdnsSettings {
-    /// Per-region `ddns` catalog (control + health URLs), probed for selection.
+    /// Per-region gateway catalog (control + health URLs), probed for selection.
     region_catalog: Vec<RegionEndpoint>,
-    /// Global `tenants` service base URL (enroll / token / availability / networks).
-    tenants_base_url: String,
+    /// Global gateway base URL — fronts `tenants` (enroll / token / availability
+    /// / networks under `/tenants/v1/…`).
+    global_gateway_url: String,
     /// Public-IP echo endpoints, tried in order.
     echo_endpoints: Vec<String>,
     /// Cloudflare API base URL.
@@ -211,7 +212,7 @@ impl Default for DdnsSettings {
     fn default() -> Self {
         Self {
             region_catalog: region::default_catalog(),
-            tenants_base_url: region::TENANTS_BASE_URL.to_owned(),
+            global_gateway_url: region::GLOBAL_GATEWAY_URL.to_owned(),
             echo_endpoints: public_ip::ECHO_ENDPOINTS
                 .iter()
                 .map(|s| (*s).to_owned())
@@ -305,9 +306,9 @@ impl DdnsServiceImpl {
             Some(PROVIDER_WARDNET) => {
                 let network_id = self.require_cfg(KEY_NETWORK_ID).await?;
                 let region = self.require_cfg(KEY_REGION).await?;
-                let ddns_base = self.ddns_base_for_region(&region)?;
+                let gateway_base = self.gateway_base_for_region(&region)?;
                 let (tenants, identity) = self.build_identity().await?;
-                let ddns = DdnsClient::new(self.http.clone(), ddns_base);
+                let ddns = DdnsClient::new(self.http.clone(), gateway_base);
                 Ok(Some(Box::new(WardnetDnsProvider::new(
                     ddns, tenants, identity, network_id,
                 ))))
@@ -340,7 +341,7 @@ impl DdnsServiceImpl {
     fn tenants_client(&self) -> Arc<TenantsClient> {
         Arc::new(TenantsClient::new(
             self.http.clone(),
-            self.settings.tenants_base_url.clone(),
+            self.settings.global_gateway_url.clone(),
         ))
     }
 
@@ -365,13 +366,13 @@ impl DdnsServiceImpl {
         Ok((tenants, identity))
     }
 
-    /// Resolve a region slug to its `ddns` control base URL from the catalog.
-    fn ddns_base_for_region(&self, slug: &str) -> Result<String, AppError> {
+    /// Resolve a region slug to its gateway base URL from the catalog.
+    fn gateway_base_for_region(&self, slug: &str) -> Result<String, AppError> {
         self.settings
             .region_catalog
             .iter()
             .find(|e| e.slug == slug)
-            .map(|e| e.ddns_base_url.clone())
+            .map(|e| e.gateway_base_url.clone())
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown DDNS region slug '{slug}'")))
     }
 
@@ -505,7 +506,7 @@ impl DdnsServiceImpl {
 /// Whether `slug` is a syntactically valid vanity slug.
 ///
 /// **Security boundary:** the slug is interpolated into the tenants request URL
-/// (`/v1/availability?slug={slug}`) and signed as part of the `PoP`
+/// (`/tenants/v1/availability?slug={slug}`) and signed as part of the `PoP`
 /// `path_and_query`, so it must be validated **before** building that URL — an
 /// unchecked `/`, `?`, `.` or whitespace would let an admin reshape the request
 /// path. The cloud enforces the authoritative rules (incl. the reserved-name

@@ -4,7 +4,7 @@
 //! exercised end to end.
 //!
 //! Every JWT + `PoP` call first mints a token via the tenants server's
-//! `POST /v1/token`; the [`mount_token`] helper answers it with a JWT-shaped
+//! `POST /tenants/v1/token`; the [`mount_token`] helper answers it with a JWT-shaped
 //! body (see `crate::cloud::tests` for the canonical pattern).
 
 use std::collections::HashMap;
@@ -114,12 +114,12 @@ fn fake_jwt(exp: i64) -> String {
     format!("header.{payload}.sig")
 }
 
-/// Mount `POST /v1/token` on a tenants server, answering with a fresh,
+/// Mount `POST /tenants/v1/token` on a tenants server, answering with a fresh,
 /// far-from-expiry JWT. Required by every JWT + `PoP` call the service makes.
 async fn mount_token(server: &MockServer) {
     let exp = chrono::Utc::now().timestamp() + 3600;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "token": fake_jwt(exp) })))
         .mount(server)
         .await;
@@ -135,7 +135,7 @@ fn settings(
 ) -> DdnsSettings {
     DdnsSettings {
         region_catalog,
-        tenants_base_url: tenants_url,
+        global_gateway_url: tenants_url,
         echo_endpoints: echo,
         cf_base_url: String::new(),
         doh_resolvers: vec![],
@@ -146,8 +146,8 @@ fn settings(
 fn region_catalog(slug: &str, ddns: &MockServer) -> Vec<RegionEndpoint> {
     vec![RegionEndpoint {
         slug: slug.to_owned(),
-        ddns_base_url: ddns.uri(),
-        health_url: format!("{}/v1/health", ddns.uri()),
+        gateway_base_url: ddns.uri(),
+        health_url: format!("{}/ddns/v1/health", ddns.uri()),
     }]
 }
 
@@ -243,7 +243,7 @@ async fn request_enrollment_code_requires_admin() {
 async fn request_enrollment_code_posts_email_and_purpose() {
     let tenants = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/verification-codes"))
+        .and(path("/tenants/v1/verification-codes"))
         .and(body_json(
             json!({ "email": "a@b.com", "purpose": "enrollment" }),
         ))
@@ -284,7 +284,7 @@ async fn request_enrollment_code_rejects_invalid_email_locally() {
 async fn enroll_persists_key_and_tenant_id() {
     let tenants = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/enroll"))
+        .and(path("/tenants/v1/enroll"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "tenant_id": "t-1" })))
         .expect(1)
         .mount(&tenants)
@@ -335,7 +335,7 @@ async fn check_slug_returns_available() {
     let tenants = MockServer::start().await;
     mount_token(&tenants).await;
     Mock::given(method("GET"))
-        .and(path("/v1/availability"))
+        .and(path("/tenants/v1/availability"))
         .and(query_param("slug", "alice"))
         .and(header_exists("authorization"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "available": true })))
@@ -361,7 +361,7 @@ async fn check_slug_returns_taken() {
     let tenants = MockServer::start().await;
     mount_token(&tenants).await;
     Mock::given(method("GET"))
-        .and(path("/v1/availability"))
+        .and(path("/tenants/v1/availability"))
         .and(query_param("slug", "taken"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "available": false })))
         .mount(&tenants)
@@ -417,7 +417,7 @@ async fn register_network_persists_wardnet_provider() {
     let tenants = MockServer::start().await;
     mount_token(&tenants).await;
     Mock::given(method("POST"))
-        .and(path("/v1/networks"))
+        .and(path("/tenants/v1/networks"))
         .and(body_json(json!({ "slug": "alice", "region": "use1" })))
         .and(header_exists("authorization"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -437,7 +437,7 @@ async fn register_network_persists_wardnet_provider() {
     // The region health probe (`select_best`) must see a reachable region.
     let ddns = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/v1/health"))
+        .and(path("/ddns/v1/health"))
         .respond_with(ResponseTemplate::new(200))
         .mount(&ddns)
         .await;
@@ -504,7 +504,7 @@ async fn refresh_skips_when_ip_unchanged() {
     let tenants = MockServer::start().await;
     let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/ip"))
+        .and(path("/ddns/v1/ip"))
         .respond_with(ResponseTemplate::new(204))
         .expect(0) // must NOT be called when the IP is unchanged
         .mount(&ddns)
@@ -538,7 +538,7 @@ async fn refresh_publishes_when_ip_changed() {
     mount_token(&tenants).await;
     let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/ip"))
+        .and(path("/ddns/v1/ip"))
         .and(body_json(json!({ "ip": "9.9.9.9" })))
         .and(header_exists("authorization"))
         .respond_with(ResponseTemplate::new(204))
@@ -618,7 +618,7 @@ async fn set_acme_challenge_publishes_txt_via_ddns() {
     mount_token(&tenants).await;
     let ddns = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/v1/acme-challenge"))
+        .and(path("/ddns/v1/acme-challenge"))
         .and(body_json(
             json!({ "values": ["apex-value", "wildcard-value"] }),
         ))
@@ -652,7 +652,7 @@ async fn clear_acme_challenge_deletes_txt_via_ddns() {
     mount_token(&tenants).await;
     let ddns = MockServer::start().await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/acme-challenge"))
+        .and(path("/ddns/v1/acme-challenge"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
         .mount(&ddns)
@@ -682,7 +682,7 @@ async fn token_403_surfaces_as_forbidden() {
     // the wizard can drive the Suspended state, not a generic outage.
     let tenants = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/token"))
+        .and(path("/tenants/v1/token"))
         .respond_with(ResponseTemplate::new(403).set_body_string("subscription is not active"))
         .mount(&tenants)
         .await;
@@ -726,7 +726,7 @@ async fn cf_zones_server() -> MockServer {
 fn cloudflare_settings(cf: &MockServer) -> DdnsSettings {
     DdnsSettings {
         region_catalog: vec![],
-        tenants_base_url: String::new(),
+        global_gateway_url: String::new(),
         echo_endpoints: vec![],
         cf_base_url: cf.uri(),
         doh_resolvers: vec![],
@@ -875,7 +875,7 @@ async fn teardown_removes_daemon_and_wipes_state() {
     mount_token(&tenants).await;
     // The per-daemon removal endpoint must be hit exactly once.
     Mock::given(method("DELETE"))
-        .and(path("/v1/networks/net-1/daemons/self"))
+        .and(path("/tenants/v1/networks/net-1/daemons/self"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
         .mount(&tenants)
@@ -968,7 +968,7 @@ async fn switching_to_cloudflare_deregisters_old_wardnet() {
     let tenants = MockServer::start().await;
     mount_token(&tenants).await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/networks/net-1/daemons/self"))
+        .and(path("/tenants/v1/networks/net-1/daemons/self"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
         .mount(&tenants)
@@ -985,7 +985,7 @@ async fn switching_to_cloudflare_deregisters_old_wardnet() {
         secrets.clone(),
         DdnsSettings {
             region_catalog: region_catalog("use1", &ddns),
-            tenants_base_url: tenants.uri(),
+            global_gateway_url: tenants.uri(),
             echo_endpoints: vec![],
             cf_base_url: cf.uri(),
             doh_resolvers: vec![],
@@ -1033,7 +1033,7 @@ async fn doh_server(status: u32, answer_ips: &[&str]) -> MockServer {
 fn resolution_settings(doh: &MockServer) -> DdnsSettings {
     DdnsSettings {
         region_catalog: vec![],
-        tenants_base_url: String::new(),
+        global_gateway_url: String::new(),
         echo_endpoints: vec![],
         cf_base_url: String::new(),
         doh_resolvers: vec![format!("{}/dns-query", doh.uri())],

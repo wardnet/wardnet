@@ -78,7 +78,9 @@
 
 **Region slug** — A short identifier for a wardnet region (e.g. `use1`). It selects which regional **DDNS service** endpoint the daemon talks to (resolved through the **region catalog**) and is returned at registration for display.
 
-**Region catalog** — The built-in, daemon-shipped table mapping each **region slug** to its regional **DDNS service** base URL (an `ddns.svc.<…>.wardnet.network` FQDN). The cloud cannot supply this (each regional service is region-specific), so the daemon must already know it. At registration the daemon probes every catalogued region's health endpoint and registers against the lowest-latency one. (The production FQDNs are a daemon constant pending infra confirmation.)
+**Region catalog** — The built-in, daemon-shipped table mapping each **region slug** to its regional **cloud gateway** base URL (an `api.<region-slug>.wardnet.network` FQDN). The cloud cannot supply this (each regional gateway is region-specific), so the daemon must already know it. At registration the daemon probes every catalogued region's health endpoint and registers against the lowest-latency one. (The production FQDNs are a daemon constant pending infra confirmation.)
+
+**Cloud gateway** — The per-scope north-south edge the daemon HTTPS-es into to reach wardnet-cloud (wardnet-cloud ADR-0014 / inforge ADR-0032): one **global** gateway fronting the **tenants service**, and one gateway per region fronting that region's **regional plane** (DDNS + Tunneler). The target service is the first path segment (`/tenants/…`, `/ddns/…`, `/tunneller/…`) and the gateway forwards the path unmodified, so the daemon's Ed25519 **PoP** signature is computed over the full prefixed path it puts on the wire. TLS is an ordinary public server certificate; the daemon presents no client certificate (the cloud's internal mesh mTLS is invisible to it).
 
 **Vanity name** — A user's chosen slug (e.g. `alice`) forming the flat, region-free user host `<vanity>.my.wardnet.services`. Validated `[a-z0-9-]`, 3–32 chars. The region is deliberately *not* in the name (it lives in the record's value and in infra names only), so a user can be migrated between regions without changing their host, bookmarks, or certificate. Per-service hosts nest under it: `<service>.<vanity>.my.wardnet.services`. See [adr-two-domain-strategy.md](docs/adr-two-domain-strategy.md).
 
@@ -140,7 +142,7 @@
 
 **Slug** — A tenant's chosen vanity label (e.g. `happy-einstein`) forming the flat, region-free host `<slug>.my.wardnet.services`. Validated `[a-z0-9-]`, 3–32 chars, no leading/trailing hyphen, unreserved. (Synonym for the older **vanity name**.)
 
-**Enrollment code** — A one-time code emailed to a **tenant**'s account address that the daemon requests on the operator's behalf (`POST /api/ddns/enrollment-code` → tenants `POST /v1/verification-codes {email, purpose:"enrollment"}`). Submitting it to *enroll* binds the **daemon identity** to the tenant. Replaces the old reinstall **magic-link**: a fresh box wipes-and-re-enrolls (no migration).
+**Enrollment code** — A one-time code emailed to a **tenant**'s account address that the daemon requests on the operator's behalf (`POST /api/ddns/enrollment-code` → tenants `POST /tenants/v1/verification-codes {email, purpose:"enrollment"}`). Submitting it to *enroll* binds the **daemon identity** to the tenant. Replaces the old reinstall **magic-link**: a fresh box wipes-and-re-enrolls (no migration).
 
 **Daemon identity** — The per-box cloud identity: an **Ed25519** seed in the daemon `SecretStore` (`SECRET_DAEMON_KEY`, generated at *enroll*), an in-memory cached **identity JWT**, and the shared **entitlement** flag. Authenticates every cloud call as this box; see [adr-daemon-cloud-auth.md](docs/adr-daemon-cloud-auth.md).
 
@@ -152,9 +154,9 @@
 
 ## Service decomposition
 
-**Tenants service** — The *global* service and database (at `account.wardnet.network`). Owns **tenants**, billing/Stripe linkage, the **global naming authority** (slug allocation), enrollment (verification codes, identity binding), and **identity JWT** minting. Lowest-traffic, most security-sensitive — isolating it from the internet-facing planes is the primary reason to split, ahead of scaling.
+**Tenants service** — The *global* service and database, reached through the global **cloud gateway** under `/tenants/…`. Owns **tenants**, billing/Stripe linkage, the **global naming authority** (slug allocation), enrollment (verification codes, identity binding), and **identity JWT** minting. Lowest-traffic, most security-sensitive — isolating it from the internet-facing planes is the primary reason to split, ahead of scaling.
 
-**Per-service cloud client** — The daemon's `cloud/` module: a `TenantsClient` (bound to the global tenants endpoint) and a `DdnsClient` (bound to a regional **DDNS service** endpoint from the **region catalog**), each addressing its own origin but sharing one **daemon identity**. See [adr-per-service-cloud-clients.md](docs/adr-per-service-cloud-clients.md).
+**Per-service cloud client** — The daemon's `cloud/` module: a `TenantsClient` (bound to the global **cloud gateway**) and a `DdnsClient` (bound to a regional gateway from the **region catalog**), each addressing its own service by path prefix but sharing one **daemon identity**. See [adr-per-service-cloud-clients.md](docs/adr-per-service-cloud-clients.md).
 
 **Regional plane** — The **DDNS** and **Tunneler** services, deployed per region behind the **edge SNI demux**. The daemon pins a region at registration (lowest-latency probe) and stays. Each holds only regional/operational state and authorizes calls by the **identity JWT** bearer rather than the global DB. DDNS writes into the global Cloudflare zone; the Tunneler accepts the daemon's relay connection at its PoP.
 

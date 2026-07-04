@@ -5,8 +5,12 @@
 //! the network plane (slug availability, network registration, per-daemon
 //! removal). Account/SPA/OAuth endpoints are not the daemon's concern.
 //!
-//! tenants is **global** (one deployment), so its base URL is a single constant,
-//! unlike the per-region [`DdnsClient`](super::ddns::DdnsClient).
+//! tenants is **global** (one deployment) behind the global north-south
+//! **gateway** (cloud ADR-0014 / inforge ADR-0032), so its base URL is a single
+//! constant, unlike the per-region [`DdnsClient`](super::ddns::DdnsClient). The
+//! gateway routes by the first path segment, so every path here carries the
+//! `/tenants/` prefix — and, because the gateway is path-preserving, that full
+//! prefixed path is exactly what the cloud verifies the `PoP` signature against.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +18,14 @@ use super::CloudError;
 use super::identity::DaemonIdentity;
 use super::request::{self, Auth};
 
-/// Code-request endpoint. Targets the converged `POST /v1/verification-codes`
-/// resource from wardnet-cloud #20, which supersedes `POST /v1/enrollment-codes`
-/// (today's live path). Kept as a single constant so the coordinated switch is a
-/// one-line change; the daemon release lands with #20.
+/// Gateway path-routing prefix: the first path segment selecting the tenants
+/// service. Prepended once, in [`TenantsClient::send`], so every call is
+/// prefixed (and therefore `PoP`-signed) structurally rather than per literal.
+const SERVICE_PREFIX: &str = "/tenants";
+
+/// Code-request endpoint: the converged `POST /v1/verification-codes` resource
+/// from wardnet-cloud #20 (supersedes `POST /v1/enrollment-codes`). Kept as a
+/// single constant so a path change stays one line.
 const ENROLLMENT_CODE_PATH: &str = "/v1/verification-codes";
 /// The `purpose` discriminator bound into the requested code (prevents a code
 /// issued for enrollment being spent on signup/reset).
@@ -45,10 +53,35 @@ pub struct TenantsClient {
 
 impl TenantsClient {
     /// Build a client sharing the pooled `http` and pointed at `base_url`
-    /// (production: the global `account.wardnet.network`; tests: a wiremock URL).
+    /// (production: the global gateway `api.wardnet.network`; tests: a wiremock
+    /// URL).
     #[must_use]
     pub fn new(http: reqwest::Client, base_url: String) -> Self {
         Self { http, base_url }
+    }
+
+    /// Send `{SERVICE_PREFIX}{path_and_query}` — the single funnel every
+    /// tenants call goes through, so a new endpoint cannot forget the gateway
+    /// prefix (a valid signature over an un-prefixed path would misroute at
+    /// the gateway). The prefixed string is built once and passed whole to
+    /// [`request::send`], preserving its "sign exactly what you send"
+    /// invariant.
+    async fn send(
+        &self,
+        auth: Auth<'_>,
+        method: reqwest::Method,
+        path_and_query: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<reqwest::Response, CloudError> {
+        request::send(
+            &self.http,
+            &self.base_url,
+            auth,
+            method,
+            &format!("{SERVICE_PREFIX}{path_and_query}"),
+            body,
+        )
+        .await
     }
 
     // ── bootstrap plane (no JWT) ────────────────────────────────────────────
@@ -61,15 +94,14 @@ impl TenantsClient {
             purpose: ENROLLMENT_CODE_PURPOSE,
         })
         .map_err(|e| CloudError::Upstream(e.into()))?;
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Public,
-            reqwest::Method::POST,
-            ENROLLMENT_CODE_PATH,
-            Some(body),
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Public,
+                reqwest::Method::POST,
+                ENROLLMENT_CODE_PATH,
+                Some(body),
+            )
+            .await?;
         request::ok(resp).await.map(drop)
     }
 
@@ -81,15 +113,14 @@ impl TenantsClient {
             public_key: public_key_b64,
         })
         .map_err(|e| CloudError::Upstream(e.into()))?;
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Public,
-            reqwest::Method::POST,
-            "/v1/enroll",
-            Some(body),
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Public,
+                reqwest::Method::POST,
+                "/v1/enroll",
+                Some(body),
+            )
+            .await?;
         let parsed: EnrollResponse = request::json(request::ok(resp).await?).await?;
         Ok(parsed.tenant_id)
     }
@@ -106,15 +137,14 @@ impl TenantsClient {
             public_key: identity.public_key_b64(),
         })
         .map_err(|e| CloudError::Upstream(e.into()))?;
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Pop(identity),
-            reqwest::Method::POST,
-            "/v1/token",
-            Some(body),
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Pop(identity),
+                reqwest::Method::POST,
+                "/v1/token",
+                Some(body),
+            )
+            .await?;
         if request::is(&resp, reqwest::StatusCode::FORBIDDEN) {
             identity.mark_unentitled();
             return Err(CloudError::EntitlementLost);
@@ -137,15 +167,14 @@ impl TenantsClient {
         identity: &DaemonIdentity,
         slug: &str,
     ) -> Result<bool, CloudError> {
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Full(identity),
-            reqwest::Method::GET,
-            &format!("/v1/availability?slug={slug}"),
-            None,
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Full(identity),
+                reqwest::Method::GET,
+                &format!("/v1/availability?slug={slug}"),
+                None,
+            )
+            .await?;
         let parsed: AvailabilityResponse = request::json(request::ok(resp).await?).await?;
         Ok(parsed.available)
     }
@@ -166,15 +195,14 @@ impl TenantsClient {
             region,
         })
         .map_err(|e| CloudError::Upstream(e.into()))?;
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Full(identity),
-            reqwest::Method::POST,
-            "/v1/networks",
-            Some(body),
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Full(identity),
+                reqwest::Method::POST,
+                "/v1/networks",
+                Some(body),
+            )
+            .await?;
         let view: NetworkView = request::json(request::ok(resp).await?).await?;
         Ok(NetworkRegistration {
             network_id: view.id,
@@ -194,15 +222,14 @@ impl TenantsClient {
         identity: &DaemonIdentity,
         network_id: &str,
     ) -> Result<(), CloudError> {
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Full(identity),
-            reqwest::Method::DELETE,
-            &format!("/v1/networks/{network_id}/daemons/self"),
-            None,
-        )
-        .await?;
+        let resp = self
+            .send(
+                Auth::Full(identity),
+                reqwest::Method::DELETE,
+                &format!("/v1/networks/{network_id}/daemons/self"),
+                None,
+            )
+            .await?;
         request::ok(resp).await.map(drop)
     }
 }

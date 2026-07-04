@@ -1,10 +1,13 @@
 //! Client for the **ddns** service — the regional report-IP + ACME DNS-01 proxy
 //! — and the [`WardnetDnsProvider`] that adapts it to the [`DnsProvider`] trait.
 //!
-//! ddns is **regional**: its base URL comes from the region catalog
-//! (`https://ddns.svc.<region>…` — the daemon dials the FQDN directly, so TLS SNI
-//! is the hostname automatically). Every call is network-scoped JWT + `PoP`; the
-//! network is taken from the JWT `net` claim, so paths carry no id.
+//! ddns is **regional**, reached through the region's north-south **gateway**
+//! (cloud ADR-0014 / inforge ADR-0032): the base URL from the region catalog is
+//! the gateway host (`https://api.<region-slug>…`), and the `/ddns/` path prefix
+//! selects the service. The gateway is path-preserving, so the prefixed path is
+//! also what the cloud verifies the `PoP` signature against. Every call is
+//! network-scoped JWT + `PoP`; the network is taken from the JWT `net` claim, so
+//! paths carry no id.
 //!
 //! [`WardnetDnsProvider`] is the wardnet-managed sibling of the BYOD
 //! [`CloudflareProvider`](crate::ddns::cloudflare::CloudflareProvider): publish A
@@ -24,21 +27,27 @@ use super::request::{self, Auth};
 use super::tenants::TenantsClient;
 use crate::ddns::provider::DnsProvider;
 
-/// A client for a region's ddns service at `base_url`.
+/// Gateway path-routing prefix: the first path segment selecting the ddns
+/// service. Prepended once, in [`DdnsClient::send`], so every call is prefixed
+/// (and therefore `PoP`-signed) structurally rather than per literal.
+const SERVICE_PREFIX: &str = "/ddns";
+
+/// A client for a region's ddns service behind the regional gateway at
+/// `base_url`.
 pub struct DdnsClient {
     http: reqwest::Client,
     base_url: String,
 }
 
 impl DdnsClient {
-    /// Build a client sharing the pooled `http` and pointed at the region's ddns
-    /// `base_url` (e.g. `https://ddns.svc.prd.use1.wardnet.network`).
+    /// Build a client sharing the pooled `http` and pointed at the region's
+    /// gateway `base_url` (e.g. `https://api.use1.wardnet.network`).
     #[must_use]
     pub fn new(http: reqwest::Client, base_url: String) -> Self {
         Self { http, base_url }
     }
 
-    /// Publish the network's public **A** record (`PUT /v1/ip`).
+    /// Publish the network's public **A** record (`PUT /ddns/v1/ip`).
     pub async fn report_ip(
         &self,
         identity: &DaemonIdentity,
@@ -50,7 +59,7 @@ impl DdnsClient {
         request::ok(resp).await.map(drop)
     }
 
-    /// Publish the `_acme-challenge` TXT value(s) (`PUT /v1/acme-challenge`).
+    /// Publish the `_acme-challenge` TXT value(s) (`PUT /ddns/v1/acme-challenge`).
     pub async fn set_acme_challenge(
         &self,
         identity: &DaemonIdentity,
@@ -62,18 +71,17 @@ impl DdnsClient {
         request::ok(resp).await.map(drop)
     }
 
-    /// Remove the `_acme-challenge` TXT records (`DELETE /v1/acme-challenge`).
+    /// Remove the `_acme-challenge` TXT records (`DELETE /ddns/v1/acme-challenge`).
     /// Idempotent.
     pub async fn clear_acme_challenge(&self, identity: &DaemonIdentity) -> Result<(), CloudError> {
-        let resp = request::send(
-            &self.http,
-            &self.base_url,
-            Auth::Full(identity),
-            reqwest::Method::DELETE,
-            "/v1/acme-challenge",
-            None,
-        )
-        .await?;
+        let resp = self
+            .send(
+                reqwest::Method::DELETE,
+                "/v1/acme-challenge",
+                identity,
+                None,
+            )
+            .await?;
         request::ok(resp).await.map(drop)
     }
 
@@ -83,12 +91,28 @@ impl DdnsClient {
         identity: &DaemonIdentity,
         body: Option<Vec<u8>>,
     ) -> Result<reqwest::Response, CloudError> {
+        self.send(reqwest::Method::PUT, path, identity, body).await
+    }
+
+    /// Send `{SERVICE_PREFIX}{path_and_query}` — the single funnel every ddns
+    /// call goes through, so a new endpoint cannot forget the gateway prefix
+    /// (a valid signature over an un-prefixed path would misroute at the
+    /// gateway). The prefixed string is built once and passed whole to
+    /// [`request::send`], preserving its "sign exactly what you send"
+    /// invariant.
+    async fn send(
+        &self,
+        method: reqwest::Method,
+        path_and_query: &str,
+        identity: &DaemonIdentity,
+        body: Option<Vec<u8>>,
+    ) -> Result<reqwest::Response, CloudError> {
         request::send(
             &self.http,
             &self.base_url,
             Auth::Full(identity),
-            reqwest::Method::PUT,
-            path,
+            method,
+            &format!("{SERVICE_PREFIX}{path_and_query}"),
             body,
         )
         .await
