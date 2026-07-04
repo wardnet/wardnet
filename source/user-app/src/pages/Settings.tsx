@@ -1,4 +1,4 @@
-import { BellIcon, WifiOffIcon } from "lucide-react";
+import { WifiOffIcon } from "lucide-react";
 import {
   ApiErrorAlert,
   Card,
@@ -8,10 +8,59 @@ import {
   RuleRequestStatusPill,
   Text,
   Toggle,
+  isIosBrowserTab,
   useMyDevice,
   useMyRuleRequests,
+  usePushNotifications,
   useSetMyCaptureEnabled,
 } from "@wardnet/web";
+
+/**
+ * Notifications card (issue #594): enable/disable Web Push for this browser.
+ * Subscriptions are device-keyed on the daemon — the device gets notified
+ * when an admin locks/unlocks or changes its routing.
+ */
+function Notifications() {
+  const push = usePushNotifications();
+
+  const helperText =
+    push.state === "denied"
+      ? "Notifications are blocked in your browser settings."
+      : push.state === "unsupported"
+        ? isIosBrowserTab()
+          ? "Install the app to your Home Screen to enable notifications."
+          : "Notifications are not supported in this browser."
+        : "Get notified when your administrator locks or changes your " +
+          "device's routing, even when the app is closed.";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notifications</CardTitle>
+        <span className="ml-auto">
+          <Toggle
+            checked={push.state === "subscribed"}
+            onCheckedChange={(checked) =>
+              checked ? void push.subscribe() : void push.unsubscribe()
+            }
+            disabled={
+              push.state === "unsupported" ||
+              push.state === "denied" ||
+              push.isBusy
+            }
+            aria-label="Enable push notifications"
+            data-testid="notifications-toggle"
+          />
+        </span>
+      </CardHeader>
+      <CardContent>
+        <Text as="p" size="sm" className="text-ink-3">
+          {helperText}
+        </Text>
+      </CardContent>
+    </Card>
+  );
+}
 
 function MyRequests() {
   const { data, isLoading } = useMyRuleRequests();
@@ -55,7 +104,8 @@ function MyRequests() {
  *
  * The DNS capture toggle flips the device's own `dns_capture_enabled` flag
  * (resolved by IP, no login). Retention caps are admin-owned and shown
- * read-only. Notification settings land in a later stage (#594).
+ * read-only. The notifications toggle registers a device-keyed Web Push
+ * subscription (#594).
  */
 export default function Settings() {
   const { data, isLoading } = useMyDevice();
@@ -142,19 +192,7 @@ export default function Settings() {
 
       <MyRequests />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Notifications</CardTitle>
-          <span className="ml-auto text-ink-3">
-            <BellIcon className="size-4" />
-          </span>
-        </CardHeader>
-        <CardContent>
-          <Text as="p" size="sm" className="text-ink-3">
-            Push notifications about your device are coming soon.
-          </Text>
-        </CardContent>
-      </Card>
+      <Notifications />
     </div>
   );
 }
