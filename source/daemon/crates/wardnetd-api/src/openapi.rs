@@ -40,6 +40,7 @@ use wardnetd_services::version::RELEASE_VERSION;
     modifiers(&SecurityAddon),
     tags(
         (name = "auth", description = "Session login / logout"),
+        (name = "users", description = "Authenticated admin identity"),
         (name = "setup", description = "First-run setup wizard"),
         (name = "info", description = "Unauthenticated daemon info"),
         (name = "devices", description = "Device discovery and routing"),

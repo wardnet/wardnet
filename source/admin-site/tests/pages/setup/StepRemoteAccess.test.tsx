@@ -40,7 +40,7 @@ vi.mock("@/components/features/wardnet-enrollment", () => ({
   CloudflareFields: () => <div data-testid="cloudflare-fields" />,
 }));
 
-import Step7RemoteAccess from "@/pages/setup/Step7RemoteAccess";
+import StepRemoteAccess from "@/pages/setup/StepRemoteAccess";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -102,6 +102,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   advanceMutate.mockResolvedValue(undefined);
   useAdvanceWizard.mockReturnValue({
+    mutate: advanceMutate,
     mutateAsync: advanceMutate,
     isPending: false,
   });
@@ -109,9 +110,9 @@ beforeEach(() => {
   mockEnrollment();
 });
 
-describe("Step7RemoteAccess", () => {
+describe("StepRemoteAccess", () => {
   it("renders the wardnet provider form with a Send code action", () => {
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     expect(screen.getByText("Remote access (HTTPS)")).toBeInTheDocument();
     expect(screen.getByTestId("wardnet-fields")).toBeInTheDocument();
     expect(
@@ -122,7 +123,7 @@ describe("Step7RemoteAccess", () => {
   it("sends the code when email is valid", async () => {
     mockEnrollment({ email: "a@b.com" });
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await user.click(screen.getByRole("button", { name: "Send code" }));
     expect(sendCode).toHaveBeenCalled();
   });
@@ -130,7 +131,7 @@ describe("Step7RemoteAccess", () => {
   it("verifies the code on the code step", async () => {
     mockEnrollment({ wardnetStep: "code", code: "123456" });
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await user.click(screen.getByRole("button", { name: "Verify code" }));
     expect(verifyCode).toHaveBeenCalled();
   });
@@ -138,7 +139,7 @@ describe("Step7RemoteAccess", () => {
   it("registers on the slug step", async () => {
     mockEnrollment({ wardnetStep: "slug" });
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await user.click(
       screen.getByRole("button", { name: "Enable remote access" }),
     );
@@ -152,7 +153,7 @@ describe("Step7RemoteAccess", () => {
       token: "tok",
     });
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     expect(screen.getByTestId("cloudflare-fields")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Enable remote access" }),
@@ -160,29 +161,32 @@ describe("Step7RemoteAccess", () => {
     expect(enableCloudflare).toHaveBeenCalled();
   });
 
-  it("skips by advancing to completed", async () => {
+  it("skips by advancing to review", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await user.click(screen.getByTestId("setup-remote-access-skip"));
     await waitFor(() =>
-      expect(advanceMutate).toHaveBeenCalledWith({ to_step: "completed" }),
+      expect(advanceMutate).toHaveBeenCalledWith({ to_step: "review" }),
     );
   });
 
-  it("surfaces an error message when finish fails", async () => {
-    advanceMutate.mockRejectedValueOnce(
-      new WardnetApiError(500, "err", { error: "advance boom" }),
-    );
-    const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
-    await user.click(screen.getByTestId("setup-remote-access-skip"));
-    await waitFor(() =>
-      expect(screen.getByText("advance boom")).toBeInTheDocument(),
-    );
+  it("surfaces an error message when finish fails", () => {
+    // Advance failures surface via the mutation's error state rather
+    // than a thrown promise (goNext is fire-and-forget).
+    useAdvanceWizard.mockReturnValue({
+      mutate: advanceMutate,
+      mutateAsync: advanceMutate,
+      isPending: false,
+      isError: true,
+    });
+    renderWithProviders(<StepRemoteAccess />);
+    expect(
+      screen.getByText("Couldn't save progress — try again."),
+    ).toBeInTheDocument();
   });
 
   it("swaps to the live-progress view after provisioning starts", async () => {
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await act(async () => capturedOpts.onProvisioned());
     expect(
       screen.getByText("Starting certificate issuance…"),
@@ -196,15 +200,17 @@ describe("Step7RemoteAccess", () => {
 
   it("shows the progress component and Finish once issued", async () => {
     useTlsStatus.mockReturnValue({ data: { phase: "issued" } });
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await act(async () => capturedOpts.onProvisioned());
     expect(screen.getByTestId("ra-progress")).toHaveTextContent("phase:issued");
-    expect(screen.getByRole("button", { name: "Finish" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue" }),
+    ).toBeInTheDocument();
   });
 
   it("shows the upstream-down view on a 503 and can go back", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await act(async () =>
       capturedOpts.onError(new WardnetApiError(503, "err", { error: "down" })),
     );
@@ -216,7 +222,7 @@ describe("Step7RemoteAccess", () => {
   });
 
   it("shows a form error for a non-upstream API error", async () => {
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await act(async () =>
       capturedOpts.onError(
         new WardnetApiError(400, "err", { error: "bad token" }),
@@ -226,7 +232,7 @@ describe("Step7RemoteAccess", () => {
   });
 
   it("shows a generic error for a non-API failure", async () => {
-    renderWithProviders(<Step7RemoteAccess />);
+    renderWithProviders(<StepRemoteAccess />);
     await act(async () => capturedOpts.onError(new Error("boom")));
     expect(screen.getByText(/Couldn't reach the daemon/)).toBeInTheDocument();
   });

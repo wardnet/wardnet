@@ -32,6 +32,9 @@ struct AlwaysAuthService;
 
 #[async_trait]
 impl AuthService for AlwaysAuthService {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
     async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }

@@ -82,13 +82,13 @@ describe("setup wizard", () => {
     expect((caught as { status?: number }).status).toBe(409);
   });
 
-  it("walks the primary path through to completed", async (ctx) => {
-    // Only meaningful from a fresh "admin" state — when other specs
-    // have already drained the wizard, every advance to an earlier
-    // step would 400 as a rewind. The deterministic walk is in
-    // `wizard.rs::advance_wizard_persists_step_and_mode`; skip cleanly
-    // here so this spec stays useful in fresh runs without failing
-    // the typical mixed run.
+  it("walks the primary path (with a rewind detour) through to completed", async (ctx) => {
+    // Only meaningful from a fresh "admin" state — once the wizard is
+    // completed (as it is after other specs drain it), it becomes
+    // terminal and every transition below would 400. The deterministic
+    // walk is in `wizard.rs::advance_wizard_persists_step_and_mode`;
+    // skip cleanly here so this spec stays useful in fresh runs
+    // without failing the typical mixed run.
     const start = await setup.getStatus();
     if (start.wizard_step !== "admin" && start.wizard_step !== "network") {
       ctx.skip();
@@ -96,7 +96,16 @@ describe("setup wizard", () => {
     }
 
     const authedSetup = new SetupService(authed);
-    const order = ["network", "dhcp", "router_mac", "tunnel", "policy", "completed"] as const;
+    const order = [
+      "network",
+      "dhcp",
+      "router_mac",
+      "dns",
+      "tunnel",
+      "policy",
+      "remote_access",
+      "review",
+    ] as const;
     let mode: "primary" | "locked_router" | undefined;
 
     // Walk only from the current step forward — same-step advances
@@ -113,16 +122,28 @@ describe("setup wizard", () => {
     }
     expect(mode).toBe("primary");
 
+    // Rewind detour: from review the operator can jump back to any
+    // step down to the `network` floor and forward again — the rail's
+    // back-navigation depends on this.
+    const rewound = await authedSetup.advance({ to_step: "dns" });
+    expect(rewound.wizard_step).toBe("dns");
+    const resumed = await authedSetup.advance({ to_step: "review" });
+    expect(resumed.wizard_step).toBe("review");
+
+    const done = await authedSetup.advance({ to_step: "completed" });
+    expect(done.wizard_step).toBe("completed");
+
     const final = await setup.getStatus();
     expect(final.wizard_step).toBe("completed");
     expect(final.setup_completed).toBe(true);
     expect(final.wizard_mode).toBe("primary");
   });
 
-  it("rejects rewinding the wizard with 400", async (ctx) => {
-    // Need a wizard that's at least one step past `admin` to have
-    // somewhere to rewind from. After the walk above (and after most
-    // other spec files run), the wizard is at `completed` — perfect.
+  it("rejects rewinding the wizard to admin with 400", async (ctx) => {
+    // Rewinds are allowed down to `network`, but never to `admin`
+    // (admin creation is one-shot) and never out of `completed`
+    // (terminal). After the walk above (and after most other spec
+    // files run), the wizard is at `completed` — either rule 400s.
     // If we somehow start at `admin`, no rewind target exists.
     const status = await setup.getStatus();
     if (status.wizard_step === "admin") {

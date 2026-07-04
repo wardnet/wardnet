@@ -12,7 +12,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   return { ...actual, useAdvanceWizard, useDiscoverGatewayMac };
 });
 
-import Step4RouterMac from "@/pages/setup/Step4RouterMac";
+import StepRouterMac from "@/pages/setup/StepRouterMac";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -35,21 +35,22 @@ beforeEach(() => {
   advanceMutate.mockResolvedValue(undefined);
   probeMutateAsync.mockResolvedValue(undefined);
   useAdvanceWizard.mockReturnValue({
+    mutate: advanceMutate,
     mutateAsync: advanceMutate,
     isPending: false,
   });
   setProbe();
 });
 
-describe("Step4RouterMac", () => {
+describe("StepRouterMac", () => {
   it("auto-fires the ARP probe on mount", () => {
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     expect(probeMutate).toHaveBeenCalledWith({});
   });
 
   it("shows the probing message while pending with no mac", () => {
     setProbe({ isPending: true });
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     expect(
       screen.getByText("Probing the gateway via ARP…"),
     ).toBeInTheDocument();
@@ -57,7 +58,7 @@ describe("Step4RouterMac", () => {
 
   it("renders a discovered MAC (ARP) and a Continue button", () => {
     setProbe({ data: { mac: "00:11:22:AA:BB:CC", source: "arp" } });
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     expect(screen.getByText("Discovered via ARP")).toBeInTheDocument();
     expect(screen.getByText("00:11:22:AA:BB:CC")).toBeInTheDocument();
     expect(screen.getByTestId("setup-router-mac-continue")).toHaveTextContent(
@@ -67,14 +68,14 @@ describe("Step4RouterMac", () => {
 
   it("labels a non-ARP source as Recorded", () => {
     setProbe({ data: { mac: "00:11:22:AA:BB:CC", source: "manual" } });
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     expect(screen.getByText("Recorded")).toBeInTheDocument();
   });
 
   it("shows the manual-entry form after a failed probe and submits a valid MAC", async () => {
     setProbe({ isError: true });
     const user = userEvent.setup();
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     const input = screen.getByPlaceholderText("00:11:22:AA:BB:CC");
     await user.type(input, "00:11:22:AA:BB:CC");
     await user.click(screen.getByRole("button", { name: "Save MAC" }));
@@ -92,7 +93,7 @@ describe("Step4RouterMac", () => {
   it("blocks submit of an invalid MAC (mutation not called)", async () => {
     setProbe({ isError: true });
     const user = userEvent.setup();
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     await user.type(screen.getByPlaceholderText("00:11:22:AA:BB:CC"), "nope");
     await user.click(screen.getByRole("button", { name: "Save MAC" }));
     await waitFor(() =>
@@ -103,23 +104,24 @@ describe("Step4RouterMac", () => {
     expect(probeMutateAsync).not.toHaveBeenCalled();
   });
 
-  it("advances to tunnel on continue", async () => {
+  it("advances to dns on continue", async () => {
     setProbe({ data: { mac: "00:11:22:AA:BB:CC", source: "arp" } });
     const user = userEvent.setup();
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     await user.click(screen.getByTestId("setup-router-mac-continue"));
     await waitFor(() =>
-      expect(advanceMutate).toHaveBeenCalledWith({ to_step: "tunnel" }),
+      expect(advanceMutate).toHaveBeenCalledWith({ to_step: "dns" }),
     );
   });
 
   it("shows 'Saving…' while advance is pending", () => {
     setProbe({ data: { mac: "00:11:22:AA:BB:CC", source: "arp" } });
     useAdvanceWizard.mockReturnValue({
+      mutate: advanceMutate,
       mutateAsync: advanceMutate,
       isPending: true,
     });
-    renderWithProviders(<Step4RouterMac />);
+    renderWithProviders(<StepRouterMac />);
     expect(screen.getByTestId("setup-router-mac-continue")).toHaveTextContent(
       "Saving…",
     );

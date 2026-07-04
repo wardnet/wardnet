@@ -27,6 +27,9 @@ impl MockAdminRepo {
 
 #[async_trait]
 impl AdminRepository for MockAdminRepo {
+    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
+        Ok(Some("admin".to_owned()))
+    }
     async fn find_by_username(&self, _username: &str) -> anyhow::Result<Option<(String, String)>> {
         Ok(None)
     }

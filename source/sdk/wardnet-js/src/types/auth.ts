@@ -17,3 +17,9 @@ export interface LoginResponse {
   token: string;
   expiresInSeconds: number;
 }
+
+/** Response body for GET /api/users/me. */
+export interface MeResponse {
+  /** Username of the authenticated admin. */
+  username: string;
+}

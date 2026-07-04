@@ -10,15 +10,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
-import { useAdvanceWizard } from "@wardnet/web";
 import { useDhcpSelfProbe } from "@wardnet/web";
 import {
   ROUTER_INSTRUCTIONS,
   findRouterInstruction,
 } from "@/lib/router-instructions";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 
 /**
- * Step 3 — DHCP onboarding.
+ * DHCP step — DHCP onboarding.
  *
  * Branches on the operator's chosen `mode`:
  *
@@ -34,12 +35,12 @@ import {
  * The `wizard_mode` selection is recorded on advance so later steps
  * know which UX variant to render.
  */
-export default function Step3DhcpOnboarding({
+export default function StepDhcp({
   initialMode,
 }: {
   initialMode: WizardMode | null;
 }) {
-  const advance = useAdvanceWizard();
+  const nav = useWizardNav("dhcp");
   const probe = useDhcpSelfProbe();
   const [mode, setMode] = useState<WizardMode>(initialMode ?? "primary");
   const [routerId, setRouterId] = useState<string>(ROUTER_INSTRUCTIONS[0].id);
@@ -53,7 +54,7 @@ export default function Step3DhcpOnboarding({
   const probeBlocked = mode === "primary" && probeResult?.foreign_responded;
 
   function handleContinue() {
-    advance.mutate({ to_step: "router_mac", wizard_mode: mode });
+    nav.goNext({ wizard_mode: mode });
   }
 
   return (
@@ -68,7 +69,13 @@ export default function Step3DhcpOnboarding({
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
+        <label
+          className={
+            mode === "primary"
+              ? "flex cursor-pointer items-start gap-3 rounded-lg border border-accent bg-accent-soft p-3.5"
+              : "flex cursor-pointer items-start gap-3 rounded-lg border border-line-strong bg-elev p-3.5 hover:bg-sunken"
+          }
+        >
           <input
             type="radio"
             name="dhcp-mode"
@@ -77,7 +84,9 @@ export default function Step3DhcpOnboarding({
             onChange={() => setMode("primary")}
             className="mt-1 accent-accent"
           />
-          <div className="flex flex-col gap-1">
+          {/* min-w-0 lets the text column shrink and wrap instead of
+              clipping (flex items refuse to shrink below content width). */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <Text as="span" size="sm" weight="medium" className="text-ink">
               Primary (recommended)
             </Text>
@@ -87,7 +96,13 @@ export default function Step3DhcpOnboarding({
             </Text>
           </div>
         </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
+        <label
+          className={
+            mode === "locked_router"
+              ? "flex cursor-pointer items-start gap-3 rounded-lg border border-accent bg-accent-soft p-3.5"
+              : "flex cursor-pointer items-start gap-3 rounded-lg border border-line-strong bg-elev p-3.5 hover:bg-sunken"
+          }
+        >
           <input
             type="radio"
             name="dhcp-mode"
@@ -97,7 +112,7 @@ export default function Step3DhcpOnboarding({
             onChange={() => setMode("locked_router")}
             className="mt-1 accent-accent"
           />
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <Text as="span" size="sm" weight="medium" className="text-ink">
               Locked router
             </Text>
@@ -197,18 +212,20 @@ export default function Step3DhcpOnboarding({
         </Text>
       )}
 
-      <Button
-        onClick={handleContinue}
-        disabled={advance.isPending || (mode === "primary" && !probeClean)}
-        data-testid="setup-dhcp-continue"
-        className="w-full"
-      >
-        {advance.isPending
-          ? "Saving…"
-          : mode === "primary" && !probeClean
-            ? "Run a clean probe to continue"
-            : "Continue"}
-      </Button>
+      <WizardFooter>
+        <Button
+          onClick={handleContinue}
+          disabled={nav.isPending || (mode === "primary" && !probeClean)}
+          data-testid="setup-dhcp-continue"
+          className="w-full"
+        >
+          {nav.isPending
+            ? "Saving…"
+            : mode === "primary" && !probeClean
+              ? "Run a clean probe to continue"
+              : "Continue"}
+        </Button>
+      </WizardFooter>
     </div>
   );
 }

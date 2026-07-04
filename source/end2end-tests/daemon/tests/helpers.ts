@@ -129,8 +129,28 @@ export async function ensureAdminAndLogin(
 async function drainWizard(authed: AuthedClient): Promise<void> {
   const setup = new SetupService(authed);
   const order: ReadonlyArray<
-    "admin" | "network" | "dhcp" | "router_mac" | "tunnel" | "policy" | "completed"
-  > = ["admin", "network", "dhcp", "router_mac", "tunnel", "policy", "completed"];
+    | "admin"
+    | "network"
+    | "dhcp"
+    | "router_mac"
+    | "dns"
+    | "tunnel"
+    | "policy"
+    | "remote_access"
+    | "review"
+    | "completed"
+  > = [
+    "admin",
+    "network",
+    "dhcp",
+    "router_mac",
+    "dns",
+    "tunnel",
+    "policy",
+    "remote_access",
+    "review",
+    "completed",
+  ];
 
   for (let safety = 0; safety <= order.length; safety += 1) {
     const status = await setup.getStatus();

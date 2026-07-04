@@ -26,6 +26,7 @@ pub mod system;
 pub mod tls;
 pub mod tunnels;
 pub mod update;
+pub mod users;
 pub mod zone_exception;
 
 #[cfg(test)]
@@ -109,6 +110,7 @@ pub fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) 
 pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     let mut r = OpenApiRouter::<AppState>::with_openapi(crate::openapi::ApiDoc::openapi());
     r = auth::register(r);
+    r = users::register(r);
     r = setup::register(r);
     r = info::register(r);
     r = health::register(r);

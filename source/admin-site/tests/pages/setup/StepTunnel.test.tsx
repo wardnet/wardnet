@@ -18,7 +18,7 @@ vi.mock("@/components/features/CreateTunnelInline", () => ({
   ),
 }));
 
-import Step5Tunnel from "@/pages/setup/Step5Tunnel";
+import StepTunnel from "@/pages/setup/StepTunnel";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -29,9 +29,9 @@ beforeEach(() => {
   useTunnels.mockReturnValue({ data: { tunnels: [] } });
 });
 
-describe("Step5Tunnel", () => {
+describe("StepTunnel", () => {
   it("renders the empty state with Add/Skip", () => {
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     expect(screen.getByText(/No tunnels yet/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Add tunnel" }),
@@ -43,7 +43,7 @@ describe("Step5Tunnel", () => {
 
   it("renders singular tunnel-configured summary + Continue", () => {
     useTunnels.mockReturnValue({ data: { tunnels: [{ id: "t1" }] } });
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     expect(screen.getByText(/1 tunnel configured/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Add another tunnel" }),
@@ -57,13 +57,13 @@ describe("Step5Tunnel", () => {
     useTunnels.mockReturnValue({
       data: { tunnels: [{ id: "t1" }, { id: "t2" }] },
     });
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     expect(screen.getByText(/2 tunnels configured/)).toBeInTheDocument();
   });
 
   it("shows the inline create form when Add is clicked", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     await user.click(screen.getByRole("button", { name: "Add tunnel" }));
     expect(screen.getByTestId("create-tunnel-inline")).toHaveTextContent(
       "inline:true",
@@ -72,7 +72,7 @@ describe("Step5Tunnel", () => {
 
   it("advances to policy on skip", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     await user.click(screen.getByTestId("setup-tunnel-skip"));
     expect(advanceMutate).toHaveBeenCalledWith({ to_step: "policy" });
   });
@@ -82,7 +82,7 @@ describe("Step5Tunnel", () => {
       mutate: advanceMutate,
       isPending: true,
     });
-    renderWithProviders(<Step5Tunnel />);
+    renderWithProviders(<StepTunnel />);
     expect(screen.getByTestId("setup-tunnel-skip")).toHaveTextContent(
       "Saving…",
     );

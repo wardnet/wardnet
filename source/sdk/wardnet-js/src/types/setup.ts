@@ -1,19 +1,23 @@
 /**
  * Linear stage in the first-run setup wizard.
  *
- * The wizard advances `admin → network → dhcp → router_mac → tunnel →
- * policy → remote_access → completed`. `setup_completed` (in
- * `SetupStatusResponse` and the `SetupGuard` redirect logic) is derived from
- * `wizard_step === "completed"`.
+ * The wizard advances `admin → network → dhcp → router_mac → dns → tunnel →
+ * policy → remote_access → review → completed`. It may also rewind: any
+ * step down to `network` can be revisited (never `admin` — admin creation
+ * is one-shot), except once `completed` is reached, which is terminal.
+ * `setup_completed` (in `SetupStatusResponse` and the `SetupGuard`
+ * redirect logic) is derived from `wizard_step === "completed"`.
  */
 export type WizardStep =
   | "admin"
   | "network"
   | "dhcp"
   | "router_mac"
+  | "dns"
   | "tunnel"
   | "policy"
   | "remote_access"
+  | "review"
   | "completed";
 
 /**

@@ -92,15 +92,17 @@ export const ADMIN_PASSWORD = `e2e-${createHash("sha256")
 
 // Wizard steps in order (serde snake_case of WizardStep in
 // wardnet-common/src/api.rs). Walked one-by-one so every transition
-// moves strictly forward — the daemon rejects rewinds.
+// moves strictly forward.
 const WIZARD_ORDER = [
   "admin",
   "network",
   "dhcp",
   "router_mac",
+  "dns",
   "tunnel",
   "policy",
   "remote_access",
+  "review",
   "completed",
 ] as const;
 type WizardStep = (typeof WIZARD_ORDER)[number];

@@ -12,7 +12,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   return { ...actual, useAdvanceWizard, useNetworkStatus };
 });
 
-import Step2Network from "@/pages/setup/Step2Network";
+import StepNetwork from "@/pages/setup/StepNetwork";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -27,14 +27,14 @@ beforeEach(() => {
   });
 });
 
-describe("Step2Network", () => {
+describe("StepNetwork", () => {
   it("shows placeholders while loading", () => {
     useNetworkStatus.mockReturnValue({
       data: undefined,
       isLoading: true,
       isError: false,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     expect(screen.getAllByText("…").length).toBeGreaterThan(0);
   });
 
@@ -44,7 +44,7 @@ describe("Step2Network", () => {
       isLoading: false,
       isError: true,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
@@ -59,7 +59,7 @@ describe("Step2Network", () => {
       isLoading: false,
       isError: false,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     expect(screen.getByText("Static (install.sh)")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -75,7 +75,7 @@ describe("Step2Network", () => {
       isLoading: false,
       isError: false,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     expect(screen.getByText("DHCP (router-assigned)")).toBeInTheDocument();
     expect(screen.getByRole("status")).toBeInTheDocument();
     expect(screen.getByText("Your IP isn't pinned")).toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("Step2Network", () => {
       isLoading: false,
       isError: false,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     expect(screen.getByText("Unknown")).toBeInTheDocument();
     expect(screen.getByText("not detected")).toBeInTheDocument();
     expect(screen.getByRole("status")).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe("Step2Network", () => {
 
   it("advances to dhcp on continue", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     await user.click(screen.getByTestId("setup-network-continue"));
     expect(advanceMutate).toHaveBeenCalledWith({ to_step: "dhcp" });
   });
@@ -105,7 +105,7 @@ describe("Step2Network", () => {
       mutate: advanceMutate,
       isPending: true,
     });
-    renderWithProviders(<Step2Network />);
+    renderWithProviders(<StepNetwork />);
     const btn = screen.getByTestId("setup-network-continue");
     expect(btn).toBeDisabled();
     expect(btn).toHaveTextContent("Saving…");

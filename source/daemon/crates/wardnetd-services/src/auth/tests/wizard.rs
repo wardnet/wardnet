@@ -30,6 +30,9 @@ impl MockAdminRepo {
 
 #[async_trait]
 impl AdminRepository for MockAdminRepo {
+    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
+        Ok(Some("admin".to_owned()))
+    }
     async fn find_by_username(&self, _u: &str) -> anyhow::Result<Option<(String, String)>> {
         Ok(None)
     }
@@ -273,14 +276,101 @@ async fn advance_wizard_preserves_existing_mode_when_omitted() {
 }
 
 #[tokio::test]
-async fn advance_wizard_rejects_rewind() {
+async fn advance_wizard_rejects_rewind_to_admin() {
+    // Admin creation is one-shot, so the wizard can never rewind to it.
     let (svc, _) = make_service(true, &[("wizard_step", "tunnel")]);
 
-    let err = as_admin(svc.advance_wizard(WizardStep::Network, None))
+    let err = as_admin(svc.advance_wizard(WizardStep::Admin, None))
         .await
-        .expect_err("rewind should be rejected");
+        .expect_err("rewind to admin should be rejected");
 
     assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+#[tokio::test]
+async fn advance_wizard_allows_rewind_to_network() {
+    // Network is the rewind floor — revisiting it from any later step is
+    // allowed and persisted.
+    let (svc, store) = make_service(true, &[("wizard_step", "policy")]);
+
+    let state = as_admin(svc.advance_wizard(WizardStep::Network, None))
+        .await
+        .unwrap();
+
+    assert_eq!(state.step, WizardStep::Network);
+    assert_eq!(
+        store.get("wizard_step").await.unwrap().as_deref(),
+        Some("network")
+    );
+}
+
+#[tokio::test]
+async fn advance_wizard_allows_rewind_to_mid_step() {
+    let (svc, _) = make_service(true, &[("wizard_step", "review")]);
+
+    let state = as_admin(svc.advance_wizard(WizardStep::Dns, None))
+        .await
+        .unwrap();
+
+    assert_eq!(state.step, WizardStep::Dns);
+}
+
+#[tokio::test]
+async fn advance_wizard_rejects_rewind_from_completed() {
+    // Completed is terminal — once setup finishes the wizard never reopens.
+    let (svc, _) = make_service(true, &[("wizard_step", "completed")]);
+
+    let err = as_admin(svc.advance_wizard(WizardStep::Review, None))
+        .await
+        .expect_err("rewind from completed should be rejected");
+
+    assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+#[tokio::test]
+async fn advance_wizard_allows_idempotent_completed() {
+    let (svc, _) = make_service(true, &[("wizard_step", "completed")]);
+
+    let state = as_admin(svc.advance_wizard(WizardStep::Completed, None))
+        .await
+        .unwrap();
+
+    assert_eq!(state.step, WizardStep::Completed);
+}
+
+#[tokio::test]
+async fn wizard_state_reads_persisted_dns_and_review_steps() {
+    for (raw, expected) in [("dns", WizardStep::Dns), ("review", WizardStep::Review)] {
+        let (svc, _) = make_service(true, &[("wizard_step", raw)]);
+        let state = svc.wizard_state().await.unwrap();
+        assert_eq!(state.step, expected, "storage string {raw:?}");
+    }
+}
+
+#[tokio::test]
+async fn wizard_step_ordinals_pin_the_full_sequence() {
+    // Pins the canonical order so inserting a step is a conscious decision
+    // (rewind validation and the web rail both depend on it).
+    let expected = [
+        WizardStep::Admin,
+        WizardStep::Network,
+        WizardStep::Dhcp,
+        WizardStep::RouterMac,
+        WizardStep::Dns,
+        WizardStep::Tunnel,
+        WizardStep::Policy,
+        WizardStep::RemoteAccess,
+        WizardStep::Review,
+        WizardStep::Completed,
+    ];
+    for (i, step) in expected.iter().enumerate() {
+        assert_eq!(step.ordinal() as usize, i, "{step:?}");
+        assert_eq!(
+            WizardStep::from_storage_str(step.as_storage_str()),
+            *step,
+            "storage round-trip for {step:?}"
+        );
+    }
 }
 
 #[tokio::test]

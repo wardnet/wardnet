@@ -8,6 +8,7 @@ import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { useSetup, useAdvanceWizard } from "@wardnet/web";
 import { useAuth } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
 
 interface AdminFormValues extends Record<string, unknown> {
   username: string;
@@ -15,8 +16,8 @@ interface AdminFormValues extends Record<string, unknown> {
   confirmPassword: string;
 }
 
-/** Step 1 — create the first admin account. Unauthenticated. */
-export default function Step1Admin() {
+/** Admin step — create the first admin account. Unauthenticated. */
+export default function StepAdmin() {
   const queryClient = useQueryClient();
   const setup = useSetup();
   const advance = useAdvanceWizard();
@@ -74,6 +75,7 @@ export default function Step1Admin() {
         </Text>
       </div>
       <Form
+        id="setup-admin-form"
         values={{ username, password, confirmPassword }}
         onSubmit={handleSubmit}
         className="flex flex-col gap-5"
@@ -149,8 +151,13 @@ export default function Step1Admin() {
             {formError}
           </Text>
         )}
+      </Form>
+      {/* Docked in the shell footer; `form` submits the body's form from
+          outside its DOM subtree. */}
+      <WizardFooter>
         <Button
           type="submit"
+          form="setup-admin-form"
           disabled={setup.isPending || advance.isPending}
           data-testid="setup-admin-submit"
           className="w-full"
@@ -159,7 +166,7 @@ export default function Step1Admin() {
             ? "Creating account…"
             : "Create account"}
         </Button>
-      </Form>
+      </WizardFooter>
     </div>
   );
 }

@@ -54,6 +54,14 @@ impl AdminRepository for SqliteAdminRepository {
         Ok(row)
     }
 
+    async fn find_username_by_id(&self, id: &str) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query_scalar::<_, String>("SELECT username FROM admins WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pools.read)
+            .await?;
+        Ok(row)
+    }
+
     async fn exists(&self) -> anyhow::Result<bool> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM admins")
             .fetch_one(&self.pools.read)

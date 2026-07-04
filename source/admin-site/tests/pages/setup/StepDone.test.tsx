@@ -8,22 +8,22 @@ vi.mock("react-router", async (io) => {
   return { ...actual, useNavigate: () => navigate };
 });
 
-import Step8Confirm from "@/pages/setup/Step8Confirm";
+import StepDone from "@/pages/setup/StepDone";
 import { renderWithProviders } from "../../test-utils";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Step8Confirm", () => {
+describe("StepDone", () => {
   it("renders the all-set summary", () => {
-    renderWithProviders(<Step8Confirm />);
+    renderWithProviders(<StepDone />);
     expect(screen.getByText("All set")).toBeInTheDocument();
   });
 
   it("navigates to the dashboard on click", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step8Confirm />);
+    renderWithProviders(<StepDone />);
     await user.click(screen.getByTestId("setup-go-dashboard"));
     expect(navigate).toHaveBeenCalledWith("/");
   });
