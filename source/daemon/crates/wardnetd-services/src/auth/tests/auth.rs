@@ -288,6 +288,27 @@ async fn validate_api_key_skips_malformed_hash() {
 }
 
 #[tokio::test]
+async fn current_admin_username_requires_admin() {
+    // No auth context → require_admin rejects before touching the repo.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = svc.current_admin_username().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn current_admin_username_returns_the_callers_username() {
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.current_admin_username().await },
+    )
+    .await;
+    assert_eq!(result.unwrap(), "admin");
+}
+
+#[tokio::test]
 async fn is_setup_completed_delegates() {
     let svc = make_auth_service(None, None, None, vec![]);
     // Default MockSystemConfigRepo returns false.

@@ -93,6 +93,24 @@ describe("StepDns", () => {
     expect(updateMutate).toHaveBeenCalledWith({ default_profile_ids: [] });
   });
 
+  it("shows a loading state while profiles load", () => {
+    useDnsFilterProfiles.mockReturnValue({ data: undefined, isLoading: true });
+    renderWithProviders(<StepDns />);
+    expect(screen.getByText("Loading profiles…")).toBeInTheDocument();
+    expect(screen.queryByText("Ad Blocking")).not.toBeInTheDocument();
+  });
+
+  it("disables toggles while a config update is in flight", () => {
+    useUpdateDnsFilterConfig.mockReturnValue({
+      mutate: updateMutate,
+      isPending: true,
+    });
+    renderWithProviders(<StepDns />);
+    expect(
+      screen.getByTestId(`setup-dns-profile-${AD_BLOCKING}`),
+    ).toBeDisabled();
+  });
+
   it("advances to tunnel on continue", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StepDns />);

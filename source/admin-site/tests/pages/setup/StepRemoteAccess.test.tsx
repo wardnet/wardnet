@@ -161,6 +161,34 @@ describe("StepRemoteAccess", () => {
     expect(enableCloudflare).toHaveBeenCalled();
   });
 
+  it("disables the skip link and shows progress while advancing", () => {
+    useAdvanceWizard.mockReturnValue({
+      mutate: advanceMutate,
+      mutateAsync: advanceMutate,
+      isPending: true,
+    });
+    renderWithProviders(<StepRemoteAccess />);
+    const skip = screen.getByTestId("setup-remote-access-skip");
+    expect(skip).toBeDisabled();
+    expect(skip).toHaveTextContent("Skipping…");
+  });
+
+  it("shows a pending label on the progress view while advancing", async () => {
+    renderWithProviders(<StepRemoteAccess />);
+    await act(async () => capturedOpts.onProvisioned());
+    useAdvanceWizard.mockReturnValue({
+      mutate: advanceMutate,
+      mutateAsync: advanceMutate,
+      isPending: true,
+    });
+    // Re-render with the pending mutation state.
+    renderWithProviders(<StepRemoteAccess />);
+    await act(async () => capturedOpts.onProvisioned());
+    expect(
+      screen.getAllByRole("button", { name: "Continuing…" }).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("skips by advancing to review", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StepRemoteAccess />);

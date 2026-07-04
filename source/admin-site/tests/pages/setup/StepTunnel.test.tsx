@@ -70,6 +70,21 @@ describe("StepTunnel", () => {
     );
   });
 
+  it("returns to the overview from the inline form's footer Back", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StepTunnel />);
+    await user.click(screen.getByRole("button", { name: "Add tunnel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Back to tunnel overview" }),
+    );
+    expect(
+      screen.queryByTestId("create-tunnel-inline"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add tunnel" }),
+    ).toBeInTheDocument();
+  });
+
   it("advances to policy on skip", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StepTunnel />);

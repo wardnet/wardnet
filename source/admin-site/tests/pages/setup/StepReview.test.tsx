@@ -119,6 +119,50 @@ describe("StepReview", () => {
     expect(screen.getByText("Disabled")).toBeInTheDocument();
   });
 
+  it("falls back to placeholders while data is loading", () => {
+    useMe.mockReturnValue({ data: undefined });
+    useNetworkStatus.mockReturnValue({ data: undefined });
+    useSetupStatus.mockReturnValue({ data: undefined });
+    useDnsFilterConfig.mockReturnValue({ data: undefined });
+    useDnsFilterProfiles.mockReturnValue({ data: undefined });
+    useTunnels.mockReturnValue({ data: undefined });
+    useDefaultPolicy.mockReturnValue({ data: undefined });
+    useDdnsStatus.mockReturnValue({ data: undefined });
+    renderWithProviders(<StepReview />);
+    // Admin user and LAN IP fall back to em dashes; DNS shows the
+    // empty-set label and routing defaults to direct.
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("No profiles")).toBeInTheDocument();
+    expect(screen.getByText("Direct (no VPN)")).toBeInTheDocument();
+  });
+
+  it("summarises multiple tunnels as a count", () => {
+    useTunnels.mockReturnValue({
+      data: {
+        tunnels: [
+          { id: "t-1", label: "Proton NL" },
+          { id: "t-2", label: "Proton US" },
+        ],
+      },
+    });
+    renderWithProviders(<StepReview />);
+    expect(screen.getByText("2 tunnels")).toBeInTheDocument();
+  });
+
+  it("labels an unknown policy tunnel id generically", () => {
+    useDefaultPolicy.mockReturnValue({ data: { policy: "t-gone" } });
+    renderWithProviders(<StepReview />);
+    expect(screen.getByText("Tunnel")).toBeInTheDocument();
+  });
+
+  it("shows the locked-router DHCP mode", () => {
+    useSetupStatus.mockReturnValue({
+      data: { wizard_step: "review", wizard_mode: "locked_router" },
+    });
+    renderWithProviders(<StepReview />);
+    expect(screen.getByText("Locked router")).toBeInTheDocument();
+  });
+
   it("offers no Edit link on the Admin row", () => {
     renderWithProviders(<StepReview />);
     expect(
