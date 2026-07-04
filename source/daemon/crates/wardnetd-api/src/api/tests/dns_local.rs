@@ -31,16 +31,16 @@ use wardnet_common::dns::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer, StubDhcpService,
-    StubDiscoveryService, StubDnsFilterService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubJobService, StubLogService, StubNetworkZoneService, StubProviderService,
-    StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
-    StubTlsService, StubTunnelService, StubUpdateService, StubZoneExceptionService,
+    AlwaysAdminAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
+    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsServer, StubDnsService,
+    StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
+    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
+    StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
+    StubZoneExceptionService,
 };
 use wardnetd_services::DnsLocalService;
-use wardnetd_services::auth::service::{LoginResult, WizardState};
+use wardnetd_services::LogService;
 use wardnetd_services::error::AppError;
-use wardnetd_services::{AuthService, LogService};
 
 // ── Canned fixtures ───────────────────────────────────────────────────────────
 
@@ -197,44 +197,6 @@ impl DnsLocalService for MockDnsLocal {
         Ok(DeleteForwardingRuleResponse {
             message: "deleted".to_owned(),
         })
-    }
-}
-
-/// Authenticates any `wardnet_session` cookie to a stable admin id; rejects
-/// callers without one (returns `None` → `AdminAuth` yields 401).
-struct AlwaysAdminAuth;
-#[async_trait]
-impl AuthService for AlwaysAdminAuth {
-    async fn login(&self, _u: &str, _p: &str, _r: bool) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(Uuid::nil()))
-    }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
-    }
-    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
-        unimplemented!()
-    }
-    async fn is_setup_completed(&self) -> Result<bool, AppError> {
-        Ok(true)
-    }
-    async fn wizard_state(&self) -> Result<WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn advance_wizard(
-        &self,
-        _to_step: wardnet_common::api::WizardStep,
-        _mode: Option<wardnet_common::api::WizardMode>,
-    ) -> Result<WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
-        unimplemented!()
     }
 }
 

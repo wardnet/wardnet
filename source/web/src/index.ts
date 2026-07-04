@@ -92,6 +92,16 @@ export type { ParsedCidr } from "./lib/cidr";
 // Hooks — auth
 export { useAuth } from "./hooks/useAuth";
 
+// Hooks — push notifications (issues #482/#764)
+export { usePushNotifications } from "./hooks/usePushNotifications";
+export type { PushPermissionState } from "./hooks/usePushNotifications";
+export {
+  useRecentNotifications,
+  useClearNotifications,
+} from "./hooks/useRecentNotifications";
+export type { PushPayload, PushNotificationData } from "./lib/pushPayload";
+export { urlBase64ToUint8Array } from "./lib/pushPayload";
+
 // Hooks — devices
 export {
   useDevices,

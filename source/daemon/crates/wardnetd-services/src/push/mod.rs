@@ -25,6 +25,7 @@
 //! every existing subscription. Subscriptions live in `push_subscriptions`
 //! (see [`PushRepository`]).
 
+pub mod listener;
 pub mod sender;
 
 #[cfg(test)]
@@ -38,10 +39,11 @@ use wardnet_common::api::WebPushSubscription;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
+use wardnet_common::rule_request::RuleRequestKind;
 use wardnetd_data::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
 use wardnetd_data::repository::{
-    DeviceRepository, NewPushSubscription, PushRepository, StoredPushSubscription,
-    SystemConfigRepository, TunnelRepository,
+    DeviceRepository, NewNotification, NewPushSubscription, NotificationRepository, PushRepository,
+    StoredNotification, StoredPushSubscription, SystemConfigRepository, TunnelRepository,
 };
 
 use crate::auth_context;
@@ -58,18 +60,72 @@ pub const KEY_VAPID_PUBLIC: &str = "push_vapid_public_key";
 /// VAPID `sub` contact advertised to push services (RFC 8292).
 pub const VAPID_CONTACT: &str = "mailto:push@wardnet.network";
 
-/// A rendered notification: the title + body shown by the service worker.
+/// The stable machine tags carried in [`NotificationData::kind`]. An enum —
+/// not bare literals at the call sites — so the wire payload, the feed rows,
+/// and the frontend consumers cannot drift apart via a typo'd string.
+/// The serialized names are consumed by the PWAs (notification tag, feed
+/// pill); treat them as a wire contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotificationKind {
+    RoutingLocked,
+    RoutingUnlocked,
+    RoutingChanged,
+    TunnelOffline,
+    NewDeviceQuarantined,
+    RuleRequestCreated,
+}
+
+impl NotificationKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::RoutingLocked => "routing_locked",
+            Self::RoutingUnlocked => "routing_unlocked",
+            Self::RoutingChanged => "routing_changed",
+            Self::TunnelOffline => "tunnel_offline",
+            Self::NewDeviceQuarantined => "new_device_quarantined",
+            Self::RuleRequestCreated => "rule_request_created",
+        }
+    }
+}
+
+/// Structured, machine-readable companion to the human title/body. The PWA
+/// service worker collapses notifications by `kind` + `subject_id`,
+/// deep-links via `url`, and identifies the subject entity via `subject_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NotificationData {
+    /// Stable machine tag, e.g. `new_device_quarantined`, `tunnel_offline`.
+    kind: NotificationKind,
+    /// App-relative deep link (no PWA base path, e.g. `/devices`); the service
+    /// worker resolves it against its own registration scope.
+    url: Option<&'static str>,
+    /// Identifier of the subject entity; what it identifies is driven by
+    /// `kind` (device UUID for device kinds, tunnel UUID for tunnel kinds).
+    subject_id: Option<String>,
+}
+
+/// A rendered notification: the title + body shown by the service worker,
+/// plus the structured [`NotificationData`] it acts on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Notification {
     title: &'static str,
     body: String,
+    data: NotificationData,
 }
 
 impl Notification {
     fn to_json_bytes(&self) -> Vec<u8> {
         // Minimal, stable JSON the PWA service worker reads. Kept hand-rolled
         // (rather than serde) so the exact wire shape is obvious in review.
-        serde_json::json!({ "title": self.title, "body": self.body })
+        // `url`/`subject_id` are omitted (not null) when absent.
+        let mut data = serde_json::Map::new();
+        data.insert("kind".to_owned(), self.data.kind.as_str().into());
+        if let Some(url) = self.data.url {
+            data.insert("url".to_owned(), url.into());
+        }
+        if let Some(subject_id) = &self.data.subject_id {
+            data.insert("subject_id".to_owned(), subject_id.as_str().into());
+        }
+        serde_json::json!({ "title": self.title, "body": self.body, "data": data })
             .to_string()
             .into_bytes()
     }
@@ -92,10 +148,20 @@ pub trait PushService: Send + Sync {
     /// Translate a domain event into push notifications and deliver them.
     /// Invoked by the daemon's event listener under an admin context.
     async fn handle_event(&self, event: &WardnetEvent) -> Result<(), AppError>;
+
+    /// The most recent admin-feed notifications, newest first. `limit` is
+    /// clamped to 1..=100. Admin only.
+    async fn recent_notifications(&self, limit: u32) -> Result<Vec<StoredNotification>, AppError>;
+
+    /// Remove every notification from the admin feed (the Clear action).
+    /// Admin only. The feed is shared across admin accounts, so this clears
+    /// it for everyone.
+    async fn clear_notifications(&self) -> Result<(), AppError>;
 }
 
 pub struct PushServiceImpl {
     push_repo: Arc<dyn PushRepository>,
+    notification_repo: Arc<dyn NotificationRepository>,
     device_repo: Arc<dyn DeviceRepository>,
     tunnel_repo: Arc<dyn TunnelRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
@@ -109,6 +175,7 @@ impl PushServiceImpl {
     #[must_use]
     pub fn new(
         push_repo: Arc<dyn PushRepository>,
+        notification_repo: Arc<dyn NotificationRepository>,
         device_repo: Arc<dyn DeviceRepository>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
@@ -117,6 +184,7 @@ impl PushServiceImpl {
     ) -> Self {
         Self {
             push_repo,
+            notification_repo,
             device_repo,
             tunnel_repo,
             system_config,
@@ -198,6 +266,24 @@ impl PushServiceImpl {
     }
 
     async fn deliver_to_admins(&self, notif: Notification) {
+        // The admin feed records "what happened", not "what was delivered":
+        // persist before fan-out, regardless of subscriptions or send outcomes.
+        // Best-effort — a failed insert must not block delivery.
+        if let Err(error) = self
+            .notification_repo
+            .insert(NewNotification {
+                id: &uuid::Uuid::new_v4().to_string(),
+                kind: notif.data.kind.as_str(),
+                title: notif.title,
+                body: &notif.body,
+                url: notif.data.url,
+                subject_id: notif.data.subject_id.as_deref(),
+                created_at: &chrono::Utc::now().to_rfc3339(),
+            })
+            .await
+        {
+            tracing::warn!(%error, "push: failed to persist notification to the admin feed");
+        }
         match self.push_repo.list_admins().await {
             Ok(subs) => self.deliver(subs, &notif).await,
             Err(error) => tracing::warn!(%error, "push: failed to load admin subscriptions"),
@@ -305,6 +391,9 @@ impl PushService for PushServiceImpl {
         Ok(())
     }
 
+    // A flat event -> notification mapping table; splitting it would only
+    // scatter the per-event copy.
+    #[allow(clippy::too_many_lines)]
     async fn handle_event(&self, event: &WardnetEvent) -> Result<(), AppError> {
         // Invoked by the daemon event listener under `AuthContext::Admin`.
         auth_context::require_admin()?;
@@ -320,11 +409,21 @@ impl PushService for PushServiceImpl {
                             title: "Routing locked",
                             body: "An administrator has locked your routing configuration."
                                 .to_owned(),
+                            data: NotificationData {
+                                kind: NotificationKind::RoutingLocked,
+                                url: None,
+                                subject_id: Some(device_id.to_string()),
+                            },
                         }
                     } else {
                         Notification {
                             title: "Routing unlocked",
                             body: "You can now change your routing configuration.".to_owned(),
+                            data: NotificationData {
+                                kind: NotificationKind::RoutingUnlocked,
+                                url: None,
+                                subject_id: Some(device_id.to_string()),
+                            },
                         }
                     };
                     self.deliver_to_device(&device.mac, notif).await;
@@ -349,6 +448,11 @@ impl PushService for PushServiceImpl {
                                 Notification {
                                     title: "Routing changed",
                                     body: format!("Your routing was changed to {label}."),
+                                    data: NotificationData {
+                                        kind: NotificationKind::RoutingChanged,
+                                        url: None,
+                                        subject_id: Some(device_id.to_string()),
+                                    },
                                 },
                             )
                             .await;
@@ -360,6 +464,11 @@ impl PushService for PushServiceImpl {
                         self.deliver_to_admins(Notification {
                             title: "Routing change",
                             body: format!("{name} changed routing to {label}."),
+                            data: NotificationData {
+                                kind: NotificationKind::RoutingChanged,
+                                url: Some("/devices"),
+                                subject_id: Some(device_id.to_string()),
+                            },
                         })
                         .await;
                     }
@@ -371,6 +480,11 @@ impl PushService for PushServiceImpl {
                 self.deliver_to_admins(Notification {
                     title: "Tunnel offline",
                     body: format!("{label} failed to start."),
+                    data: NotificationData {
+                        kind: NotificationKind::TunnelOffline,
+                        url: Some("/tunnels"),
+                        subject_id: Some(tunnel_id.to_string()),
+                    },
                 })
                 .await;
             }
@@ -384,6 +498,11 @@ impl PushService for PushServiceImpl {
                 self.deliver_to_admins(Notification {
                     title: "Tunnel offline",
                     body: format!("{label} went offline."),
+                    data: NotificationData {
+                        kind: NotificationKind::TunnelOffline,
+                        url: Some("/tunnels"),
+                        subject_id: Some(tunnel_id.to_string()),
+                    },
                 })
                 .await;
             }
@@ -394,6 +513,11 @@ impl PushService for PushServiceImpl {
                 self.deliver_to_admins(Notification {
                     title: "Tunnel offline",
                     body: format!("{label} went offline."),
+                    data: NotificationData {
+                        kind: NotificationKind::TunnelOffline,
+                        url: Some("/tunnels"),
+                        subject_id: Some(tunnel_id.to_string()),
+                    },
                 })
                 .await;
             }
@@ -411,12 +535,63 @@ impl PushService for PushServiceImpl {
                 self.deliver_to_admins(Notification {
                     title: "New device",
                     body: format!("New device {name} joined, in {zone_name}. Approve in the app."),
+                    data: NotificationData {
+                        kind: NotificationKind::NewDeviceQuarantined,
+                        url: Some("/devices"),
+                        subject_id: Some(device_id.to_string()),
+                    },
+                })
+                .await;
+            }
+
+            // A device asked the admin to allow/block a domain (the rule-request
+            // inbox). Decisions live on the desktop admin site — the admin PWA
+            // has no rule-request surface yet — so the notification carries no
+            // deep link and a tap opens the app root.
+            WardnetEvent::RuleRequestCreated {
+                request_id,
+                device_id,
+                kind,
+                domain,
+                ..
+            } => {
+                let name = self.device_name(device_id).await;
+                let verb = match kind {
+                    RuleRequestKind::Allow => "allow",
+                    RuleRequestKind::Block => "block",
+                };
+                self.deliver_to_admins(Notification {
+                    title: "Rule request",
+                    body: format!("{name} asked to {verb} {domain}."),
+                    data: NotificationData {
+                        kind: NotificationKind::RuleRequestCreated,
+                        url: None,
+                        subject_id: Some(request_id.clone()),
+                    },
                 })
                 .await;
             }
 
             _ => {}
         }
+        Ok(())
+    }
+
+    async fn recent_notifications(&self, limit: u32) -> Result<Vec<StoredNotification>, AppError> {
+        auth_context::require_admin()?;
+        let limit = limit.clamp(1, 100);
+        self.notification_repo
+            .list_recent(limit)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn clear_notifications(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.notification_repo
+            .clear()
+            .await
+            .map_err(AppError::Internal)?;
         Ok(())
     }
 }

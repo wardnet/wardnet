@@ -12,8 +12,10 @@ use wardnetd_data::repository::RuleRequestRepository;
 use crate::auth_context;
 use crate::device::DeviceService;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 use crate::rule_request::{RuleRequestService, RuleRequestServiceImpl};
 use wardnet_common::auth::AuthContext;
+use wardnet_common::event::WardnetEvent;
 
 const DEVICE_ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -200,13 +202,38 @@ impl DeviceService for MockDeviceService {
     }
 }
 
+/// Captures published events so tests can assert on them.
+#[derive(Default)]
+struct CapturingEventPublisher {
+    events: std::sync::Mutex<Vec<WardnetEvent>>,
+}
+
+impl EventPublisher for CapturingEventPublisher {
+    fn publish(&self, event: WardnetEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+    fn subscribe(&self) -> tokio::sync::broadcast::Receiver<WardnetEvent> {
+        unimplemented!()
+    }
+}
+
 fn build(found: bool, decide_none: bool) -> RuleRequestServiceImpl {
-    RuleRequestServiceImpl::new(
+    build_with_events(found, decide_none).0
+}
+
+fn build_with_events(
+    found: bool,
+    decide_none: bool,
+) -> (RuleRequestServiceImpl, Arc<CapturingEventPublisher>) {
+    let events = Arc::new(CapturingEventPublisher::default());
+    let service = RuleRequestServiceImpl::new(
         Arc::new(MockRuleRequestRepo {
             decide_returns_none: decide_none,
         }),
         Arc::new(MockDeviceService { found }),
-    )
+        events.clone(),
+    );
+    (service, events)
 }
 
 fn admin_ctx() -> AuthContext {
@@ -233,6 +260,33 @@ async fn create_normalizes_domain_and_resolves_device() {
     assert_eq!(req.device_id, DEVICE_ID);
     // Whitespace-only reason is dropped.
     assert_eq!(req.reason, None);
+}
+
+#[tokio::test]
+async fn create_publishes_rule_request_created_event() {
+    let (svc, events) = build_with_events(true, false);
+    let req = svc
+        .create_for_ip("1.2.3.4", RuleRequestKind::Allow, "blocked.example", None)
+        .await
+        .unwrap();
+
+    let published = events.events.lock().unwrap();
+    assert_eq!(published.len(), 1);
+    match &published[0] {
+        WardnetEvent::RuleRequestCreated {
+            request_id,
+            device_id,
+            kind,
+            domain,
+            ..
+        } => {
+            assert_eq!(request_id, &req.id);
+            assert_eq!(device_id, DEVICE_ID);
+            assert_eq!(*kind, RuleRequestKind::Allow);
+            assert_eq!(domain, "blocked.example");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
 }
 
 #[tokio::test]

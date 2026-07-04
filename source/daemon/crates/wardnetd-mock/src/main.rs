@@ -84,6 +84,14 @@ struct Cli {
     #[arg(long)]
     no_events: bool,
 
+    /// Deliver Web Push notifications for real (through the browser vendors'
+    /// push services) instead of the default no-op sender. Lets local dev
+    /// exercise the full notification flow — subscribe in the admin PWA, then
+    /// e.g. change a device's own routing in the user PWA to trigger an admin
+    /// push. Requires internet access.
+    #[arg(long)]
+    real_push: bool,
+
     /// Enable debug-level logging for all wardnet crates.
     #[arg(long, short)]
     verbose: bool,
@@ -246,6 +254,20 @@ async fn run(
     // before `Backends` so the noop network inspector can claim it.
     let lan_ip = std::net::Ipv4Addr::new(192, 168, 1, 1);
 
+    // Web Push: no-op by default (the mock must not reach the network
+    // unasked); `--real-push` swaps in the daemon's real sender so local dev
+    // can receive actual notifications.
+    let web_push_sender: Arc<dyn wardnetd_services::push::sender::WebPushSender> = if cli.real_push
+    {
+        tracing::info!("--real-push set: delivering Web Push via the real sender");
+        Arc::new(wardnetd_services::push::sender::ReqwestWebPushSender::new(
+            reqwest::Client::new(),
+            wardnetd_services::push::VAPID_CONTACT.to_owned(),
+        ))
+    } else {
+        Arc::new(wardnetd_mock::backends::noop_web_push::NoopWebPushSender)
+    };
+
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
         tunnel_exit_probe: Arc::new(NoopExitProbe::new(factory.tunnel())),
@@ -256,7 +278,7 @@ async fn run(
         packet_capture: Arc::new(NoopPacketCapture),
         hostname_resolver: Arc::new(NoopHostnameResolver),
         secret_store,
-        web_push_sender: Arc::new(wardnetd_mock::backends::noop_web_push::NoopWebPushSender),
+        web_push_sender,
         blocklist_fetcher: Arc::new(HttpBlocklistFetcher::new()),
         update: update_backends,
         config_path: mock_config_path,
@@ -404,6 +426,16 @@ async fn run(
         ))
     };
 
+    // Forward domain events to the push service, exactly like the real
+    // daemon. Always on: even with the no-op sender this persists the
+    // admin notification feed, so the System screen fills up during dev;
+    // with `--real-push` it also delivers.
+    let push_listener = wardnetd_services::push::listener::PushNotificationListener::start(
+        &services.event_publisher,
+        services.push.clone(),
+        &tracing::Span::current(),
+    );
+
     let app = wardnetd_api::api::router(state);
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
 
@@ -427,6 +459,7 @@ async fn run(
     if let Some(emitter) = emitter {
         emitter.shutdown().await;
     }
+    push_listener.shutdown().await;
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;

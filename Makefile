@@ -60,6 +60,7 @@ COV_RUNNER ?=
         image image-multiarch image-test image-base \
         end2end-daemon e2e-ui e2e-ui-update-snapshots e2e-all \
         run-dev run-dev-daemon run-dev-web run-dev-user-app run-dev-admin-app \
+        run-dev-push \
         sync-version check-version \
         clean help
 
@@ -346,9 +347,14 @@ run-dev-daemon:
 		DB_ARG=""; \
 		echo "Using in-memory DB (wizard restarts every launch)"; \
 	fi; \
+	PUSH_ARG=""; \
+	if [ "$(REAL_PUSH)" = "true" ]; then \
+		PUSH_ARG="--real-push"; \
+		echo "Web Push : REAL delivery enabled (needs internet)"; \
+	fi; \
 	echo "Mock API : http://127.0.0.1:7411"; \
 	echo ""; \
-	cd $(DAEMON_DIR) && cargo run --bin wardnetd-mock -- --verbose $$DB_ARG
+	cd $(DAEMON_DIR) && cargo run --bin wardnetd-mock -- --verbose $$DB_ARG $$PUSH_ARG
 
 # Run just the admin-site Vite dev server on :7412, proxying /api to :7411.
 run-dev-web:
@@ -394,6 +400,30 @@ run-dev:
 	trap "kill $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; \
 	      wait $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; true" EXIT INT TERM; \
 	$(MAKE) run-dev-web
+
+# Web Push test bed (issues #482/#764) — one command to exercise the real
+# notification flow locally, production-shaped:
+#
+#   1. Builds all three web bundles (build-web), since the mock serves the
+#      embedded dist trees exactly like the real daemon: user PWA at /,
+#      admin site at /admin/, admin PWA at /admin-app/. Service workers
+#      (push + notification-click handlers) only exist in production
+#      builds — the Vite dev servers deliberately register none.
+#   2. Runs ONLY the mock daemon, with REAL_PUSH=true: Web Push is
+#      delivered through the actual browser push services (needs
+#      internet). No Vite servers, no HMR — rebuild + rerun to iterate.
+#
+# Test loop: open http://127.0.0.1:7411/admin-app/ → wizard/login → System →
+# enable notifications; then on http://127.0.0.1:7411/ change "my device"
+# routing — a real push lands in the browser (even with the admin PWA
+# closed), and tapping it deep-links to /admin-app/devices.
+run-dev-push: build-web
+	@echo ""
+	@echo "  User PWA (trigger surface)   : http://127.0.0.1:7411/"
+	@echo "  Admin site                   : http://127.0.0.1:7411/admin/"
+	@echo "  Admin PWA (SW active)        : http://127.0.0.1:7411/admin-app/"
+	@echo ""
+	@$(MAKE) run-dev-daemon REAL_PUSH=true
 
 # ---------- Container images ----------
 
@@ -570,9 +600,12 @@ help:
 	@echo "                 make run-dev                    (persist DB at .wardnet-local/)"
 	@echo "                 make run-dev RESUME=false       (ephemeral in-memory DB)"
 	@echo "  run-dev-daemon     Run just wardnetd-mock on :7411 (same RESUME flag)"
+	@echo "                     make run-dev-daemon REAL_PUSH=true  (deliver Web Push for real)"
 	@echo "  run-dev-web        Run just the admin-site Vite server on :7412"
 	@echo "  run-dev-user-app   Run just the user-app Vite server on :7413"
 	@echo "  run-dev-admin-app  Run just the admin-app Vite server on :7414"
+	@echo "  run-dev-push       Web Push test bed: build all web bundles, run only the"
+	@echo "                     mock with real push delivery — all surfaces on :7411, no HMR"
 	@echo ""
 	@echo "  image          Build production container image (downloads latest release)"
 	@echo "                 make image                              (latest stable release)"

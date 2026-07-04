@@ -7,6 +7,7 @@ mod dns_events;
 mod dns_filter;
 mod dns_local;
 mod network_zone;
+mod notification;
 mod push;
 mod rule_request;
 mod session;

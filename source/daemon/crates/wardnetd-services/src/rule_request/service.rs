@@ -4,12 +4,14 @@ use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
+use wardnet_common::event::WardnetEvent;
 use wardnet_common::rule_request::{DeviceRuleRequest, RuleRequestKind, RuleRequestStatus};
 use wardnetd_data::repository::RuleRequestRepository;
 
 use crate::auth_context;
 use crate::device::DeviceService;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 
 /// Service for the lightweight "ask the admin" rule-request inbox.
 ///
@@ -47,6 +49,7 @@ pub trait RuleRequestService: Send + Sync {
 pub struct RuleRequestServiceImpl {
     requests: Arc<dyn RuleRequestRepository>,
     device_service: Arc<dyn DeviceService>,
+    events: Arc<dyn EventPublisher>,
 }
 
 impl RuleRequestServiceImpl {
@@ -54,10 +57,12 @@ impl RuleRequestServiceImpl {
     pub fn new(
         requests: Arc<dyn RuleRequestRepository>,
         device_service: Arc<dyn DeviceService>,
+        events: Arc<dyn EventPublisher>,
     ) -> Self {
         Self {
             requests,
             device_service,
+            events,
         }
     }
 
@@ -93,10 +98,24 @@ impl RuleRequestService for RuleRequestServiceImpl {
 
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        self.requests
+        let request = self
+            .requests
             .insert(&id, &device_id, kind, &domain, reason.as_deref(), &now)
             .await
-            .map_err(AppError::Internal)
+            .map_err(AppError::Internal)?;
+
+        // Tell listeners — the push subsystem notifies admins of the new
+        // request. Published after the insert so a subscriber can always read
+        // the request back.
+        self.events.publish(WardnetEvent::RuleRequestCreated {
+            request_id: request.id.clone(),
+            device_id: request.device_id.clone(),
+            kind: request.kind,
+            domain: request.domain.clone(),
+            timestamp: Utc::now(),
+        });
+
+        Ok(request)
     }
 
     async fn list_for_ip(&self, ip: &str) -> Result<Vec<DeviceRuleRequest>, AppError> {

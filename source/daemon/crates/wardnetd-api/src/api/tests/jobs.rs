@@ -13,56 +13,13 @@ use wardnet_common::jobs::{Job, JobKind, JobStatus};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
-    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
-    StubNetworkZoneService, StubProviderService, StubRoutingService, StubSystemService,
-    StubTunnelService,
+    AlwaysAdminAuth, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
+    StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
+    StubSystemService, StubTunnelService,
 };
-use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
-use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::error::AppError;
 use wardnetd_services::jobs::{BoxedJobTask, JobService};
-
-struct AlwaysAdminAuth;
-#[async_trait]
-impl AuthService for AlwaysAdminAuth {
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(
-            Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-        ))
-    }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
-    }
-    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
-        unimplemented!()
-    }
-    async fn is_setup_completed(&self) -> Result<bool, AppError> {
-        Ok(true)
-    }
-    async fn wizard_state(
-        &self,
-    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn advance_wizard(
-        &self,
-        _to_step: wardnet_common::api::WizardStep,
-        _mode: Option<wardnet_common::api::WizardMode>,
-    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
-        unimplemented!()
-    }
-}
 
 /// Fake job service with one preloaded job — lets us exercise the 200 path
 /// without spinning up the real in-memory registry.

@@ -261,6 +261,18 @@ pub enum WardnetEvent {
         zone_name: String,
         timestamp: DateTime<Utc>,
     },
+    /// A device filed a rule request (the "ask the admin" inbox — e.g. asking
+    /// to unblock a blocked site). Emitted by `RuleRequestService::create_for_ip`
+    /// after the request is persisted. The push subsystem consumes it to notify
+    /// admins; the decision itself stays a manual admin action.
+    /// Ids are the repository's string UUIDs, matching `DeviceRuleRequest`.
+    RuleRequestCreated {
+        request_id: String,
+        device_id: String,
+        kind: crate::rule_request::RuleRequestKind,
+        domain: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// What kind of DNS filtering change happened. Carried by

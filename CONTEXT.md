@@ -24,6 +24,8 @@
 
 **Admin-account-keyed push subscription** — A Web Push subscription stored keyed to the admin account UUID. Admin-PWA notifications (tunnel offline, a device changing its own routing) fan out to every admin-account subscription. Keyed to the account rather than the session so a subscription outlives session rotation/logout; an explicit unsubscribe (or a 404/410 from the push service) is what removes it.
 
+**Notification feed** — Daemon-persisted record of admin-audience push notifications (issue #482), shown on the admin-PWA System screen. Written before delivery fan-out — it records "what happened", not "what was delivered" — so entries exist even with zero subscriptions. Admin-audience only (device-keyed pushes are never persisted), count-capped (oldest pruned on insert), and shared across admin accounts: Clear deletes the feed for every admin. Each entry carries a `kind` tag and a kind-driven `subject_id` (device UUID for device kinds, tunnel UUID for tunnel kinds).
+
 ## Routing
 
 **Routing target** — Where a device's traffic egresses: a specific **tunnel**, **direct** (bypass all tunnels, use the WAN), or **default** (explicitly defer to the gateway's default policy). A device's *current* routing target is its per-device rule if one exists.

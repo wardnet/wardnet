@@ -13,7 +13,7 @@ use uuid::Uuid;
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
-    QueryLogRow, TunnelRow,
+    NewNotification, QueryLogRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -364,6 +364,51 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "seeded tunnel stats: tunnel_id={tunnel_id}, intraday={i}",
             i = intraday.len(),
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Admin notification feed (issue #482) — a few entries so the System
+    // screen's feed has something to display.
+    // ------------------------------------------------------------------
+    let notification_repo = factory.notification();
+    let feed = [
+        (
+            "tunnel_offline",
+            "Tunnel offline",
+            "Stockholm #4 went offline.",
+            Some("/tunnels"),
+            tunnel_ids.first().copied(),
+            Duration::hours(3),
+        ),
+        (
+            "routing_changed",
+            "Routing change",
+            "alice-laptop changed routing to direct (no tunnel).",
+            Some("/devices"),
+            device_ids.first().copied(),
+            Duration::minutes(45),
+        ),
+        (
+            "new_device_quarantined",
+            "New device",
+            "New device eve-tablet joined, in Guest. Approve in the app.",
+            Some("/devices"),
+            device_ids.get(3).copied(),
+            Duration::minutes(5),
+        ),
+    ];
+    for (kind, title, body, url, subject_id, age) in feed {
+        notification_repo
+            .insert(NewNotification {
+                id: &Uuid::new_v4().to_string(),
+                kind,
+                title,
+                body,
+                url,
+                subject_id: subject_id.map(|id| id.to_string()).as_deref(),
+                created_at: &(now - age).to_rfc3339(),
+            })
+            .await?;
     }
 
     tracing::info!(

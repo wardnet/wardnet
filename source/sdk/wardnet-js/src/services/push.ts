@@ -1,5 +1,10 @@
 import type { WardnetClient } from "../client.js";
-import type { VapidPublicKeyResponse, WebPushSubscription } from "../types/push.js";
+import type {
+  NotificationItem,
+  NotificationsResponse,
+  VapidPublicKeyResponse,
+  WebPushSubscription,
+} from "../types/push.js";
 
 /**
  * Web Push notifications.
@@ -35,6 +40,26 @@ export class PushService {
   async unsubscribe(endpoint?: string): Promise<void> {
     const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : "";
     await this.client.request<unknown>(`/push/subscriptions${qs}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * The admin notification feed, newest first. Admin only. `limit` is clamped
+   * server-side to 1..=100 (default 50).
+   */
+  async listNotifications(limit?: number): Promise<NotificationItem[]> {
+    const qs = limit !== undefined ? `?limit=${limit}` : "";
+    const res = await this.client.request<NotificationsResponse>(`/push/notifications${qs}`);
+    return res.notifications;
+  }
+
+  /**
+   * Clear the admin notification feed. Admin only. The feed is shared across
+   * admin accounts, so this clears it for every admin.
+   */
+  async clearNotifications(): Promise<void> {
+    await this.client.request<unknown>("/push/notifications", {
       method: "DELETE",
     });
   }

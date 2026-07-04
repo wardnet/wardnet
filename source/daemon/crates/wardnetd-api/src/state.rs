@@ -139,6 +139,18 @@ impl AppState {
         self
     }
 
+    /// Replace the [`AuthService`]. Test-only convenience so admin-gated
+    /// handlers can be exercised without rebuilding the full [`Self::new`]
+    /// argument list. Must be called before the state is cloned or shared.
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_auth_service(mut self, auth_service: Arc<dyn AuthService>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_auth_service must be called before AppState is cloned")
+            .auth_service = auth_service;
+        self
+    }
+
     /// Inject the live [`Entitlement`] handle the DDNS cloud clients flip on
     /// token mints. Returns `self` for chaining off [`Self::new`].
     ///
@@ -386,6 +398,18 @@ impl PushService for NoopPushService {
         &self,
         _event: &wardnet_common::event::WardnetEvent,
     ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn recent_notifications(
+        &self,
+        _limit: u32,
+    ) -> Result<
+        Vec<wardnetd_data::repository::StoredNotification>,
+        wardnetd_services::error::AppError,
+    > {
+        Ok(Vec::new())
+    }
+    async fn clear_notifications(&self) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
     }
 }
