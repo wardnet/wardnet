@@ -6,13 +6,17 @@ import type { DeviceRuleRequest } from "@wardnet/js";
 import Settings from "../../src/pages/Settings";
 import { makeDevice, renderWithProviders } from "../test-utils";
 
-const { useMyDevice, useMyRuleRequests, useSetMyCaptureEnabled } = vi.hoisted(
-  () => ({
-    useMyDevice: vi.fn(),
-    useMyRuleRequests: vi.fn(),
-    useSetMyCaptureEnabled: vi.fn(),
-  }),
-);
+const {
+  useMyDevice,
+  useMyRuleRequests,
+  useSetMyCaptureEnabled,
+  usePushNotifications,
+} = vi.hoisted(() => ({
+  useMyDevice: vi.fn(),
+  useMyRuleRequests: vi.fn(),
+  useSetMyCaptureEnabled: vi.fn(),
+  usePushNotifications: vi.fn(),
+}));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -21,6 +25,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useMyDevice,
     useMyRuleRequests,
     useSetMyCaptureEnabled,
+    usePushNotifications,
   };
 });
 
@@ -49,6 +54,12 @@ beforeEach(() => {
     isPending: false,
     isError: false,
     error: null,
+  });
+  usePushNotifications.mockReturnValue({
+    state: "prompt",
+    isBusy: false,
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
   });
 });
 
@@ -142,5 +153,112 @@ describe("Settings page", () => {
     });
     renderWithProviders(<Settings />);
     expect(screen.queryByTestId("my-requests")).not.toBeInTheDocument();
+  });
+
+  describe("notifications card", () => {
+    beforeEach(() => {
+      useMyDevice.mockReturnValue({
+        data: { device: makeDevice() },
+        isLoading: false,
+      });
+    });
+
+    it("subscribes from the toggle and explains what will be sent", async () => {
+      const subscribe = vi.fn();
+      usePushNotifications.mockReturnValue({
+        state: "prompt",
+        isBusy: false,
+        subscribe,
+        unsubscribe: vi.fn(),
+      });
+      renderWithProviders(<Settings />);
+      expect(
+        screen.getByText(/locks or changes your device's routing/),
+      ).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId("notifications-toggle"));
+      expect(subscribe).toHaveBeenCalledOnce();
+    });
+
+    it("unsubscribes when the toggle is on and clicked", async () => {
+      const unsubscribe = vi.fn();
+      usePushNotifications.mockReturnValue({
+        state: "subscribed",
+        isBusy: false,
+        subscribe: vi.fn(),
+        unsubscribe,
+      });
+      renderWithProviders(<Settings />);
+      const toggle = screen.getByTestId("notifications-toggle");
+      expect(toggle).toBeChecked();
+      await userEvent.click(toggle);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    });
+
+    it("disables the toggle and explains when push is unsupported", () => {
+      usePushNotifications.mockReturnValue({
+        state: "unsupported",
+        isBusy: false,
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      });
+      renderWithProviders(<Settings />);
+      expect(screen.getByTestId("notifications-toggle")).toBeDisabled();
+      expect(
+        screen.getByText("Notifications are not supported in this browser."),
+      ).toBeInTheDocument();
+    });
+
+    it("tells iOS browser-tab users to install the app when push is unsupported", () => {
+      usePushNotifications.mockReturnValue({
+        state: "unsupported",
+        isBusy: false,
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      });
+      const originalUa = navigator.userAgent;
+      Object.defineProperty(navigator, "userAgent", {
+        value:
+          "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        configurable: true,
+      });
+      try {
+        renderWithProviders(<Settings />);
+        expect(
+          screen.getByText(
+            "Install the app to your Home Screen to enable notifications.",
+          ),
+        ).toBeInTheDocument();
+      } finally {
+        Object.defineProperty(navigator, "userAgent", {
+          value: originalUa,
+          configurable: true,
+        });
+      }
+    });
+
+    it("disables the toggle and explains when notifications are blocked", () => {
+      usePushNotifications.mockReturnValue({
+        state: "denied",
+        isBusy: false,
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      });
+      renderWithProviders(<Settings />);
+      expect(screen.getByTestId("notifications-toggle")).toBeDisabled();
+      expect(
+        screen.getByText("Notifications are blocked in your browser settings."),
+      ).toBeInTheDocument();
+    });
+
+    it("disables the toggle while a subscribe/unsubscribe is in flight", () => {
+      usePushNotifications.mockReturnValue({
+        state: "prompt",
+        isBusy: true,
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      });
+      renderWithProviders(<Settings />);
+      expect(screen.getByTestId("notifications-toggle")).toBeDisabled();
+    });
   });
 });

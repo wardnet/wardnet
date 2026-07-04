@@ -101,6 +101,7 @@ export {
 } from "./hooks/useRecentNotifications";
 export type { PushPayload, PushNotificationData } from "./lib/pushPayload";
 export { urlBase64ToUint8Array } from "./lib/pushPayload";
+export { isIosBrowserTab } from "./lib/platform";
 
 // Hooks — devices
 export {

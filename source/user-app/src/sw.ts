@@ -5,11 +5,20 @@ import {
   precacheAndRoute,
 } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
+import { registerPushHandlers } from "@wardnet/web/sw";
 
 declare const self: ServiceWorkerGlobalScope;
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
+
+// Web Push (issue #594): show device-keyed daemon notifications ("Routing
+// locked"/"Routing changed") and focus-or-open the app on tap. Device
+// notifications carry no deep link, so clicks land on the app root.
+registerPushHandlers(self, {
+  icon: "icons/user-192.png",
+  badge: "icons/badge-96.png",
+});
 
 // Offline shell — navigation requests fall back to the app-shell index.
 // This SW's scope is the origin root, but the daemon serves three surfaces
