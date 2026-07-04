@@ -102,7 +102,9 @@ describe("Home page", () => {
   it("renders device identity and the routing form when unlocked", () => {
     setMyDevice();
     renderWithProviders(<Home />);
-    expect(screen.getByTestId("device-identity")).toHaveTextContent("My Laptop");
+    expect(screen.getByTestId("device-identity")).toHaveTextContent(
+      "My Laptop",
+    );
     expect(screen.getByTestId("routing-save")).toBeInTheDocument();
   });
 

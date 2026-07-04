@@ -35,8 +35,8 @@ async function register(username: string): Promise<void> {
       rp: { id: window.location.hostname, name: "Wardnet" },
       user: { id: userId, name: username, displayName: username },
       pubKeyCredParams: [
-        { type: "public-key", alg: -7 },   // ES256
-        { type: "public-key", alg: -257 },  // RS256
+        { type: "public-key", alg: -7 }, // ES256
+        { type: "public-key", alg: -257 }, // RS256
       ],
       authenticatorSelection: {
         authenticatorAttachment: "platform",
@@ -80,7 +80,13 @@ function unregister(): void {
   localStorage.removeItem(CREDENTIAL_KEY);
 }
 
-const _biometric = { isAvailable, isRegistered, register, authenticate, unregister };
+const _biometric = {
+  isAvailable,
+  isRegistered,
+  register,
+  authenticate,
+  unregister,
+};
 
 export function useBiometric() {
   return _biometric;

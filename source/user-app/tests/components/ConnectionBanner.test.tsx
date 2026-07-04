@@ -18,6 +18,8 @@ describe("ConnectionBanner", () => {
 
   it("shows the reconnecting banner", () => {
     render(<ConnectionBanner connState="reconnecting" />);
-    expect(screen.getByText(/Reconnecting to wardnet daemon/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reconnecting to wardnet daemon/i),
+    ).toBeInTheDocument();
   });
 });

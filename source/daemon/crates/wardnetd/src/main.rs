@@ -32,7 +32,6 @@ use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
-use wardnetd::push_listener::PushNotificationListener;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
 use wardnetd::system::{
@@ -66,6 +65,7 @@ use wardnetd_services::health::checks::{
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
+use wardnetd_services::push::listener::PushNotificationListener;
 use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::system::WatchdogOps;
 use wardnetd_services::update::{

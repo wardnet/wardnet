@@ -17,13 +17,24 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   return { ...actual, useAuth: h.useAuth, useSetupStatus: h.useSetupStatus };
 });
 vi.mock("@/hooks/useBiometric", () => ({
-  useBiometric: () => ({ isRegistered: h.isRegistered, authenticate: h.authenticate }),
+  useBiometric: () => ({
+    isRegistered: h.isRegistered,
+    authenticate: h.authenticate,
+  }),
 }));
 vi.mock("@/context/OnlineStatusContext", () => ({
-  OnlineStatusProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  OnlineStatusProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 vi.mock("@/components/BiometricGate", () => ({
-  BiometricGate: ({ onSuccess, onUsePassword }: { onSuccess: () => void; onUsePassword: () => void }) => (
+  BiometricGate: ({
+    onSuccess,
+    onUsePassword,
+  }: {
+    onSuccess: () => void;
+    onUsePassword: () => void;
+  }) => (
     <div>
       <span>BIOMETRIC-GATE</span>
       <button onClick={onSuccess}>gate-success</button>
@@ -33,11 +44,25 @@ vi.mock("@/components/BiometricGate", () => ({
 }));
 vi.mock("@/layouts/AppLayout", async () => {
   const { Outlet } = await import("react-router");
-  return { AppLayout: () => <div>APP-LAYOUT<Outlet /></div> };
+  return {
+    AppLayout: () => (
+      <div>
+        APP-LAYOUT
+        <Outlet />
+      </div>
+    ),
+  };
 });
 vi.mock("@/layouts/AuthLayout", async () => {
   const { Outlet } = await import("react-router");
-  return { AuthLayout: () => <div>AUTH-LAYOUT<Outlet /></div> };
+  return {
+    AuthLayout: () => (
+      <div>
+        AUTH-LAYOUT
+        <Outlet />
+      </div>
+    ),
+  };
 });
 vi.mock("@/pages/Dashboard", () => ({ default: () => <div>DASHBOARD</div> }));
 vi.mock("@/pages/Login", () => ({ default: () => <div>LOGIN</div> }));
@@ -49,7 +74,9 @@ vi.mock("@/pages/System", () => ({ default: () => <div>SYSTEM</div> }));
 import App from "@/App";
 
 function renderApp(route = "/") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[route]}>
@@ -70,7 +97,10 @@ describe("App", () => {
       isAdmin: true,
       isChecking: false,
     });
-    h.useSetupStatus.mockReturnValue({ data: { wizard_step: "completed" }, isLoading: false });
+    h.useSetupStatus.mockReturnValue({
+      data: { wizard_step: "completed" },
+      isLoading: false,
+    });
     h.isRegistered.mockReturnValue(false);
   });
 
@@ -94,9 +124,14 @@ describe("App", () => {
   });
 
   it("shows the setup interstitial when the wizard is incomplete", async () => {
-    h.useSetupStatus.mockReturnValue({ data: { wizard_step: "network" }, isLoading: false });
+    h.useSetupStatus.mockReturnValue({
+      data: { wizard_step: "network" },
+      isLoading: false,
+    });
     renderApp("/");
-    expect(await screen.findByText("Initial setup required")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Initial setup required"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Go to setup")).toHaveAttribute(
       "href",
       expect.stringContaining("returnTo=/admin-app/"),

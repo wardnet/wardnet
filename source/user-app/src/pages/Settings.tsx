@@ -79,8 +79,8 @@ export default function Settings() {
           Device not detected
         </Text>
         <Text as="p" size="sm" className="max-w-md text-ink-3">
-          Your device has not been detected on the network yet. Make sure you are
-          accessing Wardnet directly from the local network.
+          Your device has not been detected on the network yet. Make sure you
+          are accessing Wardnet directly from the local network.
         </Text>
       </div>
     );

@@ -11,9 +11,10 @@ use axum::routing::{get, post};
 use tower::ServiceExt;
 use wardnet_common::api::WebPushSubscription;
 use wardnet_common::event::WardnetEvent;
+use wardnetd_data::repository::StoredNotification;
 
 use crate::state::AppState;
-use crate::tests::stubs::test_app_state;
+use crate::tests::stubs::{AlwaysAdminAuth, test_app_state};
 use wardnetd_services::error::AppError;
 use wardnetd_services::push::PushService;
 
@@ -35,16 +36,39 @@ impl PushService for MockPushService {
     async fn handle_event(&self, _event: &WardnetEvent) -> Result<(), AppError> {
         Ok(())
     }
+    async fn recent_notifications(&self, limit: u32) -> Result<Vec<StoredNotification>, AppError> {
+        Ok(vec![StoredNotification {
+            id: "n1".to_owned(),
+            kind: "new_device_quarantined".to_owned(),
+            title: "New device".to_owned(),
+            body: "New device Phone joined, in Guest. Approve in the app.".to_owned(),
+            url: Some("/devices".to_owned()),
+            subject_id: Some("device-1".to_owned()),
+            created_at: "2026-07-03T00:00:00Z".to_owned(),
+        }]
+        .into_iter()
+        .take(limit as usize)
+        .collect())
+    }
+    async fn clear_notifications(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 fn router(state: AppState) -> Router {
-    use crate::api::push::{get_vapid_public_key, subscribe, unsubscribe};
+    use crate::api::push::{
+        clear_notifications, get_vapid_public_key, list_notifications, subscribe, unsubscribe,
+    };
 
     Router::new()
         .route("/api/push/vapid-public-key", get(get_vapid_public_key))
         .route(
             "/api/push/subscriptions",
             post(subscribe).delete(unsubscribe),
+        )
+        .route(
+            "/api/push/notifications",
+            get(list_notifications).delete(clear_notifications),
         )
         .with_state(state)
 }
@@ -123,6 +147,62 @@ async fn default_noop_push_service_errors_on_vapid_but_accepts_mutations() {
     let app = router(test_app_state());
     let (status, _) = send(app, "DELETE", "/api/push/subscriptions", None).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+/// Like [`send`] but with an admin session cookie attached.
+async fn send_as_admin(app: Router, method: &str, uri: &str) -> (StatusCode, serde_json::Value) {
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Cookie", "wardnet_session=test")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+#[tokio::test]
+async fn list_notifications_rejects_anonymous_callers() {
+    // Default StubAuthService validates no session -> AdminAuth rejects.
+    let app = router(test_app_state().with_push_service(Arc::new(MockPushService)));
+    let (status, _) = send(app, "GET", "/api/push/notifications", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let app = router(test_app_state().with_push_service(Arc::new(MockPushService)));
+    let (status, _) = send(app, "DELETE", "/api/push/notifications", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn list_notifications_returns_the_feed_for_admins() {
+    let app = router(
+        test_app_state()
+            .with_auth_service(Arc::new(AlwaysAdminAuth))
+            .with_push_service(Arc::new(MockPushService)),
+    );
+    let (status, json) = send_as_admin(app, "GET", "/api/push/notifications?limit=10").await;
+    assert_eq!(status, StatusCode::OK);
+    let items = json["notifications"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["kind"], "new_device_quarantined");
+    assert_eq!(items[0]["url"], "/devices");
+    assert_eq!(items[0]["subject_id"], "device-1");
+    assert_eq!(items[0]["created_at"], "2026-07-03T00:00:00Z");
+}
+
+#[tokio::test]
+async fn clear_notifications_returns_ok_for_admins() {
+    let app = router(
+        test_app_state()
+            .with_auth_service(Arc::new(AlwaysAdminAuth))
+            .with_push_service(Arc::new(MockPushService)),
+    );
+    let (status, json) = send_as_admin(app, "DELETE", "/api/push/notifications").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["message"], "cleared");
 }
 
 #[tokio::test]

@@ -1801,6 +1801,34 @@ pub struct PushSubscriptionResponse {
     pub message: String,
 }
 
+/// One entry of the admin notification feed (issue #482): a persisted record
+/// of an admin-audience push notification.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NotificationItem {
+    pub id: String,
+    /// Stable machine tag, e.g. `new_device_quarantined`, `tunnel_offline`,
+    /// `routing_changed`.
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    /// App-relative deep link (no PWA base path), e.g. `/devices`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Identifier of the subject entity; what it identifies is driven by
+    /// `kind` (device UUID for device kinds, tunnel UUID for tunnel kinds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    /// RFC 3339 creation timestamp.
+    pub created_at: String,
+}
+
+/// Response of `GET /api/push/notifications`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NotificationsResponse {
+    /// Newest first.
+    pub notifications: Vec<NotificationItem>,
+}
+
 // --- Network Zones (epic #244, issue #735) ---------------------------------
 
 /// A Network Zone plus its current member count. Enriched view returned by the

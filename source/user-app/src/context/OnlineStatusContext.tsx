@@ -6,7 +6,11 @@ type OnlineStatus = ReturnType<typeof useOnlineStatus>;
 
 const OnlineStatusContext = createContext<OnlineStatus | null>(null);
 
-export function OnlineStatusProvider({ children }: { children: React.ReactNode }) {
+export function OnlineStatusProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const status = useOnlineStatus();
   const qc = useQueryClient();
   const prevReachable = useRef(status.isDaemonReachable);
@@ -33,6 +37,9 @@ export function OnlineStatusProvider({ children }: { children: React.ReactNode }
 
 export function useOnlineStatusContext(): OnlineStatus {
   const ctx = useContext(OnlineStatusContext);
-  if (!ctx) throw new Error("useOnlineStatusContext must be inside OnlineStatusProvider");
+  if (!ctx)
+    throw new Error(
+      "useOnlineStatusContext must be inside OnlineStatusProvider",
+    );
   return ctx;
 }

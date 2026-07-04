@@ -20,8 +20,9 @@ use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{
-    DeviceRepository, NewPushSubscription, PushRepository, SqliteDeviceRepository,
-    SqlitePushRepository, SqliteSystemConfigRepository, SqliteTunnelRepository, TunnelRepository,
+    DeviceRepository, NewPushSubscription, NotificationRepository, PushRepository,
+    SqliteDeviceRepository, SqliteNotificationRepository, SqlitePushRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, TunnelRepository,
 };
 use wardnetd_data::secret_store::SecretStore;
 
@@ -123,6 +124,7 @@ impl WebPushSender for RecordingSender {
 struct Harness {
     service: PushServiceImpl,
     push_repo: Arc<dyn PushRepository>,
+    notifications: Arc<dyn NotificationRepository>,
     devices: Arc<dyn DeviceRepository>,
     tunnels: Arc<dyn TunnelRepository>,
     sender: Arc<RecordingSender>,
@@ -132,6 +134,8 @@ struct Harness {
 async fn build(outcome: SendOutcome) -> Harness {
     let pool = test_pool().await;
     let push_repo: Arc<dyn PushRepository> = Arc::new(SqlitePushRepository::new(pool.clone()));
+    let notifications: Arc<dyn NotificationRepository> =
+        Arc::new(SqliteNotificationRepository::new(pool.clone()));
     let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool.clone()));
     let tunnels: Arc<dyn TunnelRepository> = Arc::new(SqliteTunnelRepository::new(pool.clone()));
     let system_config = Arc::new(SqliteSystemConfigRepository::new(pool));
@@ -139,6 +143,7 @@ async fn build(outcome: SendOutcome) -> Harness {
     let secrets = Arc::new(InMemorySecretStore::default());
     let service = PushServiceImpl::new(
         push_repo.clone(),
+        notifications.clone(),
         devices.clone(),
         tunnels.clone(),
         system_config,
@@ -148,6 +153,7 @@ async fn build(outcome: SendOutcome) -> Harness {
     Harness {
         service,
         push_repo,
+        notifications,
         devices,
         tunnels,
         sender,
@@ -569,6 +575,7 @@ async fn vapid_public_key_is_generated_once_and_stable() {
     let pool = test_pool().await;
     let reloaded = PushServiceImpl::new(
         Arc::new(SqlitePushRepository::new(pool.clone())),
+        Arc::new(SqliteNotificationRepository::new(pool.clone())),
         Arc::new(SqliteDeviceRepository::new(pool.clone())),
         Arc::new(SqliteTunnelRepository::new(pool.clone())),
         Arc::new(SqliteSystemConfigRepository::new(pool)),
@@ -736,4 +743,257 @@ async fn new_device_quarantined_notifies_admins() {
     assert!(sent[0].payload.contains("Kid's iPad"));
     assert!(sent[0].payload.contains("Guest"));
     assert!(sent[0].payload.contains("Approve"));
+    // Structured data lets the service worker deep-link to the approve action.
+    let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+    assert_eq!(payload["data"]["kind"], "new_device_quarantined");
+    assert_eq!(payload["data"]["url"], "/devices");
+    assert_eq!(payload["data"]["subject_id"], device_id.to_string());
+}
+
+#[tokio::test]
+async fn tunnel_offline_payload_carries_kind_url_and_tunnel_subject() {
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    // The subject id is kind-driven: a tunnel UUID for tunnel kinds.
+    let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+    assert_eq!(payload["data"]["kind"], "tunnel_offline");
+    assert_eq!(payload["data"]["url"], "/tunnels");
+    assert_eq!(payload["data"]["subject_id"], tunnel_id.to_string());
+}
+
+#[tokio::test]
+async fn admin_notification_is_persisted_even_with_zero_subscriptions() {
+    // The feed records "what happened", not "what was delivered": no admin is
+    // subscribed, yet the row lands in the feed.
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+    let feed = h.notifications.list_recent(10).await.unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0].kind, "tunnel_offline");
+    assert_eq!(feed[0].title, "Tunnel offline");
+    assert_eq!(feed[0].url.as_deref(), Some("/tunnels"));
+    assert_eq!(feed[0].subject_id.as_deref(), Some(&*tunnel_id.to_string()));
+}
+
+#[tokio::test]
+async fn admin_notification_is_persisted_when_delivery_fails_transiently() {
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::TransientFailure).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "T").await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelReconnecting {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            last_handshake: None,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    // Delivery was attempted and failed; the feed row is there regardless.
+    assert_eq!(h.sender.sent.lock().unwrap().len(), 1);
+    assert_eq!(h.notifications.list_recent(10).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn device_keyed_notifications_are_not_persisted_to_the_feed() {
+    // The feed is admin-audience only: a device-keyed push must leave no row.
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:05", Some("Phone")).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:05",
+        "https://push/device",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::DeviceAdminLocked {
+            device_id,
+            locked: true,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    assert_eq!(h.sender.sent.lock().unwrap().len(), 1);
+    assert!(h.notifications.list_recent(10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn recent_notifications_requires_admin_and_returns_newest_first() {
+    let tunnel_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_tunnel(&h.tunnels, tunnel_id, "T").await;
+
+    handle(
+        &h.service,
+        WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    // A device caller is rejected.
+    let result = auth_context::with_context(
+        AuthContext::Device {
+            mac: "aa:bb:cc:06".to_owned(),
+        },
+        h.service.recent_notifications(10),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+
+    // An admin gets the feed.
+    let feed = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        h.service.recent_notifications(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(feed.len(), 1);
+
+    // Clear empties it (also admin-gated).
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        h.service.clear_notifications(),
+    )
+    .await
+    .unwrap();
+    assert!(h.notifications.list_recent(10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rule_request_notifies_admins_and_lands_in_the_feed() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:07", Some("Kid's iPad")).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_ADMIN,
+        "admin-1",
+        "https://push/admin",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::RuleRequestCreated {
+            request_id: "req-1".to_owned(),
+            device_id: device_id.to_string(),
+            kind: wardnet_common::rule_request::RuleRequestKind::Allow,
+            domain: "blocked.example".to_owned(),
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    // Scoped so the guard drops before the `.await` below (clippy:
+    // await_holding_lock).
+    {
+        let sent = h.sender.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].endpoint, "https://push/admin");
+        let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+        assert_eq!(payload["title"], "Rule request");
+        assert_eq!(
+            payload["body"],
+            "Kid's iPad asked to allow blocked.example."
+        );
+        assert_eq!(payload["data"]["kind"], "rule_request_created");
+        // No admin-app surface for rule requests yet — no deep link.
+        assert!(payload["data"].get("url").is_none());
+        assert_eq!(payload["data"]["subject_id"], "req-1");
+    }
+
+    let feed = h.notifications.list_recent(10).await.unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0].kind, "rule_request_created");
+}
+
+#[tokio::test]
+async fn device_keyed_payload_omits_url_but_keeps_kind_and_subject() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:04", Some("Phone")).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:04",
+        "https://push/device",
+    )
+    .await;
+
+    handle(
+        &h.service,
+        WardnetEvent::DeviceAdminLocked {
+            device_id,
+            locked: true,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+    assert_eq!(payload["data"]["kind"], "routing_locked");
+    // Absent keys are omitted, not serialized as null.
+    assert!(payload["data"].get("url").is_none());
+    assert_eq!(payload["data"]["subject_id"], device_id.to_string());
 }

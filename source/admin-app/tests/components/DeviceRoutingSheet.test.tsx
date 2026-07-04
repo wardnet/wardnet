@@ -2,27 +2,39 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mutate, useUpdateDevice, assignZone, useNetworkZones, useAssignDeviceZone } =
-  vi.hoisted(() => {
-    const mutate = vi.fn();
-    const assignZone = vi.fn();
-    return {
-      mutate,
-      useUpdateDevice: vi.fn(() => ({ mutate, isPending: false })),
-      assignZone,
-      // The sheet reads zones + an assign mutation for its zone-reassignment
-      // section; keep the list empty so these specs stay focused on routing.
-      // `zones` is typed loosely — the hook is mocked, so the component's real
-      // NetworkZoneView type is irrelevant here; only the fields the sheet
-      // reads (id/name/is_default) matter.
-      useNetworkZones: vi.fn(
-        (): { data: { zones: Array<{ id: string; name: string; is_default: boolean }> } } => ({
-          data: { zones: [] },
-        }),
-      ),
-      useAssignDeviceZone: vi.fn(() => ({ mutate: assignZone, isPending: false })),
-    };
-  });
+const {
+  mutate,
+  useUpdateDevice,
+  assignZone,
+  useNetworkZones,
+  useAssignDeviceZone,
+} = vi.hoisted(() => {
+  const mutate = vi.fn();
+  const assignZone = vi.fn();
+  return {
+    mutate,
+    useUpdateDevice: vi.fn(() => ({ mutate, isPending: false })),
+    assignZone,
+    // The sheet reads zones + an assign mutation for its zone-reassignment
+    // section; keep the list empty so these specs stay focused on routing.
+    // `zones` is typed loosely — the hook is mocked, so the component's real
+    // NetworkZoneView type is irrelevant here; only the fields the sheet
+    // reads (id/name/is_default) matter.
+    useNetworkZones: vi.fn(
+      (): {
+        data: {
+          zones: Array<{ id: string; name: string; is_default: boolean }>;
+        };
+      } => ({
+        data: { zones: [] },
+      }),
+    ),
+    useAssignDeviceZone: vi.fn(() => ({
+      mutate: assignZone,
+      isPending: false,
+    })),
+  };
+});
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, useUpdateDevice, useNetworkZones, useAssignDeviceZone };
@@ -37,7 +49,10 @@ describe("DeviceRoutingSheet", () => {
     assignZone.mockReset();
     useUpdateDevice.mockReturnValue({ mutate, isPending: false });
     useNetworkZones.mockReturnValue({ data: { zones: [] } });
-    useAssignDeviceZone.mockReturnValue({ mutate: assignZone, isPending: false });
+    useAssignDeviceZone.mockReturnValue({
+      mutate: assignZone,
+      isPending: false,
+    });
   });
 
   it("renders default/direct options plus each tunnel", () => {
@@ -87,7 +102,10 @@ describe("DeviceRoutingSheet", () => {
     );
     await userEvent.click(screen.getByText(/JP/));
     expect(mutate).toHaveBeenCalledWith(
-      { id: "dev-2", body: { routing_target: { type: "tunnel", tunnel_id: "t7" } } },
+      {
+        id: "dev-2",
+        body: { routing_target: { type: "tunnel", tunnel_id: "t7" } },
+      },
       expect.any(Object),
     );
   });
@@ -104,7 +122,12 @@ describe("DeviceRoutingSheet", () => {
     expect(screen.getByText(/Route: Phone/)).toBeInTheDocument();
     // Parent clears the selection while animating closed — label stays latched.
     rerender(
-      <DeviceRoutingSheet device={null} tunnels={[]} open onOpenChange={vi.fn()} />,
+      <DeviceRoutingSheet
+        device={null}
+        tunnels={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
     );
     expect(screen.getByText(/Route: Phone/)).toBeInTheDocument();
   });

@@ -30,7 +30,12 @@ export function InstallPrompt() {
     <div className="absolute inset-x-3 bottom-3 z-30 flex animate-slide-up items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop">
       <img src={appIcon} alt="" className="h-9 w-9 shrink-0 rounded-[10px]" />
       <div className="min-w-0 flex-1">
-        <Text as="p" size="base" weight="semibold" className="leading-tight text-ink">
+        <Text
+          as="p"
+          size="base"
+          weight="semibold"
+          className="leading-tight text-ink"
+        >
           Install Wardnet
         </Text>
         <Text as="p" size="xs" className="mt-0.5 text-ink-3">

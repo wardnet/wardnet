@@ -49,13 +49,20 @@ describe("DevicesCard", () => {
       <DevicesCard
         deviceCount={2}
         devices={[
-          makeDevice({ id: "a", last_seen: now, current_rule: { type: "tunnel", tunnel_id: "t" } }),
+          makeDevice({
+            id: "a",
+            last_seen: now,
+            current_rule: { type: "tunnel", tunnel_id: "t" },
+          }),
           makeDevice({ id: "b", last_seen: old }),
         ]}
         defaultPolicy="direct"
       />,
     );
-    expect(screen.getByTestId("dashboard-devices-card")).toHaveAttribute("href", "/devices");
+    expect(screen.getByTestId("dashboard-devices-card")).toHaveAttribute(
+      "href",
+      "/devices",
+    );
     expect(screen.getByText("1 routed through a tunnel")).toBeInTheDocument();
   });
 
@@ -72,10 +79,16 @@ describe("DevicesCard", () => {
 
   it("renders an em dash and no tunnel line when devices are undefined", () => {
     renderWithProviders(
-      <DevicesCard deviceCount={5} devices={undefined} defaultPolicy={undefined} />,
+      <DevicesCard
+        deviceCount={5}
+        devices={undefined}
+        defaultPolicy={undefined}
+      />,
     );
     expect(screen.getByText("—")).toBeInTheDocument();
-    expect(screen.queryByText(/routed through a tunnel/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/routed through a tunnel/),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -86,7 +99,12 @@ describe("TunnelsCard", () => {
         tunnelCount={3}
         tunnelActiveCount={2}
         tunnels={[
-          makeTunnel({ id: "t1", label: "US", status: "up", resolved_server_name: "US #1" }),
+          makeTunnel({
+            id: "t1",
+            label: "US",
+            status: "up",
+            resolved_server_name: "US #1",
+          }),
           makeTunnel({ id: "t2", label: "JP", status: "up" }),
           makeTunnel({ id: "t3", label: "DE", status: "down" }),
         ]}
@@ -117,7 +135,10 @@ describe("DnsQueriesCard", () => {
   it("shows the total and a sparkline when data is present", () => {
     renderWithProviders(<DnsQueriesCard data={dnsStats} isLoading={false} />);
     expect(screen.getByText("1,234")).toBeInTheDocument();
-    expect(screen.getByTestId("dashboard-dns-queries-card")).toHaveAttribute("href", "/dns");
+    expect(screen.getByTestId("dashboard-dns-queries-card")).toHaveAttribute(
+      "href",
+      "/dns",
+    );
   });
 
   it("shows an ellipsis while loading with no data", () => {

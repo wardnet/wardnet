@@ -37,7 +37,9 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     const adminSiteUrl = `${window.location.origin}/admin/?returnTo=/admin-app/`;
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-bg px-4 text-ink">
-        <Text as="p" size="lg" weight="semibold">Initial setup required</Text>
+        <Text as="p" size="lg" weight="semibold">
+          Initial setup required
+        </Text>
         <Text as="p" size="sm" className="text-ink-3 text-center max-w-xs">
           Complete the Wardnet setup wizard before using the admin app.
         </Text>
@@ -94,23 +96,26 @@ export default function App() {
 
   return (
     <OnlineStatusProvider>
-    <SetupGuard>
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route path="login" element={<Login onUnlock={() => setUnlocked(true)} />} />
-        </Route>
-        <Route element={<AdminRoute />}>
-          <Route element={<AppLayout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="devices" element={<Devices />} />
-            <Route path="tunnels" element={<Tunnels />} />
-            <Route path="dns" element={<Dns />} />
-            <Route path="system" element={<System />} />
+      <SetupGuard>
+        <Routes>
+          <Route element={<AuthLayout />}>
+            <Route
+              path="login"
+              element={<Login onUnlock={() => setUnlocked(true)} />}
+            />
           </Route>
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </SetupGuard>
+          <Route element={<AdminRoute />}>
+            <Route element={<AppLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="devices" element={<Devices />} />
+              <Route path="tunnels" element={<Tunnels />} />
+              <Route path="dns" element={<Dns />} />
+              <Route path="system" element={<System />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </SetupGuard>
     </OnlineStatusProvider>
   );
 }

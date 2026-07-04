@@ -25,7 +25,14 @@ export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
 
 // Types — push
-export type { WebPushKeys, WebPushSubscription, VapidPublicKeyResponse } from "./types/push.js";
+export type {
+  WebPushKeys,
+  WebPushSubscription,
+  VapidPublicKeyResponse,
+  NotificationKind,
+  NotificationItem,
+  NotificationsResponse,
+} from "./types/push.js";
 
 // Types — jobs
 export type { Job, JobKind, JobStatus, JobDispatchedResponse } from "./types/jobs.js";

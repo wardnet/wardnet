@@ -5,8 +5,8 @@ use tracing::Instrument;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 
-use wardnetd_services::event::EventPublisher;
-use wardnetd_services::push::PushService;
+use crate::event::EventPublisher;
+use crate::push::PushService;
 
 /// Background task that turns domain events into Web Push notifications.
 ///
@@ -70,7 +70,7 @@ async fn handle_event(event: &WardnetEvent, push: &dyn PushService) {
     // Deliver under an admin context: `handle_event` opens with
     // `require_admin`, matching how other background listeners drive
     // auth-gated services (see `routing_listener`).
-    if let Err(error) = wardnetd_services::auth_context::with_context(
+    if let Err(error) = crate::auth_context::with_context(
         AuthContext::Admin {
             admin_id: uuid::Uuid::nil(),
         },

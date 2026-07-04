@@ -6,7 +6,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { useDaemonStatus, useInstallPrompt, onlineCtx } = vi.hoisted(() => ({
   useDaemonStatus: vi.fn(),
   useInstallPrompt: vi.fn(),
-  onlineCtx: { value: { isOnline: true, isDaemonReachable: true, showingLastKnownState: false } },
+  onlineCtx: {
+    value: {
+      isOnline: true,
+      isDaemonReachable: true,
+      showingLastKnownState: false,
+    },
+  },
 }));
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -37,8 +43,15 @@ function renderRouted(element: React.ReactElement, child: string) {
 describe("AppLayout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useInstallPrompt.mockReturnValue({ isInstallable: false, promptInstall: vi.fn() });
-    onlineCtx.value = { isOnline: true, isDaemonReachable: true, showingLastKnownState: false };
+    useInstallPrompt.mockReturnValue({
+      isInstallable: false,
+      promptInstall: vi.fn(),
+    });
+    onlineCtx.value = {
+      isOnline: true,
+      isDaemonReachable: true,
+      showingLastKnownState: false,
+    };
   });
 
   it("renders header, tabs and the routed outlet when online", () => {
@@ -47,21 +60,35 @@ describe("AppLayout", () => {
     expect(screen.getByText("PAGE-CONTENT")).toBeInTheDocument();
     expect(screen.getByTestId("tab-home")).toBeInTheDocument();
     // Online → no connection banner.
-    expect(screen.queryByText(/No connection to wardnet daemon/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/No connection to wardnet daemon/i),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the offline banner when not online", () => {
     useDaemonStatus.mockReturnValue({ data: null });
-    onlineCtx.value = { isOnline: false, isDaemonReachable: false, showingLastKnownState: true };
+    onlineCtx.value = {
+      isOnline: false,
+      isDaemonReachable: false,
+      showingLastKnownState: true,
+    };
     renderRouted(<AppLayout />, "X");
-    expect(screen.getByText(/No connection to wardnet daemon/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No connection to wardnet daemon/i),
+    ).toBeInTheDocument();
   });
 
   it("shows the reconnecting banner when online but daemon unreachable", () => {
     useDaemonStatus.mockReturnValue({ data: null });
-    onlineCtx.value = { isOnline: true, isDaemonReachable: false, showingLastKnownState: false };
+    onlineCtx.value = {
+      isOnline: true,
+      isDaemonReachable: false,
+      showingLastKnownState: false,
+    };
     renderRouted(<AppLayout />, "X");
-    expect(screen.getByText(/Reconnecting to wardnet daemon/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reconnecting to wardnet daemon/i),
+    ).toBeInTheDocument();
   });
 });
 
@@ -76,7 +103,9 @@ describe("AuthLayout", () => {
         </Routes>
       </MemoryRouter>,
     );
-    expect(screen.getByText("Sign in to manage your network")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sign in to manage your network"),
+    ).toBeInTheDocument();
     expect(screen.getByText("LOGIN-FORM")).toBeInTheDocument();
   });
 });

@@ -21,3 +21,44 @@ export interface VapidPublicKeyResponse {
    */
   key: string;
 }
+
+/**
+ * Stable machine tags for push notifications, mirroring the daemon's
+ * `NotificationKind` enum. Kept open (`string & {}`) so an older client keeps
+ * working when the daemon ships a new kind.
+ */
+export type NotificationKind =
+  | "routing_locked"
+  | "routing_unlocked"
+  | "routing_changed"
+  | "tunnel_offline"
+  | "new_device_quarantined"
+  | "rule_request_created"
+  | (string & {});
+
+/**
+ * One entry of the admin notification feed: a persisted record of an
+ * admin-audience push notification.
+ */
+export interface NotificationItem {
+  id: string;
+  /** Stable machine tag, e.g. `new_device_quarantined`, `tunnel_offline`. */
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  /** App-relative deep link (no PWA base path), e.g. `/devices`. */
+  url?: string;
+  /**
+   * Identifier of the subject entity; what it identifies is driven by `kind`
+   * (device UUID for device kinds, tunnel UUID for tunnel kinds).
+   */
+  subject_id?: string;
+  /** RFC 3339 creation timestamp. */
+  created_at: string;
+}
+
+/** Response of `GET /api/push/notifications`. */
+export interface NotificationsResponse {
+  /** Newest first. */
+  notifications: NotificationItem[];
+}

@@ -35,7 +35,12 @@ import { renderWithProviders } from "../test-utils";
 function loaded() {
   h.useDnsStatus.mockReturnValue({
     isLoading: false,
-    data: { running: true, cache_size: 42, cache_capacity: 100, cache_hit_rate: 0.9 },
+    data: {
+      running: true,
+      cache_size: 42,
+      cache_capacity: 100,
+      cache_hit_rate: 0.9,
+    },
   });
   h.useDnsConfig.mockReturnValue({
     isLoading: false,
@@ -43,7 +48,13 @@ function loaded() {
   });
   h.useDashboardDnsStats.mockReturnValue({
     isLoading: false,
-    data: { total: 1000, blocked: 80, blockedPercent: 8, totalSeries: [1, 2], blockedSeries: [0, 1] },
+    data: {
+      total: 1000,
+      blocked: 80,
+      blockedPercent: 8,
+      totalSeries: [1, 2],
+      blockedSeries: [0, 1],
+    },
   });
   h.useDnsTopBlockedDomains.mockReturnValue({
     isLoading: false,
@@ -60,8 +71,14 @@ describe("Dns page", () => {
   it("shows a skeleton while any query is loading", () => {
     h.useDnsStatus.mockReturnValue({ isLoading: true, data: undefined });
     h.useDnsConfig.mockReturnValue({ isLoading: true, data: undefined });
-    h.useDashboardDnsStats.mockReturnValue({ isLoading: true, data: undefined });
-    h.useDnsTopBlockedDomains.mockReturnValue({ isLoading: true, data: undefined });
+    h.useDashboardDnsStats.mockReturnValue({
+      isLoading: true,
+      data: undefined,
+    });
+    h.useDnsTopBlockedDomains.mockReturnValue({
+      isLoading: true,
+      data: undefined,
+    });
     const { container } = renderWithProviders(<Dns />);
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
   });
@@ -77,9 +94,14 @@ describe("Dns page", () => {
 
   it("shows the empty message when there are no blocked domains", () => {
     loaded();
-    h.useDnsTopBlockedDomains.mockReturnValue({ isLoading: false, data: { entries: [] } });
+    h.useDnsTopBlockedDomains.mockReturnValue({
+      isLoading: false,
+      data: { entries: [] },
+    });
     renderWithProviders(<Dns />);
-    expect(screen.getByText(/No blocked queries in the last 24 hours/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No blocked queries in the last 24 hours/),
+    ).toBeInTheDocument();
   });
 
   it("confirms and toggles the DNS server off", async () => {
@@ -97,7 +119,9 @@ describe("Dns page", () => {
     await userEvent.click(screen.getByTestId("dns-filter-toggle"));
     expect(screen.getByText("Disable DNS filtering?")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("confirm-dialog-confirm"));
-    expect(h.updateMutate).toHaveBeenCalledWith({ dns_filtering_enabled: false });
+    expect(h.updateMutate).toHaveBeenCalledWith({
+      dns_filtering_enabled: false,
+    });
   });
 
   it("flushes the DNS cache", async () => {
@@ -111,7 +135,12 @@ describe("Dns page", () => {
     loaded();
     h.useDnsStatus.mockReturnValue({
       isLoading: false,
-      data: { running: false, cache_size: 0, cache_capacity: 0, cache_hit_rate: 0 },
+      data: {
+        running: false,
+        cache_size: 0,
+        cache_capacity: 0,
+        cache_hit_rate: 0,
+      },
     });
     h.useDnsConfig.mockReturnValue({
       isLoading: false,

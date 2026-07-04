@@ -1,4 +1,12 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { useBiometric } from "@/hooks/useBiometric";
 
 const KEY = "wardnet_biometric_credential_id";
@@ -48,7 +56,8 @@ describe("useBiometric", () => {
 
     it("is true when PublicKeyCredential exposes the platform check", () => {
       (window as unknown as Record<string, unknown>).PublicKeyCredential = {
-        isUserVerifyingPlatformAuthenticatorAvailable: () => Promise.resolve(true),
+        isUserVerifyingPlatformAuthenticatorAvailable: () =>
+          Promise.resolve(true),
       };
       expect(b.isAvailable()).toBe(true);
     });

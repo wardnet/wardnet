@@ -22,19 +22,32 @@ describe("InstallPrompt", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("renders nothing when not installable", () => {
-    useInstallPrompt.mockReturnValue({ isInstallable: false, promptInstall: vi.fn() });
-    const { container } = renderWithProviders(<InstallPrompt />, { route: "/" });
+    useInstallPrompt.mockReturnValue({
+      isInstallable: false,
+      promptInstall: vi.fn(),
+    });
+    const { container } = renderWithProviders(<InstallPrompt />, {
+      route: "/",
+    });
     expect(container).toBeEmptyDOMElement();
   });
 
   it("renders nothing when not on the home route", () => {
-    useInstallPrompt.mockReturnValue({ isInstallable: true, promptInstall: vi.fn() });
-    const { container } = renderWithProviders(<InstallPrompt />, { route: "/devices" });
+    useInstallPrompt.mockReturnValue({
+      isInstallable: true,
+      promptInstall: vi.fn(),
+    });
+    const { container } = renderWithProviders(<InstallPrompt />, {
+      route: "/devices",
+    });
     expect(container).toBeEmptyDOMElement();
   });
 
   it("shows the prompt and can be dismissed with Later", async () => {
-    useInstallPrompt.mockReturnValue({ isInstallable: true, promptInstall: vi.fn() });
+    useInstallPrompt.mockReturnValue({
+      isInstallable: true,
+      promptInstall: vi.fn(),
+    });
     renderWithProviders(<InstallPrompt />, { route: "/" });
     expect(screen.getByText("Install Wardnet")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Later"));
@@ -46,7 +59,9 @@ describe("InstallPrompt", () => {
     useInstallPrompt.mockReturnValue({ isInstallable: true, promptInstall });
     renderWithProviders(<InstallPrompt />, { route: "/" });
     await userEvent.click(screen.getByText("Install"));
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Added to home screen"));
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith("Added to home screen"),
+    );
     expect(screen.queryByText("Install Wardnet")).not.toBeInTheDocument();
   });
 

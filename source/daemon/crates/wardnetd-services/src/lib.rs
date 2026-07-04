@@ -491,10 +491,12 @@ fn create_services(
     let rule_request_service: Arc<dyn RuleRequestService> = Arc::new(RuleRequestServiceImpl::new(
         repo_factory.rule_request(),
         device_service.clone(),
+        event_publisher.clone(),
     ));
 
     let push_service: Arc<dyn PushService> = Arc::new(crate::push::PushServiceImpl::new(
         repo_factory.push(),
+        repo_factory.notification(),
         device_repo.clone(),
         tunnel_repo.clone(),
         system_config_repo.clone(),

@@ -121,7 +121,10 @@ describe("Settings page", () => {
       isLoading: false,
     });
     useMyRuleRequests.mockReturnValue({
-      data: [req({ domain: "block.me", kind: "block" }), req({ id: "r2", domain: "allow.me", kind: "allow" })],
+      data: [
+        req({ domain: "block.me", kind: "block" }),
+        req({ id: "r2", domain: "allow.me", kind: "allow" }),
+      ],
       isLoading: false,
     });
     renderWithProviders(<Settings />);

@@ -1,6 +1,11 @@
 import { useRef } from "react";
 import { Drawer, DrawerContent, DrawerTitle, Text } from "@wardnet/web";
-import { useUpdateDevice, useNetworkZones, useAssignDeviceZone, countryFlag } from "@wardnet/web";
+import {
+  useUpdateDevice,
+  useNetworkZones,
+  useAssignDeviceZone,
+  countryFlag,
+} from "@wardnet/web";
 import type { Device, Tunnel, RoutingTarget } from "@wardnet/js";
 import { CheckIcon } from "lucide-react";
 
@@ -22,16 +27,31 @@ function activeKey(rule: RoutingTarget | null): string {
 
 type TunnelTone = "ok" | "danger" | "warn" | "neutral";
 
-function tunnelSublabel(status: Tunnel["status"]): { label: string; tone: TunnelTone } {
+function tunnelSublabel(status: Tunnel["status"]): {
+  label: string;
+  tone: TunnelTone;
+} {
   switch (status) {
-    case "up":           return { label: "",             tone: "ok" };
-    case "down":         return { label: "Down",         tone: "danger" };
-    case "connecting":   return { label: "Connecting",   tone: "neutral" };
-    case "reconnecting": return { label: "Reconnecting", tone: "warn" };
+    case "up":
+      return { label: "", tone: "ok" };
+    case "down":
+      return { label: "Down", tone: "danger" };
+    case "connecting":
+      return { label: "Connecting", tone: "neutral" };
+    case "reconnecting":
+      return { label: "Reconnecting", tone: "warn" };
   }
 }
 
-function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect, testId }: {
+function OptionRow({
+  label,
+  sublabel,
+  sublabelTone,
+  active,
+  disabled,
+  onSelect,
+  testId,
+}: {
   label: string;
   sublabel?: string;
   sublabelTone?: TunnelTone;
@@ -41,8 +61,11 @@ function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect, 
   testId?: string;
 }) {
   const sublabelClass =
-    sublabelTone === "danger" ? "text-danger" :
-    sublabelTone === "warn"   ? "text-warn"   : "text-ink-3";
+    sublabelTone === "danger"
+      ? "text-danger"
+      : sublabelTone === "warn"
+        ? "text-warn"
+        : "text-ink-3";
   return (
     <button
       data-testid={testId}
@@ -50,20 +73,31 @@ function OptionRow({ label, sublabel, sublabelTone, active, disabled, onSelect, 
       disabled={disabled}
       className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors duration-snap active:bg-sunken disabled:pointer-events-none disabled:opacity-40"
     >
-      {active
-        ? <CheckIcon size={16} className="shrink-0 text-accent" />
-        : <span className="size-4 shrink-0" />}
+      {active ? (
+        <CheckIcon size={16} className="shrink-0 text-accent" />
+      ) : (
+        <span className="size-4 shrink-0" />
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <Text as="span" size="lg" weight="medium" className="text-ink">{label}</Text>
+        <Text as="span" size="lg" weight="medium" className="text-ink">
+          {label}
+        </Text>
         {sublabel && (
-          <Text as="span" size="xs" className={sublabelClass}>{sublabel}</Text>
+          <Text as="span" size="xs" className={sublabelClass}>
+            {sublabel}
+          </Text>
         )}
       </div>
     </button>
   );
 }
 
-export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Props) {
+export function DeviceRoutingSheet({
+  device,
+  tunnels,
+  open,
+  onOpenChange,
+}: Props) {
   const updateDevice = useUpdateDevice({ successMessage: "Routing updated" });
   const { data: zoneData } = useNetworkZones();
   const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
@@ -76,7 +110,8 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
   const activeDevice = latchedRef.current;
 
   const current = activeKey(activeDevice?.current_rule ?? null);
-  const deviceLabel = activeDevice?.name ?? activeDevice?.hostname ?? activeDevice?.mac ?? "";
+  const deviceLabel =
+    activeDevice?.name ?? activeDevice?.hostname ?? activeDevice?.mac ?? "";
   const busy = updateDevice.isPending || assignZone.isPending;
 
   function handleSelect(target: RoutingTarget) {
@@ -109,14 +144,18 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
           style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
         >
           <OptionRow
-            label="Default" sublabel="Follow gateway policy"
-            active={current === "default"} disabled={busy}
+            label="Default"
+            sublabel="Follow gateway policy"
+            active={current === "default"}
+            disabled={busy}
             onSelect={() => handleSelect({ type: "default" })}
             testId="device-routing-default"
           />
           <OptionRow
-            label="Direct" sublabel="No VPN"
-            active={current === "direct"} disabled={busy}
+            label="Direct"
+            sublabel="No VPN"
+            active={current === "direct"}
+            disabled={busy}
             onSelect={() => handleSelect({ type: "direct" })}
             testId="device-routing-direct"
           />
@@ -131,7 +170,9 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
                 sublabelTone={tone === "ok" ? undefined : tone}
                 active={current === tunnel.id}
                 disabled={busy}
-                onSelect={() => handleSelect({ type: "tunnel", tunnel_id: tunnel.id })}
+                onSelect={() =>
+                  handleSelect({ type: "tunnel", tunnel_id: tunnel.id })
+                }
               />
             );
           })}
@@ -139,7 +180,12 @@ export function DeviceRoutingSheet({ device, tunnels, open, onOpenChange }: Prop
           {zones.length > 0 && (
             <>
               <div className="mx-4 my-2 h-px bg-line" />
-              <Text as="p" size="xs" weight="medium" className="px-4 pt-1 pb-0.5 uppercase tracking-wider text-ink-3">
+              <Text
+                as="p"
+                size="xs"
+                weight="medium"
+                className="px-4 pt-1 pb-0.5 uppercase tracking-wider text-ink-3"
+              >
                 Zone
               </Text>
               {zones.map((zone) => (

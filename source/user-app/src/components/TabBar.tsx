@@ -2,7 +2,12 @@ import { NavLink } from "react-router";
 import { HomeIcon, ChartColumnIcon, SettingsIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const TABS: Array<{ to: string; label: string; Icon: LucideIcon; end?: boolean }> = [
+const TABS: Array<{
+  to: string;
+  label: string;
+  Icon: LucideIcon;
+  end?: boolean;
+}> = [
   { to: "/", label: "Home", Icon: HomeIcon, end: true },
   { to: "/stats", label: "Stats", Icon: ChartColumnIcon },
   { to: "/settings", label: "Settings", Icon: SettingsIcon },

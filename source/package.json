@@ -11,7 +11,7 @@
     "marketing-site"
   ],
   "devDependencies": {
-    "turbo": "2.10.2"
+    "turbo": "^2.10.3"
   },
   "resolutions": {
     "path-to-regexp": "8.4.0",
@@ -22,6 +22,7 @@
     "build": "turbo run build",
     "type-check": "turbo run type-check",
     "lint": "turbo run lint",
+    "format": "turbo run format",
     "format:check": "turbo run format:check",
     "test": "turbo run test"
   }

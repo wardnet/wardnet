@@ -13,7 +13,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::{delete, get, post};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{
     DdnsCheckResponse, DdnsRegisterResponse, DdnsResolutionCheckResponse, DdnsResolutionVerdict,
     DdnsStatusResponse, TlsProvisioningPhase, TlsStatusResponse,
@@ -21,60 +20,17 @@ use wardnet_common::api::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
-    StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
-    StubSystemService, StubTunnelService,
+    AlwaysAdminAuth, StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService,
+    StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
+    StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
+    StubRoutingService, StubSystemService, StubTunnelService,
 };
-use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::LogService;
 use wardnetd_services::ddns::{DdnsRegistration, DdnsService, DdnsStatus};
 use wardnetd_services::error::AppError;
 use wardnetd_services::tls::{TlsService, TlsStatus};
-use wardnetd_services::{AuthService, LogService};
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
-
-/// Authenticates any `wardnet_session` cookie to a stable admin id.
-struct AlwaysAdminAuth;
-#[async_trait]
-impl AuthService for AlwaysAdminAuth {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
-    }
-    async fn login(&self, _u: &str, _p: &str, _r: bool) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(Uuid::nil()))
-    }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
-    }
-    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
-        unimplemented!()
-    }
-    async fn is_setup_completed(&self) -> Result<bool, AppError> {
-        Ok(true)
-    }
-    async fn wizard_state(
-        &self,
-    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn advance_wizard(
-        &self,
-        _to_step: wardnet_common::api::WizardStep,
-        _mode: Option<wardnet_common::api::WizardMode>,
-    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
-        unimplemented!()
-    }
-    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
-        unimplemented!()
-    }
-    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
-        unimplemented!()
-    }
-}
 
 /// DDNS mock returning canned availability + status.
 struct MockDdns {

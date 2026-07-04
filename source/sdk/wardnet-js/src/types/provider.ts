@@ -13,8 +13,7 @@ export interface ProviderInfo {
 
 /** Credentials submitted by the admin for provider operations. */
 export type ProviderCredentials =
-  | { type: "credentials"; username: string; password: string }
-  | { type: "token"; token: string };
+  { type: "credentials"; username: string; password: string } | { type: "token"; token: string };
 
 /** Filters for server listing. */
 export interface ServerFilter {

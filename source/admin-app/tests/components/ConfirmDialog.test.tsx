@@ -16,7 +16,9 @@ describe("ConfirmDialog", () => {
     );
     expect(screen.getByText("Disable DNS?")).toBeInTheDocument();
     expect(screen.getByText("Everything breaks.")).toBeInTheDocument();
-    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveTextContent("Confirm");
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveTextContent(
+      "Confirm",
+    );
   });
 
   it("fires onConfirm when the confirm button is pressed", async () => {
@@ -33,7 +35,9 @@ describe("ConfirmDialog", () => {
     );
     await userEvent.click(screen.getByTestId("confirm-dialog-confirm"));
     expect(onConfirm).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveTextContent("Disable");
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveTextContent(
+      "Disable",
+    );
   });
 
   it("applies the warn variant styling", () => {
@@ -47,7 +51,9 @@ describe("ConfirmDialog", () => {
         variant="warn"
       />,
     );
-    expect(screen.getByTestId("confirm-dialog-confirm").className).toContain("bg-warn");
+    expect(screen.getByTestId("confirm-dialog-confirm").className).toContain(
+      "bg-warn",
+    );
   });
 
   it("renders nothing while closed", () => {
@@ -60,6 +66,8 @@ describe("ConfirmDialog", () => {
         description="d"
       />,
     );
-    expect(screen.queryByTestId("confirm-dialog-confirm")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("confirm-dialog-confirm"),
+    ).not.toBeInTheDocument();
   });
 });

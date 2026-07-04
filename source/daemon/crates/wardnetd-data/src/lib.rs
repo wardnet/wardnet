@@ -16,15 +16,15 @@ use crate::db::DbPools;
 use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
     DnsFilterRepository, DnsLocalRepository, DnsRepository, MaintenanceRepository,
-    NetworkZoneRepository, PushRepository, RuleRequestRepository, SessionRepository,
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
-    SqlitePushRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
-    StatsRepository, SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository,
-    UpdateRepository, ZoneExceptionRepository,
+    NetworkZoneRepository, NotificationRepository, PushRepository, RuleRequestRepository,
+    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteMaintenanceRepository,
+    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePushRepository,
+    SqliteRuleRequestRepository, SqliteSessionRepository, SqliteStatsRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteTunnelSpeedTestRepository,
+    SqliteUpdateRepository, SqliteZoneExceptionRepository, StatsRepository, SystemConfigRepository,
+    TunnelRepository, TunnelSpeedTestRepository, UpdateRepository, ZoneExceptionRepository,
 };
 use sqlx::SqlitePool;
 
@@ -51,6 +51,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn maintenance(&self) -> Arc<dyn MaintenanceRepository>;
     fn rule_request(&self) -> Arc<dyn RuleRequestRepository>;
     fn push(&self) -> Arc<dyn PushRepository>;
+    fn notification(&self) -> Arc<dyn NotificationRepository>;
 
     /// Provider-specific database dumper for backup/restore.
     ///
@@ -209,6 +210,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn push(&self) -> Arc<dyn PushRepository> {
         Arc::new(SqlitePushRepository::new_pools(self.pools.clone()))
+    }
+
+    fn notification(&self) -> Arc<dyn NotificationRepository> {
+        Arc::new(SqliteNotificationRepository::new_pools(self.pools.clone()))
     }
 
     fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper> {

@@ -10,8 +10,16 @@ export function Bar({
   const clamped = Math.min(100, Math.max(0, percent));
   const color =
     variant === "rate"
-      ? clamped >= 80 ? "bg-accent" : clamped >= 50 ? "bg-warn" : "bg-danger"
-      : clamped >= 90 ? "bg-danger" : clamped >= 70 ? "bg-warn" : "bg-accent";
+      ? clamped >= 80
+        ? "bg-accent"
+        : clamped >= 50
+          ? "bg-warn"
+          : "bg-danger"
+      : clamped >= 90
+        ? "bg-danger"
+        : clamped >= 70
+          ? "bg-warn"
+          : "bg-accent";
   return (
     <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
       <div

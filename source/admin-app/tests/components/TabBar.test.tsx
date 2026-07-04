@@ -7,9 +7,14 @@ describe("TabBar", () => {
   it("renders all five nav tabs with their routes", () => {
     renderWithProviders(<TabBar />);
     for (const label of ["Home", "Devices", "Tunnels", "DNS", "System"]) {
-      expect(screen.getByTestId(`tab-${label.toLowerCase()}`)).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`tab-${label.toLowerCase()}`),
+      ).toBeInTheDocument();
     }
     expect(screen.getByTestId("tab-home")).toHaveAttribute("href", "/");
-    expect(screen.getByTestId("tab-devices")).toHaveAttribute("href", "/devices");
+    expect(screen.getByTestId("tab-devices")).toHaveAttribute(
+      "href",
+      "/devices",
+    );
   });
 });

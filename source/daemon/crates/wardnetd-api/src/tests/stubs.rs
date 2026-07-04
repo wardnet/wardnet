@@ -81,6 +81,51 @@ impl AuthService for StubAuthService {
     }
 }
 
+/// Authenticates any session cookie / bearer token to `Uuid::nil()`, so
+/// admin-gated handlers (`AdminAuth`-extracted) can be exercised. Login/setup
+/// paths stay `unimplemented!()` — use a real mock for those.
+pub struct AlwaysAdminAuth;
+#[async_trait]
+impl AuthService for AlwaysAdminAuth {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(Some(Uuid::nil()))
+    }
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(None)
+    }
+    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+    async fn wizard_state(&self) -> Result<WizardState, AppError> {
+        Ok(WizardState {
+            step: WizardStep::Completed,
+            mode: None,
+        })
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: WizardStep,
+        _mode: Option<WizardMode>,
+    ) -> Result<WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+}
+
 pub struct StubDeviceService;
 #[async_trait]
 impl DeviceService for StubDeviceService {

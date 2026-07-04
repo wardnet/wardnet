@@ -38,13 +38,19 @@ export function BiometricGate({ onSuccess, onUsePassword }: Props) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-bg px-4 text-ink">
       <div className="flex flex-col items-center gap-2 text-center">
-        <Text as="p" size="lg" weight="semibold">Verify it's you</Text>
-        <Text as="p" size="sm" className="text-ink-3">Use your device biometrics to unlock Wardnet Admin</Text>
+        <Text as="p" size="lg" weight="semibold">
+          Verify it's you
+        </Text>
+        <Text as="p" size="sm" className="text-ink-3">
+          Use your device biometrics to unlock Wardnet Admin
+        </Text>
       </div>
 
       {error && (
         <div className="flex flex-col items-center gap-3">
-          <Text as="p" size="sm" className="text-danger">Biometric verification failed. Try again.</Text>
+          <Text as="p" size="sm" className="text-danger">
+            Biometric verification failed. Try again.
+          </Text>
           <button
             onClick={attempt}
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"
