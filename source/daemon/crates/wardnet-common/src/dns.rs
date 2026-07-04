@@ -41,6 +41,49 @@ impl DnsResolutionMode {
     }
 }
 
+/// How the configured upstreams are used on the forwarding path
+/// (only meaningful in [`DnsResolutionMode::Forwarding`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwarderSelectionMode {
+    /// Use the upstreams in their listed order: send to the first, and only
+    /// fall back to the next if it fails. The list order (priority) matters.
+    /// This is the default.
+    #[default]
+    Failover,
+    /// Forward to all configured upstreams and let the resolver route to the
+    /// fastest-responding one (by live decayed round-trip time). Order is
+    /// ignored.
+    Fastest,
+    /// Forward exclusively to a single chosen upstream (see
+    /// [`DnsConfig::single_upstream`]); the others are not used.
+    Single,
+}
+
+impl ForwarderSelectionMode {
+    /// The `snake_case` wire string, matching the serde representation.
+    /// Used to persist the mode in the `system_config` KV store.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Failover => "failover",
+            Self::Fastest => "fastest",
+            Self::Single => "single",
+        }
+    }
+
+    /// Parse the `snake_case` wire string, falling back to the default
+    /// ([`Self::Failover`]) for unknown/legacy values.
+    #[must_use]
+    pub fn from_wire(s: &str) -> Self {
+        match s {
+            "fastest" => Self::Fastest,
+            "single" => Self::Single,
+            _ => Self::Failover,
+        }
+    }
+}
+
 /// Transport protocol for upstream DNS communication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -71,6 +114,21 @@ pub struct UpstreamDns {
     pub tls_server_name: Option<String>,
 }
 
+/// Rolling-average latency telemetry for one configured upstream, produced by
+/// the background latency prober and surfaced in the DNS status response so the
+/// UI can show per-server performance. Not persisted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpstreamLatency {
+    /// The upstream's `address`, matching [`UpstreamDns::address`].
+    pub address: String,
+    /// Rolling-average round-trip time in milliseconds, or `None` until the
+    /// first successful probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_latency_ms: Option<f64>,
+    /// Whether the most recent probe reached the upstream.
+    pub reachable: bool,
+}
+
 /// Top-level DNS server configuration.
 ///
 /// Persisted as individual keys in the `system_config` KV table,
@@ -81,6 +139,13 @@ pub struct DnsConfig {
     pub enabled: bool,
     pub resolution_mode: DnsResolutionMode,
     pub upstream_servers: Vec<UpstreamDns>,
+    /// How the configured upstreams are used on the forwarding path.
+    pub forwarder_selection_mode: ForwarderSelectionMode,
+    /// The `address` of the single chosen upstream. `Some` iff
+    /// `forwarder_selection_mode` is [`ForwarderSelectionMode::Single`], and
+    /// always one of the `upstream_servers` addresses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub single_upstream: Option<String>,
     pub cache_size: u32,
     pub cache_ttl_min_secs: u32,
     pub cache_ttl_max_secs: u32,
@@ -115,7 +180,16 @@ impl Default for DnsConfig {
                     port: None,
                     tls_server_name: None,
                 },
+                UpstreamDns {
+                    address: "9.9.9.9".to_owned(),
+                    name: "Quad9".to_owned(),
+                    protocol: DnsProtocol::Udp,
+                    port: None,
+                    tls_server_name: None,
+                },
             ],
+            forwarder_selection_mode: ForwarderSelectionMode::Failover,
+            single_upstream: None,
             cache_size: 10_000,
             cache_ttl_min_secs: 0,
             cache_ttl_max_secs: 86_400,
@@ -327,6 +401,61 @@ impl DnsQueryResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_upstreams_include_quad9() {
+        let cfg = DnsConfig::default();
+        let addrs: Vec<&str> = cfg
+            .upstream_servers
+            .iter()
+            .map(|u| u.address.as_str())
+            .collect();
+        assert!(addrs.contains(&"1.1.1.1"), "Cloudflare present");
+        assert!(addrs.contains(&"8.8.8.8"), "Google present");
+        assert!(
+            addrs.contains(&"9.9.9.9"),
+            "Quad9 present on fresh installs"
+        );
+        let quad9 = cfg
+            .upstream_servers
+            .iter()
+            .find(|u| u.address == "9.9.9.9")
+            .expect("quad9");
+        assert_eq!(quad9.name, "Quad9");
+        assert_eq!(quad9.protocol, DnsProtocol::Udp);
+    }
+
+    #[test]
+    fn default_forwarder_selection_is_failover() {
+        let cfg = DnsConfig::default();
+        assert_eq!(
+            cfg.forwarder_selection_mode,
+            ForwarderSelectionMode::Failover
+        );
+        assert_eq!(cfg.single_upstream, None);
+    }
+
+    #[test]
+    fn forwarder_selection_mode_str_matches_serde() {
+        // as_str() must match the snake_case wire form used for KV persistence.
+        for m in [
+            ForwarderSelectionMode::Failover,
+            ForwarderSelectionMode::Fastest,
+            ForwarderSelectionMode::Single,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&m).unwrap(),
+                format!("\"{}\"", m.as_str())
+            );
+            // from_wire round-trips through as_str.
+            assert_eq!(ForwarderSelectionMode::from_wire(m.as_str()), m);
+        }
+        // Unknown/legacy values fall back to the default.
+        assert_eq!(
+            ForwarderSelectionMode::from_wire("auto"),
+            ForwarderSelectionMode::Failover
+        );
+    }
 
     #[test]
     fn parse_all_resolver_strings() {

@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use wardnet_common::dns::DnsConfig;
+use wardnet_common::dns::{DnsConfig, UpstreamLatency};
 
 use crate::dns::authoritative::AuthoritativeView;
 
@@ -52,4 +52,12 @@ pub trait DnsServer: Send + Sync {
     /// Evict all cache entries for `domain` so the next query for that
     /// domain is re-resolved rather than served from a stale cached answer.
     async fn invalidate_domain(&self, domain: &str);
+
+    /// Latest rolling-average latency per configured upstream, produced by the
+    /// background prober. One entry per current upstream address (empty until
+    /// the first probe). Defaults to empty for implementations without a
+    /// prober (mocks, no-op backend).
+    fn upstream_latencies(&self) -> Vec<UpstreamLatency> {
+        Vec::new()
+    }
 }

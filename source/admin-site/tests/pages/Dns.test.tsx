@@ -51,8 +51,20 @@ vi.mock("@/components/compound/DashboardUsageBar", () => ({
   ),
 }));
 vi.mock("@/components/features/UpstreamServersCard", () => ({
-  UpstreamServersCard: ({ fallbackOnly }: { fallbackOnly?: boolean }) => (
-    <div>upstream:{String(fallbackOnly)}</div>
+  UpstreamServersCard: ({
+    fallbackOnly,
+    onModeChange,
+    onSelectServer,
+  }: {
+    fallbackOnly?: boolean;
+    onModeChange: (mode: string) => void;
+    onSelectServer: (address: string) => void;
+  }) => (
+    <div>
+      <div>upstream:{String(fallbackOnly)}</div>
+      <button onClick={() => onModeChange("fastest")}>set-fastest</button>
+      <button onClick={() => onSelectServer("1.1.1.1")}>set-single</button>
+    </div>
   ),
 }));
 vi.mock("@/components/features/SecuritySettingsCard", () => ({
@@ -177,6 +189,21 @@ describe("Dns", () => {
     renderWithProviders(<Dns />);
     expect(screen.getByText("upstream:true")).toBeInTheDocument();
     expect(screen.getByText("Disabled")).toBeInTheDocument();
+  });
+
+  it("wires routing mode + single-server changes to updateConfig", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Dns />);
+    await user.click(screen.getByText("set-fastest"));
+    expect(updateMutate).toHaveBeenCalledWith({
+      forwarder_selection_mode: "fastest",
+      single_upstream: undefined,
+    });
+    await user.click(screen.getByText("set-single"));
+    expect(updateMutate).toHaveBeenCalledWith({
+      forwarder_selection_mode: "single",
+      single_upstream: "1.1.1.1",
+    });
   });
 
   it("changes the stats range via the tabs", async () => {

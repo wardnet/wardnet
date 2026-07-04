@@ -22859,6 +22859,7 @@
           "enabled",
           "resolution_mode",
           "upstream_servers",
+          "forwarder_selection_mode",
           "cache_size",
           "cache_ttl_min_secs",
           "cache_ttl_max_secs",
@@ -22895,6 +22896,10 @@
           "enabled": {
             "type": "boolean"
           },
+          "forwarder_selection_mode": {
+            "$ref": "#/components/schemas/ForwarderSelectionMode",
+            "description": "How the configured upstreams are used on the forwarding path."
+          },
           "query_log_enabled": {
             "type": "boolean"
           },
@@ -22913,6 +22918,13 @@
           },
           "resolution_mode": {
             "$ref": "#/components/schemas/DnsResolutionMode"
+          },
+          "single_upstream": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `address` of the single chosen upstream. `Some` iff\n`forwarder_selection_mode` is [`ForwarderSelectionMode::Single`], and\nalways one of the `upstream_servers` addresses."
           },
           "upstream_servers": {
             "type": "array",
@@ -23132,7 +23144,8 @@
           "running",
           "cache_size",
           "cache_capacity",
-          "cache_hit_rate"
+          "cache_hit_rate",
+          "upstream_latencies"
         ],
         "properties": {
           "cache_capacity": {
@@ -23154,6 +23167,13 @@
           },
           "running": {
             "type": "boolean"
+          },
+          "upstream_latencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpstreamLatency"
+            },
+            "description": "Rolling-average latency per configured upstream, from the background\nprober. One entry per `upstream_servers` address; empty until the\nprober has run at least once."
           }
         }
       },
@@ -23237,6 +23257,15 @@
             "description": "Passphrase chosen by the admin. Never logged, never persisted —\nlives only in the memory of the request that produced the bundle."
           }
         }
+      },
+      "ForwarderSelectionMode": {
+        "type": "string",
+        "description": "How the configured upstreams are used on the forwarding path\n(only meaningful in [`DnsResolutionMode::Forwarding`]).",
+        "enum": [
+          "failover",
+          "fastest",
+          "single"
+        ]
       },
       "GetDeviceFilterSettingsResponse": {
         "type": "object",
@@ -25773,6 +25802,16 @@
               "null"
             ]
           },
+          "forwarder_selection_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ForwarderSelectionMode"
+              }
+            ]
+          },
           "query_log_enabled": {
             "type": [
               "boolean",
@@ -25810,6 +25849,13 @@
                 "$ref": "#/components/schemas/DnsResolutionMode"
               }
             ]
+          },
+          "single_upstream": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The chosen single upstream's `address`. Only consulted when the\nresulting mode is `single`; ignored (and forced clear) in the other\nmodes. Omit to leave the current selection unchanged."
           },
           "upstream_servers": {
             "type": [
@@ -26438,6 +26484,32 @@
               "null"
             ],
             "description": "TLS server name (SNI) — required when protocol is tls/https."
+          }
+        }
+      },
+      "UpstreamLatency": {
+        "type": "object",
+        "description": "Rolling-average latency telemetry for one configured upstream, produced by\nthe background latency prober and surfaced in the DNS status response so the\nUI can show per-server performance. Not persisted.",
+        "required": [
+          "address",
+          "reachable"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The upstream's `address`, matching [`UpstreamDns::address`]."
+          },
+          "avg_latency_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Rolling-average round-trip time in milliseconds, or `None` until the\nfirst successful probe."
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Whether the most recent probe reached the upstream."
           }
         }
       },

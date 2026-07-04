@@ -53,9 +53,10 @@ test("an upstream server can be added and then removed", async ({ page }) => {
   await page.goto("./dns");
 
   // Distinctive name/address so the row can be located unambiguously and
-  // create can't collide with a seeded default upstream.
+  // create can't collide with a seeded default upstream (Cloudflare
+  // 1.1.1.1, Google 8.8.8.8, Quad9 9.9.9.9).
   const name = "e2e-upstream";
-  const address = "9.9.9.9";
+  const address = "208.67.222.222";
 
   // Open the inline add form (UDP is the default protocol).
   await page.getByTestId("upstream-add").click();
@@ -73,6 +74,35 @@ test("an upstream server can be added and then removed", async ({ page }) => {
   await page.getByTestId("upstream-remove").click();
 
   await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
+});
+
+test("forwarder routing: the mode dropdown switches behaviour", async ({
+  page,
+}) => {
+  await page.goto("./dns");
+
+  // The Routing dropdown defaults to Failover, with a behaviour description.
+  // (Per-server radios / Latency column are covered by the component unit
+  // test; this spec only exercises the mode round-trip through the daemon,
+  // which doesn't depend on the current upstream list.)
+  const mode = page.getByTestId("upstream-mode");
+  await expect(mode).toBeVisible();
+  await expect(mode).toContainText("Failover");
+  const desc = page.getByTestId("upstream-mode-desc");
+  await expect(desc).toBeVisible();
+  const failoverDesc = (await desc.textContent()) ?? "";
+
+  // Switch to Fastest → the selection persists (round-trips through the API)
+  // and the behaviour description changes.
+  await mode.click();
+  await page.getByRole("option", { name: "Fastest response" }).click();
+  await expect(mode).toContainText("Fastest");
+  await expect(desc).not.toHaveText(failoverDesc);
+
+  // Restore Failover (the default) so downstream specs are unaffected.
+  await page.getByTestId("upstream-mode").click();
+  await page.getByRole("option", { name: "Failover (in order)" }).click();
+  await expect(mode).toContainText("Failover");
 });
 
 test("the cache can be flushed", async ({ page }) => {

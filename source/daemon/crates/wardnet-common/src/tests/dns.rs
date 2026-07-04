@@ -9,7 +9,8 @@ use crate::api::{
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
     DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
-    DnsResolutionMode, DnsStats, DnsZone, DnsZoneSource, FilterAction, UpstreamDns,
+    DnsResolutionMode, DnsStats, DnsZone, DnsZoneSource, FilterAction, ForwarderSelectionMode,
+    UpstreamDns,
 };
 use chrono::Utc;
 use std::net::{IpAddr, Ipv4Addr};
@@ -143,7 +144,13 @@ fn dns_config_default_values() {
     let config = DnsConfig::default();
     assert!(!config.enabled);
     assert_eq!(config.resolution_mode, DnsResolutionMode::Forwarding);
-    assert_eq!(config.upstream_servers.len(), 2);
+    // Cloudflare + Google + Quad9 (Quad9 added in #636).
+    assert_eq!(config.upstream_servers.len(), 3);
+    assert_eq!(
+        config.forwarder_selection_mode,
+        ForwarderSelectionMode::Failover
+    );
+    assert_eq!(config.single_upstream, None);
     assert_eq!(config.cache_size, 10_000);
     assert!(config.dns_filtering_enabled);
     assert!(config.rebinding_protection);

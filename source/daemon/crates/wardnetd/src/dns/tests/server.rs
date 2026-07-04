@@ -18,6 +18,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
 use hickory_proto::rr::RecordType;
+use hickory_resolver::config::ServerOrderingStrategy;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, DnsResolutionMode, UpstreamDns, UpstreamId};
@@ -31,8 +32,10 @@ use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::server::{
-    TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver, duration_to_ms,
-    get_or_build_tunnel_forwarder, resolve_via_recursor, spawn_cache_invalidator, upstream_label,
+    LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
+    duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
+    get_or_build_tunnel_forwarder, probe_upstreams, resolve_via_recursor, spawn_cache_invalidator,
+    spawn_upstream_latency_prober, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -1114,7 +1117,11 @@ fn build_resolver_with_udp_upstream_succeeds() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1126,7 +1133,11 @@ fn build_resolver_with_tcp_upstream_succeeds() {
         port: Some(53),
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1149,7 +1160,11 @@ fn build_resolver_builds_dot_and_doh_with_sni() {
             tls_server_name: Some("cloudflare-dns.com".into()),
         },
     ];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1164,7 +1179,11 @@ fn build_resolver_skips_encrypted_upstream_without_sni() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1178,7 +1197,11 @@ fn build_resolver_enables_dnssec_validation() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, true);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        true,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 #[test]
@@ -1193,7 +1216,11 @@ fn build_resolver_skips_invalid_ip_addresses() {
         port: None,
         tls_server_name: None,
     }];
-    let _ = crate::dns::server::build_resolver(&upstreams, false);
+    let _ = crate::dns::server::build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2169,7 +2196,11 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
     // Recursor absent (None) → the fallback branch runs. With upstreams
     // configured, it must forward via the resolver, not SERVFAIL.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&upstreams, false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: upstreams,
@@ -2220,7 +2251,11 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
     // Recursor absent AND no upstreams configured (pure recursive) → the
     // server must SERVFAIL rather than leak to a default public resolver.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &[],
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: vec![],
@@ -2351,7 +2386,11 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     use hickory_proto::serialize::binary::BinDecodable;
 
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(&[], false)));
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &[],
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         ..DnsConfig::default()
@@ -2388,4 +2427,348 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     assert_eq!(frames.len(), 1, "exactly one response sent");
     let response = Message::from_bytes(&frames[0]).expect("parse response");
     assert_eq!(response.metadata.response_code, ResponseCode::ServFail);
+}
+
+// ---------------------------------------------------------------------------
+// effective_upstreams — failover/fastest keep the full pool; single yields one.
+// ---------------------------------------------------------------------------
+
+fn named_udp_upstream(address: &str, name: &str) -> UpstreamDns {
+    UpstreamDns {
+        address: address.to_owned(),
+        name: name.to_owned(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }
+}
+
+#[test]
+fn effective_upstreams_non_single_modes_keep_full_pool() {
+    use wardnet_common::dns::ForwarderSelectionMode;
+    for mode in [
+        ForwarderSelectionMode::Failover,
+        ForwarderSelectionMode::Fastest,
+    ] {
+        let cfg = DnsConfig {
+            upstream_servers: vec![
+                named_udp_upstream("1.1.1.1", "CF"),
+                named_udp_upstream("8.8.8.8", "G"),
+            ],
+            forwarder_selection_mode: mode,
+            single_upstream: None,
+            ..DnsConfig::default()
+        };
+        let result = effective_upstreams(&cfg);
+        assert_eq!(result.len(), 2, "{mode:?} keeps every upstream in the pool");
+    }
+}
+
+#[test]
+fn effective_upstreams_single_yields_only_selected() {
+    use wardnet_common::dns::ForwarderSelectionMode;
+    let cfg = DnsConfig {
+        upstream_servers: vec![
+            named_udp_upstream("1.1.1.1", "CF"),
+            named_udp_upstream("8.8.8.8", "G"),
+            named_udp_upstream("9.9.9.9", "Q9"),
+        ],
+        forwarder_selection_mode: ForwarderSelectionMode::Single,
+        single_upstream: Some("8.8.8.8".to_owned()),
+        ..DnsConfig::default()
+    };
+    let result = effective_upstreams(&cfg);
+    assert_eq!(result.len(), 1, "single yields exactly the chosen server");
+    assert_eq!(result[0].address, "8.8.8.8");
+}
+
+#[test]
+fn effective_upstreams_single_missing_address_falls_back_to_full_pool() {
+    // Should be prevented by API validation, but if the chosen address is not
+    // in the list we degrade to the full configured pool (NOT an empty set,
+    // which would make build_resolver route everything to hard-coded
+    // Cloudflare — a privacy regression).
+    use wardnet_common::dns::ForwarderSelectionMode;
+    let cfg = DnsConfig {
+        upstream_servers: vec![
+            named_udp_upstream("1.1.1.1", "CF"),
+            named_udp_upstream("8.8.8.8", "G"),
+        ],
+        forwarder_selection_mode: ForwarderSelectionMode::Single,
+        single_upstream: Some("9.9.9.9".to_owned()),
+        ..DnsConfig::default()
+    };
+    let result = effective_upstreams(&cfg);
+    assert_eq!(
+        result.len(),
+        2,
+        "orphaned selection degrades to the full pool"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// forwarder_ordering — mode → hickory name-server ordering strategy.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn forwarder_ordering_maps_modes_to_strategies() {
+    use hickory_resolver::config::ServerOrderingStrategy;
+    use wardnet_common::dns::ForwarderSelectionMode;
+    // Failover honors the user's list order; the other two don't care.
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Failover),
+        ServerOrderingStrategy::UserProvidedOrder
+    );
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Fastest),
+        ServerOrderingStrategy::QueryStatistics
+    );
+    assert_eq!(
+        forwarder_ordering(ForwarderSelectionMode::Single),
+        ServerOrderingStrategy::QueryStatistics
+    );
+}
+
+// ---------------------------------------------------------------------------
+// fold_probe_outcomes — EWMA + failure-streak/hysteresis + pruning.
+// ---------------------------------------------------------------------------
+
+fn find_latency<'a>(
+    results: &'a [wardnet_common::dns::UpstreamLatency],
+    addr: &str,
+) -> &'a wardnet_common::dns::UpstreamLatency {
+    results
+        .iter()
+        .find(|l| l.address == addr)
+        .expect("address present in results")
+}
+
+#[test]
+fn fold_probe_first_success_seeds_ewma_and_is_reachable() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    let out = vec![("1.1.1.1".to_owned(), Some(20.0))];
+    let results = fold_probe_outcomes(&out, &mut ewma, &mut streak);
+    let l = find_latency(&results, "1.1.1.1");
+    assert_eq!(l.avg_latency_ms, Some(20.0), "first sample seeds the EWMA");
+    assert!(l.reachable);
+}
+
+#[test]
+fn fold_probe_blends_ewma_across_samples() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    // Seed at 20ms, then a 40ms sample: EWMA = 0.3*40 + 0.7*20 = 26.
+    fold_probe_outcomes(
+        &[("8.8.8.8".to_owned(), Some(20.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    let results = fold_probe_outcomes(
+        &[("8.8.8.8".to_owned(), Some(40.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    let avg = find_latency(&results, "8.8.8.8").avg_latency_ms.unwrap();
+    assert!((avg - 26.0).abs() < 1e-9, "EWMA blended: got {avg}");
+}
+
+#[test]
+fn fold_probe_debounces_unreachable_over_two_misses() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    // Establish a latency first.
+    fold_probe_outcomes(
+        &[("9.9.9.9".to_owned(), Some(15.0))],
+        &mut ewma,
+        &mut streak,
+    );
+
+    // One miss: still reachable (debounce), last-known latency preserved.
+    let r1 = fold_probe_outcomes(&[("9.9.9.9".to_owned(), None)], &mut ewma, &mut streak);
+    let l1 = find_latency(&r1, "9.9.9.9");
+    assert!(l1.reachable, "a single miss must not flip to unreachable");
+    assert_eq!(l1.avg_latency_ms, Some(15.0), "keeps last-known latency");
+
+    // Second consecutive miss: now unreachable.
+    let r2 = fold_probe_outcomes(&[("9.9.9.9".to_owned(), None)], &mut ewma, &mut streak);
+    assert!(
+        !find_latency(&r2, "9.9.9.9").reachable,
+        "two consecutive misses report unreachable"
+    );
+
+    // A success clears the streak → reachable again.
+    let r3 = fold_probe_outcomes(
+        &[("9.9.9.9".to_owned(), Some(18.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    assert!(
+        find_latency(&r3, "9.9.9.9").reachable,
+        "success resets streak"
+    );
+}
+
+#[test]
+fn fold_probe_prunes_state_for_removed_upstreams() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    fold_probe_outcomes(
+        &[
+            ("1.1.1.1".to_owned(), Some(10.0)),
+            ("8.8.8.8".to_owned(), None),
+        ],
+        &mut ewma,
+        &mut streak,
+    );
+    assert!(ewma.contains_key("1.1.1.1"));
+    assert!(streak.contains_key("8.8.8.8"));
+
+    // Next round only has 1.1.1.1 → 8.8.8.8's state is pruned.
+    let results = fold_probe_outcomes(
+        &[("1.1.1.1".to_owned(), Some(12.0))],
+        &mut ewma,
+        &mut streak,
+    );
+    assert_eq!(results.len(), 1);
+    assert!(
+        !ewma.contains_key("8.8.8.8"),
+        "removed upstream pruned from ewma"
+    );
+    assert!(
+        !streak.contains_key("8.8.8.8"),
+        "removed upstream pruned from fail_streak"
+    );
+}
+
+#[test]
+fn fold_probe_missing_upstream_with_no_prior_sample_has_no_latency() {
+    let mut ewma = HashMap::new();
+    let mut streak = HashMap::new();
+    let results = fold_probe_outcomes(&[("1.0.0.1".to_owned(), None)], &mut ewma, &mut streak);
+    let l = find_latency(&results, "1.0.0.1");
+    assert_eq!(l.avg_latency_ms, None, "no sample yet → no latency");
+    assert!(
+        l.reachable,
+        "one miss alone is still within the debounce window"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// probe_upstreams + spawn_upstream_latency_prober — the network/async half.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn probe_upstreams_non_ip_is_miss_and_builds_no_resolver() {
+    // A non-IP address can't be probed (build_resolver needs an IP literal),
+    // so it's reported as a miss and no resolver is cached for it.
+    let mut resolvers = std::collections::HashMap::new();
+    let ups = vec![UpstreamDns {
+        address: "dns.example.com".to_owned(),
+        name: "hostname".to_owned(),
+        protocol: DnsProtocol::Udp,
+        port: None,
+        tls_server_name: None,
+    }];
+    let out = probe_upstreams(&ups, false, &mut resolvers).await;
+    assert_eq!(out, vec![("dns.example.com".to_owned(), None)]);
+    assert!(
+        resolvers.is_empty(),
+        "no resolver built for a non-IP upstream"
+    );
+}
+
+#[tokio::test]
+async fn probe_upstreams_unreachable_ip_is_miss_and_caches_resolver() {
+    // 192.0.2.1 is TEST-NET-1 (RFC 5737): reserved and non-routable, so no
+    // DNS server can ever answer — the probe deterministically misses (unlike
+    // loopback:53, which CI runners answer via systemd-resolved). A resolver
+    // is still built and cached for reuse.
+    let mut resolvers = std::collections::HashMap::new();
+    let ups = vec![named_udp_upstream("192.0.2.1", "test-net")];
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        probe_upstreams(&ups, false, &mut resolvers),
+    )
+    .await
+    .expect("probe_upstreams returns within its own timeout");
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].0, "192.0.2.1");
+    assert_eq!(out[0].1, None, "non-routable upstream -> miss");
+    assert_eq!(resolvers.len(), 1, "resolver cached for the IP upstream");
+}
+
+#[tokio::test(start_paused = true)]
+async fn prober_inactive_clears_snapshot_and_sends_no_probe() {
+    // DNS disabled -> the forwarding path isn't serving, so the prober must
+    // publish an empty snapshot and emit no probe traffic.
+    let config = Arc::new(RwLock::new(DnsConfig {
+        enabled: false,
+        resolution_mode: DnsResolutionMode::Forwarding,
+        upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
+        ..DnsConfig::default()
+    }));
+    let snapshot = Arc::new(ArcSwap::from_pointee(vec![
+        wardnet_common::dns::UpstreamLatency {
+            address: "stale".to_owned(),
+            avg_latency_ms: Some(9.0),
+            reachable: true,
+        },
+    ]));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+
+    // Let the spawned task register its interval timer before advancing, then
+    // step time forward until the (deferred) first tick fires and the gating
+    // branch clears the snapshot. No network is touched on this path.
+    tokio::task::yield_now().await;
+    let mut cleared = false;
+    for _ in 0..60 {
+        tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
+        tokio::task::yield_now().await;
+        if snapshot.load().is_empty() {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(cleared, "an inactive prober clears the snapshot");
+    cancel.cancel();
+}
+
+#[tokio::test(start_paused = true)]
+async fn prober_active_publishes_snapshot_for_each_upstream() {
+    // Active forwarding path: the prober probes each upstream and publishes a
+    // per-upstream snapshot. The loopback upstream has no server, so it's an
+    // (eventually) reachable=true single-miss entry with no latency yet.
+    let config = Arc::new(RwLock::new(DnsConfig {
+        enabled: true,
+        resolution_mode: DnsResolutionMode::Forwarding,
+        upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
+        ..DnsConfig::default()
+    }));
+    let snapshot: Arc<ArcSwap<Vec<wardnet_common::dns::UpstreamLatency>>> =
+        Arc::new(ArcSwap::from_pointee(Vec::new()));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+
+    tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
+    // Let the probe round run; advance past the per-probe timeout so any
+    // timer-based waits inside the lookup resolve to a miss.
+    let mut populated = false;
+    for _ in 0..40 {
+        tokio::task::yield_now().await;
+        if !snapshot.load().is_empty() {
+            populated = true;
+            break;
+        }
+        tokio::time::advance(std::time::Duration::from_secs(3)).await;
+    }
+    assert!(
+        populated,
+        "active prober publishes a snapshot after the first tick"
+    );
+    let snap = snapshot.load();
+    assert_eq!(snap.len(), 1);
+    assert_eq!(snap[0].address, "127.0.0.1");
+    cancel.cancel();
 }
