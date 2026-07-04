@@ -11,7 +11,7 @@
     "marketing-site"
   ],
   "devDependencies": {
-    "turbo": "2.9.18"
+    "turbo": "2.10.2"
   },
   "resolutions": {
     "path-to-regexp": "8.4.0",
