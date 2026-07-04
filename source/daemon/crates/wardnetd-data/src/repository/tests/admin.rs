@@ -59,3 +59,23 @@ async fn exists_returns_true_when_admin_present() {
 
     assert!(repo.exists().await.unwrap());
 }
+
+#[tokio::test]
+async fn find_username_by_id_returns_the_username() {
+    let pool = test_pool().await;
+    let repo = SqliteAdminRepository::new(pool);
+
+    repo.create("id-1", "alice", "hash").await.unwrap();
+
+    let result = repo.find_username_by_id("id-1").await.unwrap();
+    assert_eq!(result, Some("alice".to_owned()));
+}
+
+#[tokio::test]
+async fn find_username_by_id_unknown_id() {
+    let pool = test_pool().await;
+    let repo = SqliteAdminRepository::new(pool);
+
+    let result = repo.find_username_by_id("missing").await.unwrap();
+    assert!(result.is_none());
+}

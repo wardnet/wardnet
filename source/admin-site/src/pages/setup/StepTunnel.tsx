@@ -2,11 +2,12 @@ import { useState } from "react";
 import { Button } from "@wardnet/web";
 import { Heading, Text } from "@wardnet/web";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
-import { useAdvanceWizard } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 
 /**
- * Step 5 — first VPN tunnel (optional).
+ * Tunnel step — first VPN tunnel (optional).
  *
  * Inlines `CreateTunnelInline` (the same component the Tunnels page
  * uses) directly inside the auth card so the operator can import a
@@ -14,18 +15,33 @@ import { useTunnels } from "@wardnet/web";
  * straight back here if they tried to navigate to `/tunnels` before
  * finishing setup.
  *
- * The Skip button always advances to step 6; step 6's picker
+ * The Skip button always advances to the policy step, whose picker
  * defaults to "direct" when no tunnels exist.
  */
-export default function Step5Tunnel() {
-  const advance = useAdvanceWizard();
+export default function StepTunnel() {
+  const nav = useWizardNav("tunnel");
   const { data: tunnels } = useTunnels();
   const [adding, setAdding] = useState(false);
   const tunnelCount = tunnels?.tunnels.length ?? 0;
   const hasTunnel = tunnelCount > 0;
 
   if (adding) {
-    return <CreateTunnelInline onClose={() => setAdding(false)} embedded />;
+    return (
+      <>
+        <CreateTunnelInline onClose={() => setAdding(false)} embedded />
+        {/* Keep the docked footer populated while the inline form
+            replaces the step body, so the shell's footer never empties. */}
+        <WizardFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setAdding(false)}
+            className="w-full"
+          >
+            Back to tunnel overview
+          </Button>
+        </WizardFooter>
+      </>
+    );
   }
 
   return (
@@ -61,27 +77,24 @@ export default function Step5Tunnel() {
         </Text>
       )}
 
-      <div className="flex flex-col gap-2">
+      <Button
+        variant="outline"
+        onClick={() => setAdding(true)}
+        className="w-full"
+      >
+        {hasTunnel ? "Add another tunnel" : "Add tunnel"}
+      </Button>
+
+      <WizardFooter>
         <Button
-          variant="outline"
-          onClick={() => setAdding(true)}
-          className="w-full"
-        >
-          {hasTunnel ? "Add another tunnel" : "Add tunnel"}
-        </Button>
-        <Button
-          onClick={() => advance.mutate({ to_step: "policy" })}
-          disabled={advance.isPending}
+          onClick={() => nav.goNext()}
+          disabled={nav.isPending}
           data-testid="setup-tunnel-skip"
           className="w-full"
         >
-          {advance.isPending
-            ? "Saving…"
-            : hasTunnel
-              ? "Continue"
-              : "Skip for now"}
+          {nav.isPending ? "Saving…" : hasTunnel ? "Continue" : "Skip for now"}
         </Button>
-      </div>
+      </WizardFooter>
     </div>
   );
 }

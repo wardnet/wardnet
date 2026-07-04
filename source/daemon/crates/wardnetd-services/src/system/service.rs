@@ -291,11 +291,17 @@ impl SystemService for SystemServiceImpl {
             .inspect()
             .await
             .map_err(AppError::Internal)?;
+        let router_mac = self
+            .system_config
+            .get_router_mac()
+            .await
+            .map_err(AppError::Internal)?;
         Ok(NetworkStatusResponse {
             interface: snap.interface,
             ip: snap.ip,
             gateway: snap.gateway,
             dhcp_source: snap.dhcp_source,
+            router_mac,
         })
     }
 

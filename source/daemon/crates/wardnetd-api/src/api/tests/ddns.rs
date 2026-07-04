@@ -38,6 +38,9 @@ use wardnetd_services::{AuthService, LogService};
 struct AlwaysAdminAuth;
 #[async_trait]
 impl AuthService for AlwaysAdminAuth {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
     async fn login(&self, _u: &str, _p: &str, _r: bool) -> Result<LoginResult, AppError> {
         unimplemented!()
     }

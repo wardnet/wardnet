@@ -89,10 +89,19 @@ pub trait AuthService: Send + Sync {
     /// `auth_context::require_admin()?` rule (see `.agents/auth.md`).
     async fn wizard_state(&self) -> Result<WizardState, AppError>;
 
+    /// Return the calling admin's username.
+    ///
+    /// Backs `GET /api/users/me`; identity comes from the request's
+    /// [`AuthContext::Admin`](wardnet_common::auth::AuthContext) task-local.
+    async fn current_admin_username(&self) -> Result<String, AppError>;
+
     /// Advance the wizard to the requested step.
     ///
     /// Validates that:
-    /// - Step transitions only move forward (no rewinds).
+    /// - Forward transitions (of any distance) are always allowed.
+    /// - Rewinds are allowed down to [`WizardStep::Network`] — never back to
+    ///   [`WizardStep::Admin`] (admin creation is one-shot), and never out of
+    ///   [`WizardStep::Completed`], which is terminal.
     /// - `mode` is either left unchanged or set when first reaching
     ///   [`WizardStep::Dhcp`].
     /// - Reaching [`WizardStep::Completed`] requires an admin to exist.
@@ -411,9 +420,9 @@ impl AuthService for AuthServiceImpl {
         // Only advance from "admin" or unset state; if wizard_step is
         // already further along (e.g. an operator hit advance manually
         // before the frontend got to it) we leave it alone — same-step
-        // advances are idempotent in `advance_wizard`, but rewinding
-        // explicitly past `Network` would just hit advance_wizard's
-        // ordinal check.
+        // advances are idempotent in `advance_wizard`, and rewinding
+        // below `Network` (i.e. back to `Admin`) is rejected by
+        // `advance_wizard`'s floor check.
         let current = self
             .system_config
             .get_wizard_step()
@@ -440,6 +449,22 @@ impl AuthService for AuthServiceImpl {
         // `bootstrap_system_config` reads on first boot of an upgraded
         // install.
         Ok(self.wizard_state().await?.setup_completed())
+    }
+
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        auth_context::require_admin()?;
+
+        let wardnet_common::auth::AuthContext::Admin { admin_id } = auth_context::current() else {
+            return Err(AppError::Forbidden(
+                "must be authenticated as admin".to_owned(),
+            ));
+        };
+
+        self.admins
+            .find_username_by_id(&admin_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::Unauthorized("admin account no longer exists".to_owned()))
     }
 
     async fn wizard_state(&self) -> Result<WizardState, AppError> {
@@ -472,11 +497,16 @@ impl AuthService for AuthServiceImpl {
 
         let current = self.wizard_state().await?;
 
-        if to_step.ordinal() < current.step.ordinal() {
+        if current.step == WizardStep::Completed && to_step != WizardStep::Completed {
+            return Err(AppError::BadRequest(
+                "wizard is completed; cannot rewind".to_owned(),
+            ));
+        }
+
+        if to_step.ordinal() < current.step.ordinal() && to_step == WizardStep::Admin {
             return Err(AppError::BadRequest(format!(
-                "wizard cannot rewind from {} to {}",
+                "wizard cannot rewind from {} to admin",
                 current.step.as_storage_str(),
-                to_step.as_storage_str()
             )));
         }
 

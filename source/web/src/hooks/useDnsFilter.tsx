@@ -384,8 +384,9 @@ export function useDnsFilterConfig() {
   });
 }
 
-export function useUpdateDnsFilterConfig() {
+export function useUpdateDnsFilterConfig(options?: { silent?: boolean }) {
   const qc = useQueryClient();
+  const silent = options?.silent ?? false;
   return useMutation({
     mutationFn: (body: UpdateDnsFilterConfigRequest) =>
       dnsFilterService.updateConfig(body),
@@ -394,14 +395,21 @@ export function useUpdateDnsFilterConfig() {
       // a default-profile toggle on and off quickly) into a single
       // toast slot. Without it the toast surface sometimes renders the
       // second toast with an empty body for a frame.
-      toast.success("DNS filter configuration updated", {
-        id: "dns-filter-config-update",
-      });
+      // `silent` suppresses the toasts for embedded flows (the setup
+      // wizard's DNS step) where a toast per toggle is just noise.
+      if (!silent) {
+        toast.success("DNS filter configuration updated", {
+          id: "dns-filter-config-update",
+        });
+      }
       qc.invalidateQueries({ queryKey: ["dns-filter", "config"] });
     },
-    onError: () =>
-      toast.error("Failed to update DNS filter configuration", {
-        id: "dns-filter-config-update",
-      }),
+    onError: () => {
+      if (!silent) {
+        toast.error("Failed to update DNS filter configuration", {
+          id: "dns-filter-config-update",
+        });
+      }
+    },
   });
 }

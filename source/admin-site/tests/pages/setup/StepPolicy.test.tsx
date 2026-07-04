@@ -41,7 +41,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   };
 });
 
-import Step6Policy from "@/pages/setup/Step6Policy";
+import StepPolicy from "@/pages/setup/StepPolicy";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -52,6 +52,7 @@ beforeEach(() => {
   advanceMutate.mockResolvedValue(undefined);
   setDefaultMutate.mockResolvedValue(undefined);
   useAdvanceWizard.mockReturnValue({
+    mutate: advanceMutate,
     mutateAsync: advanceMutate,
     isPending: false,
   });
@@ -63,9 +64,9 @@ beforeEach(() => {
   useTunnels.mockReturnValue({ data: { tunnels: [] } });
 });
 
-describe("Step6Policy", () => {
+describe("StepPolicy", () => {
   it("shows the no-tunnels hint and defaults to direct", () => {
-    renderWithProviders(<Step6Policy />);
+    renderWithProviders(<StepPolicy />);
     expect(
       screen.getByText(/No tunnels configured — defaulting to direct/),
     ).toBeInTheDocument();
@@ -77,7 +78,7 @@ describe("Step6Policy", () => {
   it("hides the hint when tunnels exist and derives from persisted policy", () => {
     useTunnels.mockReturnValue({ data: { tunnels: [{ id: "t-1" }] } });
     useDefaultPolicy.mockReturnValue({ data: { policy: "t-1" } });
-    renderWithProviders(<Step6Policy />);
+    renderWithProviders(<StepPolicy />);
     expect(screen.queryByText(/No tunnels configured/)).not.toBeInTheDocument();
     expect(screen.getByTestId("rs-value")).toHaveTextContent(
       '{"type":"tunnel","tunnel_id":"t-1"}',
@@ -87,7 +88,7 @@ describe("Step6Policy", () => {
 
   it("saves direct policy then advances on continue", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step6Policy />);
+    renderWithProviders(<StepPolicy />);
     await user.click(screen.getByTestId("setup-policy-continue"));
     await waitFor(() =>
       expect(setDefaultMutate).toHaveBeenCalledWith("direct"),
@@ -98,7 +99,7 @@ describe("Step6Policy", () => {
   it("uses the operator override tunnel id when they pick one", async () => {
     useTunnels.mockReturnValue({ data: { tunnels: [{ id: "t-1" }] } });
     const user = userEvent.setup();
-    renderWithProviders(<Step6Policy />);
+    renderWithProviders(<StepPolicy />);
     await user.click(screen.getByRole("button", { name: "pick-tunnel" }));
     await user.click(screen.getByTestId("setup-policy-continue"));
     await waitFor(() => expect(setDefaultMutate).toHaveBeenCalledWith("t-1"));
@@ -109,7 +110,7 @@ describe("Step6Policy", () => {
       mutateAsync: setDefaultMutate,
       isPending: true,
     });
-    renderWithProviders(<Step6Policy />);
+    renderWithProviders(<StepPolicy />);
     expect(screen.getByTestId("setup-policy-continue")).toHaveTextContent(
       "Saving…",
     );

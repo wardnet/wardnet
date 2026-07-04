@@ -4,21 +4,22 @@ import { Heading, Text } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Form, Validator } from "@wardnet/web";
 import { Input } from "@wardnet/web";
-import { useAdvanceWizard } from "@wardnet/web";
 import { useDiscoverGatewayMac } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 
 const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
 
 /**
- * Step 4 — discover the upstream router MAC.
+ * Router step — discover the upstream router MAC.
  *
  * Auto-fires the ARP probe on first render. On success the operator
  * just confirms; on failure the manual-entry field surfaces and
  * submits back through the same endpoint with `{mac}` set so the
  * daemon persists either path identically.
  */
-export default function Step4RouterMac() {
-  const advance = useAdvanceWizard();
+export default function StepRouterMac() {
+  const nav = useWizardNav("router_mac");
   const probe = useDiscoverGatewayMac();
   const [manualMac, setManualMac] = useState("");
   const triedRef = useRef(false);
@@ -40,8 +41,8 @@ export default function Step4RouterMac() {
     await probe.mutateAsync({ mac: values.mac });
   }
 
-  async function handleContinue() {
-    await advance.mutateAsync({ to_step: "tunnel" });
+  function handleContinue() {
+    nav.goNext();
   }
 
   return (
@@ -117,14 +118,17 @@ export default function Step4RouterMac() {
         </Form>
       )}
 
-      <Button
-        onClick={handleContinue}
-        disabled={advance.isPending}
-        data-testid="setup-router-mac-continue"
-        className="w-full"
-      >
-        {advance.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
-      </Button>
+      <WizardFooter>
+        <Button
+          onClick={handleContinue}
+          disabled={nav.isPending}
+          variant={probedMac ? "default" : "secondary"}
+          data-testid="setup-router-mac-continue"
+          className="w-full"
+        >
+          {nav.isPending ? "Saving…" : probedMac ? "Continue" : "Skip"}
+        </Button>
+      </WizardFooter>
     </div>
   );
 }

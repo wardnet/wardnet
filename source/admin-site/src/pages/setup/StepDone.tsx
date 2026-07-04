@@ -1,16 +1,18 @@
 import { useNavigate } from "react-router";
+import { CheckIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
 import { Heading, Text } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
 
 /**
- * Step 8 — wizard finished.
+ * Done step — wizard finished.
  *
- * Reached after step 7 (remote access) advances `wizard_step` to
- * `"completed"`. The stepper renders the "Done" pill and this page lets the
+ * Reached after the review step advances `wizard_step` to
+ * `"completed"`. The rail renders every step as done and this page lets the
  * operator jump to the dashboard. SetupGuard sees `wizard_step === "completed"`
  * and stops redirecting back to /setup.
  */
-export default function Step8Confirm() {
+export default function StepDone() {
   const navigate = useNavigate();
 
   return (
@@ -24,13 +26,18 @@ export default function Step8Confirm() {
           filtering from the dashboard.
         </Text>
       </div>
-      <Button
-        onClick={() => navigate("/")}
-        data-testid="setup-go-dashboard"
-        className="w-full"
-      >
-        Go to dashboard
-      </Button>
+      <div className="flex size-16 items-center justify-center rounded-full bg-accent-soft text-accent-soft-ink">
+        <CheckIcon className="size-7" />
+      </div>
+      <WizardFooter>
+        <Button
+          onClick={() => navigate("/")}
+          data-testid="setup-go-dashboard"
+          className="w-full"
+        >
+          Go to dashboard
+        </Button>
+      </WizardFooter>
     </div>
   );
 }

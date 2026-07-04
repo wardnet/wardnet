@@ -14,7 +14,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   return { ...actual, useSetup, useAdvanceWizard, useAuth };
 });
 
-import Step1Admin from "@/pages/setup/Step1Admin";
+import StepAdmin from "@/pages/setup/StepAdmin";
 import { renderWithProviders } from "../../test-utils";
 
 const setupMutate = vi.fn();
@@ -44,9 +44,9 @@ beforeEach(() => {
   useAuth.mockReturnValue({ login });
 });
 
-describe("Step1Admin", () => {
+describe("StepAdmin", () => {
   it("renders the create-account form", () => {
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     expect(screen.getByText("Create admin account")).toBeInTheDocument();
     expect(screen.getByTestId("setup-admin-submit")).toHaveTextContent(
       "Create account",
@@ -55,7 +55,7 @@ describe("Step1Admin", () => {
 
   it("shows pending label and disables submit while creating", () => {
     useSetup.mockReturnValue({ mutateAsync: setupMutate, isPending: true });
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     const btn = screen.getByTestId("setup-admin-submit");
     expect(btn).toBeDisabled();
     expect(btn).toHaveTextContent("Creating account…");
@@ -63,7 +63,7 @@ describe("Step1Admin", () => {
 
   it("submits: creates admin, logs in, advances to network", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     await fillValidForm(user);
     await user.click(screen.getByTestId("setup-admin-submit"));
 
@@ -80,7 +80,7 @@ describe("Step1Admin", () => {
   it("handles a 409 by logging in with the typed credentials (no error)", async () => {
     setupMutate.mockRejectedValueOnce(apiError(409));
     const user = userEvent.setup();
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     await fillValidForm(user);
     await user.click(screen.getByTestId("setup-admin-submit"));
 
@@ -94,7 +94,7 @@ describe("Step1Admin", () => {
     setupMutate.mockRejectedValueOnce(apiError(409));
     login.mockRejectedValueOnce(new Error("nope"));
     const user = userEvent.setup();
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     await fillValidForm(user);
     await user.click(screen.getByTestId("setup-admin-submit"));
 
@@ -108,7 +108,7 @@ describe("Step1Admin", () => {
   it("surfaces a non-409 API error message", async () => {
     setupMutate.mockRejectedValueOnce(apiError(400, "bad password"));
     const user = userEvent.setup();
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     await fillValidForm(user);
     await user.click(screen.getByTestId("setup-admin-submit"));
 
@@ -120,7 +120,7 @@ describe("Step1Admin", () => {
   it("surfaces a generic connection error for non-API failures", async () => {
     setupMutate.mockRejectedValueOnce(new Error("network"));
     const user = userEvent.setup();
-    renderWithProviders(<Step1Admin />);
+    renderWithProviders(<StepAdmin />);
     await fillValidForm(user);
     await user.click(screen.getByTestId("setup-admin-submit"));
 

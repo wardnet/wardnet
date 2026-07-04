@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Button } from "@wardnet/web";
 import { Heading, Text } from "@wardnet/web";
 import { RoutingSelector } from "@wardnet/web";
-import { useAdvanceWizard } from "@wardnet/web";
 import { useDefaultPolicy, useSetDefaultPolicy } from "@wardnet/web";
+import { WizardFooter } from "@/pages/setup/WizardFooter";
+import { useWizardNav } from "@/pages/setup/useWizardNav";
 import { useTunnels } from "@wardnet/web";
 import type { RoutingTarget } from "@wardnet/js";
 
 /**
- * Step 6 — pick the global default routing policy.
+ * Policy step — pick the global default routing policy.
  *
  * Reuses the same `RoutingSelector` compound that powers the per-device
  * routing dropdown so the wizard's "default" picker visually matches what
@@ -29,8 +30,8 @@ function targetToPolicy(target: RoutingTarget): string {
   return "direct";
 }
 
-export default function Step6Policy() {
-  const advance = useAdvanceWizard();
+export default function StepPolicy() {
+  const nav = useWizardNav("policy");
   const setDefault = useSetDefaultPolicy();
   const { data: current } = useDefaultPolicy();
   const { data: tunnels } = useTunnels();
@@ -43,7 +44,7 @@ export default function Step6Policy() {
 
   async function handleContinue() {
     await setDefault.mutateAsync(targetToPolicy(target));
-    await advance.mutateAsync({ to_step: "remote_access" });
+    nav.goNext();
   }
 
   return (
@@ -73,14 +74,16 @@ export default function Step6Policy() {
         )}
       </div>
 
-      <Button
-        onClick={handleContinue}
-        disabled={setDefault.isPending || advance.isPending}
-        data-testid="setup-policy-continue"
-        className="w-full"
-      >
-        {setDefault.isPending || advance.isPending ? "Saving…" : "Continue"}
-      </Button>
+      <WizardFooter>
+        <Button
+          onClick={handleContinue}
+          disabled={setDefault.isPending || nav.isPending}
+          data-testid="setup-policy-continue"
+          className="w-full"
+        >
+          {setDefault.isPending || nav.isPending ? "Saving…" : "Continue"}
+        </Button>
+      </WizardFooter>
     </div>
   );
 }

@@ -59,6 +59,13 @@ pub struct LoginResponse {
     pub expires_in_seconds: u64,
 }
 
+/// Response for GET /api/users/me.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct MeResponse {
+    /// Username of the authenticated admin.
+    pub username: String,
+}
+
 /// Minimal tunnel info exposed to self-service users for routing selection.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TunnelSummary {
@@ -333,14 +340,18 @@ pub struct UpdateDeviceRequest {
 
 /// Linear stage in the first-run setup wizard.
 ///
-/// The wizard advances `Admin → Network → Dhcp → RouterMac → Tunnel → Policy
-/// → RemoteAccess → Completed`. `setup_completed` (in [`SetupStatusResponse`]
-/// and the `SetupGuard` redirect logic) is derived from
-/// `wizard_step == Completed`, so existing installs that already finished
-/// setup are not re-routed through the new wizard after an upgrade.
+/// The wizard advances `Admin → Network → Dhcp → RouterMac → Dns → Tunnel →
+/// Policy → RemoteAccess → Review → Completed`. `setup_completed` (in
+/// [`SetupStatusResponse`] and the `SetupGuard` redirect logic) is derived
+/// from `wizard_step == Completed`, so existing installs that already
+/// finished setup are not re-routed through the new wizard after an upgrade.
+///
+/// The wizard may also rewind: any step down to [`Self::Network`] can be
+/// revisited (never [`Self::Admin`] — admin creation is one-shot), except
+/// once [`Self::Completed`] is reached, which is terminal.
 ///
 /// Steps are persisted by their stable storage string (not their ordinal), so
-/// inserting [`Self::RemoteAccess`] ahead of [`Self::Completed`] needs no
+/// inserting [`Self::Dns`] and [`Self::Review`] mid-sequence needs no
 /// migration: finished installs (`"completed"`) and in-progress ones keep
 /// resolving to the same variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
@@ -354,14 +365,19 @@ pub enum WizardStep {
     Dhcp,
     /// Step 4 — discover upstream router MAC.
     RouterMac,
-    /// Step 5 — first VPN tunnel (skippable).
+    /// Step 5 — pick the baseline DNS-filter profiles applied to devices
+    /// without an explicit assignment.
+    Dns,
+    /// Step 6 — first VPN tunnel (skippable).
     Tunnel,
-    /// Step 6 — pick the global default routing policy.
+    /// Step 7 — pick the global default routing policy.
     Policy,
-    /// Step 7 — enable remote access (HTTPS): register a public hostname via
+    /// Step 8 — enable remote access (HTTPS): register a public hostname via
     /// the bridge or BYOD-Cloudflare and issue a certificate. Skippable.
     RemoteAccess,
-    /// Step 8 — wizard finished; the dashboard takes over.
+    /// Step 9 — read-only summary of everything configured so far.
+    Review,
+    /// Step 10 — wizard finished; the dashboard takes over.
     Completed,
 }
 
@@ -386,9 +402,11 @@ impl WizardStep {
             Self::Network => "network",
             Self::Dhcp => "dhcp",
             Self::RouterMac => "router_mac",
+            Self::Dns => "dns",
             Self::Tunnel => "tunnel",
             Self::Policy => "policy",
             Self::RemoteAccess => "remote_access",
+            Self::Review => "review",
             Self::Completed => "completed",
         }
     }
@@ -404,15 +422,18 @@ impl WizardStep {
             "network" => Self::Network,
             "dhcp" => Self::Dhcp,
             "router_mac" => Self::RouterMac,
+            "dns" => Self::Dns,
             "tunnel" => Self::Tunnel,
             "policy" => Self::Policy,
             "remote_access" => Self::RemoteAccess,
+            "review" => Self::Review,
             "completed" => Self::Completed,
             _ => Self::Admin,
         }
     }
 
-    /// Linear ordinal used for "no going backwards" validation.
+    /// Linear ordinal used for rewind validation (floor is [`Self::Network`];
+    /// [`Self::Completed`] is terminal).
     #[must_use]
     pub fn ordinal(&self) -> u8 {
         match self {
@@ -420,10 +441,12 @@ impl WizardStep {
             Self::Network => 1,
             Self::Dhcp => 2,
             Self::RouterMac => 3,
-            Self::Tunnel => 4,
-            Self::Policy => 5,
-            Self::RemoteAccess => 6,
-            Self::Completed => 7,
+            Self::Dns => 4,
+            Self::Tunnel => 5,
+            Self::Policy => 6,
+            Self::RemoteAccess => 7,
+            Self::Review => 8,
+            Self::Completed => 9,
         }
     }
 }
@@ -692,6 +715,9 @@ pub struct NetworkStatusResponse {
     #[schema(value_type = String)]
     pub gateway: Option<std::net::Ipv4Addr>,
     pub dhcp_source: DhcpSource,
+    /// Upstream router MAC persisted by the wizard's discover step, if
+    /// any — lets the review step display it without re-probing.
+    pub router_mac: Option<String>,
 }
 
 /// How the upstream router MAC was obtained.

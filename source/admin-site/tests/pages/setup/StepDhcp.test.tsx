@@ -46,7 +46,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
   };
 });
 
-import Step3DhcpOnboarding from "@/pages/setup/Step3DhcpOnboarding";
+import StepDhcp from "@/pages/setup/StepDhcp";
 import { renderWithProviders } from "../../test-utils";
 
 const advanceMutate = vi.fn();
@@ -68,9 +68,9 @@ beforeEach(() => {
   setProbe();
 });
 
-describe("Step3DhcpOnboarding", () => {
+describe("StepDhcp", () => {
   it("defaults to primary mode; continue blocked until a clean probe", () => {
-    renderWithProviders(<Step3DhcpOnboarding initialMode={null} />);
+    renderWithProviders(<StepDhcp initialMode={null} />);
     expect(screen.getByText("Pick your router")).toBeInTheDocument();
     const cont = screen.getByTestId("setup-dhcp-continue");
     expect(cont).toBeDisabled();
@@ -81,7 +81,7 @@ describe("Step3DhcpOnboarding", () => {
 
   it("shows a support link after switching to a router that has a kb_url", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     await user.selectOptions(
       screen.getByTestId("router-select"),
       "vodafone-smart-hub",
@@ -93,7 +93,7 @@ describe("Step3DhcpOnboarding", () => {
 
   it("locked_router mode enables continue and advances with wizard_mode", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Step3DhcpOnboarding initialMode={null} />);
+    renderWithProviders(<StepDhcp initialMode={null} />);
     await user.click(screen.getByTestId("setup-dhcp-mode-locked"));
     expect(
       screen.getByText(/Configure each opted-in device/),
@@ -110,7 +110,7 @@ describe("Step3DhcpOnboarding", () => {
   it("shows a clean-probe success and advances in primary mode", async () => {
     setProbe({ data: { wardnet_responded: true, foreign_responded: false } });
     const user = userEvent.setup();
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(
       screen.getByText("Only Wardnet responded — good."),
     ).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("Step3DhcpOnboarding", () => {
         foreign_server_ip: "192.168.1.1",
       },
     });
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(
       screen.getByText(/A foreign DHCP server responded \(192\.168\.1\.1\)/),
     ).toBeInTheDocument();
@@ -139,26 +139,26 @@ describe("Step3DhcpOnboarding", () => {
 
   it("shows a probe-failed message on error", () => {
     setProbe({ isError: true });
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(screen.getByText("Probe failed — try again.")).toBeInTheDocument();
   });
 
   it("shows 'Probing…' and disables the probe button while pending", () => {
     setProbe({ isPending: true });
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(screen.getByRole("button", { name: "Probing…" })).toBeDisabled();
   });
 
   it("clicking Probe LAN calls the probe mutation; label becomes 'Probe again'", async () => {
     const user = userEvent.setup();
     const { rerender } = renderWithProviders(
-      <Step3DhcpOnboarding initialMode="primary" />,
+      <StepDhcp initialMode="primary" />,
     );
     await user.click(screen.getByRole("button", { name: "Probe LAN" }));
     expect(probeMutate).toHaveBeenCalled();
 
     setProbe({ data: { wardnet_responded: false, foreign_responded: false } });
-    rerender(<Step3DhcpOnboarding initialMode="primary" />);
+    rerender(<StepDhcp initialMode="primary" />);
     expect(
       screen.getByRole("button", { name: "Probe again" }),
     ).toBeInTheDocument();
@@ -170,7 +170,7 @@ describe("Step3DhcpOnboarding", () => {
       mutate: advanceMutate,
       isPending: true,
     });
-    renderWithProviders(<Step3DhcpOnboarding initialMode="primary" />);
+    renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(screen.getByTestId("setup-dhcp-continue")).toHaveTextContent(
       "Saving…",
     );
