@@ -40,8 +40,8 @@ fn pop_canonical_payload_is_stable_and_verifies() {
     let timestamp = 1_700_000_000i64;
     let body = br#"{"ip":"203.0.113.5"}"#;
 
-    // The signed path is the full gateway-facing path, `/<service>/` prefix
-    // included — the cloud verifies against the un-stripped `OriginalUri`.
+    // The signed path is the prefix-free gateway-facing path (`/v1/...`, cloud
+    // ADR-0015) — the daemon signs exactly what it dials.
     let payload = pop::canonical_payload("PUT", "/v1/ip", timestamp, body);
     let expected = format!(
         "PUT\n/v1/ip\n{timestamp}\n{}",
@@ -62,7 +62,7 @@ fn pop_canonical_payload_is_stable_and_verifies() {
     assert_eq!(signature, key.sign(expected.as_bytes()));
 
     // The query string participates in the signed path: the cloud verifies the
-    // full `OriginalUri` including `?…`, so a payload that drops the query must
+    // full request path including `?…`, so a payload that drops the query must
     // not equal one that carries it.
     let with_query =
         pop::canonical_payload("GET", "/v1/availability?slug=alice", timestamp, b"");
