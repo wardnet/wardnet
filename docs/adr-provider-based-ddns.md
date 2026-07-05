@@ -42,7 +42,7 @@ the certificate lifecycle and the key never leaving the Pi under either provider
     directly with their token.
 - **Multi-region via a daemon-side catalog.** A built-in region-slug → bridge
   endpoint catalog ships in the daemon (`ddns/region.rs`); at registration the
-  daemon probes each region's `/ddns/v1/health` and picks the lowest-latency one. The
+  daemon probes each region's `/readyz` health endpoint and picks the lowest-latency one. The
   bridge cannot supply this list (it is itself region-bound), so the catalog is the
   daemon's. Adding a region is a one-line catalog change.
 - The **daemon**, not the bridge, owns issuance and renewal — it calls the provider

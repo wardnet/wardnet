@@ -27,11 +27,6 @@ use super::request::{self, Auth};
 use super::tenants::TenantsClient;
 use crate::ddns::provider::DnsProvider;
 
-/// Gateway path-routing prefix: the first path segment selecting the ddns
-/// service. Prepended once, in [`DdnsClient::send`], so every call is prefixed
-/// (and therefore `PoP`-signed) structurally rather than per literal.
-const SERVICE_PREFIX: &str = "/ddns";
-
 /// A client for a region's ddns service behind the regional gateway at
 /// `base_url`.
 pub struct DdnsClient {
@@ -47,7 +42,7 @@ impl DdnsClient {
         Self { http, base_url }
     }
 
-    /// Publish the network's public **A** record (`PUT /ddns/v1/ip`).
+    /// Publish the network's public **A** record (`PUT /v1/ip`).
     pub async fn report_ip(
         &self,
         identity: &DaemonIdentity,
@@ -59,7 +54,7 @@ impl DdnsClient {
         request::ok(resp).await.map(drop)
     }
 
-    /// Publish the `_acme-challenge` TXT value(s) (`PUT /ddns/v1/acme-challenge`).
+    /// Publish the `_acme-challenge` TXT value(s) (`PUT /v1/acme-challenge`).
     pub async fn set_acme_challenge(
         &self,
         identity: &DaemonIdentity,
@@ -71,7 +66,7 @@ impl DdnsClient {
         request::ok(resp).await.map(drop)
     }
 
-    /// Remove the `_acme-challenge` TXT records (`DELETE /ddns/v1/acme-challenge`).
+    /// Remove the `_acme-challenge` TXT records (`DELETE /v1/acme-challenge`).
     /// Idempotent.
     pub async fn clear_acme_challenge(&self, identity: &DaemonIdentity) -> Result<(), CloudError> {
         let resp = self
@@ -94,11 +89,11 @@ impl DdnsClient {
         self.send(reqwest::Method::PUT, path, identity, body).await
     }
 
-    /// Send `{SERVICE_PREFIX}{path_and_query}` — the single funnel every ddns
-    /// call goes through, so a new endpoint cannot forget the gateway prefix
-    /// (a valid signature over an un-prefixed path would misroute at the
-    /// gateway). The prefixed string is built once and passed whole to
-    /// [`request::send`], preserving its "sign exactly what you send"
+    /// Send `path_and_query` — the single funnel every ddns call goes through.
+    /// Cloud serves prefix-free `/v1/...` paths (cloud ADR-0015); the gateway
+    /// routes on the `X-Mesh-Target` header it derives per service, not on a
+    /// path prefix, so no service segment is prepended. The path is passed whole
+    /// to [`request::send`], preserving its "sign exactly what you send"
     /// invariant.
     async fn send(
         &self,
@@ -112,7 +107,7 @@ impl DdnsClient {
             &self.base_url,
             Auth::Full(identity),
             method,
-            &format!("{SERVICE_PREFIX}{path_and_query}"),
+            path_and_query,
             body,
         )
         .await
