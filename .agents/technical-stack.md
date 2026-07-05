@@ -63,7 +63,8 @@
 ## Public site
 - Same stack as the web UI (React 19 + Vite + Tailwind 4)
 - Docs are plain markdown under `source/site/content/docs/`, rendered via `react-markdown` + `remark-gfm` with custom component mappings in `DocsArticle.tsx`
-- Topic catalogue in `source/site/content/docs.yml` (loaded via `@modyfi/vite-plugin-yaml`)
+- Topic catalogue in `source/site/content/docs.yml` (loaded via `@modyfi/vite-plugin-yaml`); slugs without a matching markdown file render as "coming soon"
+- `/docs/api-reference` (`ApiReference.tsx`) is a multi-version OpenAPI viewer: `yarn generate:release-manifests` downloads each distinct release's `openapi.json` into `public/api-specs/<sha>.json` and records `spec_path` in the release manifest; a daemon-version picker renders the matching spec via **Scalar**, themed with Forge design tokens through Scalar's `customCss` (forced light mode, site fonts) and made read-only (`hideTestRequestButton`/`hideClientButton` — there's no live daemon to authenticate against from the public site). The Scalar bundle itself is vendored from the daemon at build time by `yarn copy:scalar` (copies `source/daemon/crates/wardnetd-api/assets/scalar-api-reference.js` to `public/api-docs/scalar.js`). Both `public/api-specs/` and `public/api-docs/` are build-time-generated and gitignored, same as `public/releases/`.
 
 ## PWA initiative (issues #435–#441)
 
