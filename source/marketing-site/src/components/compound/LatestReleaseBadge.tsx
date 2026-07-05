@@ -1,7 +1,7 @@
 import { releaseInfo } from "@/generated/release-info";
 
 interface LatestReleaseBadgeProps {
-  /** Visual variant — "dark" for the hero (on Ward Navy), "light"
+  /** Visual variant, "dark" for the hero (on Ward Navy), "light"
    *  for sections sitting on the cream / sunken page surface. */
   variant?: "dark" | "light";
   /** Optional className to merge into the root span. */
@@ -12,7 +12,7 @@ interface LatestReleaseBadgeProps {
  * Accent-green pill linking to the GitHub Release notes for the
  * latest stable build. Uses `.pill--ok` (accent-soft surface +
  * accent-soft ink) so it stays visibly interactive against both the
- * Ward Navy hero and the cream-sunken GetStarted section — the
+ * Ward Navy hero and the cream-sunken GetStarted section, the
  * default `.pill` washes out against `bg-sunken`.
  *
  * Hover gets an underline + slight surface deepen so the element

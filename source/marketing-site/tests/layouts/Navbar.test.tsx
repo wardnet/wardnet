@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { Navbar } from "@/components/layouts/Navbar";
 
@@ -23,6 +23,15 @@ describe("Navbar", () => {
     expect(screen.getByRole("link", { name: "Documentation" })).toHaveAttribute("href", "/docs");
   });
 
+  it("renders the Premium link", () => {
+    render(
+      <MemoryRouter>
+        <Navbar />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute("href", "/premium");
+  });
+
   it("renders the GitHub icon link", () => {
     render(
       <MemoryRouter>
@@ -35,7 +44,7 @@ describe("Navbar", () => {
     );
   });
 
-  it("renders a link to home when no onLogoClick is provided", () => {
+  it("links the logo to home when no onLogoClick is provided", () => {
     render(
       <MemoryRouter>
         <Navbar />
@@ -44,26 +53,41 @@ describe("Navbar", () => {
     expect(screen.getByRole("link", { name: /wardnet/i })).toHaveAttribute("href", "/");
   });
 
-  it("shows a back arrow and links to content view when showBack is true", () => {
+  it("shows a back button and keeps the logo linked to home when showBack is true", () => {
     render(
       <MemoryRouter>
         <Navbar showBack />
       </MemoryRouter>,
     );
+    expect(screen.getByRole("button", { name: /go back/i })).toBeInTheDocument();
     expect(document.querySelector(".lucide-arrow-left")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /wardnet/i })).toHaveAttribute(
-      "href",
-      "/?view=content",
-    );
+    // The logo stays a plain link to home; it is no longer the back control.
+    expect(screen.getByRole("link", { name: /wardnet/i })).toHaveAttribute("href", "/");
   });
 
-  it("does not show a back arrow by default", () => {
+  it("does not show a back button by default", () => {
     render(
       <MemoryRouter>
         <Navbar />
       </MemoryRouter>,
     );
+    expect(screen.queryByRole("button", { name: /go back/i })).not.toBeInTheDocument();
     expect(document.querySelector(".lucide-arrow-left")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the backTo destination when there is no history to pop", async () => {
+    // jsdom starts each test with a history length of 1, so the back button
+    // takes the fallback branch instead of popping real history.
+    render(
+      <MemoryRouter initialEntries={["/docs/network-zones"]}>
+        <Routes>
+          <Route path="/docs/:slug" element={<Navbar showBack backTo="/docs" />} />
+          <Route path="/docs" element={<div>Docs index</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /go back/i }));
+    expect(screen.getByText("Docs index")).toBeInTheDocument();
   });
 
   it("calls onLogoClick when the logo button is clicked", async () => {

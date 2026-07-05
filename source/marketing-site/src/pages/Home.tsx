@@ -3,7 +3,9 @@ import { useSearchParams } from "react-router";
 import { Hero } from "@/components/layouts/Hero";
 import { Navbar } from "@/components/layouts/Navbar";
 import { Features } from "@/components/layouts/Features";
+import { AppSurfaces } from "@/components/layouts/AppSurfaces";
 import { HowItWorks } from "@/components/layouts/HowItWorks";
+import { Premium } from "@/components/layouts/Premium";
 import { TechStack } from "@/components/layouts/TechStack";
 import { GetStarted } from "@/components/layouts/GetStarted";
 import { Footer } from "@/components/layouts/Footer";
@@ -22,7 +24,9 @@ export function Home() {
       <div className="min-h-screen bg-elev">
         <Navbar onLogoClick={() => setShowHero(true)} />
         <Features />
+        <AppSurfaces />
         <HowItWorks />
+        <Premium />
         <GetStarted />
         <TechStack />
         <Footer />

@@ -63,7 +63,7 @@ const MD_COMPONENTS: Components = {
   //
   //   ![alt](path "wide")   → no width cap
   //
-  // Default (no title) stays at `max-w-2xl` — the right size for
+  // Default (no title) stays at `max-w-2xl`, the right size for
   // dialog / modal screenshots.
   img: ({ title, ...props }) => {
     const wide = title === "wide";
@@ -73,7 +73,7 @@ const MD_COMPONENTS: Components = {
           "my-6 mx-auto block w-full rounded-lg border border-line" + (wide ? "" : " max-w-2xl")
         }
         loading="lazy"
-        // The `title` was a sizing directive — don't let it leak
+        // The `title` was a sizing directive, don't let it leak
         // into the rendered HTML as a tooltip.
         {...props}
       />
@@ -84,7 +84,7 @@ const MD_COMPONENTS: Components = {
 /**
  * Eager-load every markdown file under `content/docs/*.md` at build time as
  * raw strings. `import.meta.glob` returns a record keyed by the path Vite
- * resolved, so we normalise to slug → content at module load — one lookup
+ * resolved, so we normalise to slug → content at module load, one lookup
  * per page render.
  */
 const DOC_MODULES = import.meta.glob("../../content/docs/*.md", {

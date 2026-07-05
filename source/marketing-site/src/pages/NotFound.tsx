@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Logo } from "@/components/compound/Logo";
 
 /**
- * Catch-all 404 view. Reached when React Router finds no matching route —
+ * Catch-all 404 view. Reached when React Router finds no matching route,
  * either because the user typed an unknown URL, followed a stale link, or
  * hit a path that hasn't been deployed yet.
  *

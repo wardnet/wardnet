@@ -16,7 +16,8 @@ const STEPS = [
   {
     step: 3,
     title: "Control from the dashboard",
-    description: "Manage tunnels, routing rules, and device policies from the web UI.",
+    description:
+      "Manage tunnels, routing, network zones, and DNS from the desktop admin site, or your phone with Premium.",
   },
 ] as const;
 

@@ -7,11 +7,11 @@ then point one or more devices at it from the Devices page.
 
 There are two ways to add a tunnel:
 
-- **Manual import** — paste or upload a `.conf` from any provider that
+- **Manual import**, paste or upload a `.conf` from any provider that
   supports WireGuard (Mullvad, IVPN, your own server). Wardnet parses the
   interface and peer config, persists the tunnel, and stores the private
   key in the secret store.
-- **Provider integration** — for providers Wardnet has a built-in
+- **Provider integration**, for providers Wardnet has a built-in
   integration with (NordVPN today), enter your credentials, pick a
   country and server, and Wardnet generates and imports the config for
   you. See [VPN providers](/docs/vpn-providers).
@@ -47,7 +47,7 @@ You can switch the visible window with the range toggle:
 
 Above the chart, the **Window total** callout shows the cumulative
 upload and download bytes for the visible window. Drag the brush handles
-below the chart to zoom into a sub-window — the totals update to match
+below the chart to zoom into a sub-window, the totals update to match
 the selection.
 
 If a tunnel has just been imported, the chart will show an empty state
@@ -63,14 +63,14 @@ Wardnet keeps:
 - **12 months** of daily rollups.
 
 A background runner trims past-retention rows once an hour. When you
-delete a tunnel, its history is removed too — the foreign key on the
+delete a tunnel, its history is removed too, the foreign key on the
 metrics tables uses `ON DELETE CASCADE`.
 
 ### Devices using this tunnel
 
 Below the chart, the **Devices using this tunnel** table lists every
 device whose routing rule points at this tunnel. To re-route a device,
-open the Devices page and edit the device — the table updates within
+open the Devices page and edit the device, the table updates within
 30 seconds.
 
 ![Devices table](/docs/wireguard-tunnels/devices-table.png "wide")
@@ -79,12 +79,12 @@ open the Devices page and edit the device — the table updates within
 
 1. Go to **Tunnels → Add tunnel** and pick **Manual**.
 2. Paste the contents of your `.conf` file or upload it.
-3. Give the tunnel a label and pick its country code — these are used
+3. Give the tunnel a label and pick its country code, these are used
    for the card layout on the list page (flag + label).
 
 Wardnet generates a fresh interface name (`wg_ward0`, `wg_ward1`, …) on
 import; you don't need to set one yourself. The peer's endpoint can be
-either an IP:port or a hostname — Wardnet resolves hostnames at
+either an IP:port or a hostname, Wardnet resolves hostnames at
 bring-up time, so providers that rotate IPs (NordVPN, ProtonVPN) work
 without re-importing the config.
 
@@ -119,7 +119,7 @@ Click **Delete tunnel** at the bottom of the detail page. Wardnet:
 3. Removes the persisted config and private key.
 4. Cascades and removes the tunnel's metrics history.
 
-The action is destructive — the tunnel can be re-imported but the
+The action is destructive, the tunnel can be re-imported but the
 history is gone.
 
 ## Backup and restore

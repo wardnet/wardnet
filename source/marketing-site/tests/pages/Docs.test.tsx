@@ -36,15 +36,15 @@ describe("Docs", () => {
     expect(screen.getByText("SDK reference")).toBeInTheDocument();
   });
 
-  it("renders a back link to the content view", () => {
+  it("renders a back button and links the logo to home", () => {
     renderDocs();
-    // Doc cards now link to /docs/<slug> (cards are clickable) and also
-    // contain the word "Wardnet" in their descriptions — match anchors
-    // pointing at the home-content deep link explicitly to dodge them.
-    const backLink = screen
+    // The back arrow pops real browser history, so it's a button rather
+    // than a fixed link. The logo stays a plain link to home.
+    expect(screen.getByRole("button", { name: /go back/i })).toBeInTheDocument();
+    const homeLink = screen
       .getAllByRole("link")
-      .find((el) => el.getAttribute("href") === "/?view=content");
-    expect(backLink).toBeDefined();
+      .find((el) => el.getAttribute("href") === "/");
+    expect(homeLink).toBeDefined();
   });
 
   it("links each topic card to its doc slug", () => {

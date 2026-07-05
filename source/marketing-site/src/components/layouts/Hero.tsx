@@ -23,10 +23,14 @@ export function Hero({ onExplore }: HeroProps) {
       <h1 className="sr-only">Wardnet</h1>
       <p className="sr-only">Your network. Your rules.</p>
       <Logo tagline variant="dark" height={96} className="mb-8 max-w-[88vw]" />
-      <p className="h-sub text-side-ink-2 mb-6 max-w-xl leading-relaxed">
-        A self-hosted privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or
-        any Linux host. Per-device VPN routing, DNS ad blocking, and a web dashboard, all in a
-        single binary.
+      <p className="h-sub text-side-ink-2 mb-4 max-w-xl leading-relaxed">
+        A self-hosted privacy gateway you run on your own hardware, a Raspberry Pi, a mini-PC, or
+        any Linux host. Per-device VPN routing, DNS ad blocking, network zones, and a web dashboard
+        in a single binary. No account required, nothing leaves your LAN, no cloud required.
+      </p>
+      <p className="text-side-ink-2 mb-6 max-w-xl t-size-sm leading-relaxed">
+        Want it on the go? Secure remote and mobile access are available whenever you need them, via
+        Premium.
       </p>
       <LatestReleaseBadge variant="dark" className="mb-8" />
       <div className="flex w-full max-w-xs flex-col gap-4 sm:max-w-none sm:flex-row sm:justify-center">

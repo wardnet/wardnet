@@ -22,6 +22,9 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6">
         <Logo height={32} variant="light" />
         <nav className="flex gap-6">
+          <Link to="/premium" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
+            Premium
+          </Link>
           <Link to="/docs" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
             Documentation
           </Link>

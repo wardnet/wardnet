@@ -9,7 +9,7 @@ This page documents every supported section. Any section you leave out of
 the file keeps its defaults.
 
 ```toml
-# /etc/wardnet/wardnet.toml — minimal file written by the installer
+# /etc/wardnet/wardnet.toml, minimal file written by the installer
 [database]
 connection_string = "/var/lib/wardnet/wardnet.db"
 
@@ -57,7 +57,7 @@ live over the `/api/system/logs/stream` WebSocket.
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `format` | `"console"` | `console` or `json`. Affects stderr only — file output is always JSON. |
+| `format` | `"console"` | `console` or `json`. Affects stderr only, file output is always JSON. |
 | `level` | `"info"` | `trace`, `debug`, `info`, `warn`, or `error`. Overridden by `RUST_LOG` env var. |
 | `filters` | `{}` | Per-crate level overrides: `{ sqlx = "warn" }`. |
 | `path` | `"/var/log/wardnet/wardnetd.log"` | File appender destination. |
@@ -81,7 +81,7 @@ live over the `/api/system/logs/stream` WebSocket.
 
 ## `[admin]` (optional)
 
-Omit this section in production — the first-run setup wizard creates the
+Omit this section in production, the first-run setup wizard creates the
 admin account interactively. Present only in the mock / dev environment
 where the wizard is bypassed.
 
@@ -93,7 +93,7 @@ password = "…"
 
 ## `[secret_store]`
 
-Where Wardnet keeps secret material — WireGuard private keys today,
+Where Wardnet keeps secret material, WireGuard private keys today,
 backup passphrases and destination credentials in upcoming releases.
 Anything that must never appear in the database, the API, or the logs
 lives here.
@@ -127,7 +127,7 @@ path = "/var/lib/wardnet/secrets"
 | `health_check_interval_secs` | `10` | How often to poll each tunnel for liveness. |
 | `stats_interval_secs` | `5` | How often to pull bytes-tx/rx counters. |
 
-Tunnel private keys are stored via `[secret_store]` (above) — they are
+Tunnel private keys are stored via `[secret_store]` (above), they are
 not configured here.
 
 ## `[detection]`
@@ -197,8 +197,8 @@ Continuous profiling agent. Disabled by default.
 
 Two runtime overrides are honoured independent of the TOML:
 
-- `RUST_LOG` — directly sets the tracing filter; wins over
+- `RUST_LOG`, directly sets the tracing filter; wins over
   `logging.level` and `logging.filters`.
-- `WARDNET_VERSION_OVERRIDE` — overrides the git-derived compile-time
+- `WARDNET_VERSION_OVERRIDE`, overrides the git-derived compile-time
   version string. Only useful for local testing of the auto-update flow
   (see the dev notes in the repository).

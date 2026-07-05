@@ -1,7 +1,7 @@
 # Installation
 
 Wardnet can be installed via Docker or directly on the host (bare-metal).
-Docker is the simpler path — no dependency management, and auto-update +
+Docker is the simpler path, no dependency management, and auto-update +
 crash-loop rollback work identically because systemd runs as PID 1 inside
 the container.
 
@@ -50,7 +50,7 @@ re-pull a newer image tag.
 
 - A Raspberry Pi (aarch64) or x86_64 Linux host.
 - A Debian/Ubuntu-based distribution (other distros work too, as long as
-  the required tools are available — see below).
+  the required tools are available, see below).
 - Root access on the target machine.
 - Outbound HTTPS to `wardnet.network` (release manifest + tarball download).
 
@@ -73,7 +73,7 @@ sudo apt-get install -y curl tar minisign jq
 ```
 
 If any tool is missing, the installer fails early with a clear message
-listing the missing packages — it never installs anything behind your
+listing the missing packages, it never installs anything behind your
 back.
 
 ### One-shot install
@@ -94,7 +94,7 @@ Verification flow the installer runs, in order:
    `.minisig` sidecars.
 3. Recompute the SHA-256 and compare against the sidecar.
 4. Verify the `.minisig` signature against the public key that is
-   **embedded in the installer itself** — this is the authenticity
+   **embedded in the installer itself**, this is the authenticity
    anchor. A compromised DNS record or CDN cannot forge a signed release.
 5. Extract, install the binary owned by the `wardnet` user at
    `/usr/local/bin/wardnetd`, drop the systemd units, enable, and start.
@@ -132,7 +132,7 @@ The bundle directory must contain:
 - `wardnetd.service`, `wardnetd-rollback.service`
 
 The installer still verifies SHA-256 and the minisign signature against
-its embedded public key — air-gapped mode does not skip verification.
+its embedded public key, air-gapped mode does not skip verification.
 
 ### Choosing a channel
 
@@ -144,7 +144,7 @@ sudo ./install.sh --channel beta
 ```
 
 You can also switch channels at any time from the daemon's Settings page
-(Auto-update card) — the background runner will then track the chosen
+(Auto-update card), the background runner will then track the chosen
 channel for future updates.
 
 ### Verifying the service
@@ -171,7 +171,7 @@ Useful follow-ups:
 # Service status
 sudo systemctl status wardnetd
 
-# Live logs (JSON — pipe through jq to pretty-print)
+# Live logs (JSON, pipe through jq to pretty-print)
 sudo journalctl -u wardnetd -f
 
 # Quick status from the CLI
@@ -180,7 +180,7 @@ sudo -u wardnet wctl status
 
 ### Upgrades
 
-You never need to re-run `install.sh` for upgrades — the daemon's
+You never need to re-run `install.sh` for upgrades, the daemon's
 auto-update runner polls the release manifest every six hours and, when
 enabled, installs new releases in place. You can also trigger a manual
 install from the Settings page, or via `wctl update install`.

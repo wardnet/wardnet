@@ -57,7 +57,8 @@ export function GetStarted() {
           <a href="/docs/installation" className="text-accent hover:underline">
             installation guide
           </a>{" "}
-          for compose options, air-gapped installs, and channel selection.
+          for compose options, air-gapped installs, and channel selection. Everything on your LAN is
+          free, no account required.
         </p>
         <a
           href="https://github.com/wardnet/wardnet"

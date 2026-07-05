@@ -13,6 +13,11 @@ import {
   Users,
   Terminal,
   Sparkles,
+  Layers,
+  Server,
+  Radio,
+  Smartphone,
+  Bell,
   type LucideProps,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -32,6 +37,11 @@ const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
   users: Users,
   terminal: Terminal,
   sparkles: Sparkles,
+  layers: Layers,
+  server: Server,
+  radio: Radio,
+  smartphone: Smartphone,
+  bell: Bell,
 };
 
 /** Resolves a string icon name from YAML content to a Lucide icon component. */
