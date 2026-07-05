@@ -64,8 +64,7 @@ fn pop_canonical_payload_is_stable_and_verifies() {
     // The query string participates in the signed path: the cloud verifies the
     // full request path including `?…`, so a payload that drops the query must
     // not equal one that carries it.
-    let with_query =
-        pop::canonical_payload("GET", "/v1/availability?slug=alice", timestamp, b"");
+    let with_query = pop::canonical_payload("GET", "/v1/availability?slug=alice", timestamp, b"");
     let expected_with_query = format!(
         "GET\n/v1/availability?slug=alice\n{timestamp}\n{}",
         hex::encode(Sha256::digest(b""))
