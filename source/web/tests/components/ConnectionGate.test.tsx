@@ -54,6 +54,18 @@ describe("ConnectionGate", () => {
     expect(refetch).toHaveBeenCalledOnce();
   });
 
+  it("shows the retrying spinner and label while a retry is in flight", () => {
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: false },
+      isLoading: false,
+      isFetching: true,
+      refetch: vi.fn(),
+    });
+    render(<ConnectionGate>{child()}</ConnectionGate>);
+    const button = screen.getByRole("button", { name: /Retrying…/ });
+    expect(button).toBeDisabled();
+  });
+
   it("stays unblocked after a single successful connection", () => {
     useDaemonStatus.mockReturnValue({
       data: { reachable: true },

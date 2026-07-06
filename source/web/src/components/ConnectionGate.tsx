@@ -59,11 +59,13 @@ export function ConnectionGate({
     // First probe still in flight — show a quiet splash, not a flash of error.
     if (isLoading || !data) return <ConnectionSplash />;
 
-    if (!data.reachable) {
-      return (
-        <ConnectionError onRetry={() => void refetch()} retrying={isFetching} />
-      );
-    }
+    // `data.reachable` must be `false` here: line 55 above would have latched
+    // `hasConnected.current` to `true` (skipping this whole block) on any
+    // render where it was `true`. Unconditional rather than a redundant
+    // `if (!data.reachable)` — the alternative is dead code no test can hit.
+    return (
+      <ConnectionError onRetry={() => void refetch()} retrying={isFetching} />
+    );
   }
 
   // Checked on every poll, not latched — `entitled === false` is an explicit
