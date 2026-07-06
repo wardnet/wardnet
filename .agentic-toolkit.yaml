@@ -5,3 +5,5 @@ skills:
   - ./.agents/skills/bump-rust
 agents:
   - ./.agents/agents/rust-engineer
+mcp:
+  - github.com/pedromvgomes/agentic-toolkit.git/definitions/mcp/chrome-devtools.yaml@main
