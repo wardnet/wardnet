@@ -60,7 +60,11 @@ function readJsonBody(req) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://mock");
   const path = url.pathname;
-  console.log(`wardnet_cloud_mock: raw request line: ${req.method} ${req.url} (host header: ${req.headers.host})`);
+  console.log(
+    `wardnet_cloud_mock: raw request line: ${req.method} ${req.url} ` +
+      `(host header: ${req.headers.host}, from: ${req.socket.remoteAddress}:${req.socket.remotePort}, ` +
+      `connection: ${req.headers.connection}, all headers: ${JSON.stringify(req.headers)})`,
+  );
 
   try {
     if (req.method === "GET" && path === "/health") {

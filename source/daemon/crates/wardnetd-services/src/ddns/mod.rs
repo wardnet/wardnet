@@ -295,6 +295,14 @@ impl DdnsServiceImpl {
         let http = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
+            // Never honour an ambient `HTTP_PROXY`/`http_proxy`/`ALL_PROXY`
+            // env var for cloud-API traffic: reqwest reads these by default,
+            // and a CI runner's or operator's system-wide proxy silently
+            // intercepting calls to the tenants/ddns gateways (or, in the
+            // e2e harness, to `wardnet_cloud_mock`) is exactly the kind of
+            // surprising, hard-to-diagnose failure this client should never
+            // be subject to.
+            .no_proxy()
             .build()
             .expect("reqwest client builds with static config");
         Self {
