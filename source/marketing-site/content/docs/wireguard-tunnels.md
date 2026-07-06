@@ -32,7 +32,11 @@ here:
 The header shows the tunnel's status pill (`Active`, `Connecting`,
 `Reconnecting`, `Down`) and the time since the last WireGuard handshake.
 Below it, the **Configuration** card surfaces provider, country,
-endpoint, and the local interface name in one glance.
+endpoint, and the local interface name in one glance, plus a **Filter
+and route DNS through this tunnel** toggle: on, devices routed through
+this tunnel resolve DNS via Wardnet so ad blocking still applies, and
+Wardnet forwards those queries out through the tunnel's own DNS server.
+Off, they use the system-wide upstream pool instead.
 
 ### Throughput chart
 
@@ -60,6 +64,18 @@ until the first 5-minute sample lands. Counter resets (e.g. after
 `wg-quick down && wg-quick up`) are detected automatically: the next
 sample's delta is the new counter value, never a negative spike.
 
+### Latency chart
+
+Alongside throughput, Wardnet charts round-trip latency (RTT) for the
+tunnel over the same window, sampled on the same 5-minute cadence.
+
+![Latency chart](/docs/wireguard-tunnels/latency-chart.png "wide")
+
+Use it together with the throughput chart to tell apart two different
+problems: a throughput drop with flat latency usually means the
+provider is capping bandwidth, while a latency spike means the path
+itself has gotten worse (congestion, a farther server, packet loss).
+
 ### Retention
 
 Wardnet keeps:
@@ -79,6 +95,32 @@ open the Devices page and edit the device, the table updates within
 30 seconds.
 
 ![Devices table](/docs/wireguard-tunnels/devices-table.png "wide")
+
+### Speed test
+
+Click **Speed test** on a tunnel card, or on the detail page, to
+measure what the tunnel actually costs you. A raw throughput number
+for the tunnel alone doesn't mean much, so Wardnet always measures two
+legs back to back and compares them: a direct/WAN baseline, then the
+same download and latency probes through the tunnel.
+
+![Speed test result](/docs/wireguard-tunnels/speed-test.png "wide")
+
+While it runs, the button shows a live percentage as each leg
+completes. When it's done, you get download throughput, latency, and
+jitter for both **Direct** and **Tunnel**, plus a **% kept** figure so
+you can see the overhead at a glance, a heavily loaded VPN server or a
+distant endpoint will show up as a lower kept percentage immediately.
+If the tunnel was down, Wardnet brings it up for the test and tears it
+back down afterward.
+
+Near the bottom of the detail page, the **Speed test history** table
+keeps every past run: tested-at time, download (tunnel vs. direct),
+latency (tunnel vs. direct), and the kept percentage, so you can tell
+whether a provider's performance is drifting over time rather than
+judging off a single test.
+
+![Speed test history](/docs/wireguard-tunnels/speed-test-history.png "wide")
 
 ## Importing a tunnel
 

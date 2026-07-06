@@ -69,6 +69,26 @@ allowlist. When the network-wide switch is off, queries that a profile
 would have blocked are marked **blocked (skipped)** so you can still see
 what filtering would catch.
 
+## Stats at a glance
+
+The main **DNS** page (the resolver overview, separate from DNS
+Filtering) rolls query volume and blocking into a set of stat cards and
+a chart, so you don't have to read the raw log to see how filtering is
+performing.
+
+![DNS stats](/docs/dns-ad-blocking/dns-stats.png "wide")
+
+At the top, four cards cover the selected window: total **queries**,
+the **blocked** percentage, the single most-blocked domain, and the
+count of **active clients**. The **queries over time** chart plots
+total queries against blocked queries side by side, drag the range
+toggle between `1h` and `12mo` to zoom out and spot trends, like a new
+device flooding the network with tracker requests. Below the chart,
+**top blocked domains** and **top clients** rank the busiest offenders
+and the chattiest devices for the same window, a quick way to find
+which device to investigate or which domain is worth adding a custom
+rule for.
+
 ## Per-device profiles
 
 Assign a profile to a specific device from its
