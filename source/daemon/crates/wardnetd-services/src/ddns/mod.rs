@@ -238,6 +238,37 @@ impl Default for DdnsSettings {
     }
 }
 
+impl DdnsSettings {
+    /// Defaults with the wardnet-cloud gateway URLs overridden per
+    /// [`wardnet_common::config::DdnsWardnetConfig`], mirroring how
+    /// [`VpnProviderRegistry`](crate::vpn::VpnProviderRegistry) takes an
+    /// optional `nordvpn_api_url` override. Only the single built-in region's
+    /// catalog entry (index 0) is replaced — deliberately indexed rather than
+    /// mapped over the whole catalog, so a second region added later keeps
+    /// its real URLs instead of silently inheriting the mock's; its slug is
+    /// kept so `register_network`'s persisted `region` config value is
+    /// unaffected.
+    pub(crate) fn with_wardnet_overrides(
+        gateway_url: Option<&str>,
+        region_gateway_url: Option<&str>,
+        region_health_url: Option<&str>,
+    ) -> Self {
+        let mut settings = Self::default();
+        if let Some(url) = gateway_url {
+            url.clone_into(&mut settings.global_gateway_url);
+        }
+        if let Some(region) = settings.region_catalog.first_mut() {
+            if let Some(url) = region_gateway_url {
+                url.clone_into(&mut region.gateway_base_url);
+            }
+            if let Some(url) = region_health_url {
+                url.clone_into(&mut region.health_url);
+            }
+        }
+        settings
+    }
+}
+
 /// The concrete [`DdnsService`].
 pub struct DdnsServiceImpl {
     config: Arc<dyn SystemConfigRepository>,

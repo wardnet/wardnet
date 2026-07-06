@@ -84,6 +84,16 @@ services:
           fi
           echo "wardnetd-ui e2e fixture: pinned nordvpn_api_url=http://10.92.0.52:8080" >&2
         fi
+        # Point the wardnet-cloud DDNS provider (tenants + regional gateways)
+        # at the wardnet_cloud_mock container instead of the real
+        # api.wardnet.network, so global.setup can walk the enroll/register
+        # flow offline and flip this box's premium entitlement — otherwise
+        # the admin-app/user-app premium gate (366f942) blocks every spec.
+        # Idempotent on the ddns_wardnet key, mirroring the nordvpn block above.
+        if ! grep -q '^\[ddns_wardnet\]' /etc/wardnet/wardnet.toml; then
+          printf '\n[ddns_wardnet]\ngateway_url = "http://10.92.0.53:8080"\nregion_gateway_url = "http://10.92.0.53:8080"\nregion_health_url = "http://10.92.0.53:8080/ddns/v1/health"\n' >> /etc/wardnet/wardnet.toml
+          echo "wardnetd-ui e2e fixture: pinned ddns_wardnet gateways to http://10.92.0.53:8080" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     networks:
       wardnet_mgmt:
@@ -321,6 +331,33 @@ services:
       retries: 10
       start_period: 3s
 
+  # wardnet-cloud mock (`tenants` global gateway + regional `ddns` gateway) so
+  # the `premium-setup` Playwright project can walk the real enroll →
+  # register flow offline and flip this box's premium entitlement (366f942)
+  # — otherwise every admin-app/user-app spec hits the "premium required"
+  # gate instead of the real app.
+  # Pinned to 10.92.0.53 on wardnet_wan (next free address after
+  # nordvpn_mock's .52) so the wardnetd-ui config's `[ddns_wardnet]` overrides
+  # can reference a stable URL. Local to web-ui (not shared with the daemon
+  # stack like nordvpn_mock) since only these two premium surfaces need it.
+  wardnet_cloud_mock:
+    build:
+      context: ./mocks/wardnet-cloud
+      dockerfile: Dockerfile
+    image: wardnet-cloud-mock:dev
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.53
+    healthcheck:
+      # node:22-slim ships neither curl nor wget; probe with node itself.
+      test:
+        - "CMD-SHELL"
+        - "node -e \"require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 3s
+
   ui_runner:
     build:
       context: ../../..
@@ -350,6 +387,13 @@ services:
       # the runner on it being healthy (the mock is a firm invariant — the
       # spec hard-fails, not skips, if the provider can't be reached).
       nordvpn_mock:
+        condition: service_healthy
+      # The premium-setup project's enrollment walk drives this mock (only
+      # admin-app depends on premium-setup, but the runner container needs
+      # it healthy regardless); gate the runner on it being healthy — every
+      # admin-app spec would otherwise hit the premium gate instead of the
+      # real app.
+      wardnet_cloud_mock:
         condition: service_healthy
     environment:
       WARDNET_UI_BASE_URL: "https://wardnetd-ui-tls"
@@ -413,6 +457,12 @@ services:
       tls_proxy:
         condition: service_healthy
       tls_proxy_lan:
+        condition: service_healthy
+      # user-app depends on premium-setup too, which drives the same
+      # enrollment flow against this mock (serialized against the mgmt
+      # runner's via a cross-container lock — see seed.ts); see the mgmt
+      # runner's `wardnet_cloud_mock` dependency for why it must be healthy.
+      wardnet_cloud_mock:
         condition: service_healthy
     environment:
       WARDNET_UI_LAN_BASE_URL: "https://wardnetd-ui-lan-tls"

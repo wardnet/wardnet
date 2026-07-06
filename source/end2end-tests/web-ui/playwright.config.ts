@@ -127,6 +127,12 @@ export default defineConfig({
     // Discovers the LAN proxy's IP as a device so the user-app's
     // source-IP-classified `devices/me` resolves non-null (C1, #626).
     { name: "seed-lan-device", testMatch: "fixtures/lan-device.setup.ts" },
+    // Enrolls into the (mocked) wardnet DDNS provider so the premium
+    // entitlement gate (366f942) is satisfied. Split out from `setup` so
+    // only the surfaces it actually gates (admin-app, user-app) depend on
+    // it — admin-site/admin-site-http never hit that gate and shouldn't pay
+    // for `wardnet_cloud_mock` or the enroll/register round-trips.
+    { name: "premium-setup", testMatch: "fixtures/premium.setup.ts", dependencies: ["setup"] },
     {
       name: "admin-site",
       testMatch: "tests/admin-site/**/*.spec.ts",
@@ -170,7 +176,9 @@ export default defineConfig({
     {
       name: "admin-app",
       testMatch: "tests/admin-app/**/*.spec.ts",
-      dependencies: ["setup"],
+      // premium-setup depends on setup, so STORAGE_STATE is still written
+      // before this project runs.
+      dependencies: ["premium-setup"],
       use: {
         ...devices["Pixel 7"],
         baseURL: `${UI_BASE_URL}/admin-app/`,
@@ -188,7 +196,7 @@ export default defineConfig({
       // not a device.
       name: "user-app",
       testMatch: "tests/user-app/**/*.spec.ts",
-      dependencies: ["seed-lan-device"],
+      dependencies: ["seed-lan-device", "premium-setup"],
       use: {
         ...devices["Pixel 7"],
         baseURL: `${UI_LAN_BASE_URL}/`,

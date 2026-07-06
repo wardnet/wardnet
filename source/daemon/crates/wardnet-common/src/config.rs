@@ -19,6 +19,9 @@ pub struct ApplicationConfiguration {
     pub detection: DetectionConfig,
     pub otel: OtelConfig,
     pub vpn_providers: VpnProvidersConfig,
+    /// Overrides for the wardnet-cloud gateway URLs the DDNS wardnet provider
+    /// talks to. See [`DdnsWardnetConfig`].
+    pub ddns_wardnet: DdnsWardnetConfig,
     pub pyroscope: PyroscopeConfig,
     pub update: UpdateConfig,
     pub mdns: MdnsConfig,
@@ -67,6 +70,7 @@ impl Default for ApplicationConfiguration {
             detection: DetectionConfig::default(),
             otel: OtelConfig::default(),
             vpn_providers: VpnProvidersConfig::default(),
+            ddns_wardnet: DdnsWardnetConfig::default(),
             pyroscope: PyroscopeConfig::default(),
             update: UpdateConfig::default(),
             mdns: MdnsConfig::default(),
@@ -502,6 +506,31 @@ pub struct VpnProvidersConfig {
     /// never reaches the real API. See issue #248 (E2E Stage 10).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nordvpn_api_url: Option<String>,
+}
+
+/// Overrides for the wardnet-cloud `tenants`/`ddns` gateway URLs the DDNS
+/// service's wardnet provider talks to (enroll, availability, network
+/// registration, IP/ACME-challenge publishing, and the region health probe).
+///
+/// Unset in production (the daemon talks to the real `api.wardnet.network`
+/// global gateway and the built-in region catalog); the end-to-end test
+/// harness points these at the `wardnet_cloud_mock` container so
+/// admin-app/user-app's premium entitlement gate can be exercised offline.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DdnsWardnetConfig {
+    /// Override for the global gateway base URL (fronts `tenants`:
+    /// enroll / token / availability / networks under `/tenants/v1/…`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_url: Option<String>,
+    /// Override for the single built-in region's gateway base URL (fronts
+    /// that region's `ddns` service under `/ddns/v1/…`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region_gateway_url: Option<String>,
+    /// Override for the single built-in region's health-probe URL, checked by
+    /// `register_network` before registering against it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region_health_url: Option<String>,
 }
 
 /// OpenTelemetry metrics collection configuration.

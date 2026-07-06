@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
 
 /**
  * Daemon seeding for the Playwright harness, over plain `fetch` against
@@ -170,12 +171,109 @@ async function drainWizard(token: string): Promise<void> {
   throw new Error("drainWizard: exceeded maximum step transitions");
 }
 
+interface DdnsStatus {
+  provider: string | null;
+}
+
+/**
+ * Directory whose mere existence is the lock: `mkdirSync` is atomic even
+ * across the two runner containers, because `reports/` is bind-mounted from
+ * the SAME host directory into both `ui_runner` and `ui_runner_lan`
+ * (compose.ui.yaml) — so this is a real cross-container mutex, not just an
+ * in-process one.
+ */
+const ENROLLMENT_LOCK_DIR = "reports/.premium-enrollment.lock";
+
+/** Poll interval while waiting for the other container to release the lock. */
+const LOCK_POLL_MS = 250;
+const LOCK_TIMEOUT_MS = 60_000;
+
+/**
+ * Run `fn` under a cross-container mutex (see `ENROLLMENT_LOCK_DIR`).
+ * `ensurePremiumEnrollment` re-checks `/ddns/status` as the first thing it
+ * does once inside the lock, so this is a standard check-lock-check: the
+ * loser of the race sees the winner's completed enrollment and no-ops.
+ */
+async function withEnrollmentLock<T>(fn: () => Promise<T>): Promise<T> {
+  // Ensure the parent exists first (idempotent, safe under concurrent
+  // callers) — `mkdirSync(..., {recursive: true})` on the lock dir ITSELF
+  // would silently succeed even when already held, defeating the lock, so
+  // the actual lock acquisition below must stay non-recursive.
+  mkdirSync("reports", { recursive: true });
+
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      mkdirSync(ENROLLMENT_LOCK_DIR);
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      if (Date.now() > deadline) {
+        throw new Error(
+          `timed out waiting for ${ENROLLMENT_LOCK_DIR} (held by the other runner container?)`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(ENROLLMENT_LOCK_DIR, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Idempotent wardnet-cloud enrollment: walk the real enroll → register flow
+ * (against `wardnet_cloud_mock`, see compose.ui.yaml's `[ddns_wardnet]`
+ * overrides) so this box's `Entitlement::is_entitled()` flips true. Since
+ * 366f942 ("premium-gate the mobile PWAs"), admin-app and user-app are
+ * served the "premium required" page instead of the real app unless the
+ * daemon is on the wardnet DDNS provider.
+ *
+ * Called from the `premium-setup` project only (see playwright.config.ts),
+ * which both `admin-app` and `user-app` depend on — deliberately NOT folded
+ * into `ensureAdminSetup()`, so `admin-site`/`admin-site-http` (never
+ * premium-gated) don't pay for it. `premium-setup` still runs once per
+ * runner container (`ui_runner` for admin-app, `ui_runner_lan` for
+ * user-app), both against the one shared daemon, so the enroll/register
+ * critical section runs under `withEnrollmentLock` — without it, two
+ * concurrent `enroll()` calls would each mint and persist a fresh identity
+ * (`ddns/mod.rs`), and whichever `register_network()` ran second could sign
+ * with the other's identity, corrupting the daemon's DDNS/entitlement state.
+ */
+export async function ensurePremiumEnrollment(token: string): Promise<void> {
+  await withEnrollmentLock(async () => {
+    const status = await api<DdnsStatus>("/ddns/status", { token });
+    if (status.provider === "wardnet") return;
+
+    await api("/ddns/enrollment-code", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ email: "e2e@wardnet.test" }),
+    });
+    await api("/ddns/enroll", {
+      method: "POST",
+      token,
+      // The mock doesn't validate the code — any value enrolls.
+      body: JSON.stringify({ code: "000000" }),
+    });
+    await api("/ddns/register", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ slug: "e2e-premium", display_name: "E2E premium" }),
+    });
+  });
+}
+
 /**
  * Idempotent admin bootstrap: create the admin if the wizard is fresh,
  * log in, drain the wizard to `completed`, and return the session token.
  * The token is the value of the daemon's `wardnet_session` cookie
- * (crates/wardnetd-api/src/api/auth.rs), so the caller can build a
- * browser storageState directly from it.
+ * (crates/wardnetd-api/src/api/auth.rs), so the caller can build a browser
+ * storageState directly from it. Does NOT enroll into the premium wardnet
+ * DDNS provider — see `ensurePremiumEnrollment`, called separately by the
+ * `premium-setup` project for the surfaces that actually need it.
  */
 export async function ensureAdminSetup(): Promise<string> {
   const status = await api<SetupStatus>("/setup/status");

@@ -188,6 +188,47 @@ nordvpn_api_url = "http://10.92.0.52:8080"
 }
 
 #[test]
+fn ddns_wardnet_overrides_default_to_none() {
+    let config = ApplicationConfiguration::default();
+    assert!(config.ddns_wardnet.gateway_url.is_none());
+    assert!(config.ddns_wardnet.region_gateway_url.is_none());
+    assert!(config.ddns_wardnet.region_health_url.is_none());
+}
+
+#[test]
+fn load_ddns_wardnet_overrides() {
+    let dir = std::env::temp_dir().join("wardnet-config-ddns-wardnet-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-ddns-wardnet.toml");
+    std::fs::write(
+        &path,
+        r#"
+[ddns_wardnet]
+gateway_url = "http://10.92.0.53:8080"
+region_gateway_url = "http://10.92.0.53:8080"
+region_health_url = "http://10.92.0.53:8080/ddns/v1/health"
+"#,
+    )
+    .unwrap();
+
+    let config = ApplicationConfiguration::load(&path).unwrap();
+    assert_eq!(
+        config.ddns_wardnet.gateway_url.as_deref(),
+        Some("http://10.92.0.53:8080")
+    );
+    assert_eq!(
+        config.ddns_wardnet.region_gateway_url.as_deref(),
+        Some("http://10.92.0.53:8080")
+    );
+    assert_eq!(
+        config.ddns_wardnet.region_health_url.as_deref(),
+        Some("http://10.92.0.53:8080/ddns/v1/health")
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn is_provider_enabled_explicit_false() {
     let mut config = ApplicationConfiguration::default();
     config
