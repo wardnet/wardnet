@@ -266,6 +266,88 @@ async fn request_enrollment_code_posts_email_and_purpose() {
     // `.expect(1)` is verified when `tenants` drops here.
 }
 
+/// The FULL chain the e2e harness relies on: a real TOML file (exact same
+/// `[ddns_wardnet]` shape `compose.ui.yaml` injects) parsed by
+/// `ApplicationConfiguration::load`, then wired through the same two calls
+/// `lib.rs::create_services` makes (`DdnsSettings::with_wardnet_overrides`
+/// then `DdnsServiceImpl::with_settings`), then a real HTTP call — proving
+/// nothing is lost in the glue between "config parses" and "settings struct
+/// has the right value" (each already covered by their own tests).
+#[tokio::test]
+async fn ddns_wardnet_toml_section_is_wired_through_to_a_real_call() {
+    let tenants = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/tenants/v1/verification-codes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "code": null })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
+    let dir = std::env::temp_dir().join("wardnet-ddns-wardnet-e2e-chain-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let path_toml = dir.join("wardnet-ddns-wardnet-chain.toml");
+    std::fs::write(
+        &path_toml,
+        format!(
+            "\n[ddns_wardnet]\ngateway_url = \"{}\"\nregion_gateway_url = \"{}\"\nregion_health_url = \"{}/ddns/v1/health\"\n",
+            tenants.uri(),
+            tenants.uri(),
+            tenants.uri(),
+        ),
+    )
+    .unwrap();
+    let config = wardnet_common::config::ApplicationConfiguration::load(&path_toml).unwrap();
+    let _ = std::fs::remove_file(&path_toml);
+
+    let ddns_settings = DdnsSettings::with_wardnet_overrides(
+        config.ddns_wardnet.gateway_url.as_deref(),
+        config.ddns_wardnet.region_gateway_url.as_deref(),
+        config.ddns_wardnet.region_health_url.as_deref(),
+    );
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        ddns_settings,
+    );
+    auth_context::with_context(
+        admin_ctx(),
+        svc.request_enrollment_code("a@b.com".to_owned()),
+    )
+    .await
+    .unwrap();
+    // `.expect(1)` is verified when `tenants` drops here.
+}
+
+/// End-to-end through `DdnsSettings::with_wardnet_overrides` (not the
+/// hand-built `settings()` helper the other enrollment tests use) — proves
+/// the config-driven override path (used in production by `lib.rs` and by
+/// the e2e web-ui harness's `[ddns_wardnet]` toml section) produces a
+/// `TenantsClient` that still hits the gateway-prefixed path, not just that
+/// the override sets the right string on `DdnsSettings`.
+#[tokio::test]
+async fn wardnet_overrides_gateway_url_is_wired_through_to_a_real_call() {
+    let tenants = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/tenants/v1/verification-codes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "code": null })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
+    let svc = DdnsServiceImpl::with_settings(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+        DdnsSettings::with_wardnet_overrides(Some(&tenants.uri()), None, None),
+    );
+    auth_context::with_context(
+        admin_ctx(),
+        svc.request_enrollment_code("a@b.com".to_owned()),
+    )
+    .await
+    .unwrap();
+    // `.expect(1)` is verified when `tenants` drops here.
+}
+
 #[tokio::test]
 async fn request_enrollment_code_rejects_invalid_email_locally() {
     let svc = DdnsServiceImpl::new(

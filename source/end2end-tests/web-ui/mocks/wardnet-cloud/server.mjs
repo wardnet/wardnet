@@ -60,6 +60,7 @@ function readJsonBody(req) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://mock");
   const path = url.pathname;
+  console.log(`wardnet_cloud_mock: raw request line: ${req.method} ${req.url} (host header: ${req.headers.host})`);
 
   try {
     if (req.method === "GET" && path === "/health") {
