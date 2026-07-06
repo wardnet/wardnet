@@ -5,16 +5,21 @@ choice. Tunnels are managed entirely from the web UI: import a `.conf`
 file from your provider, click into the tunnel to inspect its health,
 then point one or more devices at it from the Devices page.
 
-There are two ways to add a tunnel:
+The Tunnels page shows every tunnel as a card with its provider, flag,
+status, and the devices routed through it.
 
-- **Manual import**, paste or upload a `.conf` from any provider that
-  supports WireGuard (Mullvad, IVPN, your own server). Wardnet parses the
-  interface and peer config, persists the tunnel, and stores the private
-  key in the secret store.
-- **Provider integration**, for providers Wardnet has a built-in
-  integration with (NordVPN today), enter your credentials, pick a
-  country and server, and Wardnet generates and imports the config for
-  you. See [VPN providers](/docs/vpn-providers).
+![Tunnels page](/docs/wireguard-tunnels/tunnels-list.png "wide")
+
+Click **Add tunnel** to open the create panel inline; it has two tabs:
+
+- **Manual**, paste or upload a `.conf` from any provider that supports
+  WireGuard (Mullvad, IVPN, ProtonVPN, your own server). Wardnet parses
+  the interface and peer config, persists the tunnel, and stores the
+  private key in the secret store.
+- **Provider**, for providers Wardnet has a built-in integration with
+  (NordVPN today), enter your credentials, pick a country and server,
+  and Wardnet generates and imports the config for you. See
+  [VPN providers](/docs/vpn-providers).
 
 ## The tunnel detail page
 
@@ -77,7 +82,8 @@ open the Devices page and edit the device, the table updates within
 
 ## Importing a tunnel
 
-1. Go to **Tunnels → Add tunnel** and pick **Manual**.
+1. On the **Tunnels** page, click **Add tunnel**, then stay on the
+   **Manual** tab.
 2. Paste the contents of your `.conf` file or upload it.
 3. Give the tunnel a label and pick its country code, these are used
    for the card layout on the list page (flag + label).
