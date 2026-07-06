@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router";
 import { ErrorBoundary } from "@/components/compound/ErrorBoundary";
+import { ScrollToTop } from "@/components/compound/ScrollToTop";
 import { Home } from "@/pages/Home";
 import { Premium } from "@/pages/Premium";
 import { Docs } from "@/pages/Docs";
@@ -21,6 +22,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
+        <ScrollToTop />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/premium" element={<Premium />} />
