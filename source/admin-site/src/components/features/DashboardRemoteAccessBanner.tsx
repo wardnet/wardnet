@@ -20,5 +20,9 @@ export function DashboardRemoteAccessBanner() {
   if (!status || status.phase === "idle" || status.phase === "issued")
     return null;
 
-  return <RemoteAccessStatus tls={status} variant="banner" />;
+  return (
+    <div data-testid="dashboard-remote-access-banner">
+      <RemoteAccessStatus tls={status} variant="banner" />
+    </div>
+  );
 }

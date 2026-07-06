@@ -41,6 +41,12 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
         page.getByTestId("stat-memory"),
         page.getByTestId("stat-disk"),
         page.getByTestId("stat-dhcp"),
+        // The remote-access provisioning banner surfaces the daemon's real
+        // (mocked-cloud) ACME attempt, which fails in the e2e harness with an
+        // upstream error string that isn't byte-for-byte stable across runs.
+        // Its height IS stable (RemoteAccessProgress clamps the error text to
+        // 2 lines), so masking it here doesn't shift anything below.
+        page.getByTestId("dashboard-remote-access-banner"),
         // Below the stat grid but leaking into the viewport bottom: both
         // stream live, per-run content (error rows with timestamps; the live
         // log tail).
