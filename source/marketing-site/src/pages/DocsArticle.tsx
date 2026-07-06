@@ -59,19 +59,23 @@ const MD_COMPONENTS: Components = {
   // as a focused illustration rather than a full-bleed hero image.
   //
   // A few screenshots (wide cards, banners) read better when they fill
-  // the whole column. Opt in by setting the markdown title:
+  // the whole column. Phone-shaped screenshots (portrait mobile-app
+  // captures) go the other way, `max-w-2xl` at their ~0.54 aspect ratio
+  // renders 1200px+ tall and dwarfs the surrounding prose. Opt into
+  // either via the markdown title:
   //
   //   ![alt](path "wide")   → no width cap
+  //   ![alt](path "phone")  → narrow cap sized for a portrait phone shot
   //
   // Default (no title) stays at `max-w-2xl`, the right size for
   // dialog / modal screenshots.
   img: ({ title, ...props }) => {
     const wide = title === "wide";
+    const phone = title === "phone";
+    const widthClass = wide ? "" : phone ? " max-w-sm" : " max-w-2xl";
     return (
       <img
-        className={
-          "my-6 mx-auto block w-full rounded-lg border border-line" + (wide ? "" : " max-w-2xl")
-        }
+        className={"my-6 mx-auto block w-full rounded-lg border border-line" + widthClass}
         loading="lazy"
         // The `title` was a sizing directive, don't let it leak
         // into the rendered HTML as a tooltip.
