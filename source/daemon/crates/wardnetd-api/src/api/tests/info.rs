@@ -42,6 +42,10 @@ async fn info_returns_200_with_version_and_uptime() {
     assert!(!json.version.is_empty(), "version must be non-empty");
     // Uptime is computed from Instant::now() so it will be 0 or very small.
     // The important thing is it deserializes successfully as u64.
+    assert!(
+        !json.entitled,
+        "the default test state is not premium-enrolled"
+    );
 }
 
 #[tokio::test]

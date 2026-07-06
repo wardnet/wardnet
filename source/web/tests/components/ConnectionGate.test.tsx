@@ -73,4 +73,63 @@ describe("ConnectionGate", () => {
     rerender(<ConnectionGate>{child()}</ConnectionGate>);
     expect(screen.getByTestId("app")).toBeInTheDocument();
   });
+
+  it("shows the premium-required interstitial when reachable but not entitled", () => {
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: true, entitled: false },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    render(<ConnectionGate>{child()}</ConnectionGate>);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This app requires wardnet Premium",
+    );
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
+  });
+
+  it("re-blocks on losing entitlement mid-session, unlike the reachability latch", () => {
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: true, entitled: true },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    const { rerender } = render(<ConnectionGate>{child()}</ConnectionGate>);
+    expect(screen.getByTestId("app")).toBeInTheDocument();
+
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: true, entitled: false },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    rerender(<ConnectionGate>{child()}</ConnectionGate>);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This app requires wardnet Premium",
+    );
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
+  });
+
+  it("does not block on entitled: null (unreachable, unknown state)", () => {
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: true, entitled: null },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    render(<ConnectionGate>{child()}</ConnectionGate>);
+    expect(screen.getByTestId("app")).toBeInTheDocument();
+  });
+
+  it("premiumGated={false} stays unblocked even when not entitled (admin-site)", () => {
+    useDaemonStatus.mockReturnValue({
+      data: { reachable: true, entitled: false },
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    render(<ConnectionGate premiumGated={false}>{child()}</ConnectionGate>);
+    expect(screen.getByTestId("app")).toBeInTheDocument();
+  });
 });

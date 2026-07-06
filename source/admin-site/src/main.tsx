@@ -40,7 +40,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename="/admin">
-        <ConnectionGate>
+        {/* The desktop admin website is never Premium-gated — it's the
+            operator's re-entry path to (re)subscribe, so it must stay
+            reachable regardless of entitlement (mirrors Surface::AdminSite
+            in the daemon's serving-layer gate, web.rs). */}
+        <ConnectionGate premiumGated={false}>
           <App />
           <Toaster />
           <LogStreamManager />

@@ -15,11 +15,13 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     get,
     path = "/api/info",
     tag = "info",
-    description = "Return the daemon version string and uptime in seconds. Used by the \
-                   web UI connection-status widget to detect that the daemon is reachable \
-                   and to display which build is running. No authentication required.",
+    description = "Return the daemon version string, uptime in seconds, and premium \
+                   entitlement status. Used by the web UI connection-status widget to \
+                   detect that the daemon is reachable, to display which build is running, \
+                   and to self-gate the mobile PWAs when not entitled. \
+                   No authentication required.",
     responses(
-        (status = 200, description = "Daemon version and uptime", body = InfoResponse),
+        (status = 200, description = "Daemon version, uptime, and entitlement", body = InfoResponse),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
     security(()),
@@ -30,5 +32,6 @@ pub async fn info(State(state): State<AppState>) -> Json<InfoResponse> {
         version: state.system_service().version().to_owned(),
         release_version: wardnetd_services::version::RELEASE_VERSION.to_owned(),
         uptime_seconds: uptime.as_secs(),
+        entitled: state.is_entitled(),
     })
 }

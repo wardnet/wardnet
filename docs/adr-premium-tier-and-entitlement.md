@@ -31,9 +31,8 @@ account.
   This is the growth surface.
 - **Premium tier** — paid. Grants the two cost-bearing capabilities: the
   **DDNS service** (a managed `<vanity>.my.wardnet.services`) and the
-  **Tunneler** (private DNS while roaming). Premium buys *not needing a domain*,
-  plus the tunnel — not the mobile PWAs themselves, which a free BYO-domain user
-  also gets.
+  **Tunneler** (private DNS while roaming), plus, as of the amendment below,
+  the mobile app surfaces (the user PWA and admin mobile app).
 
 ### 2. Durable account, ephemeral install binding
 
@@ -78,6 +77,11 @@ domain until it resubscribes or adds its own. **Re-entry is always reachable**:
 the desktop admin site during the cert window, plus a LAN-local HTTP admin
 fallback after expiry; resubscribing refreshes the lease and restores service.
 
+> **Amended (2026-07-05)** by decision 8 below: Suspended is now one of *two*
+> ways a box ends up not entitled to the PWAs — the other being a Free-tier
+> install that never subscribed at all. Both produce the same `403`; only
+> Suspended implies a previously-working domain that is now degrading.
+
 ### 6. No OAuth/IdP server
 
 Machine auth is the Ed25519 install key; human recovery is the magic-link;
@@ -94,6 +98,33 @@ premium signups use a **Stripe-native trial**. Positioning leads with the
 free/self-hostable product; premium is an honest, secondary "supports the
 project" tier.
 
+### 8. Mobile PWAs are a Premium capability
+
+> **Amends** decision 1 (2026-07-05). Originally the mobile app surfaces (the
+> user PWA at `/` and the admin mobile app at `/admin-app/`) were considered
+> available to any BYO-domain install, free or paid — only the desktop admin
+> **website** (`/admin/`) and DDNS/Tunneler were tier-gated. In practice this
+> meant a never-subscribed box was indistinguishable, at the serving layer,
+> from an entitled one: the original **Entitlement** flag (decision 4) only
+> tracked *lapsed* subscriptions (a `403` token mint), so a box that never ran
+> the mint flow at all — any free/BYO-domain install — defaulted to "active"
+> and served the PWAs indefinitely.
+>
+> The mobile PWAs are now a **Premium-only** capability, closing that gap: the
+> serving layer gates `/` and `/admin-app/` on **entitlement**
+> (premium-enrolled *and* not suspended), not merely on the absence of a
+> suspension. A box is not entitled for one of two reasons — it never
+> subscribed, or a subscription lapsed — and both produce the identical `403`
+> premium-required response. The desktop admin website and the entire
+> `/api/*` surface (on every listener, including the plain-HTTP `:7411` LAN
+> fallback) remain reachable regardless, so the operator can always
+> administer the box and (re)subscribe.
+>
+> This is a monetization-boundary change, not a bug fix to existing paid
+> behavior: no paying customer's access changes. It only removes a capability
+> free/BYO-domain installs had (arguably accidentally, per the gap above)
+> from day one.
+
 ## Consequences
 
 - The **entitlement lease** doubles as the global↔regional boundary primitive
@@ -104,6 +135,11 @@ project" tier.
 - We owe **transactional email** (magic-link) regardless of other choices.
 - The daemon must ship a **LAN-local HTTP admin fallback** so a Suspended
   install is never a roach-motel.
+- Per decision 8, the daemon must ship a **client-side entitlement re-check**
+  (`GET /api/info`'s `entitled` field, read by the web UI's connection gate)
+  in addition to the server-side serving gate: both PWAs are Workbox
+  precache-first, so an already-installed app shell is served from the
+  service worker and never re-hits the server-side gate on open.
 
 ## Considered options
 
@@ -116,3 +152,8 @@ project" tier.
   operation. Justified only by a future org/multi-user model we are not building.
 - **Day-zero hard paywall** — rejected. No reputation to spend; the free tier is
   the growth engine and costs us nothing.
+- **(Decision 8) Compute entitlement per-request from persisted config** —
+  rejected in favor of a cached flag (`Entitlement.premium`, kept in sync at
+  the three provider-change call sites plus one startup prime). A per-request
+  DB read would add an async round-trip to every single request to `/` and
+  `/admin-app/*`, including every static asset, for all traffic, forever.
