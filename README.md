@@ -11,24 +11,54 @@
 [![Dependabot](https://badgen.net/github/dependabot/wardnet/wardnet)](https://github.com/wardnet/wardnet/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Wardnet is a self-hosted network privacy gateway you run on your own hardware. It sits alongside your existing home or small-office router and acts as the warden of every device's connection to the internet — encrypting traffic through per-device VPN tunnels, blocking ads and trackers at the DNS level, and giving you full control from a local web dashboard.
+**Your network. Your rules.**
 
-**Think of it as a Pi-hole replacement with per-device VPN routing built in.** Network-wide ad and tracker blocking (you can bring your existing Pi-hole blocklists) plus WireGuard tunnels you can assign to individual devices — in one signed binary, one dashboard, no cloud.
+Wardnet is a self-hosted network privacy gateway you run on your own hardware — a Raspberry Pi, a mini-PC, or any Linux host. It sits alongside your existing home or small-office router and acts as the warden of every device's connection to the internet: routing traffic through per-device VPN tunnels, blocking ads and trackers at the DNS level, running your own local DNS, and giving you full control from a dashboard — on your desktop or right from your phone.
 
-Devices that can't run VPN software themselves — smart TVs, consoles, IoT — get the same protection at the gateway level. One host, one binary, no cloud account, no third-party dashboard.
+**Think of it as a Pi-hole replacement with per-device VPN routing, network segmentation, and mobile apps built in.** Network-wide ad and tracker blocking (bring your existing Pi-hole blocklists), WireGuard tunnels you can assign to individual devices, and locked-down zones for IoT and guest devices — in one signed binary, one dashboard, no cloud account required.
+
+Devices that can't run VPN software themselves — smart TVs, consoles, IoT — get the same protection at the gateway level automatically. One host, one binary, no third-party dashboard.
 
 Learn more at [**wardnet.network**](https://wardnet.network).
 
 ## What Wardnet does
 
+### Network protection
+
 - **Per-device VPN routing.** Send the kids' TV through one tunnel, your laptop through another, and the printer direct — or through the default. Policies apply instantly via `ip rule` + nftables.
-- **Network-wide ad and tracker blocking.** DNS-level filtering with cron-refreshed blocklists (StevenBlack, OISD, AdGuard, or bring your own), allowlists for exceptions, and custom filter rules. Applies to every device on the LAN regardless of routing.
+- **Network-wide ad and tracker blocking.** DNS-level filtering with cron-refreshed blocklists (StevenBlack, OISD, AdGuard, or bring your own), allowlists for exceptions, and custom filter rules — plus per-device filter profiles (Ad Blocking, Parental Controls, Malware & Phishing) so different family members or devices can run different rules. A per-device kill switch still logs what it *would* have blocked.
+- **Your own local DNS.** Answer custom domains on your LAN (`nas.home`, `printer.lan`) with your own A/AAAA/CNAME/TXT/MX/SRV records, and forward specific domains to specific upstream resolvers with automatic failover or fastest-server selection.
+- **Network Zones.** Put IoT, guest, and kids' devices into locked-down zones enforced at the firewall — no admin-UI access, no bypassing a mandated tunnel — with exceptions for things like casting to a TV in another zone.
 - **Built-in DHCP server.** Lease management, static MAC-to-IP reservations, conflict detection, audit trail. Disable your existing DHCP source when you're ready — not before.
 - **Automatic device discovery.** ARP scanning plus IEEE OUI vendor lookup (~39k entries embedded in the binary) identifies new devices as they join. Randomised-MAC detection flags modern phones.
+
+### Manage it from anywhere
+
+- **Mobile apps.** Installable User and Admin apps (PWAs) — check status, flip your own routing policy, or manage the whole gateway from your phone.
+- **Push notifications.** Get alerted the moment a tunnel drops or a device changes its own routing — no need to keep the dashboard open.
+- **Automatic HTTPS.** The daemon terminates TLS itself and renews certificates automatically, so you can reach your gateway securely from outside your LAN. Bring your own domain for free, or let Wardnet manage a hostname and certificate for you.
 - **WireGuard tunnels on demand.** Add tunnels from a `.conf` file or provision through a provider (NordVPN integration ships today — more to follow). Interfaces come up when needed and tear down after an idle timeout.
+
+### See what's happening
+
+- **Live stats and DNS query logs.** Time-series charts, top-domain and top-client breakdowns, per-tunnel throughput and latency — right on the dashboard, with a live-tailing query log.
+- **One-click tunnel verification.** Confirm a VPN routing rule is actually doing what you configured — exit IP, country, and latency, at a glance.
+
+### It just keeps running
+
+- **Self-healing.** A layered watchdog restarts a frozen service — or reboots the host if it has to — and tunnels reconnect automatically if their interface disappears.
+- **Signed, safe auto-updates.** Updates apply themselves and roll back automatically on a crash loop, with an opt-in beta channel for early access.
+- **Encrypted backup and restore.** Export your entire configuration — devices, policies, tunnels, DNS records, secrets — to one encrypted file, and restore it on new hardware in minutes.
+
+### Built for trust
+
 - **Admin + self-service model.** Admins manage shared devices and set locks; end-users change their own routing policy from an unauthenticated self-service page identified by source IP.
-- **Local web dashboard.** Manage everything from one UI. No cloud account, no relay, nothing leaves the LAN.
+- **Local web dashboard.** Manage everything from one UI. No cloud account, no relay, nothing leaves the LAN unless you ask it to.
 - **Single signed binary.** The web UI is embedded into `wardnetd`. Every release is signed with [minisign](https://jedisct1.github.io/minisign/) so you can verify what's running on your gateway.
+
+## Free vs. Premium
+
+Everything above — VPN routing, DNS blocking, local DNS, Network Zones, DHCP, the mobile apps, backups, self-healing — is free and fully self-hostable, forever, as long as you bring your own domain for HTTPS. **Premium** is an optional, paid add-on for the parts that cost us real money to run on your behalf: a managed hostname with automatic HTTPS so you don't need your own domain, and the Tunneler for private DNS while you're away from home.
 
 ## Install
 
@@ -57,6 +87,8 @@ curl -sSL https://wardnet.network/install.sh | sudo bash
 ```
 
 Supported targets: `aarch64-unknown-linux-gnu` (Raspberry Pi, aarch64 SBCs) and `x86_64-unknown-linux-gnu` (mini-PCs, x86_64 servers).
+
+Can't find your gateway's IP? On first run it's reachable at **http://wardnet.local:7411** from any device on the LAN.
 
 ---
 
