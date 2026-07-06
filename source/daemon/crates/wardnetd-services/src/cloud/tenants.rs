@@ -18,11 +18,6 @@ use super::CloudError;
 use super::identity::DaemonIdentity;
 use super::request::{self, Auth};
 
-/// Gateway path-routing prefix: the first path segment selecting the tenants
-/// service. Prepended once, in [`TenantsClient::send`], so every call is
-/// prefixed (and therefore `PoP`-signed) structurally rather than per literal.
-const SERVICE_PREFIX: &str = "/tenants";
-
 /// Code-request endpoint: the converged `POST /v1/verification-codes` resource
 /// from wardnet-cloud #20 (supersedes `POST /v1/enrollment-codes`). Kept as a
 /// single constant so a path change stays one line.
@@ -60,11 +55,11 @@ impl TenantsClient {
         Self { http, base_url }
     }
 
-    /// Send `{SERVICE_PREFIX}{path_and_query}` — the single funnel every
-    /// tenants call goes through, so a new endpoint cannot forget the gateway
-    /// prefix (a valid signature over an un-prefixed path would misroute at
-    /// the gateway). The prefixed string is built once and passed whole to
-    /// [`request::send`], preserving its "sign exactly what you send"
+    /// Send `path_and_query` — the single funnel every tenants call goes
+    /// through. Cloud serves prefix-free `/v1/...` paths (cloud ADR-0015); the
+    /// gateway routes on the `X-Mesh-Target` header it derives per service, not
+    /// on a path prefix, so no service segment is prepended. The path is passed
+    /// whole to [`request::send`], preserving its "sign exactly what you send"
     /// invariant.
     async fn send(
         &self,
@@ -78,7 +73,7 @@ impl TenantsClient {
             &self.base_url,
             auth,
             method,
-            &format!("{SERVICE_PREFIX}{path_and_query}"),
+            path_and_query,
             body,
         )
         .await

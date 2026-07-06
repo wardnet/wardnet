@@ -1,7 +1,7 @@
 //! Region selection tests: lowest-latency reachable region wins; unhealthy
 //! endpoints are skipped; all-unreachable is an error.
 //!
-//! Each region's `health_url` points at its wiremock server's `/ddns/v1/health`,
+//! Each region's `health_url` points at its wiremock server's `/readyz`,
 //! while `gateway_base_url` is the server root — mirroring the production split
 //! between the plain-HTTP `:81` health probe and the `:443` control base.
 
@@ -19,19 +19,19 @@ async fn health_server(delay: Option<Duration>, status: u16) -> MockServer {
         template = template.set_delay(delay);
     }
     Mock::given(method("GET"))
-        .and(path("/ddns/v1/health"))
+        .and(path("/readyz"))
         .respond_with(template)
         .mount(&server)
         .await;
     server
 }
 
-/// A catalog entry whose health probe targets `server`'s `/ddns/v1/health`.
+/// A catalog entry whose health probe targets `server`'s `/readyz`.
 fn entry(slug: &str, server: &MockServer) -> RegionEndpoint {
     RegionEndpoint {
         slug: slug.to_owned(),
         gateway_base_url: server.uri(),
-        health_url: format!("{}/ddns/v1/health", server.uri()),
+        health_url: format!("{}/readyz", server.uri()),
     }
 }
 

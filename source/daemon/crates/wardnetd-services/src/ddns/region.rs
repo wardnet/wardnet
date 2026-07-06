@@ -1,10 +1,11 @@
 //! The built-in **region catalog**, latency-based selection, and the global
 //! **gateway** endpoint.
 //!
-//! wardnet-cloud sits behind per-scope north-south **gateways** (cloud ADR-0014 /
-//! inforge ADR-0032): one public edge per scope that daemons HTTPS into, with the
-//! target service selected by the **first path segment** (`/tenants/…`, `/ddns/…`,
-//! `/tunneller/…`). The global scope's gateway fronts `tenants`; each region's
+//! wardnet-cloud sits behind per-scope north-south **gateways** (cloud
+//! ADR-0014/ADR-0015 / inforge ADR-0032/ADR-0034): one public edge per scope that
+//! daemons HTTPS into, with the target service selected from the `X-Mesh-Target`
+//! header the gateway derives per service — **not** a path prefix; paths are
+//! prefix-free `/v1/…`. The global scope's gateway fronts `tenants`; each region's
 //! gateway fronts that region's `ddns` + `tunneller`. The daemon must already
 //! know a region's address to reach it, so the catalog ships in the daemon: a
 //! **region slug** mapped to that region's gateway. At registration the daemon
@@ -13,9 +14,9 @@
 //!
 //! Two endpoints per region matter:
 //! * **control** (`https://api.<region-slug>…:443`) — the regional gateway; TLS
-//!   is a normal public cert, requests are path-routed to the service.
-//! * **health** (`http://api.<region-slug>…:81/ddns/v1/health`) — the gateway
-//!   host exposes health on plain-HTTP `:81`.
+//!   is a normal public cert, requests route to the service by `X-Mesh-Target`.
+//! * **health** (`http://api.<region-slug>…:81/readyz`) — the gateway host exposes
+//!   the readiness probe on plain-HTTP `:81` (cloud ADR-0027).
 //!
 //! The global gateway (`tenants`) is scope-wide, so it is a single constant
 //! rather than a per-region catalog entry.
@@ -26,8 +27,8 @@
 use std::time::{Duration, Instant};
 
 /// The **global gateway** base URL — the north-south edge fronting the global
-/// `tenants` service (enroll / token / availability / networks under
-/// `/tenants/v1/…`). One deployment, region-independent.
+/// `tenants` service (enroll / token / availability / networks under prefix-free
+/// `/v1/…`, cloud ADR-0015). One deployment, region-independent.
 ///
 /// FIXME(infra): confirm the daemon-facing gateway FQDN once the gateway
 /// manifest lands in wardnet-infrastructure; ADR-0032's shape is
@@ -38,13 +39,14 @@ pub const GLOBAL_GATEWAY_URL: &str = "https://api.wardnet.network";
 #[derive(Debug, Clone)]
 pub struct RegionEndpoint {
     /// Short region slug, e.g. `use1`. Selects the region and is passed to
-    /// `POST /tenants/v1/networks` as `region`.
+    /// `POST /v1/networks` as `region`.
     pub slug: String,
     /// The region's **gateway** base URL (`https://api.<region-slug>…`) — fronts
-    /// the regional `ddns` and `tunneller` services by path prefix.
+    /// the regional `ddns` and `tunneller` services (routing on `X-Mesh-Target`,
+    /// cloud ADR-0015).
     pub gateway_base_url: String,
-    /// Health-probe URL for region selection
-    /// (`http://api.<region-slug>…:81/ddns/v1/health`, plain HTTP).
+    /// Health-probe URL for region selection — the cloud health tier's readiness
+    /// probe (`http://api.<region-slug>…:81/readyz`, plain HTTP; cloud ADR-0027).
     pub health_url: String,
 }
 
@@ -68,7 +70,7 @@ pub fn default_catalog() -> Vec<RegionEndpoint> {
     vec![RegionEndpoint::new(
         "use1",
         "https://api.use1.wardnet.network",
-        "http://api.use1.wardnet.network:81/ddns/v1/health",
+        "http://api.use1.wardnet.network:81/readyz",
     )]
 }
 
@@ -77,7 +79,7 @@ pub fn default_catalog() -> Vec<RegionEndpoint> {
 pub struct SelectedRegion {
     pub slug: String,
     /// The region's gateway base URL (steady-state report-IP / ACME via
-    /// `/ddns/v1/…`).
+    /// prefix-free `/v1/…`, cloud ADR-0015).
     pub gateway_base_url: String,
 }
 
