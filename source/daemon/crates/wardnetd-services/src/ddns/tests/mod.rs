@@ -7,3 +7,4 @@ mod public_ip;
 mod region;
 mod runner;
 mod service;
+mod settings;

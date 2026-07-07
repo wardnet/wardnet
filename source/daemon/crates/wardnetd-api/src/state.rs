@@ -354,13 +354,16 @@ impl AppState {
         self.inner.health_monitor.as_ref()
     }
 
-    /// Whether the wardnet subscription is currently suspended. The serving
-    /// layer reads this to gate the premium app surfaces (user PWA `/` + admin
-    /// mobile app `/admin-app/`) while leaving the admin website `/admin/` and
-    /// `/api/*` reachable so the operator can always resubscribe.
+    /// Whether this box is entitled to the premium app surfaces right now
+    /// (on the wardnet provider, and not suspended). The serving layer reads
+    /// this to gate the premium app surfaces (user PWA `/` + admin mobile app
+    /// `/admin-app/`) while leaving the admin website `/admin/` and `/api/*`
+    /// reachable so the operator can always (re)subscribe. `GET /api/info`
+    /// also surfaces this so an already-installed PWA (served from its
+    /// service-worker precache, which never re-hits this gate) can self-gate.
     #[must_use]
-    pub fn is_suspended(&self) -> bool {
-        self.inner.entitlement.is_suspended()
+    pub fn is_entitled(&self) -> bool {
+        self.inner.entitlement.is_entitled()
     }
 
     /// Clone the shared [`Entitlement`] handle, for moving into the serving

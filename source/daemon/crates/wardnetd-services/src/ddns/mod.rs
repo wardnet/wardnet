@@ -163,6 +163,21 @@ pub trait DdnsService: Send + Sync {
     /// Read the current DDNS status.
     async fn status(&self) -> Result<DdnsStatus, AppError>;
 
+    /// Prime the shared [`Entitlement`]'s premium flag from the persisted
+    /// provider config. Called once at startup, before the serving layer
+    /// starts accepting connections, so a reboot doesn't transiently read the
+    /// default `premium = false` for an already-premium box. A startup-only
+    /// method that runs before the system is ready to authenticate anything,
+    /// so it skips `require_admin()?` under the documented exception in
+    /// `.agents/auth.md` (same category as `restore_tunnels`) — unlike
+    /// [`probe_entitlement`](Self::probe_entitlement), which *does* require
+    /// admin and is called under an explicit admin context by its runner.
+    /// The default impl is a no-op so mocks need not override it; only
+    /// [`DdnsServiceImpl`] tracks a provider to sync from.
+    async fn sync_premium(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     /// Tear down the active provider and return DDNS to the unconfigured state:
     /// best-effort remove the upstream presence (bridge install / Cloudflare A
     /// record), then wipe all DDNS config keys + secrets. Idempotent — `Ok(())`
@@ -223,6 +238,37 @@ impl Default for DdnsSettings {
     }
 }
 
+impl DdnsSettings {
+    /// Defaults with the wardnet-cloud gateway URLs overridden per
+    /// [`wardnet_common::config::DdnsWardnetConfig`], mirroring how
+    /// [`VpnProviderRegistry`](crate::vpn::VpnProviderRegistry) takes an
+    /// optional `nordvpn_api_url` override. Only the single built-in region's
+    /// catalog entry (index 0) is replaced — deliberately indexed rather than
+    /// mapped over the whole catalog, so a second region added later keeps
+    /// its real URLs instead of silently inheriting the mock's; its slug is
+    /// kept so `register_network`'s persisted `region` config value is
+    /// unaffected.
+    pub(crate) fn with_wardnet_overrides(
+        gateway_url: Option<&str>,
+        region_gateway_url: Option<&str>,
+        region_health_url: Option<&str>,
+    ) -> Self {
+        let mut settings = Self::default();
+        if let Some(url) = gateway_url {
+            url.clone_into(&mut settings.global_gateway_url);
+        }
+        if let Some(region) = settings.region_catalog.first_mut() {
+            if let Some(url) = region_gateway_url {
+                url.clone_into(&mut region.gateway_base_url);
+            }
+            if let Some(url) = region_health_url {
+                url.clone_into(&mut region.health_url);
+            }
+        }
+        settings
+    }
+}
+
 /// The concrete [`DdnsService`].
 pub struct DdnsServiceImpl {
     config: Arc<dyn SystemConfigRepository>,
@@ -249,6 +295,14 @@ impl DdnsServiceImpl {
         let http = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
+            // Never honour an ambient `HTTP_PROXY`/`http_proxy`/`ALL_PROXY`
+            // env var for cloud-API traffic: reqwest reads these by default,
+            // and a CI runner's or operator's system-wide proxy silently
+            // intercepting calls to the tenants/ddns gateways (or, in the
+            // e2e harness, to `wardnet_cloud_mock`) is exactly the kind of
+            // surprising, hard-to-diagnose failure this client should never
+            // be subject to.
+            .no_proxy()
             .build()
             .expect("reqwest client builds with static config");
         Self {
@@ -640,6 +694,7 @@ impl DdnsService for DdnsServiceImpl {
         self.set_cfg(KEY_SUBDOMAIN, &subdomain).await?;
         self.set_cfg(KEY_REGION, &region.slug).await?;
         self.set_cfg(KEY_PROVIDER, PROVIDER_WARDNET).await?;
+        self.entitlement.set_premium(true);
 
         tracing::info!(
             %subdomain,
@@ -693,6 +748,11 @@ impl DdnsService for DdnsServiceImpl {
         // that surfaces an error and self-heals on retry, rather than an
         // orphaned secret with no owning identity.
         self.set_cfg(KEY_PROVIDER, PROVIDER_CLOUDFLARE).await?;
+        // Flip immediately once KEY_PROVIDER (the field `premium` mirrors) has
+        // committed — not after the later, independently-fallible `KEY_DOMAIN`/
+        // `KEY_CF_ZONE_ID`/secret writes, so a failure past this point can
+        // never leave `premium` stale relative to the persisted provider.
+        self.entitlement.set_premium(false);
         self.set_cfg(KEY_DOMAIN, &domain).await?;
         self.set_cfg(KEY_CF_ZONE_ID, &zone_id).await?;
 
@@ -776,6 +836,13 @@ impl DdnsService for DdnsServiceImpl {
         }
     }
 
+    async fn sync_premium(&self) -> Result<(), AppError> {
+        let provider = self.current_provider().await?;
+        self.entitlement
+            .set_premium(provider.as_deref() == Some(PROVIDER_WARDNET));
+        Ok(())
+    }
+
     async fn status(&self) -> Result<DdnsStatus, AppError> {
         auth_context::require_admin()?;
         let provider = self.current_provider().await?;
@@ -818,6 +885,11 @@ impl DdnsService for DdnsServiceImpl {
             .delete(KEY_PROVIDER)
             .await
             .map_err(AppError::Internal)?;
+        // Flip immediately once KEY_PROVIDER (the field `premium` mirrors) is
+        // gone — not after the independently-fallible `KEY_LAST_IP` delete, so
+        // a failure past this point can never leave `premium` stale relative
+        // to the persisted (now-absent) provider.
+        self.entitlement.set_premium(false);
         self.config
             .delete(KEY_LAST_IP)
             .await

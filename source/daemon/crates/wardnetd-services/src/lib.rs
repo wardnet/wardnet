@@ -57,7 +57,7 @@ use crate::stats::service::StatsServiceImpl;
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
 use crate::backup::archiver::AgeArchiver;
-use crate::ddns::DdnsServiceImpl;
+use crate::ddns::{DdnsServiceImpl, DdnsSettings};
 use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::dhcp::DhcpServiceImpl;
@@ -548,8 +548,16 @@ fn create_services(
     // boxing it as a trait object: the cloud clients inside the service flip it
     // on token mints, and the composition root clones it into `AppState` and the
     // background runners so the whole daemon reads one suspended state.
-    let ddns_impl =
-        DdnsServiceImpl::new(repo_factory.system_config(), backends.secret_store.clone());
+    let ddns_settings = DdnsSettings::with_wardnet_overrides(
+        config.ddns_wardnet.gateway_url.as_deref(),
+        config.ddns_wardnet.region_gateway_url.as_deref(),
+        config.ddns_wardnet.region_health_url.as_deref(),
+    );
+    let ddns_impl = DdnsServiceImpl::with_settings(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+        ddns_settings,
+    );
     let entitlement = ddns_impl.entitlement();
     let ddns: Arc<dyn DdnsService> = Arc::new(ddns_impl);
 

@@ -14,4 +14,12 @@ export interface InfoResponse {
    */
   release_version: string;
   uptime_seconds: number;
+  /**
+   * Whether this box is currently entitled to the premium app surfaces (the
+   * user PWA and admin mobile app) — on the wardnet DDNS provider and not
+   * suspended. Used to self-gate an already-installed PWA served from its
+   * service-worker precache, which never re-hits the server-side serving
+   * gate.
+   */
+  entitled: boolean;
 }

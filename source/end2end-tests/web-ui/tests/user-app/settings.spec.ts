@@ -59,6 +59,13 @@ test("the notifications card offers a push-subscription toggle", async ({
 
   await expect(page.getByText("Notifications", { exact: true })).toBeVisible();
   await expect(page.getByTestId("notifications-toggle")).toBeVisible();
+  // Headless Chromium reports the Notification permission as denied by
+  // default (no OS-level prompt to grant it), so the toggle is disabled and
+  // this is the helper text `usePushNotifications`'s `denied` state shows —
+  // not a placeholder, the real UI's response to a blocked permission.
+  await expect(
+    page.getByText("Notifications are blocked in your browser settings."),
+  ).toBeVisible();
 });
 
 test("the my-requests card is absent when the device has no requests", async ({

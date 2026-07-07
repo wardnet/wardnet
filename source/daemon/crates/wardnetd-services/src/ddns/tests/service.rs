@@ -478,6 +478,10 @@ async fn register_network_persists_wardnet_provider() {
         config.get(KEY_REGION).await.unwrap().as_deref(),
         Some("use1")
     );
+    assert!(
+        svc.entitlement().is_entitled(),
+        "registering the wardnet provider should flip the box to premium-entitled"
+    );
 }
 
 #[tokio::test]
@@ -780,6 +784,10 @@ async fn configure_cloudflare_resolves_zone_and_persists_identity() {
         secrets.get(SECRET_CF_TOKEN).await.unwrap().unwrap(),
         b"cf-token"
     );
+    assert!(
+        !svc.entitlement().is_entitled(),
+        "BYOD-Cloudflare is a free provider — it must not flip premium entitlement"
+    );
 }
 
 #[tokio::test]
@@ -867,6 +875,41 @@ async fn status_reports_unconfigured() {
     assert_eq!(status.fqdn, None);
 }
 
+// ── Premium entitlement sync ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sync_premium_primes_entitled_from_persisted_wardnet_provider() {
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_wardnet_identity(&config, &secrets, "use1", Some("9.9.9.9")).await;
+    let svc =
+        DdnsServiceImpl::with_settings(config, secrets, settings(vec![], String::new(), vec![]));
+
+    // A fresh handle starts not-entitled, before any sync/mint has run.
+    assert!(!svc.entitlement().is_entitled());
+
+    svc.sync_premium().await.unwrap();
+    assert!(
+        svc.entitlement().is_entitled(),
+        "a persisted wardnet provider should prime the box as premium-entitled"
+    );
+}
+
+#[tokio::test]
+async fn sync_premium_leaves_free_provider_not_entitled() {
+    let svc = DdnsServiceImpl::new(
+        Arc::new(MockSystemConfig::default()),
+        Arc::new(MockSecretStore::default()),
+    );
+    svc.entitlement().set_premium(true); // simulate a stale/incorrect prior state
+
+    svc.sync_premium().await.unwrap();
+    assert!(
+        !svc.entitlement().is_entitled(),
+        "an unconfigured provider must sync to not-entitled"
+    );
+}
+
 // ── Teardown ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -891,6 +934,9 @@ async fn teardown_removes_daemon_and_wipes_state() {
         secrets.clone(),
         settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
     );
+    // Simulate a box that was already premium-entitled (as it would be after
+    // `register_network`/`sync_premium`) before tearing the provider down.
+    svc.entitlement().set_premium(true);
 
     auth_context::with_context(admin_ctx(), svc.teardown())
         .await
@@ -905,6 +951,10 @@ async fn teardown_removes_daemon_and_wipes_state() {
     assert_eq!(config.get(KEY_REGION).await.unwrap(), None);
     assert_eq!(config.get(KEY_LAST_IP).await.unwrap(), None);
     assert_eq!(secrets.get(SECRET_DAEMON_KEY).await.unwrap(), None);
+    assert!(
+        !svc.entitlement().is_entitled(),
+        "tearing down the wardnet provider should revoke premium entitlement"
+    );
     // `.expect(1)` on the DELETE is verified when `tenants` drops here.
 }
 

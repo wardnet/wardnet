@@ -17,6 +17,7 @@ describe("useDaemonStatus", () => {
       release_version: "2026.07.02",
       version: "1.2.3-dev",
       uptime_seconds: 42,
+      entitled: true,
     });
     const { result } = renderHook(() => useDaemonStatus(), {
       wrapper: createQueryWrapper(),
@@ -27,6 +28,7 @@ describe("useDaemonStatus", () => {
       version: "2026.07.02",
       buildVersion: "1.2.3-dev",
       uptimeSeconds: 42,
+      entitled: true,
     });
   });
 
@@ -41,6 +43,21 @@ describe("useDaemonStatus", () => {
       version: null,
       buildVersion: null,
       uptimeSeconds: null,
+      entitled: null,
     });
+  });
+
+  it("surfaces entitled: false from a reachable but not-entitled probe", async () => {
+    infoService.getInfo.mockResolvedValue({
+      release_version: "2026.07.02",
+      version: "1.2.3-dev",
+      uptime_seconds: 42,
+      entitled: false,
+    });
+    const { result } = renderHook(() => useDaemonStatus(), {
+      wrapper: createQueryWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.entitled).toBe(false);
   });
 });

@@ -671,6 +671,20 @@ async fn run(
         &root_span,
     );
 
+    // Prime the shared entitlement's premium flag from the persisted DDNS
+    // provider config, before the serving layer starts accepting connections —
+    // otherwise an already-premium box would transiently read the default
+    // `premium = false` (not entitled) right after a reboot. Non-fatal: a
+    // transient read failure just leaves the flag at its fail-closed default
+    // until the next provider change or restart.
+    if let Err(e) = services.ddns.sync_premium().await {
+        tracing::warn!(
+            error = %e,
+            "failed to prime the premium entitlement flag at startup; \
+             defaulting to not-entitled until the next provider change"
+        );
+    }
+
     // DDNS update runner — keeps the public A record current. Inert (no network
     // calls) until a DDNS provider is configured by the setup wizard. While the
     // box is suspended it re-probes entitlement each tick (cheap) instead of

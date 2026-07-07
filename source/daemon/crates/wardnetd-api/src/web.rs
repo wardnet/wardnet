@@ -24,14 +24,14 @@ struct AdminSiteAssets;
 /// Which embedded app a request resolves to, by path prefix.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Surface {
-    /// Admin mobile PWA at `/admin-app/`. A **premium** surface — gated while
-    /// suspended.
+    /// Admin mobile PWA at `/admin-app/`. A **premium** surface — gated unless
+    /// the box is entitled.
     AdminApp,
-    /// Desktop admin website at `/admin/`. Always reachable (even suspended) so
-    /// the operator can resubscribe.
+    /// Desktop admin website at `/admin/`. Always reachable (even when not
+    /// entitled) so the operator can (re)subscribe.
     AdminSite,
-    /// User-facing PWA at `/` (everything else). A **premium** surface — gated
-    /// while suspended.
+    /// User-facing PWA at `/` (everything else). A **premium** surface —
+    /// gated unless the box is entitled.
     UserApp,
 }
 
@@ -47,20 +47,33 @@ impl Surface {
         }
     }
 
-    /// Whether this surface is a premium app blocked while the subscription is
-    /// suspended. The admin website is never blocked.
+    /// Whether this surface is a premium app, blocked unless the box is
+    /// entitled (on the wardnet provider and not suspended). The admin
+    /// website is never blocked.
+    ///
+    /// Deliberately an exhaustive `match` (not `matches!`, which falls back to
+    /// `_ => false`) so adding a new [`Surface`] variant fails to compile here
+    /// until its premium-ness is explicitly decided, instead of silently
+    /// defaulting to "not premium".
     fn is_premium(self) -> bool {
-        matches!(self, Self::AdminApp | Self::UserApp)
+        match self {
+            Self::AdminApp | Self::UserApp => true,
+            Self::AdminSite => false,
+        }
     }
 }
 
 /// Fallback handler that routes requests to one of the three embedded trees
 /// based on path prefix, then serves static files with appropriate cache headers.
 ///
-/// - When the wardnet subscription is **suspended**, the two premium surfaces
-///   (user PWA `/` and admin mobile app `/admin-app/`) are short-circuited with a
-///   suspended page; the admin website `/admin/` stays reachable so the operator
-///   can always resubscribe. (`/api/*` never reaches this fallback.)
+/// - Unless the box is **entitled** (on the wardnet provider and not
+///   suspended), the two premium surfaces (user PWA `/` and admin mobile app
+///   `/admin-app/`) are short-circuited with a premium-required page; the
+///   admin website `/admin/` stays reachable so the operator can always
+///   (re)subscribe. (`/api/*` never reaches this fallback.) This only gates
+///   *fresh* requests — an already-installed PWA is served from its
+///   service-worker precache and never re-hits this handler, so `GET
+///   /api/info`'s `entitled` field is what lets an installed app self-gate.
 /// - Content-hashed assets under `/assets/` in each tree get
 ///   `Cache-Control: immutable` (safe to cache indefinitely because a new
 ///   build produces new filenames).
@@ -78,12 +91,12 @@ pub async fn static_handler(
 
     let surface = Surface::classify(raw_path);
 
-    // Suspended gate — checked *before* the `.info`/304 shortcuts so a cached
+    // Entitlement gate — checked *before* the `.info`/304 shortcuts so a cached
     // build can't slip a premium surface past the block via `If-None-Match`. The
-    // suspended page is itself `no-store`, so restoring the subscription clears
+    // premium-required page is itself `no-store`, so becoming entitled clears
     // it without a hard refresh.
-    if surface.is_premium() && state.is_suspended() {
-        return suspended_response();
+    if surface.is_premium() && !state.is_entitled() {
+        return premium_required_response();
     }
 
     // `.info` is the git-tracked sentinel that keeps each `dist/` directory
@@ -131,18 +144,25 @@ pub async fn static_handler(
     }
 }
 
-/// The page served at a premium surface while the subscription is suspended.
+/// The page served at a premium surface when the box is not entitled — either
+/// it never subscribed (free/BYO-domain) or a prior subscription is suspended.
 /// Self-contained (no external assets — those would themselves be gated) and
-/// `no-store` so it's never cached: the moment the subscription is restored the
+/// `no-store` so it's never cached: the moment the box becomes entitled the
 /// real app loads on the next navigation. Links to the admin website, which
-/// stays reachable, so the operator can resubscribe.
-fn suspended_response() -> Response {
-    const SUSPENDED_HTML: &str = r#"<!DOCTYPE html>
+/// stays reachable, so the operator can (re)subscribe.
+///
+/// Keep this copy in sync with the `PremiumRequired` React component in
+/// `source/web/src/components/ConnectionGate.tsx` — that's the client-side
+/// equivalent of this same "premium required" state (it fires for an
+/// already-installed PWA whose shell is served from the service-worker
+/// precache and never re-hits this handler).
+fn premium_required_response() -> Response {
+    const PREMIUM_REQUIRED_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wardnet — subscription paused</title>
+<title>wardnet — premium required</title>
 <style>
   body { font-family: system-ui, sans-serif; background: #0b0d12; color: #e6e9ef;
          display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
@@ -155,9 +175,10 @@ fn suspended_response() -> Response {
 </head>
 <body>
 <main>
-  <h1>Your wardnet subscription is paused</h1>
-  <p>This app is unavailable until the subscription on this network is active again.
-     Everything on your network keeps running locally — only remote access is paused.</p>
+  <h1>This app requires wardnet Premium</h1>
+  <p>The mobile apps are a Premium capability. Subscribe or check your
+     subscription status from the admin website.
+     Everything on your network keeps running locally — only these apps are paused.</p>
   <a href="/admin/">Manage subscription</a>
 </main>
 </body>
@@ -169,7 +190,7 @@ fn suspended_response() -> Response {
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        SUSPENDED_HTML,
+        PREMIUM_REQUIRED_HTML,
     )
         .into_response()
 }

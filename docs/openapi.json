@@ -12378,11 +12378,11 @@
         "tags": [
           "info"
         ],
-        "description": "Return the daemon version string and uptime in seconds. Used by the web UI connection-status widget to detect that the daemon is reachable and to display which build is running. No authentication required.",
+        "description": "Return the daemon version string, uptime in seconds, and premium entitlement status. Used by the web UI connection-status widget to detect that the daemon is reachable, to display which build is running, and to self-gate the mobile PWAs when not entitled. No authentication required.",
         "operationId": "info",
         "responses": {
           "200": {
-            "description": "Daemon version and uptime",
+            "description": "Daemon version, uptime, and entitlement",
             "content": {
               "application/json": {
                 "schema": {
@@ -23734,9 +23734,14 @@
         "required": [
           "version",
           "release_version",
-          "uptime_seconds"
+          "uptime_seconds",
+          "entitled"
         ],
         "properties": {
+          "entitled": {
+            "type": "boolean",
+            "description": "Whether this box is currently entitled to the premium app surfaces\n(the user PWA and admin mobile app) — on the wardnet DDNS provider and\nnot suspended. The web UI uses this to self-gate an already-installed\nPWA served from its service-worker precache, which never re-hits the\nserver-side serving gate."
+          },
           "release_version": {
             "type": "string",
             "description": "Public-facing `CalVer` (`YYYY.MM.DD`) read from the workspace-\nroot `CALVER` file at compile time. Stable across dev rebuilds\nand is the string the web UI displays, the auto-update runner\ncompares against the published manifest, and the `OpenAPI` spec\ndeclares as `info.version`."

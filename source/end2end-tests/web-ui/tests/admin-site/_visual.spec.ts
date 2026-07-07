@@ -29,6 +29,23 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
     // shift). stat-devices / stat-tunnels are always present.
     await expect(page.getByTestId("stat-uptime")).toBeVisible();
     await expect(page.getByTestId("stat-dhcp")).toBeVisible();
+    // The premium-setup project's register_network call kicks off a
+    // BACKGROUND cert-issuance attempt against wardnet_cloud_mock, which
+    // always ends up "failed" (the mock never actually terminates an ACME
+    // order) — but not instantly. Screenshotting mid-transition would catch
+    // a *different* remote-access-banner state each run — absent (idle),
+    // "Issuing certificate…", or "Certificate issuance failed" — each a
+    // different height/absence, none of which the mask (sized to whatever's
+    // actually rendered) can paper over. Wait for the one state this always
+    // settles to before shooting, so every run masks the same layout.
+    // Scoped to the banner itself — the same "certificate issuance failed"
+    // text also streams into the recent-errors card and the live log widget
+    // below, which a page-wide getByText would also match.
+    await expect(
+      page
+        .getByTestId("dashboard-remote-access-banner")
+        .getByText("Certificate issuance failed"),
+    ).toBeVisible();
 
     await expect(page).toHaveScreenshot("dashboard.png", {
       // Live / time-varying values. stat-devices and stat-tunnels are
@@ -41,6 +58,12 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
         page.getByTestId("stat-memory"),
         page.getByTestId("stat-disk"),
         page.getByTestId("stat-dhcp"),
+        // The remote-access provisioning banner surfaces the daemon's real
+        // (mocked-cloud) ACME attempt, which fails in the e2e harness with an
+        // upstream error string that isn't byte-for-byte stable across runs.
+        // Its height IS stable (RemoteAccessProgress clamps the error text to
+        // 2 lines), so masking it here doesn't shift anything below.
+        page.getByTestId("dashboard-remote-access-banner"),
         // Below the stat grid but leaking into the viewport bottom: both
         // stream live, per-run content (error rows with timestamps; the live
         // log tail).

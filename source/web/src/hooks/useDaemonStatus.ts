@@ -11,6 +11,11 @@ interface DaemonStatus {
    */
   buildVersion: string | null;
   uptimeSeconds: number | null;
+  /**
+   * Whether this box is entitled to the premium app surfaces. `null` while
+   * unreachable (unknown, not a denial) — never treat `null` as "blocked".
+   */
+  entitled: boolean | null;
 }
 
 /**
@@ -28,6 +33,7 @@ export function useDaemonStatus() {
           version: info.release_version,
           buildVersion: info.version,
           uptimeSeconds: info.uptime_seconds,
+          entitled: info.entitled,
         };
       } catch {
         return {
@@ -35,6 +41,7 @@ export function useDaemonStatus() {
           version: null,
           buildVersion: null,
           uptimeSeconds: null,
+          entitled: null,
         };
       }
     },

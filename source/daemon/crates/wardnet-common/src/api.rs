@@ -190,6 +190,12 @@ pub struct InfoResponse {
     /// declares as `info.version`.
     pub release_version: String,
     pub uptime_seconds: u64,
+    /// Whether this box is currently entitled to the premium app surfaces
+    /// (the user PWA and admin mobile app) — on the wardnet DDNS provider and
+    /// not suspended. The web UI uses this to self-gate an already-installed
+    /// PWA served from its service-worker precache, which never re-hits the
+    /// server-side serving gate.
+    pub entitled: bool,
 }
 
 /// Standard API error response.

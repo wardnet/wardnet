@@ -13,12 +13,23 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
+use wardnetd_services::entitlement::Entitlement;
 
 use crate::tests::stubs::test_app_state;
 
 /// Build the full application router from [`crate::api::router`].
 fn full_router() -> axum::Router {
     crate::api::router(test_app_state())
+}
+
+/// Build the full application router with a premium-entitled `AppState`, for
+/// tests exercising the static-file fallback's content-serving logic (which
+/// the default not-entitled state would short-circuit with the `403`
+/// premium-required gate before ever reaching it).
+fn full_router_entitled() -> axum::Router {
+    let entitlement = Entitlement::shared();
+    entitlement.set_premium(true);
+    crate::api::router(test_app_state().with_entitlement(entitlement))
 }
 
 /// Send an OPTIONS request and return the status code.
@@ -199,7 +210,7 @@ async fn info_sentinel_is_not_served() {
             .uri(path)
             .body(Body::empty())
             .expect("valid request");
-        let status = full_router()
+        let status = full_router_entitled()
             .oneshot(req)
             .await
             .expect("router should respond")
