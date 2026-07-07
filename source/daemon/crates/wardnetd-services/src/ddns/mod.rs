@@ -213,7 +213,7 @@ pub(crate) struct DdnsSettings {
     /// Per-region gateway catalog (control + health URLs), probed for selection.
     region_catalog: Vec<RegionEndpoint>,
     /// Global gateway base URL — fronts `tenants` (enroll / token / availability
-    /// / networks under `/tenants/v1/…`).
+    /// / networks under `/v1/…`).
     global_gateway_url: String,
     /// Public-IP echo endpoints, tried in order.
     echo_endpoints: Vec<String>,
@@ -560,7 +560,7 @@ impl DdnsServiceImpl {
 /// Whether `slug` is a syntactically valid vanity slug.
 ///
 /// **Security boundary:** the slug is interpolated into the tenants request URL
-/// (`/tenants/v1/availability?slug={slug}`) and signed as part of the `PoP`
+/// (`/v1/availability?slug={slug}`) and signed as part of the `PoP`
 /// `path_and_query`, so it must be validated **before** building that URL — an
 /// unchecked `/`, `?`, `.` or whitespace would let an admin reshape the request
 /// path. The cloud enforces the authoritative rules (incl. the reserved-name

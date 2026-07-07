@@ -1,7 +1,7 @@
 # Documentation content for the public site.
 # Each entry represents a documentation page. The "recommended" entries
 # appear in the highlighted section at the top of the docs page.
-# Update this file to change what is shown — no code changes needed.
+# Update this file to change what is shown, no code changes needed.
 
 recommended:
   - slug: installation
@@ -18,15 +18,15 @@ recommended:
     excerpt: >
       After the installer finishes, the web UI walks you through creating
       the admin account and connecting your first tunnel. This guide
-      walks you through the setup wizard step by step.
+      covers the setup wizard step by step.
 
-  - slug: configuration
-    title: Configuration reference
-    icon: settings
+  - slug: remote-access
+    title: Remote access
+    icon: radio
     excerpt: >
-      Every option in wardnet.toml — database, logging, networking,
-      auto-update, observability — with its default and when you would
-      want to change it.
+      Reach your gateway from anywhere with dynamic DNS and secure remote
+      tunneling, plus automatic HTTPS. No domain of your own required.
+      A Premium capability.
 
 topics:
   - slug: installation
@@ -39,15 +39,10 @@ topics:
     icon: sparkles
     description: Walk through the setup wizard after the installer finishes.
 
-  - slug: configuration
-    title: Configuration
-    icon: settings
-    description: Configure the daemon via wardnet.toml — database, logging, networking, and more.
-
-  - slug: dhcp-server
-    title: DHCP server
-    icon: network
-    description: Set up the built-in DHCP server to auto-detect devices on your LAN.
+  - slug: dns-ad-blocking
+    title: DNS ad blocking
+    icon: ban
+    description: Block ads and trackers at the DNS level for all managed devices.
 
   - slug: device-routing
     title: Device routing
@@ -57,22 +52,47 @@ topics:
   - slug: wireguard-tunnels
     title: WireGuard tunnels
     icon: shield
-    description: Create and manage WireGuard tunnels — manual or via VPN provider integration.
+    description: Create and manage WireGuard tunnels, manual or via VPN provider integration.
 
   - slug: vpn-providers
     title: VPN providers
     icon: globe
     description: Connect NordVPN and other providers using your credentials.
 
-  - slug: dns-ad-blocking
-    title: DNS ad blocking
-    icon: ban
-    description: Block ads and trackers at the DNS level for all managed devices.
+  - slug: network-zones
+    title: Network zones
+    icon: layers
+    description: Group devices into zones with their own egress rules and admin-access boundaries.
+
+  - slug: local-dns
+    title: Local DNS
+    icon: server
+    description: Authoritative zones, custom records, and conditional forwarding for your own domains.
+
+  - slug: dhcp-server
+    title: DHCP server
+    icon: network
+    description: Set up the built-in DHCP server to auto-detect devices on your LAN.
+
+  - slug: remote-access
+    title: Remote access
+    icon: radio
+    description: Dynamic DNS, secure remote tunneling, and automatic HTTPS. A Premium capability.
+
+  - slug: mobile-apps
+    title: Mobile apps
+    icon: smartphone
+    description: The User PWA and the Admin mobile PWA, the two mobile surfaces. A Premium capability.
+
+  - slug: notifications
+    title: Notifications
+    icon: bell
+    description: Push notifications for rule requests and network alerts on the Admin mobile PWA.
 
   - slug: users-permissions
     title: Users & permissions
     icon: users
-    description: Admin vs self-service model — how device ownership and access control work.
+    description: Admin vs self-service model, how device ownership and access control work.
 
   - slug: backup-restore
     title: Backup & restore
@@ -80,19 +100,24 @@ topics:
     description: Export an encrypted archive of the database, config, and keys; restore it on a fresh install.
 
   - slug: database-backup-sqlite
-    title: Database backup — SQLite
+    title: Database backup, SQLite
     icon: database
-    description: Under-the-hood details of how the SQLite provider captures a consistent snapshot and restores it.
+    description: How the SQLite provider captures a consistent snapshot and restores it.
 
-  - slug: cli-reference
-    title: CLI reference
-    icon: terminal
-    description: Command-line interface for managing Wardnet from the terminal.
+  - slug: configuration
+    title: Configuration
+    icon: settings
+    description: Configure the daemon via wardnet.toml, database, logging, networking, and more.
+
+  - slug: premium
+    title: Premium
+    icon: sparkles
+    description: What Premium unlocks, dynamic DNS, secure remote tunneling, roaming private DNS, and both mobile apps.
 
   - slug: api-reference
     title: API reference
     icon: book-open
-    description: REST API endpoints for programmatic access to Wardnet.
+    description: Interactive REST API reference. Pick your daemon version to see the matching spec.
 
   - slug: sdk-reference
     title: SDK reference

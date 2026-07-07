@@ -121,7 +121,7 @@ tabled = "0.21"
 # https://crates.io/crates/async-trait
 async-trait = "0.1"
 # https://crates.io/crates/wireguard-control
-wireguard-control = "1"
+wireguard-control = "2"
 # https://crates.io/crates/ipnetwork
 # 0.21 to match the ipnetwork version rustables 0.8.8 exposes in its
 # `Rule::snetwork`/`dnetwork` signatures, so the two unify to one type.

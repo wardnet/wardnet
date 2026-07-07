@@ -11,6 +11,7 @@ const EXTERNAL_LINKS = [
     label: "MIT License",
     href: "https://github.com/wardnet/wardnet/blob/main/LICENSE",
   },
+  { label: "Status", href: "https://status.wardnet.network" },
 ] as const;
 
 /**
@@ -22,8 +23,17 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6">
         <Logo height={32} variant="light" />
         <nav className="flex gap-6">
+          <Link to="/premium" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
+            Premium
+          </Link>
           <Link to="/docs" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
             Documentation
+          </Link>
+          <Link to="/terms" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
+            Terms
+          </Link>
+          <Link to="/privacy" className="t-size-sm text-ink-3 transition-colors hover:text-ink">
+            Privacy
           </Link>
           {EXTERNAL_LINKS.map((link) => (
             <a

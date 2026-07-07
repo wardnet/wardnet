@@ -1,8 +1,12 @@
 import { BrowserRouter, Routes, Route } from "react-router";
 import { ErrorBoundary } from "@/components/compound/ErrorBoundary";
+import { ScrollToTop } from "@/components/compound/ScrollToTop";
 import { Home } from "@/pages/Home";
+import { Premium } from "@/pages/Premium";
 import { Docs } from "@/pages/Docs";
 import { DocsArticle } from "@/pages/DocsArticle";
+import { ApiReference } from "@/pages/ApiReference";
+import { Legal } from "@/pages/Legal";
 import { NotFound } from "@/pages/NotFound";
 
 /**
@@ -10,7 +14,7 @@ import { NotFound } from "@/pages/NotFound";
  *
  * Wrapped in [`ErrorBoundary`] so any uncaught render error bubbles up to
  * a styled fallback instead of showing the browser's default crash view.
- * The trailing `path="*"` route catches unknown URLs — GitHub Pages is
+ * The trailing `path="*"` route catches unknown URLs, GitHub Pages is
  * configured (via `cp index.html 404.html` at build time) to serve the
  * SPA for any path, so this component is what the user actually sees for
  * non-existent routes.
@@ -19,10 +23,17 @@ export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
+        <ScrollToTop />
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/premium" element={<Premium />} />
           <Route path="/docs" element={<Docs />} />
+          {/* Interactive multi-version API reference. Declared before the
+              generic `:slug` route so it wins over the markdown renderer. */}
+          <Route path="/docs/api-reference" element={<ApiReference />} />
           <Route path="/docs/:slug" element={<DocsArticle />} />
+          <Route path="/terms" element={<Legal slug="terms" />} />
+          <Route path="/privacy" element={<Legal slug="privacy" />} />
           {/* Dev-only: force a render-time error so the ErrorBoundary can be
               exercised locally. Stripped from production builds by Vite's
               dead-code elimination on `import.meta.env.DEV`. */}
