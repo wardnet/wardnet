@@ -2,7 +2,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Logo } from "@/components/compound/Logo";
 
 interface ErrorViewProps {
-  /** The error message to surface. Kept short — full details go to the
+  /** The error message to surface. Kept short, full details go to the
    *  console/reporter, not the UI. */
   message?: string;
   /** Called when the user clicks "Try again". Typically re-runs the query
@@ -30,7 +30,7 @@ export function ErrorView({ message, onRetry }: ErrorViewProps) {
       </div>
       <h1 className="h-title">Something broke on our end</h1>
       <p className="h-sub max-w-md">
-        The page hit an error while rendering. Try reloading — if it keeps happening, file an issue
+        The page hit an error while rendering. Try reloading, if it keeps happening, file an issue
         and include what you were doing.
       </p>
       {message && <p className="kbd max-w-md">{message}</p>}

@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Logo } from "@/components/compound/Logo";
 
 interface NavbarProps {
@@ -8,42 +8,75 @@ interface NavbarProps {
   /** When true, shows a back arrow before the logo. */
   showBack?: boolean;
   /**
-   * Destination for the back arrow / brand click. Defaults to the home
-   * content view. Article pages pass `/docs` so the arrow returns to the
-   * docs index rather than jumping past it to the homepage.
+   * Fallback destination for the back arrow when there is no browser
+   * history to pop (e.g. the page was opened directly via a deep link or
+   * a shared URL). Defaults to the home content view. Article pages pass
+   * `/docs` so a cold-loaded article still lands on the docs index rather
+   * than the hero.
    */
   backTo?: string;
 }
 
 /**
  * Sticky top navigation. Rendered as Ward Navy chrome on `--color-side`
- * (Forge sidebar token), with no border or shadow below — the page surface
+ * (Forge sidebar token), with no border or shadow below, the page surface
  * runs straight under it. Type and ink follow the Forge scale: `text-sm`
  * with the `side-ink` family for foreground.
+ *
+ * The back arrow (shown on sub-pages via `showBack`) pops real browser
+ * history so it returns to wherever the user actually came from, whether
+ * that's a homepage feature card or the docs index. The logo is a separate
+ * link to home so the two affordances never disagree.
  */
 export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
-  const logoContent = (
-    <>
-      {showBack && <ArrowLeft size={16} className="text-side-ink-2" />}
-      <Logo height={28} variant="dark" />
-    </>
-  );
+  const navigate = useNavigate();
+
+  const handleBack = () => {
+    // Prefer real history so "back" returns to the actual previous page.
+    // When there's nothing to pop (cold deep link), fall back to a sensible
+    // in-site destination instead of leaving the app.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate(backTo ?? "/?view=content");
+    }
+  };
+
+  const logo = <Logo height={28} variant="dark" />;
 
   return (
     <nav className="bg-side sticky top-0 z-50 flex w-full items-center justify-between px-6 py-4">
-      {onLogoClick ? (
-        <button onClick={onLogoClick} className="flex items-center gap-2">
-          {logoContent}
-        </button>
-      ) : (
-        <Link
-          to={backTo ?? (showBack ? "/?view=content" : "/")}
-          className="flex items-center gap-2"
-        >
-          {logoContent}
-        </Link>
-      )}
+      <div className="flex items-center gap-2">
+        {showBack && (
+          <button
+            onClick={handleBack}
+            className="text-side-ink-2 hover:text-side-ink-active transition-colors"
+            aria-label="Go back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+        )}
+        {onLogoClick ? (
+          <button
+            onClick={onLogoClick}
+            className="flex items-center gap-2"
+            aria-label="Wardnet home"
+          >
+            {logo}
+          </button>
+        ) : (
+          <Link to="/" className="flex items-center gap-2" aria-label="Wardnet home">
+            {logo}
+          </Link>
+        )}
+      </div>
       <div className="flex items-center gap-6">
+        <Link
+          to="/premium"
+          className="text-side-ink hover:text-side-ink-active t-size-sm t-weight-medium transition-colors"
+        >
+          Premium
+        </Link>
         <Link
           to="/docs"
           className="text-side-ink hover:text-side-ink-active t-size-sm t-weight-medium transition-colors"

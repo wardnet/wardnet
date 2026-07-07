@@ -1,7 +1,7 @@
 # Installation
 
 Wardnet can be installed via Docker or directly on the host (bare-metal).
-Docker is the simpler path — no dependency management, and auto-update +
+Docker is the simpler path, no dependency management, and auto-update +
 crash-loop rollback work identically because systemd runs as PID 1 inside
 the container.
 
@@ -15,6 +15,8 @@ docker run -d \
   --sysctl net.ipv4.ip_forward=1 \
   --tmpfs /run --tmpfs /run/lock \
   -p 7411:7411 \
+  -p 53:53/tcp -p 53:53/udp \
+  -p 67:67/udp \
   -v wardnet-data:/var/lib/wardnet \
   ghcr.io/wardnet/wardnetd:latest
 ```
@@ -30,7 +32,12 @@ The flags are required:
 | `--device /dev/net/tun` | WireGuard tunnels use the tun device. |
 | `--sysctl net.ipv4.ip_forward=1` | Required to route LAN traffic through WireGuard tunnels. |
 | `--tmpfs /run --tmpfs /run/lock` | systemd (PID 1) needs a writable, non-persistent `/run`. |
+| `-p 53:53/tcp -p 53:53/udp` | DNS resolution and ad-blocking for LAN clients. |
+| `-p 67:67/udp` | DHCP server, if you want Wardnet handing out leases. |
 | `-v wardnet-data:/var/lib/wardnet` | Persistent state: database, WireGuard keys, staged updates. |
+
+Skip the DNS/DHCP port mappings if you only want the web UI and tunnel
+management, and plan to keep your existing router's DNS/DHCP in place.
 
 A reference compose file with all options documented is at
 [`source/daemon/examples/docker-compose.yaml`](https://github.com/wardnet/wardnet/blob/main/source/daemon/examples/docker-compose.yaml).
@@ -50,7 +57,7 @@ re-pull a newer image tag.
 
 - A Raspberry Pi (aarch64) or x86_64 Linux host.
 - A Debian/Ubuntu-based distribution (other distros work too, as long as
-  the required tools are available — see below).
+  the required tools are available, see below).
 - Root access on the target machine.
 - Outbound HTTPS to `wardnet.network` (release manifest + tarball download).
 
@@ -73,7 +80,7 @@ sudo apt-get install -y curl tar minisign jq
 ```
 
 If any tool is missing, the installer fails early with a clear message
-listing the missing packages — it never installs anything behind your
+listing the missing packages, it never installs anything behind your
 back.
 
 ### One-shot install
@@ -94,7 +101,7 @@ Verification flow the installer runs, in order:
    `.minisig` sidecars.
 3. Recompute the SHA-256 and compare against the sidecar.
 4. Verify the `.minisig` signature against the public key that is
-   **embedded in the installer itself** — this is the authenticity
+   **embedded in the installer itself**, this is the authenticity
    anchor. A compromised DNS record or CDN cannot forge a signed release.
 5. Extract, install the binary owned by the `wardnet` user at
    `/usr/local/bin/wardnetd`, drop the systemd units, enable, and start.
@@ -110,9 +117,22 @@ Verification flow the installer runs, in order:
 | `/var/log/wardnet/` | Daemon log files. |
 | `/etc/systemd/system/wardnetd.service` | Main service unit. |
 | `/etc/systemd/system/wardnetd-rollback.service` | `OnFailure=` target that rolls back to `<binary>.old` after a crash-loop. |
+| `/etc/systemd/system/wardnet-postupgrade.service` | Runs one-off migrations shipped with an upgrade, when a release includes them. |
+| `/usr/local/libexec/wardnet/runner/wardnet-postupgrade-runner` | Root-owned post-upgrade migration runner. |
+| `/var/lib/wardnet/postupgrade/`, `/var/lib/wardnet-postupgrade/` | Post-upgrade migration state. |
 
-The `wardnet` system user owns all of the above. The daemon never runs
-as root.
+The `wardnet` system user owns all of the above (except the root-owned
+post-upgrade runner, which needs elevated privileges to apply
+migrations). The daemon itself never runs as root.
+
+Two install-time flags worth knowing about:
+
+- `--static-ip <address>` writes `/etc/dhcpcd.conf.d/wardnet.conf` to pin
+  the host's own LAN IP, useful on a dedicated Pi where you don't want
+  the address to drift.
+- `--upgrade-only` re-runs the installer idempotently, skipping user and
+  config creation, handy for scripted upgrade flows that just need the
+  binary and units refreshed.
 
 ### Air-gapped install
 
@@ -130,9 +150,12 @@ The bundle directory must contain:
 - `wardnetd-<version>-<arch>.tar.gz.sha256`
 - `wardnetd-<version>-<arch>.tar.gz.minisig`
 - `wardnetd.service`, `wardnetd-rollback.service`
+- `wardnet-postupgrade.service` (only needed if the release includes a
+  post-upgrade migration step, the installer skips it silently when
+  absent from the bundle)
 
 The installer still verifies SHA-256 and the minisign signature against
-its embedded public key — air-gapped mode does not skip verification.
+its embedded public key, air-gapped mode does not skip verification.
 
 ### Choosing a channel
 
@@ -144,7 +167,7 @@ sudo ./install.sh --channel beta
 ```
 
 You can also switch channels at any time from the daemon's Settings page
-(Auto-update card) — the background runner will then track the chosen
+(Auto-update card), the background runner will then track the chosen
 channel for future updates.
 
 ### Verifying the service
@@ -158,7 +181,7 @@ Web UI: http://192.168.1.20:7411
 
 On first visit the web UI runs a one-time setup wizard to create the
 admin account. From there, the daemon is managed entirely through the
-web UI or via `wctl` on the host.
+web UI.
 
 **Next step:** follow the [first-time setup](/docs/first-run) guide to
 walk through the wizard. Once you've configured a few devices and
@@ -171,19 +194,16 @@ Useful follow-ups:
 # Service status
 sudo systemctl status wardnetd
 
-# Live logs (JSON — pipe through jq to pretty-print)
+# Live logs (JSON, pipe through jq to pretty-print)
 sudo journalctl -u wardnetd -f
-
-# Quick status from the CLI
-sudo -u wardnet wctl status
 ```
 
 ### Upgrades
 
-You never need to re-run `install.sh` for upgrades — the daemon's
+You never need to re-run `install.sh` for upgrades, the daemon's
 auto-update runner polls the release manifest every six hours and, when
 enabled, installs new releases in place. You can also trigger a manual
-install from the Settings page, or via `wctl update install`.
+install from the Settings page.
 
 If an upgrade produces a crash-looping daemon, systemd automatically
 fires the `wardnetd-rollback.service` unit after three failures within
@@ -195,8 +215,10 @@ fires the `wardnetd-rollback.service` unit after three failures within
 sudo systemctl disable --now wardnetd
 sudo rm -f /etc/systemd/system/wardnetd.service
 sudo rm -f /etc/systemd/system/wardnetd-rollback.service
+sudo rm -f /etc/systemd/system/wardnet-postupgrade.service
 sudo rm -f /usr/local/bin/wardnetd /usr/local/bin/wardnetd.old
 sudo rm -rf /etc/wardnet /var/lib/wardnet /var/log/wardnet
+sudo rm -rf /usr/local/libexec/wardnet /var/lib/wardnet-postupgrade
 sudo userdel wardnet
 sudo systemctl daemon-reload
 ```

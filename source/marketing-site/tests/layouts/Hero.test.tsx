@@ -16,6 +16,18 @@ describe("Hero", () => {
     expect(screen.getByText("Your network. Your rules.")).toBeInTheDocument();
   });
 
+  it("keeps the cloud-optional / LAN-first promise", () => {
+    render(<Hero onExplore={noop} />);
+    expect(screen.getByText(/no account required/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing leaves your LAN/i)).toBeInTheDocument();
+    expect(screen.getByText(/no cloud required/i)).toBeInTheDocument();
+  });
+
+  it("mentions Premium remote and mobile access", () => {
+    render(<Hero onExplore={noop} />);
+    expect(screen.getByText(/remote and mobile access.*via\s+Premium/i)).toBeInTheDocument();
+  });
+
   it("renders the Download CTA with correct href", () => {
     render(<Hero onExplore={noop} />);
     const link = screen.getByRole("link", { name: "Download" });

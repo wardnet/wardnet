@@ -123,6 +123,7 @@ function rcompareVersion(a: ParsedVersion, b: ParsedVersion): number {
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
 const PUBLIC_RELEASES = resolve(ROOT, "public/releases");
+const PUBLIC_API_SPECS = resolve(ROOT, "public/api-specs");
 const GENERATED_DIR = resolve(ROOT, "src/generated");
 
 /** Shape emitted to `public/releases/<channel>.json`. Consumed by the daemon. */
@@ -151,6 +152,15 @@ interface OpenapiVersion {
   sha256: string;
   /** Direct download URL of the openapi.json asset on GitHub. */
   openapi_url: string;
+  /**
+   * Site-relative path (no leading slash) to the spec after it has been
+   * downloaded into `public/api-specs/` at build time. The docs page loads
+   * this same-origin copy so Scalar never has to fetch GitHub cross-origin
+   * (which would fail CORS) and the reference works on static Pages and in
+   * local preview. Prefix with `import.meta.env.BASE_URL` when building the
+   * URL.
+   */
+  spec_path: string;
   /** Every release version that served this exact spec, sorted ascending. */
   versions: string[];
   /** Convenience: `versions[0]`. */
@@ -379,6 +389,10 @@ async function buildOpenapiVersions(releases: GithubRelease[]): Promise<OpenapiV
     rows.push({
       sha256: g.sha256,
       openapi_url: g.openapi_url,
+      // Deterministic from the content hash; the file is written by
+      // `writeOpenapiSpecs` below. Rows whose download fails are dropped
+      // there so the manifest never points at a missing spec.
+      spec_path: `api-specs/${g.sha256}.json`,
       versions,
       first_version: versions[0]!,
       latest_version: versions[versions.length - 1]!,
@@ -393,6 +407,48 @@ async function buildOpenapiVersions(releases: GithubRelease[]): Promise<OpenapiV
     rcompareVersion(parseVersion(a.latest_version)!, parseVersion(b.latest_version)!),
   );
   return rows;
+}
+
+/**
+ * Download each distinct OpenAPI spec into `public/api-specs/<sha>.json` so
+ * the docs page can load it same-origin (no CORS, works on static Pages).
+ *
+ * Returns the rows whose spec downloaded and parsed as JSON, preserving the
+ * input order. A row whose download fails is dropped rather than kept with a
+ * dangling `spec_path`, so the version picker never offers a broken option.
+ * Like the rest of the generator, network failures degrade gracefully: on a
+ * total outage every row is dropped and the docs page simply shows no
+ * versions instead of failing the build.
+ */
+async function writeOpenapiSpecs(rows: OpenapiVersion[]): Promise<OpenapiVersion[]> {
+  if (rows.length === 0) return [];
+  await mkdir(PUBLIC_API_SPECS, { recursive: true });
+
+  const settled = await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const resp = await fetch(row.openapi_url);
+        if (!resp.ok) {
+          throw new Error(`spec fetch failed (${resp.status})`);
+        }
+        const body = await resp.text();
+        // Guard against writing a GitHub error/HTML page as if it were a
+        // spec — parse before persisting.
+        JSON.parse(body);
+        await writeFile(resolve(PUBLIC_API_SPECS, `${row.sha256}.json`), body, "utf8");
+        return row;
+      } catch (error) {
+        console.warn(
+          `openapi-spec: skipping ${row.latest_version} (${row.sha256.slice(0, 8)}): ${
+            (error as Error).message
+          }`,
+        );
+        return null;
+      }
+    }),
+  );
+
+  return settled.filter((row): row is OpenapiVersion => row !== null);
 }
 
 async function writeReleaseInfo(info: ReleaseInfo): Promise<void> {
@@ -449,10 +505,13 @@ async function main(): Promise<void> {
   await writeManifest(resolve(PUBLIC_RELEASES, "beta.json"), betaManifest);
 
   const openapiVersions = await buildOpenapiVersions(releases);
+  // Download each distinct spec same-origin; keep only the rows that landed
+  // so the manifest and the on-disk specs stay in lockstep.
+  const openapiWithSpecs = await writeOpenapiSpecs(openapiVersions);
   const openapiManifestPath = resolve(PUBLIC_RELEASES, "openapi-versions.json");
   await mkdir(dirname(openapiManifestPath), { recursive: true });
-  await writeFile(openapiManifestPath, `${JSON.stringify(openapiVersions, null, 2)}\n`, "utf8");
-  console.log(`wrote ${openapiManifestPath} (${openapiVersions.length} distinct spec versions)`);
+  await writeFile(openapiManifestPath, `${JSON.stringify(openapiWithSpecs, null, 2)}\n`, "utf8");
+  console.log(`wrote ${openapiManifestPath} (${openapiWithSpecs.length} distinct spec versions)`);
 
   await writeReleaseInfo({
     stable: stableManifest,

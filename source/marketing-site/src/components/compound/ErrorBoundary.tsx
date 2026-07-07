@@ -52,8 +52,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </span>
             <h1 className="h-title">Something broke on our end</h1>
             <p className="h-sub">
-              The page hit an error while rendering. Try again — if it keeps happening, file an
-              issue and include what you were doing.
+              The page hit an error while rendering. Try again, if it keeps happening, file an issue
+              and include what you were doing.
             </p>
             {message ? <pre className="kbd">{message}</pre> : null}
             <div className="row gap-12 wrap">

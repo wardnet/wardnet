@@ -10,28 +10,28 @@ giving yourself a safety net before a risky configuration change.
 
 Every bundle is a single `.wardnet.age` file holding:
 
-- **Database snapshot** — a point-in-time copy of everything the
+- **Database snapshot**, a point-in-time copy of everything the
   daemon persists: devices, tunnels, DHCP leases, DNS blocklists,
   admin accounts, session tokens, and system configuration. Captured
   in a way that's safe to take while the daemon is serving traffic
-  — no lock, no downtime. The database provider ships its own
+ , no lock, no downtime. The database provider ships its own
   snapshot routine behind a shared trait; the SQLite provider (what
   every installation uses today) is covered in
-  [database backup — SQLite](/docs/database-backup-sqlite) if
+  [database backup, SQLite](/docs/database-backup-sqlite) if
   you're curious about the mechanics.
-- **`wardnet.toml`** — the operator configuration file.
-- **`secrets/…`** — everything the configured secret store wants
+- **`wardnet.toml`**, the operator configuration file.
+- **`secrets/…`**, everything the configured secret store wants
   to include. For the default `file_system` provider this is every
   WireGuard private key under `/var/lib/wardnet/secrets/wireguard/`.
   External providers (HashiCorp Vault, 1Password) may contribute
   nothing because their secrets live in the external service.
-- **`manifest.json`** — bundle metadata: daemon version, schema
+- **`manifest.json`**, bundle metadata: daemon version, schema
   version, host identifier, creation timestamp, secret count, and the
   bundle format version. The importer reads this first and refuses
   bundles that are newer than the running daemon can handle.
 
 Logs, blocklist caches, the update staging directory, and the daemon
-binary itself are **not** included — they're either regenerated or
+binary itself are **not** included, they're either regenerated or
 unrelated to daemon state.
 
 ## Encryption
@@ -55,18 +55,17 @@ the export and restore sides.
 
 From the web UI:
 
-1. Sign in as an admin and navigate to **Settings**.
-2. Scroll to the **Backup & restore** card.
-3. Click **Download backup**.
-4. In the dialog, choose a strong passphrase and confirm it.
-5. Click **Download**. The browser saves a file named
+1. Sign in as an admin and navigate to **Backups**.
+2. Click **Download backup**.
+3. Choose a strong passphrase and confirm it.
+4. Click **Download**. The browser saves a file named
    `wardnet-<timestamp>.wardnet.age`.
 
-![Settings page with the Backup and restore card visible](/docs/backup-restore/settings-backup-card.png "wide")
+![Backups page](/docs/backup-restore/backups-page.png "wide")
 
-![Download backup dialog asking for a passphrase and confirmation](/docs/backup-restore/export-dialog.png)
+![Backup form expanded, asking for a passphrase and confirmation](/docs/backup-restore/export-dialog.png "wide")
 
-Exports are safe to trigger during normal operation — device
+Exports are safe to trigger during normal operation, device
 discovery, DNS resolution, and tunnels are not interrupted. The
 database provider guarantees a consistent snapshot without taking an
 exclusive lock; see the
@@ -78,41 +77,40 @@ works under the hood.
 Restore is a two-step wizard: you preview first, then confirm. The
 daemon never touches disk until you explicitly click the apply button.
 
-### Step 1 — Preview
+### Step 1, Preview
 
 1. Sign in as an admin on the **target** daemon (fresh install or an
-   existing one you want to overwrite) and navigate to **Settings →
-   Backup & restore**.
-2. Click **Restore from backup**. The dialog lets you pick the
+   existing one you want to overwrite) and navigate to **Backups**.
+2. Click **Restore…**. The form expands to let you pick the
    `.wardnet.age` file and enter its passphrase:
 
-![Restore dialog with a file picker and passphrase input](/docs/backup-restore/restore-upload-dialog.png)
+![Restore form with a file picker and passphrase input](/docs/backup-restore/restore-upload-dialog.png "wide")
 
 3. Click **Preview**. The daemon decrypts the bundle in memory,
    validates it against the running version, and returns a summary:
 
-![Restore preview dialog listing manifest details and files to replace](/docs/backup-restore/restore-preview-dialog.png)
+![Restore preview listing manifest details and files to replace](/docs/backup-restore/restore-preview-dialog.png "wide")
 
 The preview shows:
 
-- **From version** — the daemon version that produced the bundle.
-- **Host ID** — source machine identifier (usually the hostname).
-- **Created** — when the bundle was exported.
-- **Schema version** — the database migration level.
-- **WireGuard keys** — number of secrets the bundle carries.
-- **Will replace** — the paths on disk that will be renamed to
+- **From version**, the daemon version that produced the bundle.
+- **Host ID**, source machine identifier (usually the hostname).
+- **Created**, when the bundle was exported.
+- **Schema version**, the database migration level.
+- **WireGuard keys**, number of secrets the bundle carries.
+- **Will replace**, the paths on disk that will be renamed to
   `.bak-<timestamp>` siblings and overwritten.
 
-If the bundle is incompatible — the format version is newer than the
+If the bundle is incompatible, the format version is newer than the
 running daemon can handle, or the schema version is ahead of what the
-daemon has applied — the dialog surfaces a red "Bundle incompatible"
+daemon has applied, the dialog surfaces a red "Bundle incompatible"
 banner with the specific reason and the apply button is disabled.
 Upgrade the daemon to a matching version and try again.
 
-### Step 2 — Apply
+### Step 2, Apply
 
 1. Review the preview carefully.
-2. Click **Apply restore**.
+2. Click **Restore**.
 
 The daemon:
 
@@ -125,14 +123,9 @@ The daemon:
 
 A progress dialog opens automatically and walks through the restart
 cycle. The daemon exits, systemd brings it back with the restored
-state, and the UI moves through the phases live:
-
-![Restart progress dialog showing a spinner while the daemon restarts](/docs/backup-restore/restart-progress-dialog.png)
-
-Once the daemon is answering again and your session is still valid,
-the dialog flips to a green confirmation and you can dismiss it:
-
-![Restart progress dialog showing the daemon is back online](/docs/backup-restore/restart-ready-dialog.png)
+state, and the UI moves through the phases live: a spinner while it
+restarts, then a green confirmation once the daemon is answering again
+and your session is still valid.
 
 If the restore invalidated your session cookie (for example, the
 bundle came from a different daemon with a different admin account),
@@ -193,8 +186,8 @@ today will still be restorable once scheduling is available.
 ## Threat model
 
 A backup bundle is designed to be safe to store in any location you
-trust with an encrypted blob — an external drive, cloud object
-storage, an email attachment — because:
+trust with an encrypted blob, an external drive, cloud object
+storage, an email attachment, because:
 
 - The ChaCha20-Poly1305 AEAD prevents silent tampering.
 - Decryption is gated by the scrypt-hardened passphrase.
@@ -208,9 +201,9 @@ good.
 
 ## See also
 
-- [Installation](/docs/installation) — get Wardnet running on a Pi.
-- [Configuration](/docs/configuration) — `wardnet.toml` reference,
+- [Installation](/docs/installation), get Wardnet running on a Pi.
+- [Configuration](/docs/configuration), `wardnet.toml` reference,
   including the `[secret_store]` section the backup flow relies on.
-- [Database backup — SQLite](/docs/database-backup-sqlite) — how the
+- [Database backup, SQLite](/docs/database-backup-sqlite), how the
   SQLite provider captures a consistent snapshot and restores it in
   place.

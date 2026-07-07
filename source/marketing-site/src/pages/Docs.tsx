@@ -23,7 +23,7 @@ const topics = docsContent.topics as TopicEntry[];
 
 /**
  * Documentation page with a recommended section and full topic listing.
- * Content is driven by content/docs.yml — no code changes needed to update.
+ * Content is driven by content/docs.yml, no code changes needed to update.
  */
 export function Docs() {
   return (
@@ -35,7 +35,7 @@ export function Docs() {
           <h1 className="mb-3 t-size-4xl t-weight-bold tracking-tight text-ink">Documentation</h1>
           <p className="mb-12 t-size-lg text-ink-3">
             Guides and references for setting up and managing your Wardnet gateway. Documentation is
-            being written — check back soon.
+            being written, check back soon.
           </p>
 
           <div className="mb-12">
