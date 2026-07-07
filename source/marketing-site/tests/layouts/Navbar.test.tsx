@@ -90,6 +90,28 @@ describe("Navbar", () => {
     expect(screen.getByText("Docs index")).toBeInTheDocument();
   });
 
+  it("pops real browser history when there is history to go back to", async () => {
+    // Stub window.history.length directly rather than accumulating real
+    // navigations, so this test doesn't depend on (or pollute) history
+    // state shared with other tests in this file.
+    const descriptor = Object.getOwnPropertyDescriptor(window.history, "length");
+    Object.defineProperty(window.history, "length", { value: 2, configurable: true });
+    try {
+      render(
+        <MemoryRouter initialEntries={["/one", "/two"]} initialIndex={1}>
+          <Routes>
+            <Route path="/one" element={<div>Page one</div>} />
+            <Route path="/two" element={<Navbar showBack />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await userEvent.click(screen.getByRole("button", { name: /go back/i }));
+      expect(screen.getByText("Page one")).toBeInTheDocument();
+    } finally {
+      if (descriptor) Object.defineProperty(window.history, "length", descriptor);
+    }
+  });
+
   it("calls onLogoClick when the logo button is clicked", async () => {
     const onLogoClick = vi.fn();
     render(

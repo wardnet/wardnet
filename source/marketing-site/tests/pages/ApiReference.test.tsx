@@ -115,4 +115,44 @@ describe("ApiReference", () => {
 
     expect(await screen.findByText(/aren't available here yet/i)).toBeInTheDocument();
   });
+
+  // The two tests below exercise ensureScalar()'s script-injection path, so
+  // window.Scalar must be absent when the component's effect first runs
+  // (the other tests pre-seed it in beforeEach to skip straight to
+  // "already loaded"). Order matters: the module-level scalarPromise
+  // singleton only resets to null after a rejection, so the error case
+  // runs first to guarantee both tests see a fresh injection.
+  it("shows an error state when the Scalar script fails to load", async () => {
+    delete window.Scalar;
+    stubFetch(ROWS);
+    renderPage();
+
+    const script = await vi.waitFor(() => {
+      const el = document.querySelector<HTMLScriptElement>('script[src$="api-docs/scalar.js"]');
+      if (!el) throw new Error("script not yet injected");
+      return el;
+    });
+    script.onerror?.(new Event("error"));
+
+    expect(
+      await screen.findByText(/failed to load\. please refresh to try again/i),
+    ).toBeInTheDocument();
+  });
+
+  it("loads the Scalar script and renders once it loads", async () => {
+    delete window.Scalar;
+    stubFetch(ROWS);
+    renderPage();
+
+    const script = await vi.waitFor(() => {
+      const el = document.querySelector<HTMLScriptElement>('script[src$="api-docs/scalar.js"]');
+      if (!el) throw new Error("script not yet injected");
+      return el;
+    });
+    // The real bundle would set window.Scalar as a side effect of loading.
+    window.Scalar = { createApiReference } as unknown as Window["Scalar"];
+    script.onload?.(new Event("load"));
+
+    await waitFor(() => expect(createApiReference).toHaveBeenCalled());
+  });
 });
