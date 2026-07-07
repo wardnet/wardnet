@@ -29,6 +29,16 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
     // shift). stat-devices / stat-tunnels are always present.
     await expect(page.getByTestId("stat-uptime")).toBeVisible();
     await expect(page.getByTestId("stat-dhcp")).toBeVisible();
+    // The premium-setup project's register_network call kicks off a
+    // BACKGROUND cert-issuance attempt against wardnet_cloud_mock, which
+    // always ends up "failed" (the mock never actually terminates an ACME
+    // order) — but not instantly. Screenshotting mid-transition would catch
+    // a *different* remote-access-banner state each run — absent (idle),
+    // "Issuing certificate…", or "Certificate issuance failed" — each a
+    // different height/absence, none of which the mask (sized to whatever's
+    // actually rendered) can paper over. Wait for the one state this always
+    // settles to before shooting, so every run masks the same layout.
+    await expect(page.getByText("Certificate issuance failed")).toBeVisible();
 
     await expect(page).toHaveScreenshot("dashboard.png", {
       // Live / time-varying values. stat-devices and stat-tunnels are
