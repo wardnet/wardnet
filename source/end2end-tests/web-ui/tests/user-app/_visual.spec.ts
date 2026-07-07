@@ -13,6 +13,19 @@ test.describe("user-app visual", { tag: "@visual" }, () => {
   test("home", async ({ page }) => {
     await page.goto("./");
     await expect(page.getByTestId("device-identity")).toBeVisible();
+    // The verify card's height differs a lot across its loading (180px)
+    // /error (~150-170px) / loaded-map (~290px+) states, and a mask only
+    // paints over whatever bounding box is current at capture time — it
+    // doesn't reserve consistent space. ipapi.co is unreachable from the
+    // compose network (see status.spec.ts), so the query always ends up in
+    // its one deterministic terminal state: error, after react-query's
+    // single retry. Wait for that before shooting so every run masks the
+    // same layout instead of racing loading-vs-error.
+    await expect(
+      page
+        .getByTestId("verify-card")
+        .getByText("Could not reach the geolocation service"),
+    ).toBeVisible();
 
     await expect(page).toHaveScreenshot("home.png", {
       // The Verify card is a live Leaflet map + IP-geolocation panel whose
