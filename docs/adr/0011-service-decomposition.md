@@ -1,8 +1,12 @@
+---
+status: accepted
+date: 2026-06-13
+issue: "#610 (bridge decoupling); pairs with #609 (premium tier)"
+---
+
 # ADR: Bridge service decomposition — tenant (global) / DDNS + Tunneler (regional)
 
-**Status**: Accepted
-**Date**: 2026-06-13
-**Issue**: #610 (bridge decoupling); pairs with #609 (premium tier). Builds on `adr-two-domain-strategy.md` and `adr-global-naming-authority.md`
+*Builds on [0005-two-domain-strategy.md](0005-two-domain-strategy.md) and [0004-global-naming-authority.md](0004-global-naming-authority.md).*
 
 ---
 
@@ -48,7 +52,7 @@ path**.
 
 ### 4. The entitlement lease is the only thing crossing the boundary
 
-The **entitlement lease** (see `adr-premium-tier-and-entitlement.md`) —
+The **entitlement lease** (see `0010-premium-tier-and-entitlement.md`) —
 `{install_id, entitled, exp}`, signed by tenant management — is verified
 *locally* by the regional services against tenant's public key. This is what
 dissolves the "regional vs global DB" knot: entitlement crosses the boundary as
@@ -70,7 +74,7 @@ Future inter-service auth (tenant ↔ regional, control ↔ data plane) is
 Today this is still **one bridge deployment** (per-region install DB + the
 global names DB). The three-way split is the **target**; module boundaries are
 kept clean so extraction is cheap. The `my.wardnet.services` PSL boundary and
-two-domain trust split (`adr-two-domain-strategy.md`) are unaffected and remain
+two-domain trust split (`0005-two-domain-strategy.md`) are unaffected and remain
 load-bearing for per-tenant cookie isolation.
 
 ## Considered options

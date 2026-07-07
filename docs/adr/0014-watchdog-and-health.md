@@ -1,8 +1,10 @@
-# ADR: Three-layer watchdog + health-monitor subsystem
+---
+status: accepted
+date: 2026-06-25
+issue: "#214 (hardware watchdog) — scope deliberately expanded during design"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-25
-**Issue**: #214 (hardware watchdog) — scope deliberately expanded during design
+# ADR: Three-layer watchdog + health-monitor subsystem
 
 ---
 

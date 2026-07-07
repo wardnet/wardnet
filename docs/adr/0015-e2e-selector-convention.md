@@ -1,8 +1,10 @@
-# ADR: `data-testid`-primary selectors for the web-ui Playwright suite
+---
+status: accepted
+date: 2026-06-27
+issue: "#617 (epic #614)"
+---
 
-**Status**: Accepted  
-**Date**: 2026-06-27  
-**Issue**: #617 (epic #614)
+# ADR: `data-testid`-primary selectors for the web-ui Playwright suite
 
 ---
 

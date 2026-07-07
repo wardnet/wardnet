@@ -1,14 +1,16 @@
-# ADR: Provider-based, daemon-owned DDNS + ACME
+---
+status: accepted
+date: 2026-06-09
+issue: "#534 (C13 docs) — records the design shipped in #527/#528 (#521 umbrella)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-09
-**Issue**: #534 (C13 docs) — records the design shipped in #527/#528 (#521 umbrella)
+# ADR: Provider-based, daemon-owned DDNS + ACME
 
 ---
 
 ## Context
 
-For the daemon to terminate TLS (see `adr-daemon-owned-tls.md`) it needs a public
+For the daemon to terminate TLS (see `0008-daemon-owned-tls.md`) it needs a public
 FQDN and a way to publish the DNS-01 `_acme-challenge` TXT record. Two user
 populations exist:
 

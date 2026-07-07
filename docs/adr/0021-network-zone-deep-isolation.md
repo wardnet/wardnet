@@ -1,8 +1,10 @@
-# ADR: Network Zone deep isolation — per-zone subnets, a whole-chain L3 enforcer, a cross-zone exception engine, and why there is no mDNS reflector
+---
+status: accepted
+date: 2026-07-02
+issue: "#737 (Phase 2 · CI-3 of epic #244 — Network Zones)"
+---
 
-**Status**: Accepted
-**Date**: 2026-07-02
-**Issue**: #737 (Phase 2 · CI-3 of epic #244 — Network Zones)
+# ADR: Network Zone deep isolation — per-zone subnets, a whole-chain L3 enforcer, a cross-zone exception engine, and why there is no mDNS reflector
 
 ---
 

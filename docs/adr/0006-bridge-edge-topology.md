@@ -1,8 +1,14 @@
+---
+status: superseded
+superseded_by: "ADR-0007"
+superseded_date: 2026-06-09
+date: 2026-06-07
+issue: "#541 (follow-up to the #521 HTTPS/DDNS + remote-access umbrella)"
+---
+
 # ADR: Bridge edge topology — Caddy-l4 on the front, bridge as passthrough tunnel router
 
-**Status**: Superseded by [adr-bridge-self-terminated-tls.md](adr-bridge-self-terminated-tls.md) (2026-06-09)
-**Date**: 2026-06-07
-**Issue**: #541 (follow-up to the #521 HTTPS/DDNS + remote-access umbrella)
+*Superseded by [0007-bridge-self-terminated-tls.md](0007-bridge-self-terminated-tls.md) (2026-06-09).*
 
 > **Superseded.** The infrastructure decision was to drop Caddy entirely and front
 > the bridge with a transparent L4 proxy (nginx + PROXY protocol v1). The bridge now

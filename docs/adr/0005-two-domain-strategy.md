@@ -1,8 +1,10 @@
-# ADR: Two-domain strategy — trusted brand zone vs. untrusted user-content zone
+---
+status: accepted
+date: 2026-06-07
+issue: "#521 (HTTPS/DDNS + remote-access gateway; builds on the #217 local-DNS umbrella and the daemon-owned TLS/DDNS plan)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-07
-**Issue**: #521 (HTTPS/DDNS + remote-access gateway; builds on the #217 local-DNS umbrella and the daemon-owned TLS/DDNS plan)
+# ADR: Two-domain strategy — trusted brand zone vs. untrusted user-content zone
 
 ---
 
@@ -155,7 +157,7 @@ serving layer. Operating constraints recorded for implementation:
   ids are no longer region-scoped; id allocation must guarantee global
   uniqueness across a multi-region, per-region-database bridge fleet. The
   mechanism is settled in the companion ADR
-  [adr-global-naming-authority.md](adr-global-naming-authority.md).
+  [0004-global-naming-authority.md](0004-global-naming-authority.md).
 - **No per-region DNS sub-zone delegation.** A flat user zone means one
   global authoritative zone; we rely on Cloudflare's anycast rather than
   regional delegation. Acceptable given the provider choice.

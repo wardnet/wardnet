@@ -1,8 +1,12 @@
+---
+status: accepted
+date: 2026-06-19
+issue: "n/a — design-system hardening alongside the CSS-Modules migration"
+---
+
 # ADR: Typography scale and semantic text roles
 
-**Status**: Accepted — implemented on branch `chore/storybook-web` (single PR)
-**Date**: 2026-06-19
-**Issue**: n/a — design-system hardening alongside the CSS-Modules migration
+*Implemented on branch `chore/storybook-web` (single PR).*
 
 > **Revision (2026-06-19, mid-implementation).** A second challenge session
 > widened the app-facing scope from "kill raw-px only; leave `text-*` to

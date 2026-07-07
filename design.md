@@ -5,7 +5,7 @@ typography, spacing, elevation, motion, and the component library. Use this to
 reproduce the Wardnet look in new designs. Source of truth lives in
 `source/styles/` (`tokens.ts` → `styles.css` → `theme.css` / `typography.css`)
 and the React primitives in `source/ui/`. Typography rationale:
-`docs/adr-typography-scale-and-roles.md`.
+`docs/adr/0012-typography-scale-and-roles.md`.
 
 ---
 

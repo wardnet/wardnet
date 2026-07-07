@@ -1,8 +1,10 @@
-# ADR: Drop Recharts Brush in favour of drag-to-zoom
+---
+status: accepted
+date: 2026-05-27
+issue: "#317"
+---
 
-**Status**: Accepted  
-**Date**: 2026-05-27  
-**Issue**: #317
+# ADR: Drop Recharts Brush in favour of drag-to-zoom
 
 ---
 
