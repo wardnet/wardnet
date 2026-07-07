@@ -1,8 +1,10 @@
-# ADR: TLS serving identity is a method-exposed projection, and the canonical FQDN is the cert domain
+---
+status: accepted
+date: 2026-06-05
+issue: "#529 (part of #521)"
+---
 
-**Status**: Accepted  
-**Date**: 2026-06-05  
-**Issue**: #529 (part of #521)
+# ADR: TLS serving identity is a method-exposed projection, and the canonical FQDN is the cert domain
 
 ---
 

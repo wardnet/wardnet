@@ -1,8 +1,10 @@
-# ADR: PWAs compose existing endpoints — no BFF, enrich resources over view aggregators
+---
+status: accepted
+date: 2026-05-31
+issue: "#439"
+---
 
-**Status**: Accepted  
-**Date**: 2026-05-31  
-**Issue**: #439
+# ADR: PWAs compose existing endpoints — no BFF, enrich resources over view aggregators
 
 ---
 

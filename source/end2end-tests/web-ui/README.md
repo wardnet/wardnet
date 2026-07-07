@@ -227,7 +227,7 @@ compares in, so they're valid baselines. Commit them and the job goes green.
 This is the **authoritative** selector convention for the whole web-ui
 Playwright suite. `.agents/testing.md` links here; the rationale is
 recorded in
-[`docs/adr-e2e-selector-convention.md`](../../../docs/adr-e2e-selector-convention.md).
+[`docs/adr/0015-e2e-selector-convention.md`](../../../docs/adr/0015-e2e-selector-convention.md).
 
 **`data-testid` is the primary locator.** Locate every element with
 `page.getByTestId(...)`, then **additionally assert** the human-facing

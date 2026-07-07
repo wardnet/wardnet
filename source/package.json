@@ -11,12 +11,14 @@
     "marketing-site"
   ],
   "devDependencies": {
+    "@changesets/cli": "2.31.0",
     "turbo": "^2.10.3"
   },
   "resolutions": {
     "path-to-regexp": "8.4.0",
     "ip-address": "10.1.1",
-    "js-yaml": "4.2.0"
+    "js-yaml": "4.2.0",
+    "esbuild": "0.28.1"
   },
   "scripts": {
     "build": "turbo run build",
@@ -24,6 +26,8 @@
     "lint": "turbo run lint",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "changeset": "changeset",
+    "version": "changeset version"
   }
 }

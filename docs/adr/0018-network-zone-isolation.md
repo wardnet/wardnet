@@ -1,8 +1,10 @@
-# ADR: Network Zone isolation — the guarantee ladder, coarse target gating, and a destructive device rebuild
+---
+status: accepted
+date: 2026-07-01
+issue: "#735 (Phase 1 of epic #244 — Network Zones)"
+---
 
-**Status**: Accepted
-**Date**: 2026-07-01
-**Issue**: #735 (Phase 1 of epic #244 — Network Zones)
+# ADR: Network Zone isolation — the guarantee ladder, coarse target gating, and a destructive device rebuild
 
 ---
 

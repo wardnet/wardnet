@@ -1,9 +1,12 @@
+---
+status: accepted
+date: 2026-06-29
+issue: "#610 (cloud decomposition)"
+---
+
 # ADR: Daemon cloud auth — tenants-minted JWT + Ed25519 PoP, entitlement via token-mint 403
 
-**Status**: Accepted
-**Date**: 2026-06-29
-**Issue**: #610 (cloud decomposition); supersedes decision #4 of
-[`adr-premium-tier-and-entitlement.md`](adr-premium-tier-and-entitlement.md)
+*Supersedes decision #4 of [0010-premium-tier-and-entitlement.md](0010-premium-tier-and-entitlement.md).*
 
 ---
 

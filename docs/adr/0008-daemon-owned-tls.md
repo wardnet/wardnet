@@ -1,8 +1,10 @@
-# ADR: Daemon-owned TLS termination — native ACME, no Caddy on the Pi
+---
+status: accepted
+date: 2026-06-09
+issue: "#534 (C13 docs) — records the design shipped in #528, diverging from #436"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-09
-**Issue**: #534 (C13 docs) — records the design shipped in #528, diverging from #436
+# ADR: Daemon-owned TLS termination — native ACME, no Caddy on the Pi
 
 ---
 
@@ -33,7 +35,7 @@ reading its cert state) would have been the awkward path.
   **SecretStore** abstraction.
 - `:443` is served with `axum-server` + `rustls`, always bound: a self-signed
   **placeholder cert** seeds it pre-provisioning behind a `503` gate, swapped for
-  the real cert on activation (see `adr-serving-identity-boundary.md`). `:80`
+  the real cert on activation (see `0003-serving-identity-boundary.md`). `:80`
   redirects to HTTPS and rewrites short/LAN names to the **canonical FQDN**.
 - A `TlsRenewalRunner` re-issues on a 12-hour tick (idle until DDNS is configured),
   renewing within 30 days of expiry.
@@ -49,7 +51,7 @@ reading its cert state) would have been the awkward path.
   comparing the shipped daemon to #436 will find the Caddy companion absent on
   purpose — this ADR is the reason.
 - DNS-01 challenge publishing is delegated to the **DnsProvider** abstraction
-  (bridge or BYOD-Cloudflare) — see `adr-provider-based-ddns.md`.
+  (bridge or BYOD-Cloudflare) — see `0009-provider-based-ddns.md`.
 - The **bridge** later made the *opposite-looking* call (it had used Caddy too, then
   dropped it for in-process HTTP-01 termination) for environment-specific reasons —
-  see `adr-bridge-self-terminated-tls.md`. Same product, different environment.
+  see `0007-bridge-self-terminated-tls.md`. Same product, different environment.

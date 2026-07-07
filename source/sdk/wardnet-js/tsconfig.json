@@ -15,7 +15,12 @@
     "rootDir": "src",
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    // tsup's dts bundler (rollup-plugin-dts) unconditionally injects a
+    // `baseUrl` compiler option for its internal Program even though we
+    // don't set one ourselves — TS 6 treats that as a deprecated-error
+    // otherwise.
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src"]
 }

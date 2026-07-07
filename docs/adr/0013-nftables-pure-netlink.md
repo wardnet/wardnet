@@ -1,8 +1,10 @@
-# ADR: nftables management via pure netlink (rustables)
+---
+status: accepted
+date: 2026-06-23
+issue: "#307 — records the design shipped on `feature/nftables-netlink-307`"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-23
-**Issue**: #307 — records the design shipped on `feature/nftables-netlink-307`
+# ADR: nftables management via pure netlink (rustables)
 
 ---
 

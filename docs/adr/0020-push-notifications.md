@@ -1,8 +1,10 @@
-# ADR: Push notifications — VAPID + Web Push delivery
+---
+status: accepted
+date: 2026-07-01
+issue: "#440 (daemon VAPID + Web Push), under the #441 PWA-split umbrella"
+---
 
-**Status**: Accepted
-**Date**: 2026-07-01
-**Issue**: #440 (daemon VAPID + Web Push), under the #441 PWA-split umbrella
+# ADR: Push notifications — VAPID + Web Push delivery
 
 ---
 

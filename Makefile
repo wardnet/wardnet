@@ -66,7 +66,7 @@ COV_RUNNER ?=
 
 # ---------- Version ----------
 
-# Three version tracks, reflecting three independent concerns:
+# Two version tracks, reflecting two independent concerns:
 #
 #   ./VERSION                       — Internal SemVer for the daemon Cargo
 #                                     workspace, web-ui, and public site
@@ -85,25 +85,21 @@ COV_RUNNER ?=
 #                                     human-shaped (YYYY.MM.DD), so it stays
 #                                     out of Cargo and lives behind a
 #                                     compile-time env var instead.
-#   ./source/sdk/wardnet-js/VERSION — SemVer for the @wardnet/js TypeScript
-#                                     SDK. Decoupled from the daemon so we
-#                                     can publish API-compatible client
-#                                     fixes without retagging the daemon, and
-#                                     so the npm version graph follows
-#                                     SemVer expectations.
 #
-# Edit any of these files and run:
-#   make sync-version   # propagate VERSION + SDK VERSION into Cargo.toml +
-#                       # package.json files. CALVER doesn't propagate via
-#                       # sync-version — build.rs reads it directly at
-#                       # compile time.
+# @wardnet/js (source/sdk/wardnet-js) is versioned independently of both —
+# its package.json version is owned by changesets (`source/.changeset/`) and
+# published on push of a `@wardnet/js@x.y.z` tag (see
+# .github/workflows/release-sdk.yml), not by this VERSION/CALVER machinery.
+#
+# Edit VERSION/CALVER and run:
+#   make sync-version   # propagate VERSION into Cargo.toml + package.json
+#                       # files. CALVER doesn't propagate via sync-version —
+#                       # build.rs reads it directly at compile time.
 #   make check-version  # verify all files agree (used in CI)
 VERSION_FILE     := VERSION
 VERSION          := $(shell cat $(VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
 CALVER_FILE      := CALVER
 CALVER           := $(shell cat $(CALVER_FILE) 2>/dev/null | tr -d '[:space:]')
-SDK_VERSION_FILE := $(SDK_DIR)/VERSION
-SDK_VERSION      := $(shell cat $(SDK_VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
 
 all: build
 
@@ -114,25 +110,20 @@ all: build
 # avoid BSD/GNU flag differences.
 sync-version:
 	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
-	@test -n "$(SDK_VERSION)" || { echo "Error: $(SDK_VERSION_FILE) is empty or missing"; exit 1; }
 	@echo "Syncing daemon/web/site version -> $(VERSION)"
-	@echo "Syncing SDK version            -> $(SDK_VERSION)"
 	@perl -pi -e 's/^(version = )"[^"]+"/$$1"$(VERSION)"/ if $$. < 25 && !$$done; $$done=1 if s/^(version = )"[^"]+"/$$1"$(VERSION)"/' $(DAEMON_DIR)/Cargo.toml
 	@for f in $(WEBUI_DIR)/package.json $(SITE_DIR)/package.json; do \
 		perl -pi -e 'if (!$$done && /"version":\s*"[^"]*"/) { s/"version":\s*"[^"]*"/"version": "$(VERSION)"/; $$done=1 }' $$f; \
 	done
-	@perl -pi -e 'if (!$$done && /"version":\s*"[^"]*"/) { s/"version":\s*"[^"]*"/"version": "$(SDK_VERSION)"/; $$done=1 }' $(SDK_DIR)/package.json
 	@echo "  updated: $(DAEMON_DIR)/Cargo.toml"
 	@echo "  updated: $(WEBUI_DIR)/package.json"
 	@echo "  updated: $(SITE_DIR)/package.json"
-	@echo "  updated: $(SDK_DIR)/package.json"
 	@echo "Tip: regenerate lockfiles via 'cargo check' and 'yarn install', and run 'make openapi' to refresh docs/openapi.json."
 
 # Verify every versioned file agrees with its source-of-truth file.
 # Intended for CI.
 check-version:
 	@test -n "$(VERSION)" || { echo "Error: $(VERSION_FILE) is empty or missing"; exit 1; }
-	@test -n "$(SDK_VERSION)" || { echo "Error: $(SDK_VERSION_FILE) is empty or missing"; exit 1; }
 	@test -n "$(CALVER)" || { echo "Error: $(CALVER_FILE) is empty or missing"; exit 1; }
 	@echo "$(CALVER)" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}([-.+].+)?$$' || { \
 		echo "Error: $(CALVER_FILE)='$(CALVER)' does not match YYYY.MM.DD"; exit 1; }
@@ -143,9 +134,7 @@ check-version:
 		v=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $$f | head -1); \
 		if [ "$$v" != "$(VERSION)" ]; then echo "MISMATCH $$f: $$v != $(VERSION)"; ok=false; fi; \
 	done; \
-	v=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(SDK_DIR)/package.json | head -1); \
-	if [ "$$v" != "$(SDK_VERSION)" ]; then echo "MISMATCH $(SDK_DIR)/package.json: $$v != $(SDK_VERSION)"; ok=false; fi; \
-	if [ "$$ok" = "true" ]; then echo "All files match: $(VERSION_FILE)=$(VERSION), $(CALVER_FILE)=$(CALVER), $(SDK_VERSION_FILE)=$(SDK_VERSION)"; else exit 1; fi
+	if [ "$$ok" = "true" ]; then echo "All files match: $(VERSION_FILE)=$(VERSION), $(CALVER_FILE)=$(CALVER)"; else exit 1; fi
 
 # ---------- Dev environment setup ----------
 
@@ -168,6 +157,27 @@ check-sdk:
 	cd $(SDK_DIR) && yarn install --immutable
 	cd $(SDK_DIR) && yarn type-check
 	cd $(SDK_DIR) && yarn format:check
+
+# Build @wardnet/js's dist/ once. Vite dev servers resolve @wardnet/js via
+# package.json's main/exports, which point at dist/ (needed for the npm
+# publish) — so a clean checkout's `run-dev-*` targets need this to run
+# first, or they fail with a missing-module error. If you're editing SDK
+# source while a dev server is running, run `yarn workspace @wardnet/js
+# build --watch` in a second terminal (or use `make run-dev`, which does
+# this for you).
+#
+# `build-sdk` is .PHONY, so it reruns unconditionally every time it's a
+# prerequisite. `run-dev` already builds the SDK once via its own
+# `build-sdk` prerequisite before backgrounding run-dev-web/user-app/
+# admin-app as separate recursive `$(MAKE)` invocations — without a guard,
+# each of those would rebuild the SDK again, all racing to clean+rewrite the
+# same dist/ concurrently. SKIP_SDK_BUILD=1 (set by run-dev on those
+# sub-invocations) skips the rebuild since the parent already did it.
+build-sdk:
+ifneq ($(SKIP_SDK_BUILD),1)
+	cd $(SDK_DIR) && yarn install --immutable
+	cd $(SDK_DIR) && yarn build
+endif
 
 # ---------- Web UI ----------
 
@@ -357,33 +367,36 @@ run-dev-daemon:
 	cd $(DAEMON_DIR) && cargo run --bin wardnetd-mock -- --verbose $$DB_ARG $$PUSH_ARG
 
 # Run just the admin-site Vite dev server on :7412, proxying /api to :7411.
-run-dev-web:
+run-dev-web: build-sdk
 	@echo "Admin site : http://127.0.0.1:7412/admin/  (proxies /api to mock on :7411)"
 	@echo ""
 	@cd $(WEBUI_DIR) && yarn dev
 
 # Run just the user-app Vite dev server on :7413, proxying /api to :7411.
-run-dev-user-app:
+run-dev-user-app: build-sdk
 	@echo "User PWA   : http://127.0.0.1:7413  (proxies /api to mock on :7411)"
 	@echo ""
 	@cd $(USER_APP_DIR) && yarn dev
 
 # Run just the admin-app Vite dev server on :7414, proxying /api to :7411.
-run-dev-admin-app:
+run-dev-admin-app: build-sdk
 	@echo "Admin PWA  : http://127.0.0.1:7414/admin-app/  (proxies /api to mock on :7411)"
 	@echo ""
 	@cd $(ADMIN_APP_DIR) && yarn dev
 
-# Run mock daemon + all three Vite dev servers together.
+# Run mock daemon + all three Vite dev servers together, plus @wardnet/js in
+# watch mode so editing SDK source rebuilds dist/ and the Vite servers pick
+# it up (they resolve @wardnet/js via package.json's main/exports, which
+# point at dist/ — see build-sdk).
 #
-# The daemon, user-app, and admin-app servers are spawned in the background;
-# the admin-site server runs in the foreground. Ctrl+C stops admin-site and
-# tears down all background processes via the EXIT trap.
+# The daemon, user-app, admin-app, and SDK watch process are spawned in the
+# background; the admin-site server runs in the foreground. Ctrl+C stops
+# admin-site and tears down all background processes via the EXIT trap.
 #
-# All four processes share the same :7411 mock API. Database persists at
+# All four dev processes share the same :7411 mock API. Database persists at
 # `.wardnet-local/wardnet.db` by default; pass `RESUME=false` for an
 # ephemeral in-memory DB (re-runs setup wizard from scratch).
-run-dev:
+run-dev: build-sdk
 	@echo "=== Starting wardnetd-mock + all three web dev servers ==="
 	@echo "  Mock API   : http://127.0.0.1:7411"
 	@echo "  Admin site : http://127.0.0.1:7412/admin/"
@@ -393,13 +406,15 @@ run-dev:
 	@set -e; \
 	$(MAKE) run-dev-daemon & \
 	DAEMON_PID=$$!; \
-	$(MAKE) run-dev-user-app & \
+	$(MAKE) SKIP_SDK_BUILD=1 run-dev-user-app & \
 	USER_APP_PID=$$!; \
-	$(MAKE) run-dev-admin-app & \
+	$(MAKE) SKIP_SDK_BUILD=1 run-dev-admin-app & \
 	ADMIN_APP_PID=$$!; \
-	trap "kill $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; \
-	      wait $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID 2>/dev/null; true" EXIT INT TERM; \
-	$(MAKE) run-dev-web
+	(cd $(SDK_DIR) && yarn build --watch) & \
+	SDK_WATCH_PID=$$!; \
+	trap "kill $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID $$SDK_WATCH_PID 2>/dev/null; \
+	      wait $$DAEMON_PID $$USER_APP_PID $$ADMIN_APP_PID $$SDK_WATCH_PID 2>/dev/null; true" EXIT INT TERM; \
+	$(MAKE) SKIP_SDK_BUILD=1 run-dev-web
 
 # Web Push test bed (issues #482/#764) — one command to exercise the real
 # notification flow locally, production-shaped:
@@ -586,6 +601,7 @@ help:
 	@echo ""
 	@echo "  check          Run all checks (SDK + web + site + daemon)"
 	@echo "  check-sdk      Typecheck + format check for SDK"
+	@echo "  build-sdk      Build @wardnet/js's dist/ once (run-dev-* depend on this)"
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
 	@echo "  check-site     Typecheck + format check + tests for public site"
 	@echo "  check-daemon   Format + clippy + tests for daemon (auto: native on Linux, container on macOS)"
@@ -594,16 +610,18 @@ help:
 	@echo "  openapi        Regenerate $(OPENAPI_FILE) from the daemon's #[utoipa::path] annotations"
 	@echo "  check-openapi  Drift gate: fail if $(OPENAPI_FILE) is stale (run 'make openapi' to fix)"
 	@echo ""
-	@echo "  run-dev        Run wardnetd-mock + all three Vite dev servers"
+	@echo "  run-dev        Run wardnetd-mock + all three Vite dev servers + SDK watch build"
 	@echo "                 Mock API :7411, admin-site :7412/admin/, user-app :7413, admin-app :7414/admin-app/"
 	@echo "                 Ctrl+C stops all. DB persists at .wardnet-local/ by default."
 	@echo "                 make run-dev                    (persist DB at .wardnet-local/)"
 	@echo "                 make run-dev RESUME=false       (ephemeral in-memory DB)"
 	@echo "  run-dev-daemon     Run just wardnetd-mock on :7411 (same RESUME flag)"
 	@echo "                     make run-dev-daemon REAL_PUSH=true  (deliver Web Push for real)"
-	@echo "  run-dev-web        Run just the admin-site Vite server on :7412"
-	@echo "  run-dev-user-app   Run just the user-app Vite server on :7413"
-	@echo "  run-dev-admin-app  Run just the admin-app Vite server on :7414"
+	@echo "  run-dev-web        Run just the admin-site Vite server on :7412 (builds SDK dist/ first)"
+	@echo "                     editing @wardnet/js source? run 'yarn workspace @wardnet/js build --watch'"
+	@echo "                     in another terminal, or use 'make run-dev' which does this for you"
+	@echo "  run-dev-user-app   Run just the user-app Vite server on :7413 (builds SDK dist/ first)"
+	@echo "  run-dev-admin-app  Run just the admin-app Vite server on :7414 (builds SDK dist/ first)"
 	@echo "  run-dev-push       Web Push test bed: build all web bundles, run only the"
 	@echo "                     mock with real push delivery — all surfaces on :7411, no HMR"
 	@echo ""

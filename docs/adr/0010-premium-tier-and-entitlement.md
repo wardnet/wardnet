@@ -1,8 +1,10 @@
-# ADR: Premium tier and entitlement model
+---
+status: accepted
+date: 2026-06-13
+issue: "#609 (premium tier + entitlement); pairs with #610 (bridge decoupling)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-13
-**Issue**: #609 (premium tier + entitlement); pairs with #610 (bridge decoupling)
+# ADR: Premium tier and entitlement model
 
 ---
 
@@ -36,6 +38,14 @@ account.
 
 ### 2. Durable account, ephemeral install binding
 
+> **Superseded (2026-07-07)** — the reinstall mechanism described below (email
+> magic-link) was replaced by the **enrollment code** flow: a one-time code
+> emailed to the tenant's account address, submitted to bind a fresh daemon
+> identity to the tenant (see CONTEXT.md). A reinstalled box wipes and
+> re-enrolls rather than migrating via link. The rest of this decision — a
+> durable, email-keyed account with Stripe referenced but not authoritative,
+> one active install binding per subscription — is unchanged.
+
 Billing is anchored to a **durable, email-keyed premium account** whose master
 record lives in **tenant management** (alongside the global naming authority).
 **Stripe is referenced** (`stripe_customer_id`), **not authoritative** for
@@ -55,7 +65,7 @@ tenant-management account record.
 ### 4. Entitlement lease as the enforcement token
 
 > **Superseded (2026-06-29)** by
-> [`adr-daemon-cloud-auth.md`](adr-daemon-cloud-auth.md): there is no entitlement
+> [`0016-daemon-cloud-auth.md`](0016-daemon-cloud-auth.md): there is no entitlement
 > lease. Entitlement is derived from the **token-mint outcome** (a `403` mint ⇒
 > suspended, the next successful mint ⇒ restored). The *intent* below — local
 > self-degradation with guaranteed re-entry — is preserved; only the transport
@@ -128,7 +138,7 @@ project" tier.
 ## Consequences
 
 - The **entitlement lease** doubles as the global↔regional boundary primitive
-  (see `adr-service-decomposition.md`) — one mechanism, two problems solved.
+  (see `0011-service-decomposition.md`) — one mechanism, two problems solved.
 - **Tenant management is the security-critical store** (accounts, billing
   linkage, lease-signing key) and must be isolated from the internet-facing
   planes.

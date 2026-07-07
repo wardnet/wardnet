@@ -2,8 +2,10 @@ name: Check Version
 description: >-
   Verifies that ./VERSION agrees with the workspace version in
   source/daemon/Cargo.toml and every package.json that carries
-  wardnet's version. Catches the failure mode where a version bump
-  lands in one file but not the others.
+  wardnet's version (daemon-tied web-ui/site builds — @wardnet/js is
+  versioned independently via changesets and isn't covered here).
+  Catches the failure mode where a version bump lands in one file
+  but not the others.
 
   Expects the repo to already be checked out.
 
