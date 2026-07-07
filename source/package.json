@@ -11,6 +11,7 @@
     "marketing-site"
   ],
   "devDependencies": {
+    "@changesets/cli": "2.31.0",
     "turbo": "^2.10.3"
   },
   "resolutions": {
@@ -24,6 +25,8 @@
     "lint": "turbo run lint",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "changeset": "changeset",
+    "version": "changeset version"
   }
 }
