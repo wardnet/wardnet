@@ -29,6 +29,9 @@ source/marketing-site/public/api-specs/
 source/marketing-site/public/install.sh
 # Vendored Scalar bundle copied from the daemon at build time by `yarn copy:scalar`.
 source/marketing-site/public/api-docs/
+# TypeDoc HTML reference generated from source/sdk/wardnet-js at build time by
+# `yarn generate:sdk-reference`.
+source/marketing-site/public/sdk-docs/
 **/.yarn/install-state.gz
 **/.yarn/cache/
 **/.yarn/unplugged/

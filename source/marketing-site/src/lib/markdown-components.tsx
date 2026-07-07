@@ -1,0 +1,82 @@
+import type { Components } from "react-markdown";
+
+// Map each markdown element to Forge tokens / classes. Body copy lives on
+// Inter Tight (--font-sans) and `<code>` / `<pre>` switch to JetBrains Mono
+// (--font-mono) via the global Tailwind `font-mono` utility wired through
+// the @theme block in `index.css`. Inline code uses Forge's `.kbd` style;
+// fenced blocks lean on the `.logs` family (--bg-sunken + --font-mono).
+export const MD_COMPONENTS: Components = {
+  h1: (props) => (
+    <h1 className="mb-6 mt-0 t-size-4xl t-weight-bold tracking-tight text-ink" {...props} />
+  ),
+  h2: (props) => (
+    <h2 className="mb-4 mt-10 t-size-2xl t-weight-bold tracking-tight text-ink" {...props} />
+  ),
+  h3: (props) => <h3 className="mb-3 mt-6 t-size-lg t-weight-semibold text-ink" {...props} />,
+  p: (props) => <p className="mb-4 leading-relaxed text-ink-2" {...props} />,
+  ul: (props) => <ul className="mb-4 list-disc space-y-1 pl-6" {...props} />,
+  ol: (props) => <ol className="mb-4 list-decimal space-y-1 pl-6" {...props} />,
+  li: (props) => <li className="text-ink-2" {...props} />,
+  a: (props) => <a className="t-weight-medium text-accent hover:underline" {...props} />,
+  code: ({ children, className }) => {
+    // Inline code has no language class; fenced blocks get a `language-*`.
+    // Inline → Forge `.kbd` (mono, --bg-sunken, --line border). Fenced →
+    // pass the `language-*` class straight through so the `pre` host owns
+    // the styling.
+    const isInline = !className;
+    if (isInline) {
+      return <code className="kbd">{children}</code>;
+    }
+    return <code className={className}>{children}</code>;
+  },
+  pre: (props) => (
+    <pre className="logs mb-4 overflow-x-auto rounded-lg p-4 leading-relaxed" {...props} />
+  ),
+  blockquote: (props) => (
+    <blockquote className="mb-4 border-l-4 border-accent/40 pl-4 italic text-ink-3" {...props} />
+  ),
+  table: (props) => (
+    <div className="mb-4 overflow-x-auto">
+      <table className="w-full border-collapse t-size-sm text-ink-2" {...props} />
+    </div>
+  ),
+  th: (props) => (
+    <th
+      className="border-b border-line-strong px-3 py-2 text-left t-weight-semibold text-ink"
+      {...props}
+    />
+  ),
+  td: (props) => <td className="border-b border-line px-3 py-2" {...props} />,
+  hr: () => <hr className="my-8 border-line" />,
+  strong: (props) => <strong className="t-weight-semibold text-ink" {...props} />,
+  // Screenshots are captured at retina density (~2x) which makes the raw
+  // pixel dimensions overwhelm our `max-w-[72rem]` article column. Cap
+  // them at a readable width and centre them so every screenshot reads
+  // as a focused illustration rather than a full-bleed hero image.
+  //
+  // A few screenshots (wide cards, banners) read better when they fill
+  // the whole column. Phone-shaped screenshots (portrait mobile-app
+  // captures) go the other way, `max-w-2xl` at their ~0.54 aspect ratio
+  // renders 1200px+ tall and dwarfs the surrounding prose. Opt into
+  // either via the markdown title:
+  //
+  //   ![alt](path "wide")   → no width cap
+  //   ![alt](path "phone")  → narrow cap sized for a portrait phone shot
+  //
+  // Default (no title) stays at `max-w-2xl`, the right size for
+  // dialog / modal screenshots.
+  img: ({ title, ...props }) => {
+    const wide = title === "wide";
+    const phone = title === "phone";
+    const widthClass = wide ? "" : phone ? " max-w-sm" : " max-w-2xl";
+    return (
+      <img
+        className={"my-6 mx-auto block w-full rounded-lg border border-line" + widthClass}
+        loading="lazy"
+        // The `title` was a sizing directive, don't let it leak
+        // into the rendered HTML as a tooltip.
+        {...props}
+      />
+    );
+  },
+};

@@ -39,6 +39,8 @@ HTTP API + embedded web UI bind settings.
 | --- | --- | --- |
 | `host` | `"0.0.0.0"` | Loopback-only binding? Set `"127.0.0.1"`. |
 | `port` | `7411` | Port for the HTTP API and web UI. |
+| `https_port` | `443` | Port for the daemon-terminated TLS listener. |
+| `http_redirect_port` | `80` | Port that redirects plain HTTP to `https_port`. |
 
 ## `[database]`
 
@@ -78,6 +80,7 @@ live over the `/api/system/logs/stream` WebSocket.
 | Key | Default | Notes |
 | --- | --- | --- |
 | `session_expiry_hours` | `24` | Admin session cookie lifetime. |
+| `remember_me_expiry_hours` | `720` | Session lifetime when "remember me" is checked at login. |
 
 ## `[admin]` (optional)
 
@@ -126,6 +129,11 @@ path = "/var/lib/wardnet/secrets"
 | `idle_timeout_secs` | `600` | Tear down tunnels idle for this long. |
 | `health_check_interval_secs` | `10` | How often to poll each tunnel for liveness. |
 | `stats_interval_secs` | `5` | How often to pull bytes-tx/rx counters. |
+| `latency_probe_interval_secs` | `60` | How often to re-measure tunnel latency for the latency chart. |
+| `latency_probe_target` | `"1.1.1.1"` | Host pinged to measure tunnel latency. |
+| `test_probe_url` | `"https://1.1.1.1/cdn-cgi/trace"` | URL used for the tunnel connectivity test probe. |
+| `speed_test_url` | `"https://speed.cloudflare.com/__down?bytes=10000000"` | Download URL used by the tunnel speed test. |
+| `speed_test_latency_samples` | `5` | Number of samples averaged for the speed test's latency reading. |
 
 Tunnel private keys are stored via `[secret_store]` (above), they are
 not configured here.
@@ -176,7 +184,7 @@ Per-metric toggles under `[otel.metrics.enabled_metrics]`:
 `system_cpu_utilization`, `system_memory_usage`, `system_temperature`,
 `system_network_io`, `wardnet_device_count`, `wardnet_tunnel_count`,
 `wardnet_tunnel_active_count`, `wardnet_uptime_seconds`,
-`wardnet_db_size_bytes`.
+`wardnet_db_size_bytes`, `wardnet_disk_free_bytes`.
 
 ## `[vpn_providers]`
 
@@ -192,6 +200,44 @@ Continuous profiling agent. Disabled by default.
 | --- | --- | --- |
 | `enabled` | `false` | Master switch. |
 | `endpoint` | `"http://localhost:4040"` | Pyroscope server URL. |
+
+## `[mdns]`
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `enabled` | `true` | Advertise the daemon over mDNS so `wardnet.local` resolves on the LAN. |
+| `hostname` | _(none)_ | Override the advertised hostname. Defaults to the system hostname when unset. |
+
+## `[health]`
+
+Tuning for the internal `HealthMonitor` that backs the health-gated soft
+watchdog restart.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `refresh_interval_secs` | `5` | How often each health check runs. |
+| `failure_threshold` | `3` | Consecutive failures required before a check is considered unhealthy. |
+| `check_timeout_secs` | `2` | Per-check timeout. |
+
+## `[watchdog]`
+
+Hardware watchdog integration. The soft (systemd) watchdog can be
+disabled independently of the hard (kernel) watchdog; the hard watchdog
+pet is never health-gated.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `enabled` | `true` | Master switch for hardware watchdog petting. |
+| `device_path` | `"/dev/watchdog"` | Watchdog character device. |
+| `hardware_timeout_secs` | `15` | Timeout configured on the hardware watchdog. |
+| `pet_interval_secs` | `5` | How often the daemon pets the watchdog. |
+| `soft_enabled` | `true` | Whether the pet is gated on `HealthMonitor` status. Set `false` to pet unconditionally. |
+
+## Top-level keys
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `pidfile_path` | `"/run/wardnetd/wardnetd.pid"` | Where the daemon writes its PID file. Not part of any `[section]`. |
 
 ## Environment variable overrides
 

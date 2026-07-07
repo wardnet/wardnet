@@ -7,8 +7,9 @@ interface Surface {
   audience: string;
   description: string;
   premium?: boolean;
-  /** Placeholder aspect ratio, desktop is wide, phones are tall. */
+  /** Screenshot aspect ratio, desktop is wide, phones are tall. */
   shape: "desktop" | "phone";
+  image: string;
 }
 
 const SURFACES: Surface[] = [
@@ -19,6 +20,7 @@ const SURFACES: Surface[] = [
     description:
       "The full control surface for tunnels, routing, zones, DNS, devices, and stats. Served straight from the gateway on your LAN, no account, no cloud.",
     shape: "desktop",
+    image: "/docs/app-surfaces/desktop-admin.png",
   },
   {
     icon: <Smartphone size={24} />,
@@ -28,6 +30,7 @@ const SURFACES: Surface[] = [
       "A self-service app where each person manages their own devices and tunnels, installable to the home screen, reachable from anywhere.",
     premium: true,
     shape: "phone",
+    image: "/docs/mobile-apps/user-home.png",
   },
   {
     icon: <ShieldCheck size={24} />,
@@ -37,6 +40,7 @@ const SURFACES: Surface[] = [
       "Administer the whole gateway from your phone, with push notifications for rule requests and network alerts.",
     premium: true,
     shape: "phone",
+    image: "/docs/mobile-apps/admin-dashboard.png",
   },
 ];
 
@@ -78,18 +82,18 @@ function SurfaceCard({ surface }: { surface: Surface }) {
           </span>
         )}
       </div>
-      {/* Screenshot placeholder, replaced with a captured PNG in a later
-          session. Kept as a framed box (not a broken <img>) so the section
-          renders cleanly until then. */}
       <div
         className={
-          "mb-4 flex items-center justify-center rounded-lg border border-dashed border-line-strong bg-elev text-ink-4 " +
+          "mb-4 overflow-hidden rounded-lg border border-line-strong bg-elev " +
           (surface.shape === "desktop" ? "aspect-video" : "mx-auto aspect-[9/16] w-40")
         }
-        role="img"
-        aria-label={`${surface.name} screenshot placeholder`}
       >
-        <span className="t-size-xs uppercase tracking-wider">Screenshot coming soon</span>
+        <img
+          src={surface.image}
+          alt={`${surface.name} screenshot`}
+          loading="lazy"
+          className="h-full w-full object-cover object-top"
+        />
       </div>
       <p className="t-size-xs t-weight-semibold uppercase tracking-wider text-accent">
         {surface.audience}

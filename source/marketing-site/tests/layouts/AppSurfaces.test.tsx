@@ -20,8 +20,8 @@ describe("AppSurfaces", () => {
     expect(screen.getAllByText("Premium")).toHaveLength(2);
   });
 
-  it("renders a screenshot placeholder for each surface", () => {
+  it("renders a screenshot for each surface", () => {
     render(<AppSurfaces />);
-    expect(screen.getAllByRole("img", { name: /screenshot placeholder/i })).toHaveLength(3);
+    expect(screen.getAllByRole("img", { name: /screenshot/i })).toHaveLength(3);
   });
 });

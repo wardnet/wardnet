@@ -39,6 +39,12 @@ describe("Footer", () => {
     expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute("href", "/premium");
   });
 
+  it("renders the Status link", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Status" });
+    expect(link).toHaveAttribute("href", "https://status.wardnet.network");
+  });
+
   it("renders the Wardnet logo lockup", () => {
     renderFooter();
     expect(screen.getByAltText("Wardnet")).toBeInTheDocument();
