@@ -1,8 +1,10 @@
-# ADR: Network Zone packet enforcement — a decoupled nftables enforcer, and closing the default-policy caveat via an event + callback
+---
+status: accepted
+date: 2026-07-01
+issue: "#736 (Phase 1 · CI-2 of epic #244 — Network Zones)"
+---
 
-**Status**: Accepted
-**Date**: 2026-07-01
-**Issue**: #736 (Phase 1 · CI-2 of epic #244 — Network Zones)
+# ADR: Network Zone packet enforcement — a decoupled nftables enforcer, and closing the default-policy caveat via an event + callback
 
 ---
 

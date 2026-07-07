@@ -1,8 +1,10 @@
-# ADR: Two-domain strategy — trusted brand zone vs. untrusted user-content zone
+---
+status: accepted
+date: 2026-06-07
+issue: "#521 (HTTPS/DDNS + remote-access gateway; builds on the #217 local-DNS umbrella and the daemon-owned TLS/DDNS plan)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-07
-**Issue**: #521 (HTTPS/DDNS + remote-access gateway; builds on the #217 local-DNS umbrella and the daemon-owned TLS/DDNS plan)
+# ADR: Two-domain strategy — trusted brand zone vs. untrusted user-content zone
 
 ---
 

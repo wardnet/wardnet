@@ -1,8 +1,10 @@
-# ADR: Daemon-owned TLS termination — native ACME, no Caddy on the Pi
+---
+status: accepted
+date: 2026-06-09
+issue: "#534 (C13 docs) — records the design shipped in #528, diverging from #436"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-09
-**Issue**: #534 (C13 docs) — records the design shipped in #528, diverging from #436
+# ADR: Daemon-owned TLS termination — native ACME, no Caddy on the Pi
 
 ---
 

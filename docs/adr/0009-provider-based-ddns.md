@@ -1,8 +1,10 @@
-# ADR: Provider-based, daemon-owned DDNS + ACME
+---
+status: accepted
+date: 2026-06-09
+issue: "#534 (C13 docs) — records the design shipped in #527/#528 (#521 umbrella)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-09
-**Issue**: #534 (C13 docs) — records the design shipped in #527/#528 (#521 umbrella)
+# ADR: Provider-based, daemon-owned DDNS + ACME
 
 ---
 

@@ -2,6 +2,8 @@
 
 Sequentially numbered per [`.claude/skills/challenge/ADR-TEMPLATE.md`](../../.claude/skills/challenge/ADR-TEMPLATE.md).
 To add a new one, scan this directory for the highest number and increment by one.
+Each file's `status`/`date`/`issue` (and `supersedes`/`superseded_by` where relevant)
+live in a YAML frontmatter block at the top of the file.
 
 | # | Title | Date | Status |
 |---|---|---|---|

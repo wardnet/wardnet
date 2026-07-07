@@ -1,8 +1,12 @@
+---
+status: accepted
+date: 2026-06-13
+issue: "#610 (bridge decoupling); pairs with #609 (premium tier)"
+---
+
 # ADR: Bridge service decomposition — tenant (global) / DDNS + Tunneler (regional)
 
-**Status**: Accepted
-**Date**: 2026-06-13
-**Issue**: #610 (bridge decoupling); pairs with #609 (premium tier). Builds on `0005-two-domain-strategy.md` and `0004-global-naming-authority.md`
+*Builds on [0005-two-domain-strategy.md](0005-two-domain-strategy.md) and [0004-global-naming-authority.md](0004-global-naming-authority.md).*
 
 ---
 

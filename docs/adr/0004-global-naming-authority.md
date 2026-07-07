@@ -1,8 +1,12 @@
+---
+status: accepted
+date: 2026-06-07
+issue: "#521 (HTTPS/DDNS + remote-access gateway)"
+---
+
 # ADR: Global naming authority is a strongly-consistent Postgres registry, not DNS/KV
 
-**Status**: Accepted
-**Date**: 2026-06-07
-**Issue**: #521 (HTTPS/DDNS + remote-access gateway). Companion to [0005-two-domain-strategy.md](0005-two-domain-strategy.md).
+*Companion to [0005-two-domain-strategy.md](0005-two-domain-strategy.md).*
 
 ---
 

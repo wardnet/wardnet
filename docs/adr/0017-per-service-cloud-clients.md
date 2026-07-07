@@ -1,10 +1,12 @@
+---
+status: accepted
+date: 2026-06-29
+issue: "#610 (cloud decomposition)"
+---
+
 # ADR: Per-service cloud clients with independent endpoints
 
-**Status**: Accepted
-**Date**: 2026-06-29
-**Issue**: #610 (cloud decomposition); pairs with
-[`0016-daemon-cloud-auth.md`](0016-daemon-cloud-auth.md) and
-[`0011-service-decomposition.md`](0011-service-decomposition.md)
+*Pairs with [0016-daemon-cloud-auth.md](0016-daemon-cloud-auth.md) and [0011-service-decomposition.md](0011-service-decomposition.md).*
 
 ---
 

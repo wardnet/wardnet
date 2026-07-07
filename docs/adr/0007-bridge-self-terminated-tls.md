@@ -1,9 +1,13 @@
+---
+status: accepted
+supersedes: "ADR-0006"
+date: 2026-06-09
+issue: "follow-up to #521 (HTTPS/DDNS + remote-access umbrella) (#541)"
+---
+
 # ADR: Bridge self-terminated TLS — drop Caddy, own the edge in-process
 
-**Status**: Accepted
-**Date**: 2026-06-09
-**Issue**: follow-up to #521 (HTTPS/DDNS + remote-access umbrella)
-**Supersedes**: ADR-0006 ([0006-bridge-edge-topology.md](0006-bridge-edge-topology.md)) (#541)
+*Supersedes [0006-bridge-edge-topology.md](0006-bridge-edge-topology.md).*
 
 ---
 

@@ -1,8 +1,10 @@
-# ADR: Premium tier and entitlement model
+---
+status: accepted
+date: 2026-06-13
+issue: "#609 (premium tier + entitlement); pairs with #610 (bridge decoupling)"
+---
 
-**Status**: Accepted
-**Date**: 2026-06-13
-**Issue**: #609 (premium tier + entitlement); pairs with #610 (bridge decoupling)
+# ADR: Premium tier and entitlement model
 
 ---
 
