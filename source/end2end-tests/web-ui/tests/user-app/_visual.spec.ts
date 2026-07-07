@@ -11,16 +11,23 @@ import { expect, test } from "@playwright/test";
  */
 test.describe("user-app visual", { tag: "@visual" }, () => {
   test("home", async ({ page }) => {
+    // The verify card's height differs a lot across its loading (180px) /
+    // error (~150-170px) / loaded-map (~290px+) states, and a mask only
+    // paints over whatever bounding box is current at capture time — it
+    // doesn't reserve consistent space. Which state it lands in depends on
+    // whether the BROWSER can reach the real ipapi.co over the CI runner's
+    // actual internet egress (status.spec.ts documents this as
+    // environment-dependent and deliberately doesn't assert on it either) —
+    // so unlike every other masked element here, this one can't be waited
+    // into a known state, it has to be made deterministic. Force the
+    // failure branch by intercepting the request instead of hitting the
+    // real network at all.
+    await page.route("https://ipapi.co/**", (route) =>
+      route.fulfill({ status: 500, body: "" }),
+    );
+
     await page.goto("./");
     await expect(page.getByTestId("device-identity")).toBeVisible();
-    // The verify card's height differs a lot across its loading (180px)
-    // /error (~150-170px) / loaded-map (~290px+) states, and a mask only
-    // paints over whatever bounding box is current at capture time — it
-    // doesn't reserve consistent space. ipapi.co is unreachable from the
-    // compose network (see status.spec.ts), so the query always ends up in
-    // its one deterministic terminal state: error, after react-query's
-    // single retry. Wait for that before shooting so every run masks the
-    // same layout instead of racing loading-vs-error.
     await expect(
       page
         .getByTestId("verify-card")
