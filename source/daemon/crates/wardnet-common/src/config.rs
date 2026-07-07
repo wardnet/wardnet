@@ -519,12 +519,14 @@ pub struct VpnProvidersConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DdnsWardnetConfig {
-    /// Override for the global gateway base URL (fronts `tenants`:
-    /// enroll / token / availability / networks under `/tenants/v1/…`).
+    /// Override for the global gateway base URL (fronts `tenants`: enroll /
+    /// token / availability / networks under prefix-free `/v1/…`, cloud
+    /// ADR-0015).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gateway_url: Option<String>,
     /// Override for the single built-in region's gateway base URL (fronts
-    /// that region's `ddns` service under `/ddns/v1/…`).
+    /// that region's `ddns` service, routing on `X-Mesh-Target` rather than a
+    /// path prefix).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region_gateway_url: Option<String>,
     /// Override for the single built-in region's health-probe URL, checked by

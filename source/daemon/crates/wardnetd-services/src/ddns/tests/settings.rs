@@ -37,13 +37,13 @@ fn region_overrides_replace_catalog_urls_but_keep_slugs() {
     let settings = DdnsSettings::with_wardnet_overrides(
         None,
         Some("http://mock:8080"),
-        Some("http://mock:8080/ddns/v1/health"),
+        Some("http://mock:8080/readyz"),
     );
     assert_eq!(settings.region_catalog.len(), default_catalog.len());
     for (overridden, base) in settings.region_catalog.iter().zip(&default_catalog) {
         assert_eq!(overridden.slug, base.slug);
         assert_eq!(overridden.gateway_base_url, "http://mock:8080");
-        assert_eq!(overridden.health_url, "http://mock:8080/ddns/v1/health");
+        assert_eq!(overridden.health_url, "http://mock:8080/readyz");
     }
 }
 
@@ -58,12 +58,12 @@ fn region_overrides_only_touch_the_first_catalog_entry() {
     let mut settings = DdnsSettings::with_wardnet_overrides(
         None,
         Some("http://mock:8080"),
-        Some("http://mock:8080/ddns/v1/health"),
+        Some("http://mock:8080/readyz"),
     );
     settings.region_catalog.push(region::RegionEndpoint {
         slug: "second-region".to_owned(),
         gateway_base_url: "https://api.second-region.wardnet.network".to_owned(),
-        health_url: "http://api.second-region.wardnet.network:81/ddns/v1/health".to_owned(),
+        health_url: "http://api.second-region.wardnet.network:81/readyz".to_owned(),
     });
 
     assert_eq!(
@@ -76,6 +76,6 @@ fn region_overrides_only_touch_the_first_catalog_entry() {
     );
     assert_eq!(
         settings.region_catalog[1].health_url,
-        "http://api.second-region.wardnet.network:81/ddns/v1/health"
+        "http://api.second-region.wardnet.network:81/readyz"
     );
 }

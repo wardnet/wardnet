@@ -86,12 +86,16 @@ services:
         fi
         # Point the wardnet-cloud DDNS provider (tenants + regional gateways)
         # at the wardnet_cloud_mock container instead of the real
-        # api.wardnet.network, so global.setup can walk the enroll/register
-        # flow offline and flip this box's premium entitlement — otherwise
-        # the admin-app/user-app premium gate (366f942) blocks every spec.
-        # Idempotent on the ddns_wardnet key, mirroring the nordvpn block above.
+        # api.wardnet.network, so the premium-setup project can walk the
+        # enroll/register flow offline and flip this box's premium
+        # entitlement — otherwise the admin-app/user-app premium gate
+        # (366f942) blocks every spec. The health probe targets /readyz
+        # (cloud ADR-0027, daemon commit bc46ae0 / #793) — not a
+        # /tenants or /ddns path prefix, which the real gateway routes on
+        # an X-Mesh-Target header for instead. Idempotent on the
+        # ddns_wardnet key, mirroring the nordvpn block above.
         if ! grep -q '^\[ddns_wardnet\]' /etc/wardnet/wardnet.toml; then
-          printf '\n[ddns_wardnet]\ngateway_url = "http://10.92.0.53:8080"\nregion_gateway_url = "http://10.92.0.53:8080"\nregion_health_url = "http://10.92.0.53:8080/ddns/v1/health"\n' >> /etc/wardnet/wardnet.toml
+          printf '\n[ddns_wardnet]\ngateway_url = "http://10.92.0.53:8080"\nregion_gateway_url = "http://10.92.0.53:8080"\nregion_health_url = "http://10.92.0.53:8080/readyz"\n' >> /etc/wardnet/wardnet.toml
           echo "wardnetd-ui e2e fixture: pinned ddns_wardnet gateways to http://10.92.0.53:8080" >&2
         fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
