@@ -1,0 +1,72 @@
+name: Release SDK
+
+# Tag-driven publish of @wardnet/js to npmjs.org, independent of the daemon's
+# CALVER-tagged release.yml. Versioning is owned by changesets
+# (source/.changeset/) — bump via a changeset PR, then push a
+# `@wardnet/js@x.y.z` tag matching the bumped package.json version to
+# publish.
+#
+# Auth is OIDC Trusted Publishing (no NPM_TOKEN secret): npm's CLI exchanges
+# this job's `id-token: write` OIDC token for a short-lived publish token,
+# provided the trusted publisher (this repo + this workflow file) has been
+# configured on the @wardnet/js package's npmjs.org settings. See the
+# workflow comment in Makefile's version-tracks section for how this
+# package's version relates to the daemon's.
+#
+# `workflow_dispatch` validates the build without publishing — the actual
+# `npm publish` step is gated on the tag-push ref, mirroring release.yml's
+# `startsWith(github.ref, 'refs/tags/v')` gate on release-daemon.
+on:
+  push:
+    tags:
+      - "@wardnet/js@*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only one publish should ever run at a time.
+concurrency:
+  group: release-sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish @wardnet/js
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Exchanged for a short-lived npm publish token via OIDC Trusted
+      # Publishing, and used by `npm publish --provenance` to attach a
+      # signed SLSA build-provenance attestation.
+      id-token: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # Enables Corepack, installs Node, and authenticates Yarn to GitHub
+      # Packages via GH_TOKEN — needed because `yarn install` below resolves
+      # the whole source/ workspace, including admin-site/admin-app/user-app/
+      # web, which pull @wardnet/{ui,styles} from npm.pkg.github.com.
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "24"
+          cache-dependency-path: source/yarn.lock
+
+      - name: Install workspace dependencies
+        working-directory: source
+        run: yarn install --immutable
+
+      - name: Build @wardnet/js
+        working-directory: source
+        run: yarn workspace @wardnet/js build
+
+      - name: Publish to npmjs.org
+        if: startsWith(github.ref, 'refs/tags/@wardnet/js@')
+        working-directory: source/sdk/wardnet-js
+        run: npm publish --access public --provenance
