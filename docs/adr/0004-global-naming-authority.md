@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-06-07
-**Issue**: #521 (HTTPS/DDNS + remote-access gateway). Companion to [adr-two-domain-strategy.md](adr-two-domain-strategy.md).
+**Issue**: #521 (HTTPS/DDNS + remote-access gateway). Companion to [0005-two-domain-strategy.md](0005-two-domain-strategy.md).
 
 ---
 

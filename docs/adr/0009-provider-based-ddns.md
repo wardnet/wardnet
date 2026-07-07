@@ -8,7 +8,7 @@
 
 ## Context
 
-For the daemon to terminate TLS (see `adr-daemon-owned-tls.md`) it needs a public
+For the daemon to terminate TLS (see `0008-daemon-owned-tls.md`) it needs a public
 FQDN and a way to publish the DNS-01 `_acme-challenge` TXT record. Two user
 populations exist:
 

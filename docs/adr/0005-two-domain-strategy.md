@@ -155,7 +155,7 @@ serving layer. Operating constraints recorded for implementation:
   ids are no longer region-scoped; id allocation must guarantee global
   uniqueness across a multi-region, per-region-database bridge fleet. The
   mechanism is settled in the companion ADR
-  [adr-global-naming-authority.md](adr-global-naming-authority.md).
+  [0004-global-naming-authority.md](0004-global-naming-authority.md).
 - **No per-region DNS sub-zone delegation.** A flat user zone means one
   global authoritative zone; we rely on Cloudflare's anycast rather than
   regional delegation. Acceptable given the provider choice.

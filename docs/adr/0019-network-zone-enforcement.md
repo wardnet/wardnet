@@ -9,7 +9,7 @@
 ## Context
 
 #735 built the Network Zone data model, service, and API-level gate but changed
-no packet's fate (see `adr-network-zone-isolation.md`). #736 is the **packet
+no packet's fate (see `0018-network-zone-isolation.md`). #736 is the **packet
 layer**: it makes a zone *mean something* on a single flat LAN — the enforcement
 that works even when Wardnet is not the DHCP server — via per-zone **egress
 gating** and **admin-UI gating**, live-reloaded on zone changes with no daemon
@@ -59,7 +59,7 @@ rebuilt from the database on startup and never tracked in memory.
 
 ### 3. Closing the default-policy caveat: an event + enforcer callback
 
-`adr-network-zone-isolation.md` names exactly one edge the #735 write-time gate
+`0018-network-zone-isolation.md` names exactly one edge the #735 write-time gate
 cannot catch: a change to the **global default routing policy** re-resolves every
 stored `Default` rule at once, which can bind a device to a target its zone
 forbids. It assigned reconciling that to the CI-2 enforcer.

@@ -3,7 +3,7 @@
 **Status**: Accepted
 **Date**: 2026-06-29
 **Issue**: #610 (cloud decomposition); supersedes decision #4 of
-[`adr-premium-tier-and-entitlement.md`](adr-premium-tier-and-entitlement.md)
+[`0010-premium-tier-and-entitlement.md`](0010-premium-tier-and-entitlement.md)
 
 ---
 

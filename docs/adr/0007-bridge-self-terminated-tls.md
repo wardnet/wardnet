@@ -3,7 +3,7 @@
 **Status**: Accepted
 **Date**: 2026-06-09
 **Issue**: follow-up to #521 (HTTPS/DDNS + remote-access umbrella)
-**Supersedes**: [adr-bridge-edge-topology.md](adr-bridge-edge-topology.md) (#541)
+**Supersedes**: ADR-0006 ([0006-bridge-edge-topology.md](0006-bridge-edge-topology.md)) (#541)
 
 ---
 

@@ -118,4 +118,4 @@ Selector convention in brief: **`data-testid` is the primary locator**
 assertion added where meaningful. See the README for naming, placement,
 and label-assertion rules; the rationale for reversing the earlier
 role/label-first approach is in
-[`docs/adr-e2e-selector-convention.md`](../docs/adr-e2e-selector-convention.md).
+[`docs/adr/0015-e2e-selector-convention.md`](../docs/adr/0015-e2e-selector-convention.md).

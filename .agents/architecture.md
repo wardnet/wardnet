@@ -271,7 +271,7 @@ ring + aws-lc-rs are in the tree → rustls can't auto-pick).
 
 ## Bridge service (issue #435)
 
-Rust / Axum / PostgreSQL microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind a transparent L4 proxy (nginx + PROXY protocol v1); the bridge **terminates TLS for its own FQDN itself** via ACME HTTP-01 and passes tenant traffic through to the home-Pi tunnels — no Caddy (see `docs/adr-bridge-self-terminated-tls.md`). Each bridge instance owns one region, keyed by its inforge region slug (e.g. `use1`).
+Rust / Axum / PostgreSQL microservice for DDNS registration and ACME DNS-01 credential proxying. Deployed as a single binary behind a transparent L4 proxy (nginx + PROXY protocol v1); the bridge **terminates TLS for its own FQDN itself** via ACME HTTP-01 and passes tenant traffic through to the home-Pi tunnels — no Caddy (see `docs/adr/0007-bridge-self-terminated-tls.md`). Each bridge instance owns one region, keyed by its inforge region slug (e.g. `use1`).
 
 ### Security invariants
 
@@ -314,7 +314,7 @@ Unauthenticated endpoints (`GET /v1/health`, `GET /v1/register/challenge`, `POST
 A **three-layer** recovery model. `Restart=always` only catches a daemon that
 *exits*; a livelocked or deadlocked daemon keeps systemd happy and never
 recovers. The layers escalate from "report" to "restart the service" to "reboot
-the host". See [adr-watchdog-and-health.md](../docs/adr-watchdog-and-health.md).
+the host". See [0014-watchdog-and-health.md](../docs/adr/0014-watchdog-and-health.md).
 
 ### Layer 1 — `HealthMonitor` (`wardnetd-services/src/health/`)
 
@@ -371,7 +371,7 @@ third layer below the health-gated soft restart.
 Phase 1 / CI-2 of epic #244. Turns a device's [`NetworkZone`] into nftables
 rules so a zone bites on a flat shared subnet, live-reloaded with no restart.
 Design rationale, verdict choices, and the default-policy caveat are in
-[`docs/adr-network-zone-enforcement.md`](../docs/adr-network-zone-enforcement.md);
+[`docs/adr/0019-network-zone-enforcement.md`](../docs/adr/0019-network-zone-enforcement.md);
 domain terms in [`CONTEXT.md`](../CONTEXT.md) ("Zone packet enforcement").
 
 ### Shape

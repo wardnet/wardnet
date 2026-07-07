@@ -3,8 +3,8 @@
 **Status**: Accepted
 **Date**: 2026-06-29
 **Issue**: #610 (cloud decomposition); pairs with
-[`adr-daemon-cloud-auth.md`](adr-daemon-cloud-auth.md) and
-[`adr-service-decomposition.md`](adr-service-decomposition.md)
+[`0016-daemon-cloud-auth.md`](0016-daemon-cloud-auth.md) and
+[`0011-service-decomposition.md`](0011-service-decomposition.md)
 
 ---
 
@@ -46,7 +46,7 @@ else; each is cheap to build per use.
 ### 2. One identity, threaded through both
 
 Both clients authenticate as the same box via a single shared
-[`DaemonIdentity`](adr-daemon-cloud-auth.md) (Ed25519 key + cached JWT + shared
+[`DaemonIdentity`](0016-daemon-cloud-auth.md) (Ed25519 key + cached JWT + shared
 entitlement handle). The JWT is minted from tenants (PoP) and presented as a
 bearer to the regional ddns service. So the daemon has *many endpoints* but
 *one credential* and *one entitlement state*.

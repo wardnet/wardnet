@@ -1,6 +1,6 @@
 # ADR: Bridge edge topology — Caddy-l4 on the front, bridge as passthrough tunnel router
 
-**Status**: Superseded by [adr-bridge-self-terminated-tls.md](adr-bridge-self-terminated-tls.md) (2026-06-09)
+**Status**: Superseded by ADR-0007 ([0007-bridge-self-terminated-tls.md](0007-bridge-self-terminated-tls.md)) (2026-06-09)
 **Date**: 2026-06-07
 **Issue**: #541 (follow-up to the #521 HTTPS/DDNS + remote-access umbrella)
 

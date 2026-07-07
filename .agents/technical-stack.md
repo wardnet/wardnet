@@ -37,7 +37,7 @@
 ## Design tokens (`@wardnet/styles`)
 - Lives at `source/styles/`; linked via `"@wardnet/styles": "portal:../styles"`
 - CSS tokens + Tailwind base layer in `styles.css`; typed design token constants (brand, status, radius, density, font) in `src/tokens.ts`
-- `typography.css` — semantic text variant classes (`.t-label`, `.t-body`, `.t-metric`, `.t-h1`…) plus `t-size-*` / `t-weight-*` helpers, all in `@layer components`; variant selectors are wrapped in `:where()` (zero specificity) so helper and colour utilities override structurally. Imported from `styles.css`, so consumers reach it via the single `@wardnet/styles` CSS entry. Backs the `<Text>` primitive in `@wardnet/ui` (see `docs/adr-typography-scale-and-roles.md`).
+- `typography.css` — semantic text variant classes (`.t-label`, `.t-body`, `.t-metric`, `.t-h1`…) plus `t-size-*` / `t-weight-*` helpers, all in `@layer components`; variant selectors are wrapped in `:where()` (zero specificity) so helper and colour utilities override structurally. Imported from `styles.css`, so consumers reach it via the single `@wardnet/styles` CSS entry. Backs the `<Text>` primitive in `@wardnet/ui` (see `docs/adr/0012-typography-scale-and-roles.md`).
 - Import CSS: `@import "@wardnet/styles"` (the `"."` export resolves to `styles.css`)
 - Import tokens: `import { brand, status } from "@wardnet/styles/tokens"`
 
@@ -69,6 +69,6 @@
 ## PWA initiative (issues #435–#441)
 
 - **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. Admin site and admin-app are both live; user-app is still planned (issue #438). See `CONTEXT.md` for the full glossary.
-- **Daemon-owned TLS** — `wardnetd` terminates TLS itself on `:443` (no Caddy, diverging from issue #436): it issues/renews its certificate natively via ACME **DNS-01** (`instant-acme` + `rcgen` + `rustls`/`axum-server`), publishing `_acme-challenge` TXT through the **DnsProvider**. `:80` redirects to HTTPS. See `docs/adr-daemon-owned-tls.md`.
+- **Daemon-owned TLS** — `wardnetd` terminates TLS itself on `:443` (no Caddy, diverging from issue #436): it issues/renews its certificate natively via ACME **DNS-01** (`instant-acme` + `rcgen` + `rustls`/`axum-server`), publishing `_acme-challenge` TXT through the **DnsProvider**. `:80` redirects to HTTPS. See `docs/adr/0008-daemon-owned-tls.md`.
 - **DDNS + ACME bridge service** — wardnet-operated service assigning each install a vanity name (`<vanity>.my.wardnet.services`) and acting as ACME bridge for Let's Encrypt DNS-01 challenges. The cert private key is generated on the Pi and never leaves it. See issue #435.
 - **VAPID / Web Push** — daemon-side push notification support (VAPID key pair generated at setup, subscription records keyed to device MAC or admin session). See issue #440.
