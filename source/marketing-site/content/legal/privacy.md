@@ -48,23 +48,37 @@ Roaming private DNS queries and remote-access traffic pass through our
 infrastructure while a subscription is active, but we do not log or
 retain them, they're routed, not recorded.
 
-We do not sell your data. We share it only with the service providers
-needed to run Premium (e.g. Stripe for billing) and when required by
-law.
+We do not sell your data. We share it only with the sub-processors
+listed below and when required by law.
 
-## 4. Cookies
+## 4. Sub-processors
+
+These are the third parties that process data on our behalf to run
+Premium and account.wardnet.network:
+
+| Sub-processor | Purpose |
+| --- | --- |
+| Stripe | Payment processing and billing. |
+| Hetzner | Hosts the account/billing API and the DDNS/tunnel relay infrastructure behind account.wardnet.network. |
+| Cloudflare | DNS for Wardnet's own zones (including the zero-config `wardnet.services` dynamic DNS domain) and reverse proxy/DDoS protection in front of account.wardnet.network. |
+
+If you bring your own domain via Cloudflare for remote access (see
+[remote access](/docs/remote-access)), that's a Cloudflare account you
+control directly, not a sub-processor relationship with us.
+
+## 5. Cookies
 
 account.wardnet.network uses a session cookie to keep you signed in.
 We don't use cookies for advertising or cross-site tracking.
 
-## 5. Data retention
+## 6. Data retention
 
 We hold the three items listed in Section 3 for as long as your
 account is active. All three, your account email, your payment data
 held by Stripe, and your DDNS record's current IP address, are deleted
 immediately on account cancellation. We don't keep a copy afterward.
 
-## 6. Your rights
+## 7. Your rights
 
 You can access, correct, or delete your account information at any
 time from account.wardnet.network, or by contacting us. Deleting your
@@ -73,17 +87,17 @@ processing tied to it; it does not affect the self-hosted daemon
 running on your own hardware, which was never dependent on the
 account to begin with.
 
-## 7. Children's privacy
+## 8. Children's privacy
 
 Wardnet and Premium are not directed at children under 16, and we do
 not knowingly collect personal information from them.
 
-## 8. Changes to this policy
+## 9. Changes to this policy
 
 We may update this policy from time to time. We'll update the "Last
 updated" date above when we do.
 
-## 9. Contact
+## 10. Contact
 
 Questions about this policy, or to exercise a data-access request:
 **legal@wardnet.network**.
