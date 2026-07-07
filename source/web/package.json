@@ -48,6 +48,7 @@
     "@testing-library/user-event": "14.6.1",
     "@vitejs/plugin-react": "6.0.3",
     "@vitest/coverage-v8": "4.1.9",
+    "@wardnet/js": "workspace:*",
     "eslint": "10.6.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-prettier": "5.5.6",

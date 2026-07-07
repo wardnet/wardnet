@@ -5679,6 +5679,7 @@ __metadata:
     "@testing-library/user-event": "npm:14.6.1"
     "@vitejs/plugin-react": "npm:6.0.3"
     "@vitest/coverage-v8": "npm:4.1.9"
+    "@wardnet/js": "workspace:*"
     "@wardnet/ui": "npm:^0.3.0"
     clsx: "npm:2.1.1"
     cronstrue: "npm:3.24.0"
