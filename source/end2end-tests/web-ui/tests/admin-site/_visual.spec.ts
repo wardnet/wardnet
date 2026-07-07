@@ -38,7 +38,14 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
     // different height/absence, none of which the mask (sized to whatever's
     // actually rendered) can paper over. Wait for the one state this always
     // settles to before shooting, so every run masks the same layout.
-    await expect(page.getByText("Certificate issuance failed")).toBeVisible();
+    // Scoped to the banner itself — the same "certificate issuance failed"
+    // text also streams into the recent-errors card and the live log widget
+    // below, which a page-wide getByText would also match.
+    await expect(
+      page
+        .getByTestId("dashboard-remote-access-banner")
+        .getByText("Certificate issuance failed"),
+    ).toBeVisible();
 
     await expect(page).toHaveScreenshot("dashboard.png", {
       // Live / time-varying values. stat-devices and stat-tunnels are
