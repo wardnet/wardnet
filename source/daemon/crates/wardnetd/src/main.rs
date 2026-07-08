@@ -27,6 +27,7 @@ use wardnetd::garp_pnet::PnetGarpOps;
 use wardnetd::health_runner::HealthMonitorRunner;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
+use wardnetd::inbound_wg_interface_wireguard::WireGuardInboundInterface;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
@@ -50,6 +51,7 @@ use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
 use wardnetd_services::auth::SessionCleanupRunner;
+use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
@@ -309,6 +311,7 @@ async fn run(
 
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
+        inbound_wg_interface: Arc::new(WireGuardInboundInterface),
         tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
             config.tunnel.test_probe_url.clone(),
         )),
@@ -404,6 +407,14 @@ async fn run(
     .await
     {
         tracing::warn!(error = %e, "network-zone enforcement reconcile failed on startup: {e}");
+    }
+
+    // Reconcile the inbound WireGuard server (#809): if it was enabled, stand
+    // the `wg_wardin0` interface up and re-add every enabled peer. Best-effort —
+    // a failure here must not block startup. `reconcile` is a startup/restore
+    // method exempt from the auth guard, so no auth context is needed.
+    if let Err(e) = services.inbound_wg.reconcile().await {
+        tracing::warn!(error = %e, "inbound wireguard reconcile failed on startup: {e}");
     }
 
     // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
@@ -695,6 +706,12 @@ async fn run(
         &root_span,
     );
 
+    // Reverse-tunnel runner (issue #809) — owns the daemon's one persistent
+    // connection to wardnet-cloud's Tunneller, relaying inbound WireGuard UDP down
+    // to the local `wg_wardin0` server. Gated on `inbound_wg_enabled`: it never
+    // dials while the inbound server is off, and self-reconnects with backoff.
+    let tunneler_runner = TunnelerRunner::start(services.tunneler.clone(), &root_span);
+
     // TLS renewal runner — issues the cert once DDNS is configured and renews it
     // before expiry, hot-swapping the live `:443` cert. Inert (no ACME calls)
     // while there is no active FQDN, and also fully inert while suspended.
@@ -791,6 +808,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_inbound_wg_service(services.inbound_wg.clone())
     .with_health_monitor(health_monitor.clone())
     // Inject the live entitlement handle (the same one the DDNS cloud clients
     // flip) so the serving layer can gate the premium app surfaces while
@@ -966,6 +984,7 @@ async fn run(
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
     ddns_update_runner.shutdown().await;
+    tunneler_runner.shutdown().await;
     tls_renewal_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {

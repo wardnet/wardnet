@@ -88,6 +88,18 @@ pub trait FirewallManager: Send + Sync {
     /// Remove the masquerade rule for the given tunnel interface.
     async fn remove_masquerade(&self, interface: &str) -> anyhow::Result<()>;
 
+    /// Add an `input`-chain rule accepting inbound `WireGuard` UDP handshakes on
+    /// `port` (issue #809).
+    ///
+    /// The `input` chain already defaults to an accept policy, so this rule is
+    /// currently redundant in practice. It is installed anyway as a
+    /// forward-looking safety net: if the input policy is ever tightened to
+    /// drop, the inbound server must still be reachable on its listen port.
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()>;
+
+    /// Remove the inbound-`WireGuard` UDP accept rule (issue #809). Idempotent.
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()>;
+
     /// One-shot startup cleanup: enumerate the prerouting chain and delete
     /// every rule whose comment matches the legacy `wardnet:dns:*` DNS
     /// redirect pattern. Idempotent; logs one info line per removal.

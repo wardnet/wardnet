@@ -23,6 +23,7 @@ pub mod dns_local;
 pub mod entitlement;
 pub mod garp;
 pub mod health;
+pub mod inbound_wg;
 pub mod logging;
 pub mod maintenance;
 pub mod network_zone;
@@ -65,6 +66,7 @@ use crate::dns::DnsServiceImpl;
 use crate::dns_filter::DnsFilterServiceImpl;
 use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
+use crate::inbound_wg::InboundWgServiceImpl;
 use crate::jobs::JobServiceImpl;
 use crate::network_zone::NetworkZoneServiceImpl;
 use crate::routing::RoutingServiceImpl;
@@ -88,6 +90,7 @@ pub use crate::dns_local::DnsLocalService;
 pub use crate::health::{
     CheckOutcome, ComponentHealth, HealthCheck, HealthMonitor, HealthSnapshot, HealthStatus,
 };
+pub use crate::inbound_wg::{InboundWgInterface, InboundWgService};
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
@@ -114,6 +117,9 @@ pub use crate::zone_exception::ZoneExceptionService;
 /// the mock server passes no-op stubs.
 pub struct Backends {
     pub tunnel_interface: Arc<dyn tunnel::TunnelInterface>,
+    /// Inbound (multi-peer) `WireGuard` server interface (issue #809). Real
+    /// `wireguard-control` + `ip` impl in production; no-op stub in the mock.
+    pub inbound_wg_interface: Arc<dyn inbound_wg::InboundWgInterface>,
     /// Sends a single HTTP probe through a tunnel interface to learn the
     /// public IP and country at the tunnel exit. Wired to a real reqwest
     /// implementation in production and to a deterministic mock in
@@ -225,6 +231,14 @@ pub struct Services {
     pub zone_exception: Arc<dyn ZoneExceptionService>,
     pub system: Arc<dyn SystemService>,
     pub tunnel: Arc<dyn TunnelService>,
+    /// Inbound (multi-peer) `WireGuard` server (issue #809). Manages the
+    /// `wg_wardin0` server interface, its keypair, and the peer data model.
+    pub inbound_wg: Arc<dyn InboundWgService>,
+    /// Reverse-tunnel connector (issue #809): dependencies for the persistent WS
+    /// client to wardnet-cloud's Tunneller. Handed to `TunnelerRunner::start` in
+    /// `wardnetd`'s `main`; the mock binary leaves it unspawned, exactly as it does
+    /// the DDNS/TLS cloud runners.
+    pub tunneler: Arc<cloud::TunnelerConnector>,
     pub update: Arc<dyn UpdateService>,
     pub event_publisher: Arc<dyn EventPublisher>,
     pub jobs: Arc<dyn JobService>,
@@ -553,6 +567,10 @@ fn create_services(
         config.ddns_wardnet.region_gateway_url.as_deref(),
         config.ddns_wardnet.region_health_url.as_deref(),
     );
+    // The reverse-tunnel client shares the DDNS region/gateway resolution — capture
+    // the same catalog + global gateway before the settings move into the service.
+    let tunneler_region_catalog = ddns_settings.region_catalog().to_vec();
+    let tunneler_global_gateway = ddns_settings.global_gateway_url().to_owned();
     let ddns_impl = DdnsServiceImpl::with_settings(
         repo_factory.system_config(),
         backends.secret_store.clone(),
@@ -560,6 +578,21 @@ fn create_services(
     );
     let entitlement = ddns_impl.entitlement();
     let ddns: Arc<dyn DdnsService> = Arc::new(ddns_impl);
+
+    // Reverse-tunnel connector (issue #809): the runner in `wardnetd`'s `main`
+    // drives it, gated on `inbound_wg_enabled`. Built here so it can share the DDNS
+    // enrollment identity (seed + region slug) and the one `Entitlement` handle. Its
+    // `tenants` client mints network-scoped tokens against the global gateway.
+    let tunneler = Arc::new(cloud::TunnelerConnector::new(
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+        Arc::new(cloud::TenantsClient::new(
+            reqwest::Client::new(),
+            tunneler_global_gateway,
+        )),
+        entitlement.clone(),
+        tunneler_region_catalog,
+    ));
 
     // TLS service — ACME issuance/renewal. Publishes DNS-01 challenges through
     // `ddns`, persists cert material in the shared secret store, and hot-swaps
@@ -612,6 +645,17 @@ fn create_services(
     let vpn_provider_service: Arc<dyn VpnProviderService> = Arc::new(VpnProviderServiceImpl::new(
         registry,
         tunnel_service.clone(),
+    ));
+
+    // Inbound (multi-peer) WireGuard server (#809). Shares the firewall backend
+    // with the routing service (both cooperate on the one `wardnet` nftables
+    // table) and the secret store (for its singleton server keypair).
+    let inbound_wg_service: Arc<dyn InboundWgService> = Arc::new(InboundWgServiceImpl::new(
+        repo_factory.inbound_wg_peers(),
+        repo_factory.system_config(),
+        backends.secret_store.clone(),
+        backends.inbound_wg_interface.clone(),
+        backends.firewall.clone(),
     ));
 
     let discovery_service = build_discovery_service(
@@ -691,6 +735,8 @@ fn create_services(
         push: push_service,
         system: system_service,
         tunnel: tunnel_service,
+        inbound_wg: inbound_wg_service,
+        tunneler,
         update: update_service,
         event_publisher,
         jobs: job_service,

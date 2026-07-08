@@ -597,6 +597,22 @@ impl FirewallManager for MockNftables {
         Ok(())
     }
 
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_inbound_wg_accept:{port}"));
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push("remove_inbound_wg_accept".to_owned());
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         self.calls
             .lock()

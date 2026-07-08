@@ -6,8 +6,8 @@ use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsLocalService, DnsService, HealthMonitor, JobService, LogService,
-    NetworkZoneService, PushService, RoutingService, RuleRequestService, StatsService,
+    DnsFilterService, DnsLocalService, DnsService, HealthMonitor, InboundWgService, JobService,
+    LogService, NetworkZoneService, PushService, RoutingService, RuleRequestService, StatsService,
     SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
     ZoneExceptionService,
 };
@@ -39,6 +39,7 @@ struct Inner {
     zone_exception_service: Arc<dyn ZoneExceptionService>,
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
+    inbound_wg_service: Arc<dyn InboundWgService>,
     update_service: Arc<dyn UpdateService>,
     dhcp_server: Arc<dyn DhcpServer>,
     dns_server: Arc<dyn DnsServer>,
@@ -115,6 +116,9 @@ impl AppState {
                 stats_service,
                 rule_request_service,
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_inbound_wg_service`.
+                inbound_wg_service: Arc::new(NoopInboundWgService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_push_service`.
                 push_service: Arc::new(NoopPushService),
                 // Defaults to an empty monitor (initial snapshot is UP with no
@@ -126,6 +130,20 @@ impl AppState {
                 entitlement: Entitlement::shared(),
             }),
         }
+    }
+
+    /// Inject the live [`InboundWgService`] (issue #809). Defaults to a no-op in
+    /// [`Self::new`]; production and the mock wire the real one. Must be called
+    /// before the state is cloned or shared.
+    #[must_use]
+    pub fn with_inbound_wg_service(
+        mut self,
+        inbound_wg_service: Arc<dyn InboundWgService>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_inbound_wg_service must be called before AppState is cloned")
+            .inbound_wg_service = inbound_wg_service;
+        self
     }
 
     /// Inject the live [`PushService`]. Defaults to a no-op in [`Self::new`];
@@ -299,6 +317,12 @@ impl AppState {
         self.inner.tunnel_service.clone()
     }
 
+    /// Access the inbound (multi-peer) `WireGuard` server service (issue #809).
+    #[must_use]
+    pub fn inbound_wg_service(&self) -> &dyn InboundWgService {
+        self.inner.inbound_wg_service.as_ref()
+    }
+
     /// Access the auto-update service.
     #[must_use]
     pub fn update_service(&self) -> &dyn UpdateService {
@@ -371,6 +395,45 @@ impl AppState {
     #[must_use]
     pub fn entitlement(&self) -> Arc<Entitlement> {
         self.inner.entitlement.clone()
+    }
+}
+
+/// No-op [`InboundWgService`] used as the [`AppState::new`] default before the
+/// live service is injected via [`AppState::with_inbound_wg_service`] (#809).
+struct NoopInboundWgService;
+
+#[async_trait::async_trait]
+impl InboundWgService for NoopInboundWgService {
+    async fn set_config(
+        &self,
+        _enabled: bool,
+        _listen_port: u16,
+    ) -> Result<wardnet_common::api::InboundWgConfigResponse, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("inbound-wg service not configured"),
+        ))
+    }
+    async fn add_peer(
+        &self,
+        _name: String,
+    ) -> Result<wardnet_common::api::AddInboundWgPeerResponse, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("inbound-wg service not configured"),
+        ))
+    }
+    async fn remove_peer(&self, _id: uuid::Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn list_peers(
+        &self,
+    ) -> Result<Vec<wardnet_common::api::InboundWgPeerSummary>, wardnetd_services::error::AppError>
+    {
+        Ok(Vec::new())
+    }
+    async fn reconcile(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
     }
 }
 

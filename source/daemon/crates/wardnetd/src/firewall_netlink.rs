@@ -47,12 +47,28 @@ const INPUT: &str = "input";
 const IFNAMSIZ: usize = 16;
 /// Wardnet tunnel interface-name prefix. A forwarded packet leaving via a
 /// `wg_ward*` interface is taking the tunnel egress path (issue #736).
+///
+/// LANDMINE (issue #809 → #810): the inbound `WireGuard` server interface
+/// `wg_wardin0` (`INBOUND_WG_INTERFACE` in
+/// `wardnetd_services::inbound_wg::service`) deliberately shares this prefix, so
+/// the zone-egress gate covers it today with no new rules. This is currently
+/// **INERT** — zone-egress-drop rules are keyed by `saddr == device_ip`, and
+/// inbound peers are not `Device` rows yet, so no `ZoneRules` are ever computed
+/// for a peer IP. When #810 wires zone enforcement to inbound peers, revisit
+/// whether a zone-denied peer's egress-drop rule should actually match
+/// `wg_wardin0`: that interface is the peer's *inbound* attachment point, not an
+/// outbound-provider-tunnel egress path, so it almost certainly should NOT be
+/// matched here the same way, and will need explicit handling then. See the
+/// matching note at `INBOUND_WG_INTERFACE`.
 const TUNNEL_IFACE_PREFIX: &[u8] = b"wg_ward";
 /// Pi admin surfaces a zone may deny (issue #736): the HTTPS admin site (:443)
 /// and the plain-HTTP API (:7411). Both are TCP, so denial is a TCP reset.
 const ADMIN_UI_PORTS: [u16; 2] = [443, 7411];
 /// Comment-UDATA prefix shared by every Network-Zone rule, keyed by device IP.
 const ZONE_COMMENT_PREFIX: &str = "wardnet:zone:";
+
+/// Comment on the inbound-`WireGuard` listen-port accept rule (issue #809).
+const INBOUND_WG_LISTEN_COMMENT: &str = "wardnet:inbound-wg:listen";
 
 /// Regular (hookless) forward sub-chain that carries the Network-Zone L3
 /// isolation rules (issue #737): cross-subnet allows/denies + member isolation.
@@ -425,6 +441,54 @@ impl FirewallManager for NetlinkFirewallManager {
                 interface,
                 "nftables: masquerade rule for {interface} removed"
             );
+        }
+        Ok(())
+    }
+
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()> {
+        run_blocking(move || {
+            // Idempotent add: drop any prior `wardnet:inbound-wg:listen` rule first,
+            // then install the one for the current port. Without this, changing
+            // `listen_port` while enabled — or re-running `reconcile()` on every
+            // daemon restart — would append a fresh accept rule each time and leave
+            // stale ones for old ports (only a full disable clears them, since
+            // `remove_inbound_wg_accept` deletes ALL matching-comment rules). Mirrors
+            // the remove-then-add discipline used for the masquerade rule.
+            delete_rules_where(INPUT, |c| c == INBOUND_WG_LISTEN_COMMENT)?;
+
+            let table = wardnet_table();
+            let chain = chain_ref(&table, INPUT);
+            let mut batch = Batch::new();
+            // udp dport <port> accept comment "wardnet:inbound-wg:listen".
+            // The `input` chain policy already accepts, so this is a
+            // forward-looking safety net (see the trait doc): if the policy is
+            // ever tightened, the inbound WireGuard server stays reachable.
+            Rule::new(&chain)?
+                .dport(port, Protocol::UDP)
+                .accept()
+                .with_userdata(comment_udata(INBOUND_WG_LISTEN_COMMENT))
+                .add_to_batch(&mut batch);
+            batch
+                .send()
+                .map_err(|e| anyhow::anyhow!("add inbound-wg accept on udp/{port}: {e}"))?;
+            Ok(())
+        })
+        .await?;
+        tracing::info!(
+            port,
+            "nftables: inbound-wg UDP accept rule for udp/{port} added"
+        );
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        let removed =
+            run_blocking(move || delete_rules_where(INPUT, |c| c == INBOUND_WG_LISTEN_COMMENT))
+                .await?;
+        if removed.is_empty() {
+            tracing::debug!("nftables: no inbound-wg accept rule to remove");
+        } else {
+            tracing::info!("nftables: inbound-wg accept rule removed");
         }
         Ok(())
     }

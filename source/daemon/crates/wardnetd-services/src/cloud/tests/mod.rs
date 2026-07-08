@@ -4,6 +4,11 @@
 //! workspace; this guards against drift) by reconstructing and cryptographically
 //! verifying a signature. The client tests assert the exact routes, bodies, and
 //! the `403`→`EntitlementLost` and JWT-caching behaviours.
+//!
+//! [`tunneller`] covers the persistent reverse-tunnel client + runner against a
+//! hand-rolled fake Tunneller WS server (frame relay, ping/pong, reconnect).
+
+mod tunneller;
 
 use std::sync::Arc;
 

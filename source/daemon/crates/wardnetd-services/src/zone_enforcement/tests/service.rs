@@ -75,6 +75,14 @@ impl FirewallManager for RecordingFirewall {
     async fn remove_masquerade(&self, _interface: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn add_inbound_wg_accept(&self, _port: u16) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         Ok(())
     }

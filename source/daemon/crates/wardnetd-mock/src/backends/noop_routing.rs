@@ -37,6 +37,16 @@ impl FirewallManager for NoopFirewallManager {
         Ok(())
     }
 
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()> {
+        tracing::debug!(port, "mock firewall add_inbound_wg_accept: port={port}");
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        tracing::debug!("mock firewall remove_inbound_wg_accept");
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         tracing::debug!("mock firewall cleanup_legacy_dns_redirects");
         Ok(())

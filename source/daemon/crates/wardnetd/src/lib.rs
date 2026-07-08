@@ -6,6 +6,7 @@ pub mod command;
 pub mod firewall_netlink;
 pub mod garp_pnet;
 pub mod hostname_resolver;
+pub mod inbound_wg_interface_wireguard;
 pub mod packet_capture_pnet;
 pub mod policy_router_netlink;
 pub mod tunnel_exit_probe;

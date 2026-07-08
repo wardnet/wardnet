@@ -30,6 +30,9 @@ tokio-util.workspace = true
 arc-swap.workspace = true
 # https://crates.io/crates/axum
 axum.workspace = true
+# https://crates.io/crates/tokio-tungstenite — persistent reverse-tunnel WS client
+# to the cloud Tunneller (issue #809); the only holder of a long-lived connection.
+tokio-tungstenite.workspace = true
 # https://crates.io/crates/tower
 tower.workspace = true
 # https://crates.io/crates/sqlx
@@ -64,6 +67,8 @@ sha2.workspace = true
 hex.workspace = true
 # https://crates.io/crates/ed25519-dalek — Ed25519 keygen + signing for DDNS bridge registration
 ed25519-dalek.workspace = true
+# https://crates.io/crates/x25519-dalek — X25519 keygen for the inbound WireGuard server + peers (#809)
+x25519-dalek.workspace = true
 # https://crates.io/crates/rand
 rand.workspace = true
 # https://crates.io/crates/reqwest

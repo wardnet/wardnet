@@ -270,6 +270,69 @@ pub struct UpdateTunnelDnsOverrideResponse {
     pub tunnel: Tunnel,
 }
 
+// -- Inbound (multi-peer) WireGuard server (issue #809) -------------------
+
+/// Request body for `PUT /api/inbound-wg/config`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgConfigRequest {
+    /// Whether the inbound `WireGuard` server should be running.
+    pub enabled: bool,
+    /// UDP port the server listens on for inbound peer handshakes.
+    pub listen_port: u16,
+}
+
+/// Response for `PUT /api/inbound-wg/config`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgConfigResponse {
+    /// The applied enabled state.
+    pub enabled: bool,
+    /// The applied listen port.
+    pub listen_port: u16,
+    /// The server's public key once a keypair exists (generated on first
+    /// enable). `None` until the server has been enabled at least once.
+    pub server_public_key: Option<String>,
+}
+
+/// Request body for `POST /api/inbound-wg/peers`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AddInboundWgPeerRequest {
+    /// Human-facing label for the new peer.
+    pub name: String,
+}
+
+/// Response for `POST /api/inbound-wg/peers`.
+///
+/// Carries the freshly generated **private key** exactly once — it is never
+/// persisted server-side, so the admin must copy it now to configure the peer.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AddInboundWgPeerResponse {
+    pub id: Uuid,
+    pub name: String,
+    /// Base64 `WireGuard` public key (stored server-side).
+    pub public_key: String,
+    /// Base64 `WireGuard` private key — returned once, never stored.
+    pub private_key: String,
+    /// The peer's allocated `/32` inside the inbound tunnel subnet.
+    pub allowed_ip: String,
+}
+
+/// A single inbound-`WireGuard` peer, without any private key material.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgPeerSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub public_key: String,
+    pub allowed_ip: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Response for `GET /api/inbound-wg/peers`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListInboundWgPeersResponse {
+    pub peers: Vec<InboundWgPeerSummary>,
+}
+
 /// Response for `GET /api/tunnels/{id}/devices`.
 ///
 /// The devices currently routed through the given tunnel — i.e. those

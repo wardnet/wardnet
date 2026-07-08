@@ -57,7 +57,7 @@ const KEY_TENANT_ID: &str = "ddns_tenant_id";
 const KEY_NETWORK_ID: &str = "ddns_network_id";
 const KEY_SLUG: &str = "ddns_slug";
 const KEY_SUBDOMAIN: &str = "ddns_subdomain";
-const KEY_REGION: &str = "ddns_region";
+pub(crate) const KEY_REGION: &str = "ddns_region";
 const KEY_LAST_IP: &str = "ddns_last_public_ip";
 const KEY_DOMAIN: &str = "ddns_domain";
 const KEY_CF_ZONE_ID: &str = "ddns_cf_zone_id";
@@ -65,7 +65,7 @@ const KEY_CF_ZONE_ID: &str = "ddns_cf_zone_id";
 // ── secret-store paths ─────────────────────────────────────────────────────────
 /// The daemon's 32-byte Ed25519 seed — its cloud identity. Generated at enroll,
 /// never leaves the Pi.
-const SECRET_DAEMON_KEY: &str = "ddns/daemon/signing_key";
+pub(crate) const SECRET_DAEMON_KEY: &str = "ddns/daemon/signing_key";
 const SECRET_CF_TOKEN: &str = "ddns/cloudflare/api_token";
 
 /// The wardnet-managed provider (enroll → network → ddns).
@@ -266,6 +266,20 @@ impl DdnsSettings {
             }
         }
         settings
+    }
+
+    /// The per-region gateway catalog. Exposed so the reverse-tunnel client
+    /// (`cloud::tunneller_runner`) can resolve the same regional gateway the
+    /// DDNS client dials — swapping `https://` for `wss://` and the path — from
+    /// the region slug the enrollment persisted (issue #809).
+    pub(crate) fn region_catalog(&self) -> &[RegionEndpoint] {
+        &self.region_catalog
+    }
+
+    /// The global gateway base URL that fronts `tenants` (token minting). The
+    /// reverse-tunnel client shares it to build its [`DaemonIdentity`].
+    pub(crate) fn global_gateway_url(&self) -> &str {
+        &self.global_gateway_url
     }
 }
 

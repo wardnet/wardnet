@@ -26,6 +26,7 @@ use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
 use wardnetd_mock::backends::noop_exit_probe::NoopExitProbe;
 use wardnetd_mock::backends::noop_garp::NoopGarpOps;
+use wardnetd_mock::backends::noop_inbound_wg::NoopInboundWgInterface;
 use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
@@ -272,6 +273,7 @@ async fn run(
 
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
+        inbound_wg_interface: Arc::new(NoopInboundWgInterface),
         tunnel_exit_probe: Arc::new(NoopExitProbe::new(factory.tunnel())),
         tunnel_latency_prober: Arc::new(NoopLatencyProber::new()),
         tunnel_throughput_tester: Arc::new(NoopThroughputTester::new()),
@@ -366,6 +368,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_inbound_wg_service(services.inbound_wg.clone())
     .with_health_monitor(health_monitor);
 
     // Drain the DNS query log persistence channel into SQLite so the

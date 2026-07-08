@@ -64,6 +64,22 @@
 
 **Cross-zone exception** — An admin-granted allowance for one endpoint to reach another across an otherwise-isolated zone boundary (e.g. a phone casting to a TV in the IoT zone). CI-3 #737. Each of `from`/`to` is a **device** (matched as its `/32`) or a whole **zone** (matched as its subnet); the service is a named preset (the **Casting preset**) or a custom port list; rules are stateful (conntrack allows the return path) with an explicit `bidirectional` flag. The L3 enforcer emits an exception's allow-rules **ahead of** the cross-subnet deny, so it re-opens exactly the named flow. Removing an exception revokes it live (conntrack flush).
 
+## Remote access (inbound WireGuard + published access)
+
+**Remote peer** — A `Device` whose identity was provisioned by an admin as an inbound WireGuard client (as opposed to *discovered* on the LAN via ARP/DHCP). Gets a synthetic MAC derived from its WireGuard public key and a `last_ip` from the inbound WireGuard subnet, so it participates in **Routing rule**, **Network Zone** enforcement, and DNS capture exactly like any LAN device — there is deliberately no separate device concept for it. Distinguished from a LAN device only by provenance, surfaced as a badge in device-facing UI.
+
+**Inbound WireGuard server** — The daemon-managed WireGuard listener (a persistent, multi-peer interface, distinct from the single-peer-per-interface outbound tunnels used to reach VPN providers) that accepts connections from **Remote peers**. Issue #266. WAN reachability is provided by the **Tunneller** relay, not a LAN port-forward — see [0022-inbound-wireguard-and-published-access.md](docs/adr/0022-inbound-wireguard-and-published-access.md) and wardnet-cloud ADR-0015.
+
+**Published access** — The umbrella feature letting an admin make an internal LAN device's service reachable by something other than being physically on the LAN. Two mechanisms, chosen per published item:
+- **Address forward** — raw L4 TCP/UDP forwarding to a device's `ip:port`.
+- **App forward** — L7 HTTP(S) reverse-proxying to a device's `ip:port`, reachable via a subdomain of the gateway's DDNS domain (e.g. `bitwarden.home1.my.wardnet.services`), requiring a wildcard certificate on that domain.
+
+Each published item also has a **visibility**, independent of its mechanism:
+- **Tunnel-only** (default) — reachable only from an authenticated **Remote peer**; the daemon source-IP-gates the forward the same way the Network Zone **admin-UI gate** already TCP-resets disallowed traffic.
+- **Public** — reachable from the open internet, no **Remote peer** required. An explicit, admin opt-in per item, mirroring how Tailscale separates private `Serve` from public `Funnel`.
+
+See [0022-inbound-wireguard-and-published-access.md](docs/adr/0022-inbound-wireguard-and-published-access.md).
+
 ## Local DNS
 
 **Authoritative local zone** — A named DNS domain (e.g. `lan`, `home`) the gateway answers for directly rather than forwarding upstream. Single-label names are valid. Zones group custom records; deleting a zone keeps its records but unlinks them.

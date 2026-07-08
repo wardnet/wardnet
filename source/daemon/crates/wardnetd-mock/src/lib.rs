@@ -10,8 +10,9 @@
 //! The mock wires the same service layer used by the real daemon
 //! (`wardnetd-services::init_services_with_factory`) against a set of
 //! no-op [`backends`] that implement every trait (`TunnelInterface`,
-//! `FirewallManager`, `PolicyRouter`, `PacketCapture`, `HostnameResolver`,
-//! `SecretStore`, `DhcpServer`, `DnsServer`) but perform no real I/O.
+//! `InboundWgInterface`, `FirewallManager`, `PolicyRouter`, `PacketCapture`,
+//! `HostnameResolver`, `SecretStore`, `DhcpServer`, `DnsServer`) but perform no
+//! real I/O.
 //!
 //! The database defaults to `:memory:`; an on-disk path can be supplied
 //! via `--database` for sessions that should survive restart.
