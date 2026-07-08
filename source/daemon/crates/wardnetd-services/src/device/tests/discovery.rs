@@ -6,7 +6,7 @@ use chrono::Utc;
 use std::net::Ipv4Addr;
 use tokio::sync::broadcast;
 use uuid::Uuid;
-use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
@@ -46,7 +46,7 @@ fn device_ctx(mac: &str) -> AuthContext {
 struct MockDeviceRepo {
     devices: Mutex<Vec<Device>>,
     inserted: Mutex<Vec<DeviceRow>>,
-    last_seen_updates: Mutex<Vec<(String, String, String)>>,
+    last_seen_updates: Mutex<Vec<(String, String, String, DeviceConnectionMode)>>,
     batch_updates: Mutex<Vec<(String, String)>>,
     hostname_updates: Mutex<Vec<(String, String)>>,
     name_type_updates: Mutex<Vec<(String, Option<String>, String)>>,
@@ -111,6 +111,7 @@ impl DeviceRepository for MockDeviceRepo {
             last_seen: device.last_seen.clone(),
             last_ip: device.last_ip.clone(),
             zone_id: device.zone_id.clone(),
+            connection_mode: device.connection_mode,
         });
 
         // Also add to the devices list so subsequent find_by_id works.
@@ -131,6 +132,7 @@ impl DeviceRepository for MockDeviceRepo {
             dns_capture_enabled: false,
             dns_capture_cap_count: 1000,
             dns_capture_cap_days: 7,
+            connection_mode: device.connection_mode,
         });
         Ok(())
     }
@@ -140,11 +142,13 @@ impl DeviceRepository for MockDeviceRepo {
         id: &str,
         ip: &str,
         last_seen: &str,
+        mode: DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         self.last_seen_updates.lock().unwrap().push((
             id.to_owned(),
             ip.to_owned(),
             last_seen.to_owned(),
+            mode,
         ));
         Ok(())
     }
@@ -476,6 +480,7 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: DeviceConnectionMode::Lan,
     }
 }
 
@@ -1347,5 +1352,171 @@ async fn quarantine_on_reappearing_device_is_not_requarantined() {
             .iter()
             .any(|e| matches!(e, WardnetEvent::NewDeviceQuarantined { .. })),
         "a reconnecting device must not be re-quarantined, got {events:?}"
+    );
+}
+
+// -- Inbound-WireGuard peer observations (#810) ---------------------------
+
+/// A `device_id`-keyed peer observation on a device the service tracks as gone
+/// (here: after `restore_devices` marks every device gone) takes the reappear
+/// path: it publishes `DeviceDiscovered` and persists with
+/// `connection_mode = Remote` (not `Lan`, unlike the LAN reappear path).
+#[tokio::test]
+async fn process_peer_observation_reappears_gone_device_as_remote() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    let device_id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    // Restore marks every device gone in the in-memory map.
+    h.svc.restore_devices().await.unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    // Peer IPs live in the inbound-WG subnet, outside the LAN subnet — the
+    // peer path skips the lan_subnet filter the LAN path applies.
+    let result = h
+        .svc
+        .process_peer_observation(device_id, "10.100.64.2")
+        .await
+        .unwrap();
+    assert!(
+        matches!(result, ObservationResult::Reappeared(id) if id == device_id),
+        "expected Reappeared, got {result:?}"
+    );
+
+    let events = h.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        WardnetEvent::DeviceDiscovered { device_id: d, ip, .. }
+            if *d == device_id && ip == "10.100.64.2"
+    ));
+
+    // The write carries connection_mode = Remote.
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    let last = updates.last().expect("an update was recorded");
+    assert_eq!(last.0, device_id.to_string());
+    assert_eq!(last.1, "10.100.64.2");
+    assert_eq!(last.3, DeviceConnectionMode::Remote);
+}
+
+/// A second peer observation with a different IP for an already-present device
+/// fires the IP-changed path: `DeviceIpChanged` is published and the write
+/// still carries `connection_mode = Remote`.
+#[tokio::test]
+async fn process_peer_observation_ip_changed_stays_remote() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    let device_id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    // First observation registers the peer as present in memory at .2.
+    h.svc
+        .process_peer_observation(device_id, "10.100.64.2")
+        .await
+        .unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    // Second observation at a different peer IP.
+    let result = h
+        .svc
+        .process_peer_observation(device_id, "10.100.64.3")
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            &result,
+            ObservationResult::IpChanged { device_id: d, old_ip }
+                if *d == device_id && old_ip == "10.100.64.2"
+        ),
+        "expected IpChanged, got {result:?}"
+    );
+
+    let events = h.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        WardnetEvent::DeviceIpChanged { old_ip, new_ip, .. }
+            if old_ip == "10.100.64.2" && new_ip == "10.100.64.3"
+    ));
+
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    let last = updates.last().expect("an update was recorded");
+    assert_eq!(last.3, DeviceConnectionMode::Remote);
+}
+
+/// A peer observation for a `device_id` with no matching device row is an
+/// internal-invariant violation (the FK should make it impossible), so the
+/// method fails with `AppError::Internal` rather than taking a new-device path.
+#[tokio::test]
+async fn process_peer_observation_unknown_device_errors() {
+    let h = build_harness();
+
+    let result = h
+        .svc
+        .process_peer_observation(Uuid::new_v4(), "10.100.64.2")
+        .await;
+    assert!(
+        matches!(result, Err(AppError::Internal(_))),
+        "expected Internal error for unknown device_id, got {result:?}"
+    );
+}
+
+/// `mark_peer_gone` on a device currently tracked as present flips it gone,
+/// publishes `DeviceGone`, and returns `Ok(Some(device_id))`.
+#[tokio::test]
+async fn mark_peer_gone_flips_present_device() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    let device_id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    // Make the device present in memory via a peer observation at .2.
+    h.svc
+        .process_peer_observation(device_id, "10.100.64.2")
+        .await
+        .unwrap();
+    h.events.events.lock().unwrap().clear();
+
+    let result = h.svc.mark_peer_gone(device_id).await.unwrap();
+    assert_eq!(result, Some(device_id));
+
+    let events = h.events.published_events();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        WardnetEvent::DeviceGone { device_id: d, mac, last_ip, .. }
+            if *d == device_id && mac == "aa:bb:cc:dd:ee:01" && last_ip == "10.100.64.2"
+    ));
+}
+
+/// `mark_peer_gone` on a device that exists in the repo but is not tracked as
+/// present in memory (never observed by this instance) is a no-op: no event is
+/// published and it returns `Ok(None)`.
+#[tokio::test]
+async fn mark_peer_gone_untracked_is_noop() {
+    let device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    let device_id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    // Never observed, so no in-memory tracking entry exists.
+    let result = h.svc.mark_peer_gone(device_id).await.unwrap();
+    assert_eq!(result, None);
+    assert!(
+        h.events.published_events().is_empty(),
+        "no event when the device was not tracked as present"
     );
 }

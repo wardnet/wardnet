@@ -11,6 +11,7 @@ use wardnet_common::api::{
 };
 
 use crate::auth_context;
+use crate::device::service::DeviceService;
 use crate::error::AppError;
 use crate::inbound_wg::interface::{
     InboundWgInterface, InboundWgPeerConfig, InboundWgServerConfig,
@@ -22,21 +23,39 @@ use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
 use wardnetd_data::secret_store::SecretStore;
 
+/// One enabled inbound peer paired with its linked device, for the inbound
+/// `WireGuard` monitor's handshake-polling loop (issue #810).
+///
+/// Deliberately device-id-keyed and mac-free: the monitor never needs — and
+/// must never resolve — a device's MAC. `public_key` matches the raw
+/// 32-byte key used by
+/// [`InboundWgPeerStats`](crate::inbound_wg::interface::InboundWgPeerStats) so
+/// the two can be joined; `allowed_ip` is the peer's bare tunnel IP (no `/32`
+/// suffix) to feed straight into the discovery observation path.
+#[derive(Debug, Clone)]
+pub struct InboundWgMonitorPeer {
+    /// The `Device` this peer grants remote access to.
+    pub device_id: Uuid,
+    /// The peer's raw 32-byte `WireGuard` public key.
+    pub public_key: [u8; 32],
+    /// The peer's bare IP on the inbound subnet (e.g. `10.100.64.2`).
+    pub allowed_ip: String,
+}
+
 /// Fixed name of the inbound `WireGuard` server interface.
 ///
 /// The `wg_wardin0` name deliberately shares the `wg_ward` prefix that the
 /// firewall's zone-egress gate matches (`TUNNEL_IFACE_PREFIX` in
-/// `wardnetd::firewall_netlink`), per issue #809 — so it is covered by the
-/// existing outbound-tunnel zone rules today with no new firewall code.
+/// `wardnetd::firewall_netlink`), per issue #809.
 ///
-/// This shared prefix is currently **INERT**: zone-egress-drop rules are keyed
-/// by `saddr == device_ip`, and inbound peers are not `Device` rows yet
-/// (issue #810 territory), so no `ZoneRules` can ever be computed for a peer IP.
-/// When #810 wires zone enforcement to inbound peers, revisit whether a
-/// zone-denied peer's egress-drop rule should actually match `wg_wardin0` — it
-/// is the peer's *inbound* attachment point, not an outbound-tunnel egress path,
-/// so it almost certainly should NOT, and will need explicit handling then.
-/// See the matching note at `TUNNEL_IFACE_PREFIX`.
+/// Since #810 wired inbound peers to `Device` rows, a zone-denied remote
+/// device *can* now have `ZoneRules` computed for its peer IP. The zone-egress
+/// drop rule therefore explicitly **excludes** `wg_wardin0`: that interface is
+/// the peer's *inbound* attachment point, not an outbound-provider-tunnel
+/// egress path, so a zone-denied remote device's own return traffic must not
+/// be dropped by the tunnel-egress gate. See the exclusion at
+/// `TUNNEL_IFACE_PREFIX` / `inbound_wg_iface_exact_value` in
+/// `wardnetd::firewall_netlink`.
 pub const INBOUND_WG_INTERFACE: &str = "wg_wardin0";
 
 /// Inbound tunnel subnet. The server owns `.1`; peers are allocated `/32`s
@@ -47,12 +66,15 @@ const SUBNET_MASK: u8 = 24;
 /// Last octet reserved for the server itself.
 const SERVER_HOST: u8 = 1;
 
-/// Inbound (multi-peer) `WireGuard` server management (issue #809).
+/// Inbound (multi-peer) `WireGuard` server management (issues #809, #810).
 ///
 /// Orchestrates the server interface, its singleton keypair, the peer data
 /// model, IP allocation from the inbound subnet, and the firewall
-/// masquerade/accept rules. Explicitly NOT wired into the device / routing /
-/// zone model — peers get a fixed static route only.
+/// masquerade/accept rules. Each peer is a remote-access grant on an
+/// already-managed [`Device`](wardnet_common::device::Device) (one credential
+/// per device); a live inbound handshake flips that device's
+/// [`connection_mode`](wardnet_common::device::DeviceConnectionMode) to
+/// `Remote` via the discovery service, driven by the inbound-WireGuard monitor.
 #[async_trait]
 pub trait InboundWgService: Send + Sync {
     /// Enable or disable the inbound server and set its listen port.
@@ -68,16 +90,25 @@ pub trait InboundWgService: Send + Sync {
         listen_port: u16,
     ) -> Result<InboundWgConfigResponse, AppError>;
 
-    /// Admit a new peer: generate a keypair, allocate an IP, persist the row
-    /// (public key only), add it to the interface, and return the private key
-    /// **once**. Rejected when the server is disabled.
-    async fn add_peer(&self, name: String) -> Result<AddInboundWgPeerResponse, AppError>;
+    /// Grant remote access to an already-managed device: generate a keypair,
+    /// allocate an IP, persist the row (public key + `device_id`), add it to
+    /// the interface, and return the private key **once**. The peer's
+    /// user-facing name is taken from the device itself. Rejected when the
+    /// server is disabled, when the device does not exist, or when the device
+    /// already has a credential (one per device).
+    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError>;
 
     /// Remove a peer by id from both the interface and the database.
     async fn remove_peer(&self, id: Uuid) -> Result<(), AppError>;
 
     /// List every peer (no private keys).
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError>;
+
+    /// Every enabled peer with its linked device and tunnel IP, for the
+    /// inbound `WireGuard` monitor's handshake-polling loop. Internal use — no
+    /// auth check. Peers with no `device_id` (impossible from #810 onward) or
+    /// an unparseable key/IP are skipped, not fatal.
+    async fn list_peers_for_monitor(&self) -> Result<Vec<InboundWgMonitorPeer>, AppError>;
 
     /// Startup reconciliation: if the server is enabled, stand the interface up
     /// and re-add every enabled peer. Runs before the system is ready, so it is
@@ -92,6 +123,10 @@ pub struct InboundWgServiceImpl {
     keys: Arc<dyn ServerKeyStore>,
     interface: Arc<dyn InboundWgInterface>,
     firewall: Arc<dyn FirewallManager>,
+    /// Resolves the target device for a remote-access grant. Goes through
+    /// [`DeviceService`] (never `DeviceRepository` directly) so the
+    /// single-service-per-repository rule holds.
+    devices: Arc<dyn DeviceService>,
 }
 
 impl InboundWgServiceImpl {
@@ -103,6 +138,7 @@ impl InboundWgServiceImpl {
         secret_store: Arc<dyn SecretStore>,
         interface: Arc<dyn InboundWgInterface>,
         firewall: Arc<dyn FirewallManager>,
+        devices: Arc<dyn DeviceService>,
     ) -> Self {
         let keys: Arc<dyn ServerKeyStore> = Arc::new(ServerKeyStoreAdapter::new(secret_store));
         Self {
@@ -111,6 +147,7 @@ impl InboundWgServiceImpl {
             keys,
             interface,
             firewall,
+            devices,
         }
     }
 
@@ -122,6 +159,7 @@ impl InboundWgServiceImpl {
         keys: Arc<dyn ServerKeyStore>,
         interface: Arc<dyn InboundWgInterface>,
         firewall: Arc<dyn FirewallManager>,
+        devices: Arc<dyn DeviceService>,
     ) -> Self {
         Self {
             peers,
@@ -129,6 +167,7 @@ impl InboundWgServiceImpl {
             keys,
             interface,
             firewall,
+            devices,
         }
     }
 
@@ -326,7 +365,7 @@ impl InboundWgService for InboundWgServiceImpl {
         }
     }
 
-    async fn add_peer(&self, name: String) -> Result<AddInboundWgPeerResponse, AppError> {
+    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError> {
         auth_context::require_admin()?;
 
         // Precondition first: no keygen / DB work if the server is off.
@@ -340,6 +379,37 @@ impl InboundWgService for InboundWgServiceImpl {
                 "inbound WireGuard server is disabled — enable it before adding peers".to_owned(),
             ));
         }
+
+        // A remote-access grant targets an already-managed device. Resolve it
+        // via `DeviceService` (never the repository directly).
+        let device_id_str = device_id.to_string();
+        let device = self
+            .devices
+            .get_device(&device_id_str)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("device {device_id} not found")))?;
+
+        // One credential per device. The DB `UNIQUE` constraint also enforces
+        // this, but a clean conflict is friendlier than a raw violation.
+        if self
+            .peers
+            .find_by_device_id(&device_id_str)
+            .await
+            .map_err(AppError::Internal)?
+            .is_some()
+        {
+            return Err(AppError::Conflict(format!(
+                "device {device_id} already has an inbound WireGuard credential"
+            )));
+        }
+
+        // User-facing label comes from the device, not a free-text param:
+        // admin-set name, else hostname, else MAC as a last resort.
+        let name = device
+            .name
+            .clone()
+            .or_else(|| device.hostname.clone())
+            .unwrap_or_else(|| device.mac.clone());
 
         let (private, public) = generate_keypair();
         let private_b64 = Self::encode_key(&private);
@@ -357,6 +427,7 @@ impl InboundWgService for InboundWgServiceImpl {
             name: name.clone(),
             enabled: true,
             created_at: now.to_rfc3339(),
+            device_id: Some(device_id_str),
         };
         self.peers.insert(&row).await.map_err(AppError::Internal)?;
 
@@ -419,6 +490,51 @@ impl InboundWgService for InboundWgServiceImpl {
 
         let rows = self.peers.find_all().await.map_err(AppError::Internal)?;
         rows.into_iter().map(row_to_summary).collect()
+    }
+
+    async fn list_peers_for_monitor(&self) -> Result<Vec<InboundWgMonitorPeer>, AppError> {
+        // Internal use by the inbound-WireGuard monitor — no auth check.
+        let rows = self
+            .peers
+            .find_enabled()
+            .await
+            .map_err(AppError::Internal)?;
+        let mut peers = Vec::with_capacity(rows.len());
+        for row in rows {
+            let Some(device_id_str) = row.device_id.as_deref() else {
+                // Pre-#810 rows had no device link; nothing for the monitor to
+                // observe against, so skip rather than fail the whole poll.
+                tracing::warn!(peer_id = %row.id, "inbound-wg monitor: peer has no device_id, skipping");
+                continue;
+            };
+            let device_id = match device_id_str.parse::<Uuid>() {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable device_id, skipping");
+                    continue;
+                }
+            };
+            let public_key = match Self::decode_key(&row.public_key) {
+                Ok(k) => k,
+                Err(e) => {
+                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable public key, skipping");
+                    continue;
+                }
+            };
+            // Strip the `/32` suffix — discovery wants the bare IP.
+            let allowed_ip = row
+                .allowed_ip
+                .split('/')
+                .next()
+                .unwrap_or(&row.allowed_ip)
+                .to_owned();
+            peers.push(InboundWgMonitorPeer {
+                device_id,
+                public_key,
+                allowed_ip,
+            });
+        }
+        Ok(peers)
     }
 
     async fn reconcile(&self) -> Result<(), AppError> {

@@ -219,6 +219,12 @@ impl TunnelService for MockTunnelService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        Ok(self.device.clone())
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         Ok(DeviceMeResponse {
             device: self.device.clone(),
@@ -421,6 +427,16 @@ struct MockDiscoveryService {
 
 #[async_trait]
 impl DeviceDiscoveryService for MockDiscoveryService {
+    async fn process_peer_observation(
+        &self,
+        _device_id: uuid::Uuid,
+        _ip: &str,
+    ) -> Result<wardnetd_services::ObservationResult, AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(&self, _device_id: uuid::Uuid) -> Result<Option<uuid::Uuid>, AppError> {
+        unimplemented!()
+    }
     async fn restore_devices(&self) -> Result<(), AppError> {
         Ok(())
     }
@@ -483,6 +499,7 @@ fn sample_device() -> Device {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 

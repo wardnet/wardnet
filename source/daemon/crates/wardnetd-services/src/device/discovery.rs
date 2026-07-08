@@ -5,7 +5,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 use wardnet_common::event::WardnetEvent;
 
 use wardnet_common::auth::AuthContext;
@@ -104,6 +104,37 @@ pub trait DeviceDiscoveryService: Send + Sync {
         name: Option<&str>,
         device_type: Option<DeviceType>,
     ) -> Result<Device, AppError>;
+
+    /// Process an observation sourced from an inbound `WireGuard` handshake for
+    /// an already-known device (identified by `device_id`, not MAC — the
+    /// `Device` row always pre-exists for a remote-access grant). Resolves the
+    /// device's `mac` internally, then runs it through the same
+    /// reappear/IP-changed/just-seen state machine
+    /// [`process_observation`](Self::process_observation) uses for LAN
+    /// observations, but skips the `lan_subnet` filter (peer IPs live in the
+    /// inbound WG subnet) and skips the OUI manufacturer/device-type re-guess
+    /// (already set from LAN history, or `Unknown` if never guessed — never
+    /// overwritten here). Sets `connection_mode = Remote` on write. If
+    /// `device_id` does not resolve to a device (should be impossible — the FK
+    /// guarantees it), returns [`AppError::Internal`], never a "new device"
+    /// path.
+    async fn process_peer_observation(
+        &self,
+        device_id: Uuid,
+        ip: &str,
+    ) -> Result<ObservationResult, AppError>;
+
+    /// Explicitly mark a device gone due to `WireGuard` handshake staleness
+    /// (`device_id`-keyed, resolves mac internally). Mirrors what
+    /// [`scan_departures`](Self::scan_departures) does for a single device:
+    /// flips the in-memory tracking entry's `gone = true` and publishes
+    /// [`WardnetEvent::DeviceGone`]. Kept separate from `scan_departures`'s
+    /// timeout-based sweep because `WireGuard` handshake staleness and
+    /// ARP-timeout liveness are different signals on different timers. Does not
+    /// touch `connection_mode` or delete anything — the row persists,
+    /// enforcement is torn down for that IP until the next observation. No-op
+    /// (returns `Ok(None)`) if the device is not currently tracked as present.
+    async fn mark_peer_gone(&self, device_id: Uuid) -> Result<Option<Uuid>, AppError>;
 }
 
 /// Default implementation of [`DeviceDiscoveryService`].
@@ -194,7 +225,12 @@ impl DeviceDiscoveryServiceImpl {
 
         let now = chrono::Utc::now().to_rfc3339();
         self.devices
-            .update_last_seen_and_ip(&device_id.to_string(), &obs.ip, &now)
+            .update_last_seen_and_ip(
+                &device_id.to_string(),
+                &obs.ip,
+                &now,
+                DeviceConnectionMode::Lan,
+            )
             .await
             .map_err(AppError::Internal)?;
 
@@ -237,6 +273,9 @@ impl DeviceDiscoveryServiceImpl {
             last_seen: now,
             last_ip: obs.ip.clone(),
             zone_id: zone.id.to_string(),
+            // Only the LAN path inserts devices; a remote grant always targets
+            // an already-existing device (issue #810).
+            connection_mode: DeviceConnectionMode::Lan,
         };
 
         self.devices
@@ -297,6 +336,73 @@ impl DeviceDiscoveryServiceImpl {
             manufacturer,
             device_type,
         })
+    }
+
+    /// Publish a [`WardnetEvent::DeviceGone`] for a departed device. Shared by
+    /// the timeout sweep ([`scan_departures`]) and the `WireGuard`
+    /// handshake-staleness path ([`mark_peer_gone`]) so the event payload stays
+    /// identical regardless of which liveness signal triggered the departure.
+    ///
+    /// [`scan_departures`]: DeviceDiscoveryService::scan_departures
+    /// [`mark_peer_gone`]: DeviceDiscoveryService::mark_peer_gone
+    fn publish_device_gone(&self, device_id: Uuid, mac: String, last_ip: String) {
+        self.events.publish(WardnetEvent::DeviceGone {
+            device_id,
+            mac,
+            last_ip,
+            timestamp: chrono::Utc::now(),
+        });
+    }
+
+    /// Phase-1 of [`process_peer_observation`]: update the in-memory tracking
+    /// entry for `mac` under the lock and classify the observation. Never
+    /// yields [`ObsAction::Unknown`] — an untracked device is inserted as
+    /// present (it is always a known device on this path).
+    ///
+    /// [`process_peer_observation`]: DeviceDiscoveryService::process_peer_observation
+    async fn peer_observation_action(&self, mac: &str, device_id: Uuid, ip: &str) -> ObsAction {
+        let mut state = self.state.write().await;
+        match state.get_mut(mac) {
+            Some(entry) if entry.gone => {
+                entry.gone = false;
+                entry.last_seen = Instant::now();
+                ip.clone_into(&mut entry.last_ip);
+                ObsAction::Reappear {
+                    device_id,
+                    mac: mac.to_owned(),
+                }
+            }
+            Some(entry) if entry.last_ip != ip => {
+                let old_ip = entry.last_ip.clone();
+                ip.clone_into(&mut entry.last_ip);
+                entry.last_seen = Instant::now();
+                ObsAction::IpChanged {
+                    device_id,
+                    mac: mac.to_owned(),
+                    old_ip,
+                }
+            }
+            Some(entry) => {
+                entry.last_seen = Instant::now();
+                ObsAction::JustSeen(device_id)
+            }
+            None => {
+                state.insert(
+                    mac.to_owned(),
+                    DeviceMemoryState {
+                        device_id,
+                        mac: mac.to_owned(),
+                        last_ip: ip.to_owned(),
+                        last_seen: Instant::now(),
+                        gone: false,
+                    },
+                );
+                ObsAction::Reappear {
+                    device_id,
+                    mac: mac.to_owned(),
+                }
+            }
+        }
     }
 }
 
@@ -392,7 +498,12 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             ObsAction::Reappear { device_id, mac } => {
                 let now = chrono::Utc::now().to_rfc3339();
                 self.devices
-                    .update_last_seen_and_ip(&device_id.to_string(), &obs.ip, &now)
+                    .update_last_seen_and_ip(
+                        &device_id.to_string(),
+                        &obs.ip,
+                        &now,
+                        DeviceConnectionMode::Lan,
+                    )
                     .await
                     .map_err(AppError::Internal)?;
 
@@ -413,7 +524,12 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             } => {
                 let now = chrono::Utc::now().to_rfc3339();
                 self.devices
-                    .update_last_seen_and_ip(&device_id.to_string(), &obs.ip, &now)
+                    .update_last_seen_and_ip(
+                        &device_id.to_string(),
+                        &obs.ip,
+                        &now,
+                        DeviceConnectionMode::Lan,
+                    )
                     .await
                     .map_err(AppError::Internal)?;
 
@@ -471,12 +587,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let ids: Vec<Uuid> = departed.iter().map(|(id, _, _)| *id).collect();
 
         for (device_id, mac, last_ip) in departed {
-            self.events.publish(WardnetEvent::DeviceGone {
-                device_id,
-                mac,
-                last_ip,
-                timestamp: chrono::Utc::now(),
-            });
+            self.publish_device_gone(device_id, mac, last_ip);
         }
 
         Ok(ids)
@@ -625,5 +736,112 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))
+    }
+
+    async fn process_peer_observation(
+        &self,
+        device_id: Uuid,
+        ip: &str,
+    ) -> Result<ObservationResult, AppError> {
+        // The device row always pre-exists for a remote-access grant (the
+        // `inbound_wg_peers.device_id` FK guarantees it), so a miss is an
+        // internal invariant violation — never the "new device" insert path.
+        let device = self
+            .devices
+            .find_by_id(&device_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "process_peer_observation: device {device_id} not found (FK should prevent this)"
+                ))
+            })?;
+        let mac = device.mac;
+
+        // Phase 1: reuse the same in-memory state machine as the LAN path
+        // (keyed by mac), minus the `lan_subnet` filter — peer IPs live in the
+        // inbound WG subnet, not the LAN. `Unknown` is unreachable here: an
+        // absent entry is inserted-as-present, since the device is always known.
+        let action = self.peer_observation_action(&mac, device_id, ip).await;
+
+        // Phase 2: every real arm persists with `connection_mode = Remote`
+        // (a handshake observation regardless of IP change), so persist once,
+        // then publish the arm-specific event.
+        let now = chrono::Utc::now().to_rfc3339();
+        self.devices
+            .update_last_seen_and_ip(
+                &device_id.to_string(),
+                ip,
+                &now,
+                DeviceConnectionMode::Remote,
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        match action {
+            ObsAction::Reappear { device_id, mac } => {
+                self.events.publish(WardnetEvent::DeviceDiscovered {
+                    device_id,
+                    mac,
+                    ip: ip.to_owned(),
+                    hostname: None,
+                    timestamp: chrono::Utc::now(),
+                });
+                Ok(ObservationResult::Reappeared(device_id))
+            }
+            ObsAction::IpChanged {
+                device_id,
+                mac,
+                old_ip,
+            } => {
+                self.events.publish(WardnetEvent::DeviceIpChanged {
+                    device_id,
+                    mac,
+                    old_ip: old_ip.clone(),
+                    new_ip: ip.to_owned(),
+                    timestamp: chrono::Utc::now(),
+                });
+                Ok(ObservationResult::IpChanged { device_id, old_ip })
+            }
+            ObsAction::JustSeen(device_id) => Ok(ObservationResult::Seen(device_id)),
+            // Unreachable by construction (see phase-1); return an error rather
+            // than panic so a background caller degrades gracefully.
+            ObsAction::Unknown => Err(AppError::Internal(anyhow::anyhow!(
+                "process_peer_observation: unexpected Unknown action for device {device_id}"
+            ))),
+        }
+    }
+
+    async fn mark_peer_gone(&self, device_id: Uuid) -> Result<Option<Uuid>, AppError> {
+        // Resolve mac internally so callers never need to know it. A missing
+        // device can't be tracked, so treat it as a no-op departure.
+        let Some(device) = self
+            .devices
+            .find_by_id(&device_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(None);
+        };
+        let mac = device.mac;
+
+        let gone = {
+            let mut state = self.state.write().await;
+            match state.get_mut(&mac) {
+                Some(entry) if !entry.gone => {
+                    entry.gone = true;
+                    Some((entry.device_id, entry.mac.clone(), entry.last_ip.clone()))
+                }
+                _ => None,
+            }
+        };
+
+        match gone {
+            Some((id, mac, last_ip)) => {
+                self.publish_device_gone(id, mac, last_ip);
+                Ok(Some(id))
+            }
+            None => Ok(None),
+        }
     }
 }

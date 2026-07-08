@@ -104,6 +104,7 @@ impl MemoryDeviceRepository {
                 dns_capture_enabled: false,
                 dns_capture_cap_count: 1000,
                 dns_capture_cap_days: 7,
+                connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
             },
         );
     }
@@ -136,6 +137,7 @@ impl DeviceRepository for MemoryDeviceRepository {
         _id: &str,
         _last_seen: &str,
         _last_ip: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         unimplemented!()
     }

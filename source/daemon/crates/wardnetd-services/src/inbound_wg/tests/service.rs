@@ -6,7 +6,11 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
+
 use crate::auth_context;
+use crate::device::service::DeviceService;
+use crate::error::AppError;
 use crate::inbound_wg::interface::{
     InboundWgInterface, InboundWgPeerConfig, InboundWgPeerStats, InboundWgServerConfig,
 };
@@ -15,6 +19,124 @@ use crate::inbound_wg::service::{INBOUND_WG_INTERFACE, InboundWgService, Inbound
 use crate::routing::firewall::{FirewallManager, ZoneIsolationRules, ZoneRules};
 use wardnetd_data::repository::inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
 use wardnetd_data::repository::system_config::SystemConfigRepository;
+
+// -- Mock DeviceService (only `get_device` is exercised) ------------------
+
+#[derive(Default)]
+struct MockDeviceService {
+    devices: Mutex<HashMap<String, Device>>,
+}
+
+impl MockDeviceService {
+    /// Register a device with the given display name and return its id.
+    fn add_device(&self, name: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        let device = Device {
+            id,
+            mac: format!("aa:bb:cc:00:00:{:02x}", self.devices.lock().unwrap().len()),
+            name: Some(name.to_owned()),
+            hostname: None,
+            manufacturer: None,
+            device_type: DeviceType::Unknown,
+            first_seen: chrono::Utc::now(),
+            last_seen: chrono::Utc::now(),
+            last_ip: "192.168.1.50".to_owned(),
+            admin_locked: false,
+            zone_id: Uuid::new_v4(),
+            dns_capture_enabled: false,
+            dns_capture_cap_count: 0,
+            dns_capture_cap_days: 0,
+            connection_mode: DeviceConnectionMode::Lan,
+        };
+        self.devices.lock().unwrap().insert(id.to_string(), device);
+        id
+    }
+}
+
+#[async_trait]
+impl DeviceService for MockDeviceService {
+    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError> {
+        Ok(self.devices.lock().unwrap().get(device_id).cloned())
+    }
+
+    async fn get_device_for_ip(
+        &self,
+        _ip: &str,
+    ) -> Result<wardnet_common::api::DeviceMeResponse, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn set_rule_for_ip(
+        &self,
+        _ip: &str,
+        _target: wardnet_common::routing::RoutingTarget,
+    ) -> Result<wardnet_common::api::SetMyRuleResponse, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn set_rule(
+        &self,
+        _device_id: &str,
+        _target: wardnet_common::routing::RoutingTarget,
+    ) -> Result<(), AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn current_rules(
+        &self,
+    ) -> Result<HashMap<Uuid, wardnet_common::routing::RoutingTarget>, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn update_admin_locked(&self, _device_id: &str, _locked: bool) -> Result<(), AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn get_dns_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _device_id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        _enabled: bool,
+    ) -> Result<wardnet_common::api::DnsCaptureSettingsResponse, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn fetch_pending_dns_events(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn mark_dns_events_synced(
+        &self,
+        _device_id: &str,
+        _up_to_id: i64,
+    ) -> Result<(), AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+    async fn get_device_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
+}
 
 fn admin_ctx() -> AuthContext {
     AuthContext::Admin {
@@ -42,6 +164,15 @@ impl InboundWgPeerRepository for MockPeerRepo {
             .unwrap()
             .iter()
             .find(|r| r.id == id)
+            .cloned())
+    }
+    async fn find_by_device_id(&self, device_id: &str) -> anyhow::Result<Option<InboundWgPeerRow>> {
+        Ok(self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.device_id.as_deref() == Some(device_id))
             .cloned())
     }
     async fn find_all(&self) -> anyhow::Result<Vec<InboundWgPeerRow>> {
@@ -247,7 +378,15 @@ struct Harness {
     keys: Arc<MockKeyStore>,
     interface: Arc<MockInterface>,
     firewall: Arc<MockFirewall>,
+    devices: Arc<MockDeviceService>,
     service: InboundWgServiceImpl,
+}
+
+impl Harness {
+    /// Register a device and return its id, for use as `add_peer`'s argument.
+    fn add_device(&self, name: &str) -> Uuid {
+        self.devices.add_device(name)
+    }
 }
 
 fn harness() -> Harness {
@@ -256,12 +395,14 @@ fn harness() -> Harness {
     let keys = Arc::new(MockKeyStore::default());
     let interface = Arc::new(MockInterface::default());
     let firewall = Arc::new(MockFirewall::default());
+    let devices = Arc::new(MockDeviceService::default());
     let service = InboundWgServiceImpl::with_key_store(
         peers.clone(),
         system_config.clone(),
         keys.clone(),
         interface.clone(),
         firewall.clone(),
+        devices.clone(),
     );
     Harness {
         peers,
@@ -269,6 +410,7 @@ fn harness() -> Harness {
         keys,
         interface,
         firewall,
+        devices,
         service,
     }
 }
@@ -320,8 +462,8 @@ async fn enable_persists_config_and_calls_backends() {
 #[tokio::test]
 async fn add_peer_rejected_when_disabled() {
     let h = harness();
-    let result =
-        auth_context::with_context(admin_ctx(), h.service.add_peer("laptop".to_owned())).await;
+    let device_id = h.add_device("laptop");
+    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id)).await;
     assert!(result.is_err(), "add_peer must fail when server disabled");
     // Nothing was persisted or pushed to the interface.
     assert!(h.peers.find_all().await.unwrap().is_empty());
@@ -335,7 +477,8 @@ async fn add_peer_generates_private_key_never_persisted() {
         .await
         .unwrap();
 
-    let resp = auth_context::with_context(admin_ctx(), h.service.add_peer("phone".to_owned()))
+    let device_id = h.add_device("phone");
+    let resp = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
         .await
         .expect("add_peer succeeds when enabled");
 
@@ -369,8 +512,8 @@ async fn add_peer_rolls_back_row_when_interface_fails() {
     // Force the interface to reject the peer after the row is inserted.
     h.interface.fail_add_peer.store(true, Ordering::SeqCst);
 
-    let result =
-        auth_context::with_context(admin_ctx(), h.service.add_peer("laptop".to_owned())).await;
+    let device_id = h.add_device("laptop");
+    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id)).await;
     assert!(
         result.is_err(),
         "add_peer must fail when the interface rejects the peer"
@@ -392,10 +535,12 @@ async fn second_peer_gets_next_free_ip() {
     auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
         .await
         .unwrap();
-    let a = auth_context::with_context(admin_ctx(), h.service.add_peer("a".to_owned()))
+    let id_a = h.add_device("a");
+    let id_b = h.add_device("b");
+    let a = auth_context::with_context(admin_ctx(), h.service.add_peer(id_a))
         .await
         .unwrap();
-    let b = auth_context::with_context(admin_ctx(), h.service.add_peer("b".to_owned()))
+    let b = auth_context::with_context(admin_ctx(), h.service.add_peer(id_b))
         .await
         .unwrap();
     assert_eq!(a.allowed_ip, "10.100.64.2/32");
@@ -408,7 +553,8 @@ async fn remove_peer_deletes_row() {
     auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
         .await
         .unwrap();
-    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer("x".to_owned()))
+    let device_id = h.add_device("x");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
         .await
         .unwrap();
     assert_eq!(h.peers.find_all().await.unwrap().len(), 1);
@@ -426,7 +572,8 @@ async fn disable_does_not_delete_peer_rows() {
     auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
         .await
         .unwrap();
-    auth_context::with_context(admin_ctx(), h.service.add_peer("keep".to_owned()))
+    let device_id = h.add_device("keep");
+    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
         .await
         .unwrap();
 
@@ -463,7 +610,8 @@ async fn reconcile_reenables_peers_when_enabled() {
     auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
         .await
         .unwrap();
-    auth_context::with_context(admin_ctx(), h.service.add_peer("p".to_owned()))
+    let device_id = h.add_device("p");
+    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
         .await
         .unwrap();
 

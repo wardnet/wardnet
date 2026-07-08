@@ -90,7 +90,10 @@ pub use crate::dns_local::DnsLocalService;
 pub use crate::health::{
     CheckOutcome, ComponentHealth, HealthCheck, HealthMonitor, HealthSnapshot, HealthStatus,
 };
-pub use crate::inbound_wg::{InboundWgInterface, InboundWgService};
+pub use crate::inbound_wg::{
+    INBOUND_WG_INTERFACE, InboundWgInterface, InboundWgMonitorPeer, InboundWgPeerStats,
+    InboundWgService,
+};
 pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
@@ -656,6 +659,7 @@ fn create_services(
         backends.secret_store.clone(),
         backends.inbound_wg_interface.clone(),
         backends.firewall.clone(),
+        device_service.clone(),
     ));
 
     let discovery_service = build_discovery_service(

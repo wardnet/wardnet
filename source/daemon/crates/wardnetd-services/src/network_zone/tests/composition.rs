@@ -98,6 +98,7 @@ async fn build_zone_device(
             last_seen: ts,
             last_ip: DEVICE_IP.to_owned(),
             zone_id: zone_id.to_string(),
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         })
         .await
         .unwrap();

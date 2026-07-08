@@ -19,13 +19,23 @@ pub struct InboundWgPeerRow {
     pub enabled: bool,
     /// RFC 3339 creation timestamp.
     pub created_at: String,
+    /// The `Device` this credential grants remote access to (issue #810).
+    ///
+    /// A remote-access grant is a property of an already-managed device, so
+    /// the application layer always sets this at peer-creation time. Modelled
+    /// as `Option` only because the DB column is nullable (`SQLite` cannot add a
+    /// `NOT NULL` column without a constant default); in practice every row
+    /// written from #810 onward carries it. `UNIQUE` — one credential per
+    /// device.
+    pub device_id: Option<String>,
 }
 
-/// Persistence for inbound-`WireGuard` peers (issue #809).
+/// Persistence for inbound-`WireGuard` peers (issues #809, #810).
 ///
-/// A standalone CRUD store: peers are not wired into the device/routing/zone
-/// model, so there is no cross-table coupling here. The service layer owns IP
-/// allocation and keypair generation; this trait only reads and writes rows.
+/// Each peer is a remote-access credential linked (`device_id`, `UNIQUE`) to
+/// an already-managed [`Device`](wardnet_common::device::Device). The service
+/// layer owns IP allocation, keypair generation, and the device link; this
+/// trait only reads and writes rows.
 #[async_trait]
 pub trait InboundWgPeerRepository: Send + Sync {
     /// Insert a new peer row.
@@ -33,6 +43,12 @@ pub trait InboundWgPeerRepository: Send + Sync {
 
     /// Fetch a single peer by id.
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<InboundWgPeerRow>>;
+
+    /// Fetch the single peer linked to the given device, if one exists.
+    ///
+    /// At most one row can match — `device_id` is `UNIQUE` (one credential per
+    /// device, issue #810).
+    async fn find_by_device_id(&self, device_id: &str) -> anyhow::Result<Option<InboundWgPeerRow>>;
 
     /// Return every peer, oldest first.
     async fn find_all(&self) -> anyhow::Result<Vec<InboundWgPeerRow>>;

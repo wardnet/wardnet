@@ -385,6 +385,12 @@ struct MockDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        Ok(self.device.clone())
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         Ok(DeviceMeResponse {
             device: self.device.clone(),
@@ -602,6 +608,7 @@ async fn resolve_auth_context_known_device_ip() {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     };
     let state = make_state_with_device(
         MockAuthService {

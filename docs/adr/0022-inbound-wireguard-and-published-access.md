@@ -14,11 +14,17 @@ Both are greenfield: no inbound-WireGuard code, no DNAT/reverse-proxy primitive,
 
 ## Decision
 
-### 1. Inbound WireGuard peers are modeled as `Device` rows, not a parallel concept
+### 1. Inbound WireGuard access is a grant on an already-managed `Device`, not a new identity (revised in #810)
 
-A peer gets a synthetic MAC derived from its WireGuard public key and a `last_ip` from the inbound WireGuard subnet. This makes it participate in `RoutingRule`, Network Zone enforcement, and DNS capture through the exact same pipeline every LAN device already uses (`DeviceDiscovered`/`DeviceIpChanged`/`DeviceGone` events, `ZoneEnforcementListener`, `DnsFilterService`) — no parallel enforcement path to build or keep in sync.
+A remote-access credential (`inbound_wg_peers.device_id`, `UNIQUE`) is a property *of* a specific `Device` the admin has already granted it to — not a freestanding, independently-named credential that gives birth to its own identity on first handshake. This makes the granted device participate in `RoutingRule`, Network Zone enforcement, and DNS capture through the exact same pipeline every LAN device already uses (`DeviceDiscovered`/`DeviceIpChanged`/`DeviceGone` events, `ZoneEnforcementListener`, `DnsFilterService`) — no parallel enforcement path to build or keep in sync.
 
-The alternative — a standalone `InboundWgPeer` concept with its own routing and zone-gate wiring — was rejected: the product's entire mental model is device-centric (routing rules, zones, DNS capture are all keyed by device), and duplicating that machinery for a second "device-like" entity buys no functional benefit, only drift risk between the two enforcement paths.
+**A device is only grant-eligible once it has been discovered on the LAN at least once.** There is no pre-registration path: modern OSes (iOS, Android, Windows, macOS) randomize the MAC address presented to a network the device hasn't associated with before, so there is no reliable way for an admin to know in advance what MAC a device will present to this LAN. Requiring LAN discovery first means the MAC backing the grant is whatever this specific network already resolved via ARP, once, with no prediction involved — and it's also the natural expression of "wardnet manages known devices on a LAN," not a general-purpose peer-mesh/relay product like Tailscale where any invited identity can join.
+
+`Device.connection_mode` (`Lan` | `Remote`) is a live status, not a lineage tag — it's set by whichever path (LAN ARP/DHCP, or a WireGuard handshake) most recently observed the device, and flips back and forth over that device's lifetime exactly as `last_ip` already does across DHCP renewals. There is deliberately no `provenance`-style field recording how a device was *born*, because a granted device's identity does not change based on which path it's currently reachable through.
+
+Two alternatives were rejected:
+- **A standalone `InboundWgPeer` concept with its own routing and zone-gate wiring** — the product's entire mental model is device-centric (routing rules, zones, DNS capture are all keyed by device), and duplicating that machinery for a second "device-like" entity buys no functional benefit, only drift risk between the two enforcement paths.
+- **A synthetic-MAC-birthed `Device` on first handshake** (the original form of this decision, shipped in #809's data model but never wired to enforcement) — this let *any* holder of a generated credential become a new, independent device identity, which is a materially different and weaker security posture than "the admin explicitly authorized this specific, already-known device." #810 revised the decision to close that gap before wiring enforcement live.
 
 ### 2. Published access: mechanism and visibility are separate, orthogonal choices; visibility defaults to tunnel-only
 

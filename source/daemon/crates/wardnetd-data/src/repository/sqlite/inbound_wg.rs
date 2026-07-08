@@ -12,6 +12,7 @@ struct DbInboundWgPeerRow {
     name: String,
     enabled: bool,
     created_at: String,
+    device_id: Option<String>,
 }
 
 impl DbInboundWgPeerRow {
@@ -23,9 +24,13 @@ impl DbInboundWgPeerRow {
             name: self.name,
             enabled: self.enabled,
             created_at: self.created_at,
+            device_id: self.device_id,
         }
     }
 }
+
+/// Column list shared by every `SELECT` so the mapping stays in one place.
+const SELECT_COLS: &str = "id, public_key, allowed_ip, name, enabled, created_at, device_id";
 
 /// `SQLite`-backed [`InboundWgPeerRepository`].
 pub struct SqliteInboundWgPeerRepository {
@@ -49,8 +54,8 @@ impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
     async fn insert(&self, row: &InboundWgPeerRow) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO inbound_wg_peers \
-             (id, public_key, allowed_ip, name, enabled, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+             (id, public_key, allowed_ip, name, enabled, created_at, device_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.public_key)
@@ -58,25 +63,34 @@ impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
         .bind(&row.name)
         .bind(row.enabled)
         .bind(&row.created_at)
+        .bind(&row.device_id)
         .execute(&self.pools.write)
         .await?;
         Ok(())
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<InboundWgPeerRow>> {
-        const FIND_BY_ID: &str = "SELECT id, public_key, allowed_ip, name, enabled, created_at \
-             FROM inbound_wg_peers WHERE id = ?";
-        let row = sqlx::query_as::<_, DbInboundWgPeerRow>(FIND_BY_ID)
+        let query = format!("SELECT {SELECT_COLS} FROM inbound_wg_peers WHERE id = ?");
+        let row = sqlx::query_as::<_, DbInboundWgPeerRow>(sqlx::AssertSqlSafe(query))
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?;
         Ok(row.map(DbInboundWgPeerRow::into_domain))
     }
 
+    async fn find_by_device_id(&self, device_id: &str) -> anyhow::Result<Option<InboundWgPeerRow>> {
+        let query = format!("SELECT {SELECT_COLS} FROM inbound_wg_peers WHERE device_id = ?");
+        let row = sqlx::query_as::<_, DbInboundWgPeerRow>(sqlx::AssertSqlSafe(query))
+            .bind(device_id)
+            .fetch_optional(&self.pools.read)
+            .await?;
+        Ok(row.map(DbInboundWgPeerRow::into_domain))
+    }
+
     async fn find_all(&self) -> anyhow::Result<Vec<InboundWgPeerRow>> {
-        const FIND_ALL: &str = "SELECT id, public_key, allowed_ip, name, enabled, created_at \
-             FROM inbound_wg_peers ORDER BY created_at ASC, id ASC";
-        let rows = sqlx::query_as::<_, DbInboundWgPeerRow>(FIND_ALL)
+        let query =
+            format!("SELECT {SELECT_COLS} FROM inbound_wg_peers ORDER BY created_at ASC, id ASC");
+        let rows = sqlx::query_as::<_, DbInboundWgPeerRow>(sqlx::AssertSqlSafe(query))
             .fetch_all(&self.pools.read)
             .await?;
         Ok(rows
@@ -86,9 +100,11 @@ impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
     }
 
     async fn find_enabled(&self) -> anyhow::Result<Vec<InboundWgPeerRow>> {
-        const FIND_ENABLED: &str = "SELECT id, public_key, allowed_ip, name, enabled, created_at \
-             FROM inbound_wg_peers WHERE enabled = 1 ORDER BY created_at ASC, id ASC";
-        let rows = sqlx::query_as::<_, DbInboundWgPeerRow>(FIND_ENABLED)
+        let query = format!(
+            "SELECT {SELECT_COLS} FROM inbound_wg_peers \
+             WHERE enabled = 1 ORDER BY created_at ASC, id ASC"
+        );
+        let rows = sqlx::query_as::<_, DbInboundWgPeerRow>(sqlx::AssertSqlSafe(query))
             .fetch_all(&self.pools.read)
             .await?;
         Ok(rows

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use wardnet_common::device::Device;
+use wardnet_common::device::{Device, DeviceConnectionMode};
 use wardnet_common::routing::RoutingRule;
 
 /// Row data for inserting a new device.
@@ -15,6 +15,9 @@ pub struct DeviceRow {
     /// The Network Zone the device is assigned to at insert time (sticky).
     /// Resolved from the default-for-new zone by the discovery service.
     pub zone_id: String,
+    /// How the device was first observed (live status, last-observation-wins).
+    /// Freshly discovered devices are always [`DeviceConnectionMode::Lan`].
+    pub connection_mode: DeviceConnectionMode,
 }
 
 /// Data access for devices and their routing rules.
@@ -39,12 +42,20 @@ pub trait DeviceRepository: Send + Sync {
     /// Insert a new device record.
     async fn insert(&self, device: &DeviceRow) -> anyhow::Result<()>;
 
-    /// Update `last_seen` timestamp and IP for a device.
+    /// Update `last_seen` timestamp, IP, and connection mode for a device in
+    /// one write.
+    ///
+    /// `mode` records how the device was just observed (LAN vs. inbound
+    /// `WireGuard`) — a live, last-observation-wins status, so every
+    /// observation path stamps it: LAN discovery passes
+    /// [`DeviceConnectionMode::Lan`], the inbound-WireGuard handshake path
+    /// passes [`DeviceConnectionMode::Remote`].
     async fn update_last_seen_and_ip(
         &self,
         id: &str,
         ip: &str,
         last_seen: &str,
+        mode: DeviceConnectionMode,
     ) -> anyhow::Result<()>;
 
     /// Batch update `last_seen` timestamps. Each tuple is (`device_id`, `last_seen_iso`).

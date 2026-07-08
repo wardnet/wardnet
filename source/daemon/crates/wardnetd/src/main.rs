@@ -28,6 +28,7 @@ use wardnetd::health_runner::HealthMonitorRunner;
 use wardnetd::heartbeat::HeartbeatRunner;
 use wardnetd::hostname_resolver::SystemHostnameResolver;
 use wardnetd::inbound_wg_interface_wireguard::WireGuardInboundInterface;
+use wardnetd::inbound_wg_peer_monitor::InboundWgPeerMonitor;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::packet_capture_pnet::PnetCapture;
@@ -309,9 +310,15 @@ async fn run(
             .map_err(|e| anyhow::anyhow!("failed to build :443 TLS config: {e}"))?;
     let cert_activator: Arc<dyn wardnetd_services::CertActivator> = serving_control.clone();
 
+    // Hold a clone of the inbound-WireGuard interface outside `Backends` so the
+    // inbound peer monitor (started after `init_services_with_factory` has
+    // consumed `Backends`) can still poll it. Mirrors how `garp_ops` is held.
+    let inbound_wg_interface: Arc<dyn wardnetd_services::InboundWgInterface> =
+        Arc::new(WireGuardInboundInterface);
+
     let backends = Backends {
         tunnel_interface: Arc::new(WireGuardTunnelInterface),
-        inbound_wg_interface: Arc::new(WireGuardInboundInterface),
+        inbound_wg_interface: inbound_wg_interface.clone(),
         tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
             config.tunnel.test_probe_url.clone(),
         )),
@@ -477,6 +484,16 @@ async fn run(
         config.tunnel.stats_interval_secs,
         config.tunnel.health_check_interval_secs,
         config.tunnel.latency_probe_interval_secs,
+        &root_span,
+    );
+    // Inbound WireGuard peer liveness → device presence (#810). Always started:
+    // `list_peers_for_monitor` naturally returns empty when the server is
+    // disabled or has no peers, so the loop no-ops until a peer handshakes.
+    let inbound_wg_peer_monitor = InboundWgPeerMonitor::start(
+        services.inbound_wg.clone(),
+        inbound_wg_interface.clone(),
+        services.discovery.clone(),
+        config.tunnel.stats_interval_secs,
         &root_span,
     );
     let idle_watcher = IdleTunnelWatcher::start(
@@ -972,6 +989,7 @@ async fn run(
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
+    inbound_wg_peer_monitor.shutdown().await;
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;

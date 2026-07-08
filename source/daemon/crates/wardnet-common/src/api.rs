@@ -294,10 +294,14 @@ pub struct InboundWgConfigResponse {
 }
 
 /// Request body for `POST /api/inbound-wg/peers`.
+///
+/// A remote-access grant targets an already-managed device (issue #810): the
+/// peer's user-facing name is taken from that device, not supplied here.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddInboundWgPeerRequest {
-    /// Human-facing label for the new peer.
-    pub name: String,
+    /// The device to grant remote access to. Must already exist (discovered on
+    /// the LAN at least once) and must not already have a credential.
+    pub device_id: Uuid,
 }
 
 /// Response for `POST /api/inbound-wg/peers`.

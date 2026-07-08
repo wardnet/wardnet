@@ -82,16 +82,20 @@ pub async fn list_peers(
     post,
     path = "/api/inbound-wg/peers",
     tag = "inbound-wg",
-    description = "Admit a new inbound WireGuard peer. The daemon generates a fresh keypair, \
-                   allocates the next free address on the inbound subnet, stores the peer \
-                   (public key only), and admits it onto the server interface. The response \
-                   carries the peer's **private key exactly once** — it is never persisted, \
-                   so it must be copied now. Returns 409 if the server is disabled. Admin only.",
+    description = "Grant remote access to an already-managed device via inbound WireGuard. \
+                   The daemon generates a fresh keypair, allocates the next free address on \
+                   the inbound subnet, stores the peer (public key + device link), and admits \
+                   it onto the server interface. The peer's name is taken from the device. \
+                   The response carries the peer's **private key exactly once** — it is never \
+                   persisted, so it must be copied now. Returns 409 if the server is disabled \
+                   or the device already has a credential, 404 if the device does not exist. \
+                   Admin only.",
     request_body = AddInboundWgPeerRequest,
     responses(
         (status = 201, description = "Peer admitted", body = AddInboundWgPeerResponse),
         AuthErrors,
         Conflict,
+        NotFound,
     ),
     security(
         ("session_cookie" = []),
@@ -103,7 +107,7 @@ pub async fn add_peer(
     _auth: AdminAuth,
     Json(body): Json<AddInboundWgPeerRequest>,
 ) -> Result<(StatusCode, Json<AddInboundWgPeerResponse>), AppError> {
-    let response = state.inbound_wg_service().add_peer(body.name).await?;
+    let response = state.inbound_wg_service().add_peer(body.device_id).await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
 

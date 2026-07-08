@@ -34,6 +34,12 @@ struct MockDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        unimplemented!("not used by DnsCaptureRunner")
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!("not used by DnsCaptureRunner")
     }
@@ -306,6 +312,7 @@ fn sample_device(capture_enabled: bool) -> Device {
         dns_capture_enabled: capture_enabled,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 

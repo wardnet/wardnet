@@ -90,6 +90,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, id: Uuid) {
             last_seen: now,
             last_ip: "192.168.1.50".to_owned(),
             zone_id: GUEST.to_owned(),
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         })
         .await
         .unwrap();

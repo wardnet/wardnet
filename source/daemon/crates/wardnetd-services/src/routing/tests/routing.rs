@@ -79,6 +79,7 @@ impl DeviceRepository for MockDeviceRepo {
         _id: &str,
         _ip: &str,
         _last_seen: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -745,6 +746,7 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 

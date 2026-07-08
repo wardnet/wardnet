@@ -416,7 +416,7 @@ impl InboundWgService for NoopInboundWgService {
     }
     async fn add_peer(
         &self,
-        _name: String,
+        _device_id: uuid::Uuid,
     ) -> Result<wardnet_common::api::AddInboundWgPeerResponse, wardnetd_services::error::AppError>
     {
         Err(wardnetd_services::error::AppError::Internal(
@@ -429,6 +429,12 @@ impl InboundWgService for NoopInboundWgService {
     async fn list_peers(
         &self,
     ) -> Result<Vec<wardnet_common::api::InboundWgPeerSummary>, wardnetd_services::error::AppError>
+    {
+        Ok(Vec::new())
+    }
+    async fn list_peers_for_monitor(
+        &self,
+    ) -> Result<Vec<wardnetd_services::InboundWgMonitorPeer>, wardnetd_services::error::AppError>
     {
         Ok(Vec::new())
     }

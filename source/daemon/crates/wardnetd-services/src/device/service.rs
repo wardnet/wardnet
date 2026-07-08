@@ -122,6 +122,11 @@ pub trait DeviceService: Send + Sync {
         &self,
         device_id: &str,
     ) -> Result<Option<(bool, i64, i64)>, AppError>;
+
+    /// Return the device by id, or `None` if it does not exist. For internal
+    /// use by other services needing device identity (e.g. inbound `WireGuard`
+    /// peer grants) — no auth check.
+    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
@@ -584,5 +589,12 @@ impl DeviceService for DeviceServiceImpl {
                 d.dns_capture_cap_days,
             ))),
         }
+    }
+
+    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError> {
+        self.devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)
     }
 }

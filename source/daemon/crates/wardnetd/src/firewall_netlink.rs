@@ -29,6 +29,7 @@ use rustables::{
     Table, list_rules_for_chain,
 };
 
+use wardnetd_services::inbound_wg::INBOUND_WG_INTERFACE;
 use wardnetd_services::routing::firewall::{
     ExceptionAllow, FirewallManager, ZoneIsolationRules, ZoneRules,
 };
@@ -44,22 +45,19 @@ const INPUT: &str = "input";
 
 /// nftables interface-name field width (`IFNAMSIZ`); `meta oifname` loads this
 /// many bytes into the comparison register, so masks/values are this length.
-const IFNAMSIZ: usize = 16;
+pub(crate) const IFNAMSIZ: usize = 16;
 /// Wardnet tunnel interface-name prefix. A forwarded packet leaving via a
 /// `wg_ward*` interface is taking the tunnel egress path (issue #736).
 ///
-/// LANDMINE (issue #809 → #810): the inbound `WireGuard` server interface
-/// `wg_wardin0` (`INBOUND_WG_INTERFACE` in
-/// `wardnetd_services::inbound_wg::service`) deliberately shares this prefix, so
-/// the zone-egress gate covers it today with no new rules. This is currently
-/// **INERT** — zone-egress-drop rules are keyed by `saddr == device_ip`, and
-/// inbound peers are not `Device` rows yet, so no `ZoneRules` are ever computed
-/// for a peer IP. When #810 wires zone enforcement to inbound peers, revisit
-/// whether a zone-denied peer's egress-drop rule should actually match
-/// `wg_wardin0`: that interface is the peer's *inbound* attachment point, not an
-/// outbound-provider-tunnel egress path, so it almost certainly should NOT be
-/// matched here the same way, and will need explicit handling then. See the
-/// matching note at `INBOUND_WG_INTERFACE`.
+/// The inbound `WireGuard` server interface `wg_wardin0`
+/// (`INBOUND_WG_INTERFACE` in `wardnetd_services::inbound_wg`) shares this
+/// prefix, but is **explicitly excluded** from the zone-egress drop rule since
+/// #810: a zone-denied *remote* device is now a real `Device` row with
+/// `ZoneRules`, and its return traffic over `wg_wardin0` is its *inbound*
+/// attachment point — not an outbound-provider-tunnel egress path — so it must
+/// not be dropped by this gate. The exclusion is expressed by `ANDing` a
+/// `oifname != wg_wardin0` match onto the drop rule (see
+/// `inbound_wg_iface_exact_value` and the egress gate in `apply_zone_rules`).
 const TUNNEL_IFACE_PREFIX: &[u8] = b"wg_ward";
 /// Pi admin surfaces a zone may deny (issue #736): the HTTPS admin site (:443)
 /// and the plain-HTTP API (:7411). Both are TCP, so denial is a TCP reset.
@@ -238,6 +236,20 @@ fn tunnel_oifname_mask_and_value() -> (Vec<u8>, Vec<u8>) {
         value[i] = b;
     }
     (mask, value)
+}
+
+/// The `meta oifname` comparison value that matches the inbound `WireGuard`
+/// server interface (`INBOUND_WG_INTERFACE`) *exactly*: its name zero-padded to
+/// `IFNAMSIZ`, the same padding `meta oifname` produces when it loads the full
+/// interface name into the comparison register. Paired with a
+/// [`Cmp`] using [`CmpOp::Neq`] this excludes `wg_wardin0` from the `wg_ward*`
+/// tunnel-egress drop rule (issue #810).
+pub(crate) fn inbound_wg_iface_exact_value() -> Vec<u8> {
+    let mut value = vec![0u8; IFNAMSIZ];
+    for (i, &b) in INBOUND_WG_INTERFACE.as_bytes().iter().enumerate() {
+        value[i] = b;
+    }
+    value
 }
 
 /// The device IP a zone rule is keyed on: the final `:`-delimited segment of a
@@ -631,13 +643,24 @@ impl FirewallManager for NetlinkFirewallManager {
             // 2. Egress gate: drop forwarded packets leaving via a forbidden
             //    path. `allowed_targets` is never empty, so at most one applies.
             if !rules.allow_tunnel {
-                // ip saddr <ip> oifname "wg_ward*" drop
+                // ip saddr <ip> oifname "wg_ward*" oifname != "wg_wardin0" drop
+                //
+                // The prefix match (masked Bitwise + Eq) catches every outbound
+                // provider tunnel `wg_ward*`. The second, unmasked oifname load
+                // + Neq excludes the inbound server interface `wg_wardin0`: a
+                // zone-denied remote device's return traffic over its own
+                // inbound attachment point is not tunnel egress and must not be
+                // dropped here (issue #810). nftables evaluates the two loads in
+                // order, each into the comparison register, so the rule matches
+                // only when BOTH the prefix Eq and the exact Neq hold.
                 let (mask, value) = tunnel_oifname_mask_and_value();
                 Rule::new(&forward)?
                     .saddr(IpAddr::V4(ip))
                     .with_expr(Meta::new(MetaType::OifName))
                     .with_expr(Bitwise::new(mask, vec![0u8; IFNAMSIZ])?)
                     .with_expr(Cmp::new(CmpOp::Eq, value))
+                    .with_expr(Meta::new(MetaType::OifName))
+                    .with_expr(Cmp::new(CmpOp::Neq, inbound_wg_iface_exact_value()))
                     .drop()
                     .with_userdata(comment_udata(&egress_comment))
                     .add_to_batch(&mut batch);

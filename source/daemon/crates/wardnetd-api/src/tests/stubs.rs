@@ -129,6 +129,12 @@ impl AuthService for AlwaysAdminAuth {
 pub struct StubDeviceService;
 #[async_trait]
 impl DeviceService for StubDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        unimplemented!()
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!()
     }
@@ -575,6 +581,16 @@ impl wardnetd_services::DnsLocalService for StubDnsLocalService {
 pub struct StubDiscoveryService;
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
+    async fn process_peer_observation(
+        &self,
+        _device_id: uuid::Uuid,
+        _ip: &str,
+    ) -> Result<wardnetd_services::ObservationResult, AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(&self, _device_id: uuid::Uuid) -> Result<Option<uuid::Uuid>, AppError> {
+        unimplemented!()
+    }
     async fn restore_devices(&self) -> Result<(), AppError> {
         Ok(())
     }
