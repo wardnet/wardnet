@@ -1,5 +1,27 @@
 use async_trait::async_trait;
 
+/// Marker error returned by [`InboundWgPeerRepository::insert`] when the insert
+/// fails specifically because the `device_id` uniqueness index
+/// (`idx_inbound_wg_peers_device_id`) is violated — i.e. the device already has
+/// a remote-access credential (one credential per device, issue #810).
+///
+/// This is a business-rule conflict, not a generic DB failure, so the service
+/// layer downcasts on it and maps it to a `409 Conflict` rather than a raw
+/// `500`. Uniqueness violations on the *other* unique columns (`public_key`,
+/// `allowed_ip`) are deliberately NOT wrapped in this and surface as ordinary
+/// errors, since those indicate a genuine internal fault (the daemon generates
+/// those values itself and they should never collide).
+#[derive(Debug)]
+pub struct DeviceAlreadyGrantedError;
+
+impl std::fmt::Display for DeviceAlreadyGrantedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("device already has an inbound WireGuard credential")
+    }
+}
+
+impl std::error::Error for DeviceAlreadyGrantedError {}
+
 /// One admitted inbound-`WireGuard` peer as persisted in `inbound_wg_peers`.
 ///
 /// The peer's private key is deliberately absent — it is generated on the
@@ -39,6 +61,14 @@ pub struct InboundWgPeerRow {
 #[async_trait]
 pub trait InboundWgPeerRepository: Send + Sync {
     /// Insert a new peer row.
+    ///
+    /// A `device_id` uniqueness violation is a normal, expected outcome (two
+    /// concurrent grant attempts for the same device can race past the
+    /// service-layer pre-check): implementations MUST make it detectable by
+    /// returning an error that downcasts to [`DeviceAlreadyGrantedError`], so
+    /// the caller can surface a clean `409 Conflict` instead of a `500`. Any
+    /// other failure (including uniqueness violations on `public_key` /
+    /// `allowed_ip`) is returned as an ordinary error.
     async fn insert(&self, row: &InboundWgPeerRow) -> anyhow::Result<()>;
 
     /// Fetch a single peer by id.

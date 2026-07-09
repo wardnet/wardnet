@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use crate::db::DbPools;
-use crate::repository::inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
+use crate::repository::inbound_wg::{
+    DeviceAlreadyGrantedError, InboundWgPeerRepository, InboundWgPeerRow,
+};
 
 #[derive(sqlx::FromRow)]
 struct DbInboundWgPeerRow {
@@ -32,6 +34,22 @@ impl DbInboundWgPeerRow {
 /// Column list shared by every `SELECT` so the mapping stays in one place.
 const SELECT_COLS: &str = "id, public_key, allowed_ip, name, enabled, created_at, device_id";
 
+/// Return `true` if a `SQLite` unique-constraint error is the one guarding the
+/// `device_id` link specifically (as opposed to `public_key` / `allowed_ip`).
+///
+/// `SQLite` does not surface the index name (`idx_inbound_wg_peers_device_id`)
+/// in its error the way some engines do — `constraint()` is typically `None` —
+/// so the reliable signal is the rendered message, which names the offending
+/// column as `inbound_wg_peers.device_id`. We check `constraint()` first (in
+/// case a future driver populates it with the index name) and fall back to the
+/// column reference in the message.
+fn is_device_id_constraint(db_err: &dyn sqlx::error::DatabaseError) -> bool {
+    if db_err.constraint() == Some("idx_inbound_wg_peers_device_id") {
+        return true;
+    }
+    db_err.message().contains("inbound_wg_peers.device_id")
+}
+
 /// `SQLite`-backed [`InboundWgPeerRepository`].
 pub struct SqliteInboundWgPeerRepository {
     pools: DbPools,
@@ -52,7 +70,7 @@ impl SqliteInboundWgPeerRepository {
 #[async_trait]
 impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
     async fn insert(&self, row: &InboundWgPeerRow) -> anyhow::Result<()> {
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO inbound_wg_peers \
              (id, public_key, allowed_ip, name, enabled, created_at, device_id) \
              VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -65,7 +83,19 @@ impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
         .bind(&row.created_at)
         .bind(&row.device_id)
         .execute(&self.pools.write)
-        .await?;
+        .await;
+
+        if let Err(sqlx::Error::Database(db_err)) = &result
+            && db_err.is_unique_violation()
+            && is_device_id_constraint(db_err.as_ref())
+        {
+            // The device already has a credential — a business-rule conflict,
+            // not a generic fault. Surface a marker the service layer maps to a
+            // 409. Other unique columns (public_key / allowed_ip) fall through
+            // to the ordinary error below.
+            return Err(anyhow::Error::new(DeviceAlreadyGrantedError));
+        }
+        result?;
         Ok(())
     }
 

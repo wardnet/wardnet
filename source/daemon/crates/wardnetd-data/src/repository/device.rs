@@ -61,6 +61,19 @@ pub trait DeviceRepository: Send + Sync {
     /// Batch update `last_seen` timestamps. Each tuple is (`device_id`, `last_seen_iso`).
     async fn update_last_seen_batch(&self, updates: &[(String, String)]) -> anyhow::Result<()>;
 
+    /// Update only a device's `connection_mode`, leaving `last_seen` / `last_ip`
+    /// untouched.
+    ///
+    /// Distinct from [`update_last_seen_and_ip`](Self::update_last_seen_and_ip),
+    /// which stamps mode *as part of* an observation: this is for correcting a
+    /// stale mode without an observation (e.g. resetting a revoked remote
+    /// device back to `Lan`). No-op if the device does not exist.
+    async fn update_connection_mode(
+        &self,
+        id: &str,
+        mode: DeviceConnectionMode,
+    ) -> anyhow::Result<()>;
+
     /// Update hostname for a device.
     async fn update_hostname(&self, id: &str, hostname: &str) -> anyhow::Result<()>;
 

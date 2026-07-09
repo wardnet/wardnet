@@ -184,6 +184,19 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(())
     }
 
+    async fn update_connection_mode(
+        &self,
+        id: &str,
+        mode: DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET connection_mode = ? WHERE id = ?")
+            .bind(connection_mode_to_db(mode))
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
     async fn update_hostname(&self, id: &str, hostname: &str) -> anyhow::Result<()> {
         sqlx::query("UPDATE devices SET hostname = ? WHERE id = ?")
             .bind(hostname)

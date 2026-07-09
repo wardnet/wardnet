@@ -51,6 +51,13 @@ impl DeviceRepository for MockDeviceRepo {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
         Ok(())
     }
@@ -798,6 +805,13 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
             _id: &str,
             _ip: &str,
             _last_seen: &str,
+            _mode: wardnet_common::device::DeviceConnectionMode,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_connection_mode(
+            &self,
+            _id: &str,
             _mode: wardnet_common::device::DeviceConnectionMode,
         ) -> anyhow::Result<()> {
             Ok(())

@@ -716,6 +716,14 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
         Ok(())
     }
@@ -804,6 +812,14 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
         Ok(())
     }

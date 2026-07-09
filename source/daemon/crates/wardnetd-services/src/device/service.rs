@@ -8,7 +8,7 @@ use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
 use wardnet_common::auth::AuthContext;
-use wardnet_common::device::Device;
+use wardnet_common::device::{Device, DeviceConnectionMode};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::network_zone::AllowedTargetKind;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
@@ -127,6 +127,15 @@ pub trait DeviceService: Send + Sync {
     /// use by other services needing device identity (e.g. inbound `WireGuard`
     /// peer grants) — no auth check.
     async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError>;
+
+    /// Reset a device's `connection_mode` back to `Lan` if it's currently
+    /// `Remote` — called when a device's only remote-access path is revoked, so a
+    /// stale `Remote` status doesn't persist indefinitely with no live path left
+    /// to naturally correct it. No-op if the device is already `Lan` or doesn't
+    /// exist. For internal use by other services (e.g. inbound `WireGuard` peer
+    /// revocation) — no auth check (matches this file's existing internal-method
+    /// convention for `get_device` / `get_device_capture_settings`).
+    async fn clear_remote_connection_mode(&self, device_id: &str) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
@@ -596,5 +605,26 @@ impl DeviceService for DeviceServiceImpl {
             .find_by_id(device_id)
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn clear_remote_connection_mode(&self, device_id: &str) -> Result<(), AppError> {
+        let Some(device) = self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(());
+        };
+
+        // Only correct a stale `Remote`; leave `Lan` alone so we don't clobber a
+        // device that is (or has since become) locally present.
+        if device.connection_mode == DeviceConnectionMode::Remote {
+            self.devices
+                .update_connection_mode(device_id, DeviceConnectionMode::Lan)
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        Ok(())
     }
 }

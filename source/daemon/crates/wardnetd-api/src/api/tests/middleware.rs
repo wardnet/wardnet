@@ -391,6 +391,9 @@ impl DeviceService for MockDeviceService {
     ) -> Result<Option<wardnet_common::device::Device>, AppError> {
         Ok(self.device.clone())
     }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         Ok(DeviceMeResponse {
             device: self.device.clone(),

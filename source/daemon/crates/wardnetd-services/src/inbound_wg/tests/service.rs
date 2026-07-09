@@ -59,6 +59,15 @@ impl DeviceService for MockDeviceService {
         Ok(self.devices.lock().unwrap().get(device_id).cloned())
     }
 
+    async fn clear_remote_connection_mode(&self, device_id: &str) -> Result<(), AppError> {
+        if let Some(device) = self.devices.lock().unwrap().get_mut(device_id)
+            && device.connection_mode == DeviceConnectionMode::Remote
+        {
+            device.connection_mode = DeviceConnectionMode::Lan;
+        }
+        Ok(())
+    }
+
     async fn get_device_for_ip(
         &self,
         _ip: &str,

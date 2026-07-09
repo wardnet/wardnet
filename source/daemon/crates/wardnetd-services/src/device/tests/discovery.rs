@@ -153,6 +153,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_last_seen_batch(&self, updates: &[(String, String)]) -> anyhow::Result<()> {
         self.batch_updates
             .lock()
@@ -1487,7 +1495,13 @@ async fn mark_peer_gone_flips_present_device() {
         .unwrap();
     h.events.events.lock().unwrap().clear();
 
-    let result = h.svc.mark_peer_gone(device_id).await.unwrap();
+    // Zero timeout: the entry's shared `last_seen` is stale by any positive
+    // window, so the WG-staleness departure flips it gone.
+    let result = h
+        .svc
+        .mark_peer_gone(device_id, std::time::Duration::ZERO)
+        .await
+        .unwrap();
     assert_eq!(result, Some(device_id));
 
     let events = h.events.published_events();
@@ -1513,7 +1527,11 @@ async fn mark_peer_gone_untracked_is_noop() {
     let h = build_harness_with_devices(vec![device]);
 
     // Never observed, so no in-memory tracking entry exists.
-    let result = h.svc.mark_peer_gone(device_id).await.unwrap();
+    let result = h
+        .svc
+        .mark_peer_gone(device_id, std::time::Duration::ZERO)
+        .await
+        .unwrap();
     assert_eq!(result, None);
     assert!(
         h.events.published_events().is_empty(),

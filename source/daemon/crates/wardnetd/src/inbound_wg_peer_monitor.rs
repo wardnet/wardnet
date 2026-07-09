@@ -133,7 +133,8 @@ async fn poll_once(
         if fresh {
             currently_fresh.insert(peer.device_id);
             if !previously_fresh.contains(&peer.device_id) {
-                // stale/absent -> fresh: the device just handshook.
+                // stale/absent -> fresh: the device just handshook. Full
+                // observation + event on the transition only.
                 if let Err(e) = discovery
                     .process_peer_observation(peer.device_id, &peer.allowed_ip)
                     .await
@@ -141,22 +142,36 @@ async fn poll_once(
                     tracing::warn!(
                         device_id = %peer.device_id,
                         error = %e,
-                        "inbound-wg peer monitor: process_peer_observation failed",
+                        "inbound-wg peer monitor: process_peer_observation failed for device {}: {e}",
+                        peer.device_id,
                     );
                 }
+            } else if let Err(e) = discovery.touch_peer_presence(peer.device_id).await {
+                // Already-fresh ticks: cheap keep-alive so the shared in-memory
+                // `last_seen` doesn't go stale under the LAN-departure sweep.
+                tracing::warn!(
+                    device_id = %peer.device_id,
+                    error = %e,
+                    "inbound-wg peer monitor: touch_peer_presence failed for device {}: {e}",
+                    peer.device_id,
+                );
             }
         }
     }
 
-    // fresh -> stale (or peer removed while fresh): mark the device gone.
+    // fresh -> stale (or peer removed while fresh): mark the device gone, but
+    // only if its shared liveness signal is also stale (LAN traffic may still be
+    // keeping it alive). Pass the same handshake-staleness window.
+    let gone_timeout =
+        Duration::from_secs(u64::try_from(HANDSHAKE_STALE_MINUTES).unwrap_or(0) * 60);
     for device_id in previously_fresh.iter() {
         if !currently_fresh.contains(device_id)
-            && let Err(e) = discovery.mark_peer_gone(*device_id).await
+            && let Err(e) = discovery.mark_peer_gone(*device_id, gone_timeout).await
         {
             tracing::warn!(
                 device_id = %device_id,
                 error = %e,
-                "inbound-wg peer monitor: mark_peer_gone failed",
+                "inbound-wg peer monitor: mark_peer_gone failed for device {device_id}: {e}",
             );
         }
     }

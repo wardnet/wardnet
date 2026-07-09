@@ -135,6 +135,9 @@ impl DeviceService for StubDeviceService {
     ) -> Result<Option<wardnet_common::device::Device>, AppError> {
         unimplemented!()
     }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!()
     }
@@ -588,7 +591,14 @@ impl DeviceDiscoveryService for StubDiscoveryService {
     ) -> Result<wardnetd_services::ObservationResult, AppError> {
         unimplemented!()
     }
-    async fn mark_peer_gone(&self, _device_id: uuid::Uuid) -> Result<Option<uuid::Uuid>, AppError> {
+    async fn touch_peer_presence(&self, _device_id: uuid::Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(
+        &self,
+        _device_id: uuid::Uuid,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<uuid::Uuid>, AppError> {
         unimplemented!()
     }
     async fn restore_devices(&self) -> Result<(), AppError> {

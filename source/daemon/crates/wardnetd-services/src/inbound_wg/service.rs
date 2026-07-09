@@ -20,7 +20,9 @@ use crate::inbound_wg::key_store::{ServerKeyStore, ServerKeyStoreAdapter};
 use crate::inbound_wg::keygen::generate_keypair;
 use crate::routing::FirewallManager;
 use wardnetd_data::repository::SystemConfigRepository;
-use wardnetd_data::repository::inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
+use wardnetd_data::repository::inbound_wg::{
+    DeviceAlreadyGrantedError, InboundWgPeerRepository, InboundWgPeerRow,
+};
 use wardnetd_data::secret_store::SecretStore;
 
 /// One enabled inbound peer paired with its linked device, for the inbound
@@ -429,7 +431,20 @@ impl InboundWgService for InboundWgServiceImpl {
             created_at: now.to_rfc3339(),
             device_id: Some(device_id_str),
         };
-        self.peers.insert(&row).await.map_err(AppError::Internal)?;
+        // The service-layer `find_by_device_id` check above is not
+        // transactional, so two concurrent grants for the same device can both
+        // pass it; the loser's insert trips the `device_id` UNIQUE index. The
+        // repository flags that specific collision as a
+        // [`DeviceAlreadyGrantedError`] so we can return a clean 409 instead of
+        // a raw 500 (other unique violations still surface as internal errors).
+        if let Err(e) = self.peers.insert(&row).await {
+            if e.downcast_ref::<DeviceAlreadyGrantedError>().is_some() {
+                return Err(AppError::Conflict(
+                    "device already has a remote-access credential".to_owned(),
+                ));
+            }
+            return Err(AppError::Internal(e));
+        }
 
         let config = Self::peer_row_to_config(&row)?;
         if let Err(error) = self.interface.add_peer(INBOUND_WG_INTERFACE, config).await {
@@ -482,6 +497,22 @@ impl InboundWgService for InboundWgServiceImpl {
             .delete(&id.to_string())
             .await
             .map_err(AppError::Internal)?;
+
+        // The revoked credential was this device's only remote-access path, so
+        // its `connection_mode` (set to `Remote` by the inbound-WG monitor)
+        // would otherwise stay stuck with no live path left to correct it.
+        // Best-effort: the primary revoke already succeeded, so a failure here
+        // is logged, not fatal.
+        if let Some(device_id) = &row.device_id
+            && let Err(e) = self.devices.clear_remote_connection_mode(device_id).await
+        {
+            tracing::warn!(
+                peer_id = %id,
+                device_id = %device_id,
+                error = %e,
+                "inbound-wg: failed to reset device connection_mode after revoke: {e}",
+            );
+        }
         Ok(())
     }
 
@@ -504,20 +535,20 @@ impl InboundWgService for InboundWgServiceImpl {
             let Some(device_id_str) = row.device_id.as_deref() else {
                 // Pre-#810 rows had no device link; nothing for the monitor to
                 // observe against, so skip rather than fail the whole poll.
-                tracing::warn!(peer_id = %row.id, "inbound-wg monitor: peer has no device_id, skipping");
+                tracing::warn!(peer_id = %row.id, "inbound-wg monitor: peer {} has no device_id, skipping", row.id);
                 continue;
             };
             let device_id = match device_id_str.parse::<Uuid>() {
                 Ok(id) => id,
                 Err(e) => {
-                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable device_id, skipping");
+                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable device_id for peer {}, skipping: {e}", row.id);
                     continue;
                 }
             };
             let public_key = match Self::decode_key(&row.public_key) {
                 Ok(k) => k,
                 Err(e) => {
-                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable public key, skipping");
+                    tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg monitor: unparseable public key for peer {}, skipping: {e}", row.id);
                     continue;
                 }
             };

@@ -124,6 +124,13 @@ pub trait DeviceDiscoveryService: Send + Sync {
         ip: &str,
     ) -> Result<ObservationResult, AppError>;
 
+    /// Refresh a tracked device's liveness timestamp without a DB write or event
+    /// publish — called every poll tick a `WireGuard` peer stays fresh, so the
+    /// shared in-memory entry doesn't go stale under the unrelated LAN-departure
+    /// sweep (`scan_departures`) merely because the peer path isn't re-observing
+    /// via the full `process_peer_observation` write path on every tick.
+    async fn touch_peer_presence(&self, device_id: Uuid) -> Result<(), AppError>;
+
     /// Explicitly mark a device gone due to `WireGuard` handshake staleness
     /// (`device_id`-keyed, resolves mac internally). Mirrors what
     /// [`scan_departures`](Self::scan_departures) does for a single device:
@@ -134,7 +141,18 @@ pub trait DeviceDiscoveryService: Send + Sync {
     /// touch `connection_mode` or delete anything — the row persists,
     /// enforcement is torn down for that IP until the next observation. No-op
     /// (returns `Ok(None)`) if the device is not currently tracked as present.
-    async fn mark_peer_gone(&self, device_id: Uuid) -> Result<Option<Uuid>, AppError>;
+    ///
+    /// `timeout` gates the flip on `entry.last_seen.elapsed() > timeout`
+    /// (mirroring `scan_departures`'s own gate): the in-memory `last_seen` is a
+    /// *shared* signal bumped by BOTH the LAN and `WireGuard` observation paths,
+    /// so a device kept alive by fresh LAN traffic must NOT be torn down just
+    /// because ITS `WireGuard` handshake signal went stale. The caller passes the
+    /// same staleness window it used to decide the handshake was stale.
+    async fn mark_peer_gone(
+        &self,
+        device_id: Uuid,
+        timeout: std::time::Duration,
+    ) -> Result<Option<Uuid>, AppError>;
 }
 
 /// Default implementation of [`DeviceDiscoveryService`].
@@ -152,6 +170,12 @@ pub struct DeviceDiscoveryServiceImpl {
     /// the router's MAC on the Ethernet frame).
     lan_subnet: ipnetwork::Ipv4Network,
     state: Arc<RwLock<HashMap<String, DeviceMemoryState>>>,
+    /// Per-mac locks serializing the full observe-then-persist sequence for a
+    /// single device across the LAN and `WireGuard` observation paths, so their DB
+    /// writes can't land out of order relative to each other. Keyed by mac,
+    /// entries created lazily; never removed (device count is small/bounded by
+    /// hardware on a LAN, so this doesn't need eviction).
+    device_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl DeviceDiscoveryServiceImpl {
@@ -174,7 +198,19 @@ impl DeviceDiscoveryServiceImpl {
             resolver,
             lan_subnet,
             state: Arc::new(RwLock::new(HashMap::new())),
+            device_locks: tokio::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Fetch (or lazily create) the per-mac serialization lock. The returned
+    /// `Arc<Mutex<()>>` is then `lock_owned().await`-ed by the caller to hold a
+    /// guard across the whole observe-then-persist sequence.
+    async fn lock_for_mac(&self, mac: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.device_locks.lock().await;
+        locks
+            .entry(mac.to_owned())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     /// Handle a device not found in the in-memory map.
@@ -354,13 +390,15 @@ impl DeviceDiscoveryServiceImpl {
         });
     }
 
-    /// Phase-1 of [`process_peer_observation`]: update the in-memory tracking
-    /// entry for `mac` under the lock and classify the observation. Never
-    /// yields [`ObsAction::Unknown`] — an untracked device is inserted as
-    /// present (it is always a known device on this path).
-    ///
-    /// [`process_peer_observation`]: DeviceDiscoveryService::process_peer_observation
-    async fn peer_observation_action(&self, mac: &str, device_id: Uuid, ip: &str) -> ObsAction {
+    /// Shared Reappear/IpChanged/JustSeen transition logic for the `state` map,
+    /// used by both the LAN and WireGuard-peer observation paths. `on_unknown`
+    /// controls what happens when `mac` isn't currently tracked: the LAN path
+    /// passes `None` (defer to the DB — the mac might belong to an existing,
+    /// currently-untracked device row) and gets back [`ObsAction::Unknown`]; the
+    /// peer path passes `Some(device_id)` (the device row always pre-exists for
+    /// a remote-access grant) and gets an insert-as-present [`ObsAction::Reappear`]
+    /// instead.
+    async fn observation_action(&self, mac: &str, ip: &str, on_unknown: Option<Uuid>) -> ObsAction {
         let mut state = self.state.write().await;
         match state.get_mut(mac) {
             Some(entry) if entry.gone => {
@@ -368,8 +406,8 @@ impl DeviceDiscoveryServiceImpl {
                 entry.last_seen = Instant::now();
                 ip.clone_into(&mut entry.last_ip);
                 ObsAction::Reappear {
-                    device_id,
-                    mac: mac.to_owned(),
+                    device_id: entry.device_id,
+                    mac: entry.mac.clone(),
                 }
             }
             Some(entry) if entry.last_ip != ip => {
@@ -377,31 +415,34 @@ impl DeviceDiscoveryServiceImpl {
                 ip.clone_into(&mut entry.last_ip);
                 entry.last_seen = Instant::now();
                 ObsAction::IpChanged {
-                    device_id,
-                    mac: mac.to_owned(),
+                    device_id: entry.device_id,
+                    mac: entry.mac.clone(),
                     old_ip,
                 }
             }
             Some(entry) => {
                 entry.last_seen = Instant::now();
-                ObsAction::JustSeen(device_id)
+                ObsAction::JustSeen(entry.device_id)
             }
-            None => {
-                state.insert(
-                    mac.to_owned(),
-                    DeviceMemoryState {
+            None => match on_unknown {
+                Some(device_id) => {
+                    state.insert(
+                        mac.to_owned(),
+                        DeviceMemoryState {
+                            device_id,
+                            mac: mac.to_owned(),
+                            last_ip: ip.to_owned(),
+                            last_seen: Instant::now(),
+                            gone: false,
+                        },
+                    );
+                    ObsAction::Reappear {
                         device_id,
                         mac: mac.to_owned(),
-                        last_ip: ip.to_owned(),
-                        last_seen: Instant::now(),
-                        gone: false,
-                    },
-                );
-                ObsAction::Reappear {
-                    device_id,
-                    mac: mac.to_owned(),
+                    }
                 }
-            }
+                None => ObsAction::Unknown,
+            },
         }
     }
 }
@@ -461,37 +502,17 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             return Ok(ObservationResult::Ignored);
         }
 
-        // Phase 1: determine action while holding the lock, then drop it.
-        let action = {
-            let mut state = self.state.write().await;
+        // Serialize the full observe-then-persist sequence for this mac against
+        // the WireGuard-peer path, so their DB writes can't land out of order
+        // relative to their in-memory state transitions (per-mac only — unrelated
+        // devices proceed concurrently).
+        let mac_lock = self.lock_for_mac(&obs.mac).await;
+        let _guard = mac_lock.lock_owned().await;
 
-            if let Some(entry) = state.get_mut(&obs.mac) {
-                if entry.gone {
-                    entry.gone = false;
-                    entry.last_seen = Instant::now();
-                    entry.last_ip.clone_from(&obs.ip);
-                    ObsAction::Reappear {
-                        device_id: entry.device_id,
-                        mac: entry.mac.clone(),
-                    }
-                } else if entry.last_ip != obs.ip {
-                    let old_ip = entry.last_ip.clone();
-                    entry.last_ip.clone_from(&obs.ip);
-                    entry.last_seen = Instant::now();
-                    ObsAction::IpChanged {
-                        device_id: entry.device_id,
-                        mac: entry.mac.clone(),
-                        old_ip,
-                    }
-                } else {
-                    entry.last_seen = Instant::now();
-                    ObsAction::JustSeen(entry.device_id)
-                }
-            } else {
-                ObsAction::Unknown
-            }
-        };
-        // Lock is dropped here.
+        // Phase 1: classify the observation via the shared state machine. The
+        // LAN path passes `None` for an untracked mac (defer to the DB — it may
+        // be an existing, currently-untracked device row).
+        let action = self.observation_action(&obs.mac, &obs.ip, None).await;
 
         match action {
             ObsAction::Unknown => self.handle_unknown_mac(obs).await,
@@ -758,11 +779,18 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             })?;
         let mac = device.mac;
 
+        // Serialize the full observe-then-persist sequence for this mac against
+        // the LAN path (see `process_observation`), so the two paths' DB writes
+        // can't interleave out of order.
+        let mac_lock = self.lock_for_mac(&mac).await;
+        let _guard = mac_lock.lock_owned().await;
+
         // Phase 1: reuse the same in-memory state machine as the LAN path
         // (keyed by mac), minus the `lan_subnet` filter — peer IPs live in the
-        // inbound WG subnet, not the LAN. `Unknown` is unreachable here: an
-        // absent entry is inserted-as-present, since the device is always known.
-        let action = self.peer_observation_action(&mac, device_id, ip).await;
+        // inbound WG subnet, not the LAN. `Unknown` is unreachable here: passing
+        // `Some(device_id)` inserts an absent entry as-present, since the device
+        // is always known on this path.
+        let action = self.observation_action(&mac, ip, Some(device_id)).await;
 
         // Phase 2: every real arm persists with `connection_mode = Remote`
         // (a handshake observation regardless of IP change), so persist once,
@@ -812,7 +840,39 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         }
     }
 
-    async fn mark_peer_gone(&self, device_id: Uuid) -> Result<Option<Uuid>, AppError> {
+    async fn touch_peer_presence(&self, device_id: Uuid) -> Result<(), AppError> {
+        // Resolve mac internally (same pattern as process_peer_observation /
+        // mark_peer_gone); a missing device is an internal invariant violation.
+        let device = self
+            .devices
+            .find_by_id(&device_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "touch_peer_presence: device {device_id} not found (FK should prevent this)"
+                ))
+            })?;
+        let mac = device.mac;
+
+        // Only bump an already-tracked, present entry. Creating an entry or
+        // un-goneing one is `process_peer_observation`'s job on the real
+        // stale→fresh transition — this is the cheap keep-alive for the ticks
+        // in between.
+        let mut state = self.state.write().await;
+        if let Some(entry) = state.get_mut(&mac)
+            && !entry.gone
+        {
+            entry.last_seen = Instant::now();
+        }
+        Ok(())
+    }
+
+    async fn mark_peer_gone(
+        &self,
+        device_id: Uuid,
+        timeout: std::time::Duration,
+    ) -> Result<Option<Uuid>, AppError> {
         // Resolve mac internally so callers never need to know it. A missing
         // device can't be tracked, so treat it as a no-op departure.
         let Some(device) = self
@@ -828,7 +888,10 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let gone = {
             let mut state = self.state.write().await;
             match state.get_mut(&mac) {
-                Some(entry) if !entry.gone => {
+                // Only flip if the SHARED liveness signal is also stale. If LAN
+                // traffic (or any other path) has bumped `last_seen` inside the
+                // window, decline — the device is still alive by another signal.
+                Some(entry) if !entry.gone && entry.last_seen.elapsed() > timeout => {
                     entry.gone = true;
                     Some((entry.device_id, entry.mac.clone(), entry.last_ip.clone()))
                 }
