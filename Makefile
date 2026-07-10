@@ -55,6 +55,7 @@ COV_RUNNER ?=
 .PHONY: all init build build-daemon build-sdk build-web build-site \
         check check-sdk check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
+        coverage-daemon-report-json \
         openapi check-openapi \
         fmt clippy test \
         image image-multiarch image-test image-base \
@@ -283,6 +284,16 @@ endif
 
 coverage-daemon-native:
 	cd $(DAEMON_DIR) && cargo llvm-cov $(COV_RUNNER) --workspace $(COV_FMT) \
+		--ignore-filename-regex '$(COV_IGNORE)'
+
+# coverage-daemon-report-json: regenerate a JSON report from the profile
+# data `coverage-daemon` just collected, without re-running tests — `cargo
+# llvm-cov report` reads the same profraw cargo-llvm-cov left behind, as
+# long as nothing ran `cargo llvm-cov clean` in between. CI runs this right
+# after `coverage-daemon` to also feed bulwark's --rust-report.
+coverage-daemon-report-json:
+	cd $(DAEMON_DIR) && cargo llvm-cov report --json \
+		--output-path ../../coverage/daemon-llvm-cov.json \
 		--ignore-filename-regex '$(COV_IGNORE)'
 
 coverage-daemon-container:

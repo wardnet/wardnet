@@ -34,10 +34,21 @@ on:
           back to tokenless upload, accepted for unprotected (fork-
           prefixed) branch refs on public repos.
         required: false
+      SEMGREP_APP_TOKEN:
+        description: |
+          Semgrep AppSec Platform token, passed to bulwark. Optional for
+          the same fork-PR reason as CODECOV_TOKEN above — bulwark falls
+          back to a local-only `semgrep scan` when empty.
+        required: false
 
 # Explicit scopes (not read-all) so this leaf's workflow-level stays a
 # subset of the caller's workflow-level — GitHub's reusable-workflow
-# permission rules reject leaf > caller.
+# permission rules reject leaf > caller. This is the DEFAULT for jobs below
+# that don't declare their own `permissions:` block — the `bulwark` job
+# overrides it with contents:write/pull-requests:write (baseline caching +
+# PR summary comment), which requires the caller (pr.yml/ci.yml
+# `coverage:` job) to grant that same ceiling; every other job here stays
+# read-only.
 permissions:
   contents: read
   # site-coverage installs marketing-site, which pulls @wardnet/{brand,styles}
@@ -94,6 +105,11 @@ jobs:
             COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
           cp source/daemon/target/nextest/ci/junit.xml coverage/daemon-junit.xml
 
+      - name: Generate daemon coverage JSON report for bulwark
+        # Reuses the profile data the step above already collected — see
+        # coverage-daemon-report-json in the Makefile.
+        run: make coverage-daemon-report-json
+
       - name: Upload daemon coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -134,10 +150,17 @@ jobs:
         run: cd source/marketing-site && yarn install --immutable && yarn test:coverage
 
       - name: Collect into shared layout
+        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
+        # package-relative layout bulwark's TS coverage auto-discovery
+        # expects (it reads <pkgDir>/coverage/coverage-summary.json
+        # in-place, not from a flag) — the bulwark job restores these back
+        # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
           cp source/marketing-site/coverage/lcov.info coverage/site-lcov.info
           cp source/marketing-site/test-results/junit.xml coverage/site-junit.xml
+          mkdir -p coverage/pkg-summaries/marketing-site
+          cp source/marketing-site/coverage/coverage-summary.json coverage/pkg-summaries/marketing-site/
 
       - name: Upload site coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -176,6 +199,12 @@ jobs:
         # Prefix them with `source/<pkg>/` so the combined report maps to
         # unambiguous repo paths (four packages all have a `src/`), then
         # concatenate into one LCOV. JUnit files are copied per package.
+        #
+        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
+        # package-relative layout bulwark's TS coverage auto-discovery
+        # expects (it reads <pkgDir>/coverage/coverage-summary.json
+        # in-place, not from a flag) — the bulwark job restores these back
+        # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
           : > coverage/frontend-lcov.info
@@ -188,6 +217,11 @@ jobs:
             if [[ -f "$junit" ]]; then
               cp "$junit" "coverage/frontend-$pkg-junit.xml"
             fi
+            summary="source/$pkg/coverage/coverage-summary.json"
+            if [[ -f "$summary" ]]; then
+              mkdir -p "coverage/pkg-summaries/$pkg"
+              cp "$summary" "coverage/pkg-summaries/$pkg/"
+            fi
           done
 
       - name: Upload frontend coverage artifact
@@ -196,6 +230,87 @@ jobs:
           name: coverage-frontend
           path: coverage/
           retention-days: 1
+
+  bulwark:
+    name: bulwark
+    needs: [daemon-coverage, site-coverage, frontend-coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Same gating as `upload` below: run whenever at least one producer
+    # actually ran, so a partial (path-filtered) PR still gets scanned.
+    if: |
+      always() && (
+        needs.daemon-coverage.result == 'success' ||
+        needs.site-coverage.result == 'success' ||
+        needs.frontend-coverage.result == 'success'
+      )
+    permissions:
+      contents: write # bulwark coverage caches baselines on the bulwark-state branch
+      pull-requests: write # bulwark posts/updates a sticky PR summary comment
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # bulwark coverage needs full history to resolve the PR's base commit
+
+      - name: Download daemon coverage
+        if: needs.daemon-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-daemon
+          path: coverage/
+
+      - name: Download site coverage
+        if: needs.site-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-site
+          path: coverage/
+
+      - name: Download frontend coverage
+        if: needs.frontend-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-frontend
+          path: coverage/
+
+      - name: Restore per-package coverage reports for bulwark
+        # bulwark's TS coverage auto-discovery reads
+        # <pkgDir>/coverage/coverage-summary.json in-place (no flag), so the
+        # downloaded pkg-summaries have to land back at their original
+        # per-package paths. Rust coverage is a single explicit
+        # --rust-report flag instead. Both are skipped gracefully (empty
+        # rust-report output, package simply absent) when their producer
+        # job didn't run — bulwark just measures whatever's present.
+        id: restore
+        run: |
+          set -euo pipefail
+          rust_report=""
+          if [[ -f coverage/daemon-llvm-cov.json ]]; then
+            mkdir -p source/daemon/coverage
+            cp coverage/daemon-llvm-cov.json source/daemon/coverage/daemon-llvm-cov.json
+            rust_report="daemon/coverage/daemon-llvm-cov.json"
+          fi
+          echo "rust-report=${rust_report}" >> "$GITHUB_OUTPUT"
+          for pkg in web admin-site admin-app user-app marketing-site; do
+            summary="coverage/pkg-summaries/$pkg/coverage-summary.json"
+            if [[ -f "$summary" ]]; then
+              mkdir -p "source/$pkg/coverage"
+              cp "$summary" "source/$pkg/coverage/coverage-summary.json"
+            fi
+          done
+
+      - uses: wardnet/bulwark@v1
+        with:
+          dir: source
+          tests-mode: skip
+          rust-report: ${{ steps.restore.outputs.rust-report }}
+          codecov-token: ${{ secrets.CODECOV_TOKEN }}
+          semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
 
   upload:
     name: Upload to Codecov
