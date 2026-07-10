@@ -12373,6 +12373,625 @@
         ]
       }
     },
+    "/api/inbound-wg/config": {
+      "put": {
+        "tags": [
+          "inbound-wg"
+        ],
+        "description": "Enable or disable the inbound (multi-peer) WireGuard server and set its UDP listen port. On enable the daemon generates the server keypair (once), stands up the `wg_wardin0` interface, installs the NAT masquerade and listen-port accept firewall rules, and re-admits every enabled peer. On disable it removes those rules and tears the interface down; peer definitions are preserved. Admin only.",
+        "operationId": "set_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundWgConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Inbound WireGuard config applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundWgConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/inbound-wg/peers": {
+      "get": {
+        "tags": [
+          "inbound-wg"
+        ],
+        "description": "List every admitted inbound WireGuard peer with its name, public key, allocated address, and enabled state. Private keys are never returned. Admin only.",
+        "operationId": "list_peers",
+        "responses": {
+          "200": {
+            "description": "Configured inbound peers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListInboundWgPeersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "inbound-wg"
+        ],
+        "description": "Grant remote access to an already-managed device via inbound WireGuard. The daemon generates a fresh keypair, allocates the next free address on the inbound subnet, stores the peer (public key + device link), and admits it onto the server interface. The peer's name is taken from the device. The response carries the peer's **private key exactly once** — it is never persisted, so it must be copied now. Returns 409 if the server is disabled or the device already has a credential, 404 if the device does not exist. Admin only.",
+        "operationId": "add_peer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddInboundWgPeerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Peer admitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddInboundWgPeerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/inbound-wg/peers/{id}": {
+      "delete": {
+        "tags": [
+          "inbound-wg"
+        ],
+        "description": "Remove an inbound WireGuard peer by id: drop it from the live server interface and delete its stored definition. Admin only.",
+        "operationId": "remove_peer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Peer ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Peer removed"
+          },
+          "401": {
+            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/info": {
       "get": {
         "tags": [
@@ -21192,6 +21811,52 @@
   },
   "components": {
     "schemas": {
+      "AddInboundWgPeerRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/inbound-wg/peers`.\n\nA remote-access grant targets an already-managed device (issue #810): the\npeer's user-facing name is taken from that device, not supplied here.",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The device to grant remote access to. Must already exist (discovered on\nthe LAN at least once) and must not already have a credential."
+          }
+        }
+      },
+      "AddInboundWgPeerResponse": {
+        "type": "object",
+        "description": "Response for `POST /api/inbound-wg/peers`.\n\nCarries the freshly generated **private key** exactly once — it is never\npersisted server-side, so the admin must copy it now to configure the peer.",
+        "required": [
+          "id",
+          "name",
+          "public_key",
+          "private_key",
+          "allowed_ip"
+        ],
+        "properties": {
+          "allowed_ip": {
+            "type": "string",
+            "description": "The peer's allocated `/32` inside the inbound tunnel subnet."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "private_key": {
+            "type": "string",
+            "description": "Base64 `WireGuard` private key — returned once, never stored."
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Base64 `WireGuard` public key (stored server-side)."
+          }
+        }
+      },
       "AdvanceWizardRequest": {
         "type": "object",
         "description": "Request body for POST /api/setup/advance.",
@@ -22549,11 +23214,16 @@
           "zone_id",
           "dns_capture_enabled",
           "dns_capture_cap_count",
-          "dns_capture_cap_days"
+          "dns_capture_cap_days",
+          "connection_mode"
         ],
         "properties": {
           "admin_locked": {
             "type": "boolean"
+          },
+          "connection_mode": {
+            "$ref": "#/components/schemas/DeviceConnectionMode",
+            "description": "How the device is currently reachable (LAN vs. inbound `WireGuard`).\nLive status, last-observation-wins — see [`DeviceConnectionMode`]."
           },
           "device_type": {
             "$ref": "#/components/schemas/DeviceType"
@@ -22623,6 +23293,14 @@
             "type": "boolean"
           }
         }
+      },
+      "DeviceConnectionMode": {
+        "type": "string",
+        "description": "How a device is currently reachable on the network (issue #810).\n\nA **live status**, not a lineage tag: a device flips between the two as it\nconnects from different paths over time (last-observation-wins), exactly\nlike `last_ip` already does across DHCP renewals. Set by whichever path\nmost recently observed the device — LAN ARP/DHCP discovery sets [`Lan`], an\ninbound `WireGuard` handshake sets [`Remote`].\n\n[`Lan`]: DeviceConnectionMode::Lan\n[`Remote`]: DeviceConnectionMode::Remote",
+        "enum": [
+          "lan",
+          "remote"
+        ]
       },
       "DeviceDetailResponse": {
         "type": "object",
@@ -23728,6 +24406,87 @@
           "DOWN"
         ]
       },
+      "InboundWgConfigRequest": {
+        "type": "object",
+        "description": "Request body for `PUT /api/inbound-wg/config`.",
+        "required": [
+          "enabled",
+          "listen_port"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the inbound `WireGuard` server should be running."
+          },
+          "listen_port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "UDP port the server listens on for inbound peer handshakes.",
+            "minimum": 0
+          }
+        }
+      },
+      "InboundWgConfigResponse": {
+        "type": "object",
+        "description": "Response for `PUT /api/inbound-wg/config`.",
+        "required": [
+          "enabled",
+          "listen_port"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "The applied enabled state."
+          },
+          "listen_port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The applied listen port.",
+            "minimum": 0
+          },
+          "server_public_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The server's public key once a keypair exists (generated on first\nenable). `None` until the server has been enabled at least once."
+          }
+        }
+      },
+      "InboundWgPeerSummary": {
+        "type": "object",
+        "description": "A single inbound-`WireGuard` peer, without any private key material.",
+        "required": [
+          "id",
+          "name",
+          "public_key",
+          "allowed_ip",
+          "enabled",
+          "created_at"
+        ],
+        "properties": {
+          "allowed_ip": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_key": {
+            "type": "string"
+          }
+        }
+      },
       "InfoResponse": {
         "type": "object",
         "description": "Response from the public info endpoint.\n\nReturns basic server information without requiring authentication.\nUsed by the web UI's connection status widget.",
@@ -24203,6 +24962,21 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ConditionalForwardingRule"
+            }
+          }
+        }
+      },
+      "ListInboundWgPeersResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/inbound-wg/peers`.",
+        "required": [
+          "peers"
+        ],
+        "properties": {
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InboundWgPeerSummary"
             }
           }
         }

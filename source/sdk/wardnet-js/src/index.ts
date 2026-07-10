@@ -20,6 +20,7 @@ export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
 export { RuleRequestService } from "./services/rule-requests.js";
+export { InboundWgService } from "./services/inbound-wg.js";
 export { PushService } from "./services/push.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
@@ -43,6 +44,7 @@ export type {
   Device,
   DeviceType,
   DhcpStatus,
+  DeviceConnectionMode,
   RoutingTarget,
   RuleCreator,
   RoutingRule,
@@ -230,6 +232,16 @@ export type {
   TlsProvisioningPhase,
   TlsStatusResponse,
 } from "./types/remote-access.js";
+
+// Types — inbound WireGuard remote-access grants
+export type {
+  InboundWgConfigRequest,
+  InboundWgConfigResponse,
+  AddInboundWgPeerRequest,
+  AddInboundWgPeerResponse,
+  InboundWgPeerSummary,
+  ListInboundWgPeersResponse,
+} from "./types/inbound-wg.js";
 
 // Types — backup
 export type {

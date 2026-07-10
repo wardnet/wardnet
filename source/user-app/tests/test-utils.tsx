@@ -55,6 +55,7 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     dns_capture_cap_days: 7,
     dhcp_status: "lease",
     current_rule: null,
+    connection_mode: "lan",
     ...overrides,
   };
 }
