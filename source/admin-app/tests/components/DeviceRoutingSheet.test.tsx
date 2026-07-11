@@ -21,8 +21,24 @@ const {
     assignZone,
     // The sheet reads the peer list (to decide if a device is already granted)
     // and an add-peer mutation for the grant action. Default to no peers so
-    // every managed device is grantable; specs override as needed.
-    useInboundWgPeers: vi.fn(() => ({ data: { peers: [] } })),
+    // every managed device is grantable; specs override as needed. The return
+    // type is annotated so the empty default isn't inferred as `never[]`, which
+    // would reject the populated-peer override in the "already granted" spec.
+    useInboundWgPeers: vi.fn(
+      (): {
+        data: {
+          peers: Array<{
+            id: string;
+            name: string;
+            public_key: string;
+            allowed_ip: string;
+            enabled: boolean;
+            created_at: string;
+            device_id: string | null;
+          }>;
+        };
+      } => ({ data: { peers: [] } }),
+    ),
     addPeerMutateAsync,
     useAddInboundWgPeer: vi.fn(() => ({
       mutateAsync: addPeerMutateAsync,
