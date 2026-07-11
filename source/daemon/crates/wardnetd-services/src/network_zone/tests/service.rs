@@ -27,6 +27,8 @@ use crate::error::AppError;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::network_zone::service::{NetworkZoneService, NetworkZoneServiceImpl};
 
+use crate::tests::mac_from;
+
 const TRUSTED: &str = "00000000-0000-0000-0000-000000000201";
 const IOT: &str = "00000000-0000-0000-0000-000000000202";
 const GUEST: &str = "00000000-0000-0000-0000-000000000203";
@@ -90,7 +92,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, id: Uuid, zone_id: &
     devices
         .insert(&DeviceRow {
             id: id.to_string(),
-            mac: format!("aa:bb:cc:00:00:{:02x}", id.as_bytes()[15]),
+            mac: mac_from(id),
             hostname: None,
             manufacturer: None,
             device_type: "unknown".to_owned(),

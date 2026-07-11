@@ -21,6 +21,8 @@ use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
 
+use crate::tests::mac_from;
+
 /// Run a future under admin auth context (required by all routing service methods).
 async fn as_admin<F: std::future::Future>(f: F) -> F::Output {
     auth_context::with_context(
@@ -714,7 +716,7 @@ fn tunnel_id_1() -> Uuid {
 fn sample_device(id: Uuid, ip: &str) -> Device {
     Device {
         id,
-        mac: format!("AA:BB:CC:DD:EE:{:02X}", id.as_bytes()[15]),
+        mac: mac_from(id).to_uppercase(),
         name: Some("Test Device".to_owned()),
         hostname: None,
         manufacturer: None,
