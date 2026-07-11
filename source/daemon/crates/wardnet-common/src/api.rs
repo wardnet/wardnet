@@ -329,12 +329,26 @@ pub struct InboundWgPeerSummary {
     pub allowed_ip: String,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
+    /// The `Device` this credential grants remote access to. `None` only for
+    /// pre-#810 rows written before the device link existed; every row
+    /// written since always carries it.
+    pub device_id: Option<Uuid>,
 }
 
 /// Response for `GET /api/inbound-wg/peers`.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListInboundWgPeersResponse {
     pub peers: Vec<InboundWgPeerSummary>,
+}
+
+/// Request body for `PATCH /api/inbound-wg/peers/{id}`.
+///
+/// Pauses or resumes a peer without deleting its credential — distinct from
+/// `DELETE`, which revokes it permanently and requires a fresh keypair (and
+/// QR scan) to re-grant.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetInboundWgPeerEnabledRequest {
+    pub enabled: bool,
 }
 
 /// Response for `GET /api/tunnels/{id}/devices`.

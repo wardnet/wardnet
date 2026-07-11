@@ -14,6 +14,7 @@ import {
   Router,
   Settings as SettingsIcon,
   ShieldCheck,
+  Waypoints,
 } from "lucide-react";
 import { useAuth } from "@wardnet/web";
 import { useDaemonStatus } from "@wardnet/web";
@@ -66,6 +67,7 @@ const adminSections: NavSection[] = [
         testId: "nav-devices",
       },
       { to: "/tunnels", label: "Tunnels", icon: Cable, testId: "nav-tunnels" },
+      { to: "/vpn", label: "VPN", icon: Waypoints, testId: "nav-vpn" },
       { to: "/zones", label: "Zones", icon: Boxes, testId: "nav-zones" },
       { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },
     ],

@@ -50,7 +50,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // CJS deps of the excluded workspace packages (see admin-site/web config).
-    include: ["use-sync-external-store/shim", "cronstrue", "consola"],
+    include: ["use-sync-external-store/shim", "cronstrue", "consola", "qrcode"],
     // See admin-site/web/vite.config.ts: don't pre-bundle our own source
     // workspace packages, so source edits aren't masked by a stale .vite cache.
     exclude: ["@wardnet/web", "@wardnet/js"],

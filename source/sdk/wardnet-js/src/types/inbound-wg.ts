@@ -66,9 +66,23 @@ export interface InboundWgPeerSummary {
   allowed_ip: string;
   enabled: boolean;
   created_at: string;
+  /** The device this credential grants remote access to. `null` only for
+   *  pre-#810 rows written before the device link existed. */
+  device_id: string | null;
 }
 
 /** Response for `GET /api/inbound-wg/peers`. */
 export interface ListInboundWgPeersResponse {
   peers: InboundWgPeerSummary[];
+}
+
+/**
+ * Request body for `PATCH /api/inbound-wg/peers/{id}`.
+ *
+ * Pauses or resumes a peer without deleting its credential — distinct from
+ * `removePeer`, which revokes it permanently and requires a fresh keypair
+ * (and QR scan) to re-grant.
+ */
+export interface SetInboundWgPeerEnabledRequest {
+  enabled: boolean;
 }

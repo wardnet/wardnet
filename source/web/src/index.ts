@@ -320,6 +320,22 @@ export {
   useDeleteDdns,
 } from "./hooks/useRemoteAccess";
 
+// Hooks — inbound WireGuard remote-access grants (issues #809-#813)
+export {
+  useInboundWgConfig,
+  useSetInboundWgConfig,
+  useInboundWgPeers,
+  useAddInboundWgPeer,
+  useRemoveInboundWgPeer,
+  useSetInboundWgPeerEnabled,
+} from "./hooks/useInboundWg";
+export {
+  buildInboundWgClientConfig,
+  placeholderEndpoint,
+} from "./lib/inboundWgConfig";
+export type { InboundWgClientConfigInput } from "./lib/inboundWgConfig";
+export { InboundWgQrCode } from "./components/InboundWgQrCode";
+
 // PWA helpers
 export { registerSW } from "./lib/registerSW";
 export type { RegisterSWOptions } from "./lib/registerSW";

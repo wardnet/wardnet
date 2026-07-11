@@ -19,6 +19,8 @@ import {
   useDdnsStatus,
   useTlsStatus,
   useResolutionCheck,
+  useInboundWgConfig,
+  useSetInboundWgConfig,
   usePushNotifications,
   useRecentNotifications,
   useClearNotifications,
@@ -190,6 +192,8 @@ export default function System() {
   const secureEnabled = !!ddns?.provider;
   const { data: tls } = useTlsStatus({ enabled: secureEnabled });
   const { data: resolution } = useResolutionCheck(secureEnabled);
+  const { data: inboundWg } = useInboundWgConfig();
+  const setInboundWgConfig = useSetInboundWgConfig();
   const pill = resolution ? verdictPill(resolution.verdict) : null;
   const { showingLastKnownState } = useOnlineStatusContext();
   const { logout } = useAuth();
@@ -446,6 +450,36 @@ export default function System() {
               </div>
             </div>
           )}
+
+          {/* ── VPN section (issue #813) ── */}
+          <div>
+            <SectionLabel>VPN</SectionLabel>
+            <div className="rounded-xl border border-line bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Text as="p" size="base" weight="medium" className="text-ink">
+                    Inbound WireGuard server
+                  </Text>
+                  <Text as="p" size="xs" className="mt-0.5 text-ink-3">
+                    {inboundWg?.enabled
+                      ? `Listening on port ${inboundWg.listen_port}`
+                      : "Lets granted devices connect back in from off the LAN"}
+                  </Text>
+                </div>
+                <Toggle
+                  aria-label="Enable inbound WireGuard server"
+                  checked={inboundWg?.enabled ?? false}
+                  disabled={setInboundWgConfig.isPending}
+                  onCheckedChange={(next) =>
+                    setInboundWgConfig.mutate({
+                      enabled: next,
+                      listen_port: inboundWg?.listen_port ?? 51821,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </div>
 
           {/* ── Notifications section (issue #482) ── */}
           <NotificationsSection />

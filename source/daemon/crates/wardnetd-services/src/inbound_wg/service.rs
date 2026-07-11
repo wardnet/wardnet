@@ -79,6 +79,11 @@ const SERVER_HOST: u8 = 1;
 /// `Remote` via the discovery service, driven by the inbound-WireGuard monitor.
 #[async_trait]
 pub trait InboundWgService: Send + Sync {
+    /// Read the current server config (enabled, listen port, public key)
+    /// without mutating anything — for UI surfaces that need to show live
+    /// state on load rather than only after a `set_config` call.
+    async fn get_config(&self) -> Result<InboundWgConfigResponse, AppError>;
+
     /// Enable or disable the inbound server and set its listen port.
     ///
     /// On enable: generates + persists the server keypair if none exists,
@@ -102,6 +107,18 @@ pub trait InboundWgService: Send + Sync {
 
     /// Remove a peer by id from both the interface and the database.
     async fn remove_peer(&self, id: Uuid) -> Result<(), AppError>;
+
+    /// Pause or resume a peer without deleting its credential: re-admit it
+    /// onto the live interface (enable) or best-effort remove it (disable),
+    /// then persist the flag. Distinct from `remove_peer` — the keypair and
+    /// allocated IP survive, so re-enabling never needs a fresh QR scan.
+    /// No-op (returns the current summary) if the peer is already in the
+    /// requested state. 404 if the peer does not exist.
+    async fn set_peer_enabled(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<InboundWgPeerSummary, AppError>;
 
     /// List every peer (no private keys).
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError>;
@@ -299,6 +316,32 @@ impl InboundWgServiceImpl {
 
 #[async_trait]
 impl InboundWgService for InboundWgServiceImpl {
+    async fn get_config(&self) -> Result<InboundWgConfigResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let enabled = self
+            .system_config
+            .inbound_wg_enabled()
+            .await
+            .map_err(AppError::Internal)?;
+        let listen_port = self
+            .system_config
+            .inbound_wg_listen_port()
+            .await
+            .map_err(AppError::Internal)?;
+        let server_public_key = self
+            .system_config
+            .inbound_wg_server_pubkey()
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(InboundWgConfigResponse {
+            enabled,
+            listen_port,
+            server_public_key,
+        })
+    }
+
     async fn set_config(
         &self,
         enabled: bool,
@@ -516,6 +559,83 @@ impl InboundWgService for InboundWgServiceImpl {
         Ok(())
     }
 
+    async fn set_peer_enabled(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<InboundWgPeerSummary, AppError> {
+        auth_context::require_admin()?;
+
+        let row = self
+            .peers
+            .find_by_id(&id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound(format!("inbound-wg peer {id} not found")))?;
+
+        if row.enabled == enabled {
+            return row_to_summary(row);
+        }
+
+        // Only touch the live interface when the server itself is up —
+        // otherwise nothing is admitted to add/remove, and `bring_up_server`'s
+        // `find_enabled()` re-admit sweep picks up the persisted flag on the
+        // next enable.
+        let server_up = self
+            .system_config
+            .inbound_wg_enabled()
+            .await
+            .map_err(AppError::Internal)?;
+
+        if server_up {
+            if enabled {
+                let config = Self::peer_row_to_config(&row)?;
+                self.interface
+                    .add_peer(INBOUND_WG_INTERFACE, config)
+                    .await
+                    .map_err(AppError::Internal)?;
+            } else {
+                let public_key = Self::decode_key(&row.public_key)?;
+                // Best-effort, matching `remove_peer`'s existing pattern: the
+                // DB flag is the source of truth, so a failed kernel removal
+                // is logged, not fatal.
+                if let Err(e) = self
+                    .interface
+                    .remove_peer(INBOUND_WG_INTERFACE, public_key)
+                    .await
+                {
+                    tracing::warn!(peer_id = %id, error = %e, "inbound-wg: failed to remove peer from interface while disabling, disabling row anyway");
+                }
+            }
+        }
+
+        self.peers
+            .set_enabled(&id.to_string(), enabled)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // A disabled peer has no live path, so its device's connection_mode
+        // would otherwise stay stuck `Remote` with nothing correcting it —
+        // same reasoning `remove_peer` already applies. Best-effort: the
+        // primary toggle already succeeded, so a failure here is logged, not
+        // fatal.
+        if !enabled
+            && let Some(device_id) = &row.device_id
+            && let Err(e) = self.devices.clear_remote_connection_mode(device_id).await
+        {
+            tracing::warn!(
+                peer_id = %id,
+                device_id = %device_id,
+                error = %e,
+                "inbound-wg: failed to reset device connection_mode after disable: {e}",
+            );
+        }
+
+        let mut updated = row;
+        updated.enabled = enabled;
+        row_to_summary(updated)
+    }
+
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError> {
         auth_context::require_admin()?;
 
@@ -614,6 +734,15 @@ fn row_to_summary(row: InboundWgPeerRow) -> Result<InboundWgPeerSummary, AppErro
     let created_at = chrono::DateTime::parse_from_rfc3339(&row.created_at)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid stored created_at: {e}")))?
         .with_timezone(&chrono::Utc);
+    // Unparseable is treated the same as absent (logged, not fatal) — a
+    // single bad row must not break the whole listing.
+    let device_id = row.device_id.as_deref().and_then(|s| match s.parse() {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg: unparseable device_id for peer {}", row.id);
+            None
+        }
+    });
     Ok(InboundWgPeerSummary {
         id,
         name: row.name,
@@ -621,5 +750,6 @@ fn row_to_summary(row: InboundWgPeerRow) -> Result<InboundWgPeerSummary, AppErro
         allowed_ip: row.allowed_ip,
         enabled: row.enabled,
         created_at,
+        device_id,
     })
 }

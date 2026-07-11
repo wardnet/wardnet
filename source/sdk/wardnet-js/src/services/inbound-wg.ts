@@ -4,7 +4,9 @@ import type {
   AddInboundWgPeerResponse,
   InboundWgConfigRequest,
   InboundWgConfigResponse,
+  InboundWgPeerSummary,
   ListInboundWgPeersResponse,
+  SetInboundWgPeerEnabledRequest,
 } from "../types/inbound-wg.js";
 
 /**
@@ -13,6 +15,11 @@ import type {
  */
 export class InboundWgService {
   constructor(private readonly client: WardnetClient) {}
+
+  /** Read the current server config without mutating anything. */
+  async getConfig(): Promise<InboundWgConfigResponse> {
+    return this.client.request<InboundWgConfigResponse>("/inbound-wg/config");
+  }
 
   /** Enable/disable the inbound WireGuard server and set its listen port. */
   async setConfig(body: InboundWgConfigRequest): Promise<InboundWgConfigResponse> {
@@ -42,6 +49,21 @@ export class InboundWgService {
   async removePeer(id: string): Promise<void> {
     await this.client.request<void>(`/inbound-wg/peers/${id}`, {
       method: "DELETE",
+    });
+  }
+
+  /**
+   * Pause or resume a peer without deleting its credential. Distinct from
+   * {@link removePeer}, which revokes permanently and requires a fresh
+   * keypair (and QR scan) to re-grant.
+   */
+  async setPeerEnabled(
+    id: string,
+    body: SetInboundWgPeerEnabledRequest,
+  ): Promise<InboundWgPeerSummary> {
+    return this.client.request<InboundWgPeerSummary>(`/inbound-wg/peers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     });
   }
 }

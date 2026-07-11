@@ -201,6 +201,12 @@ impl InboundWgPeerRepository for MockPeerRepo {
         self.rows.lock().unwrap().retain(|r| r.id != id);
         Ok(())
     }
+    async fn set_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()> {
+        if let Some(row) = self.rows.lock().unwrap().iter_mut().find(|r| r.id == id) {
+            row.enabled = enabled;
+        }
+        Ok(())
+    }
 }
 
 // -- Mock SystemConfigRepository (HashMap-backed get/set) ------------------
@@ -469,6 +475,28 @@ async fn enable_persists_config_and_calls_backends() {
 }
 
 #[tokio::test]
+async fn get_config_reads_without_mutating() {
+    let h = harness();
+    let before = auth_context::with_context(admin_ctx(), h.service.get_config())
+        .await
+        .unwrap();
+    assert!(!before.enabled);
+    assert!(before.server_public_key.is_none());
+    // A read must not stand up the interface or touch the firewall.
+    assert!(h.interface.ensure_calls.lock().unwrap().is_empty());
+
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let after = auth_context::with_context(admin_ctx(), h.service.get_config())
+        .await
+        .unwrap();
+    assert!(after.enabled);
+    assert_eq!(after.listen_port, 51821);
+    assert!(after.server_public_key.is_some());
+}
+
+#[tokio::test]
 async fn add_peer_rejected_when_disabled() {
     let h = harness();
     let device_id = h.add_device("laptop");
@@ -603,6 +631,97 @@ async fn disable_does_not_delete_peer_rows() {
         *h.interface.tear_downs.lock().unwrap(),
         vec![INBOUND_WG_INTERFACE.to_owned()]
     );
+}
+
+#[tokio::test]
+async fn set_peer_enabled_disable_removes_from_interface_but_keeps_row() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+        .await
+        .unwrap();
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 1);
+
+    let summary =
+        auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, false))
+            .await
+            .expect("disable succeeds");
+
+    assert!(!summary.enabled);
+    // Row survives — distinct from `remove_peer`.
+    assert_eq!(h.peers.find_all().await.unwrap().len(), 1);
+    assert!(
+        !h.peers
+            .find_by_id(&peer.id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .enabled
+    );
+    // Best-effort removed from the live interface.
+    assert_eq!(h.interface.removed_peers.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn set_peer_enabled_reenable_readmits_same_credential() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+        .await
+        .unwrap();
+    auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, false))
+        .await
+        .unwrap();
+
+    let summary =
+        auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, true))
+            .await
+            .expect("re-enable succeeds");
+
+    assert!(summary.enabled);
+    assert_eq!(
+        summary.public_key, peer.public_key,
+        "same credential, no new keypair"
+    );
+    // add_peer once (initial grant) + re-admit once on re-enable.
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn set_peer_enabled_not_found_returns_404() {
+    let h = harness();
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.service.set_peer_enabled(Uuid::new_v4(), false),
+    )
+    .await;
+    assert!(result.is_err(), "unknown peer id must 404");
+}
+
+#[tokio::test]
+async fn set_peer_enabled_noop_when_already_in_requested_state() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+        .await
+        .unwrap();
+
+    auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, true))
+        .await
+        .expect("no-op enable succeeds");
+
+    // No extra interface calls beyond the initial grant.
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 1);
+    assert!(h.interface.removed_peers.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

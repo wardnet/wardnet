@@ -6,7 +6,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     AddInboundWgPeerRequest, AddInboundWgPeerResponse, InboundWgConfigRequest,
-    InboundWgConfigResponse, ListInboundWgPeersResponse,
+    InboundWgConfigResponse, InboundWgPeerSummary, ListInboundWgPeersResponse,
+    SetInboundWgPeerEnabledRequest,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -17,9 +18,32 @@ use wardnetd_services::error::AppError;
 /// Register inbound-`WireGuard` routes onto the given [`OpenApiRouter`].
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
-        .routes(routes!(set_config))
+        .routes(routes!(get_config, set_config))
         .routes(routes!(list_peers, add_peer))
-        .routes(routes!(remove_peer))
+        .routes(routes!(remove_peer, set_peer_enabled))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/inbound-wg/config",
+    tag = "inbound-wg",
+    description = "Read the current inbound WireGuard server config (enabled, listen port, \
+                   public key) without mutating anything. Admin only.",
+    responses(
+        (status = 200, description = "Current inbound WireGuard config", body = InboundWgConfigResponse),
+        AuthErrors,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn get_config(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<InboundWgConfigResponse>, AppError> {
+    let response = state.inbound_wg_service().get_config().await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -135,4 +159,38 @@ pub async fn remove_peer(
 ) -> Result<StatusCode, AppError> {
     state.inbound_wg_service().remove_peer(id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/inbound-wg/peers/{id}",
+    tag = "inbound-wg",
+    description = "Pause or resume an inbound WireGuard peer without deleting its \
+                   credential: re-admits it onto the live interface (enable) or \
+                   best-effort removes it (disable), then persists the flag. Distinct \
+                   from DELETE, which revokes the credential permanently — a paused \
+                   peer can be resumed without a fresh keypair or QR scan. Admin only.",
+    params(("id" = Uuid, Path, description = "Peer ID")),
+    request_body = SetInboundWgPeerEnabledRequest,
+    responses(
+        (status = 200, description = "Peer state applied", body = InboundWgPeerSummary),
+        AuthErrors,
+        NotFound,
+    ),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
+)]
+pub async fn set_peer_enabled(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+    Json(body): Json<SetInboundWgPeerEnabledRequest>,
+) -> Result<Json<InboundWgPeerSummary>, AppError> {
+    let response = state
+        .inbound_wg_service()
+        .set_peer_enabled(id, body.enabled)
+        .await?;
+    Ok(Json(response))
 }

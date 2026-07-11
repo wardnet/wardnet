@@ -150,4 +150,13 @@ impl InboundWgPeerRepository for SqliteInboundWgPeerRepository {
             .await?;
         Ok(())
     }
+
+    async fn set_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()> {
+        sqlx::query("UPDATE inbound_wg_peers SET enabled = ? WHERE id = ?")
+            .bind(enabled)
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
 }
