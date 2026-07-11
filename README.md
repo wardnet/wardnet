@@ -9,7 +9,7 @@
 [![Security Audit](https://github.com/wardnet/wardnet/actions/workflows/security.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/security.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/wardnet/wardnet/badge)](https://securityscorecards.dev/viewer/?uri=github.com/wardnet/wardnet)
 [![Dependabot](https://badgen.net/github/dependabot/wardnet/wardnet)](https://github.com/wardnet/wardnet/pulls?q=is%3Apr+author%3Aapp%2Fdependabot)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 **Your network. Your rules.**
 
@@ -114,4 +114,12 @@ Contributions welcome. Start with the [development guide](docs/DEVELOPMENT.md) a
 
 ## License
 
-[MIT](LICENSE)
+The daemon (`source/daemon/`) is [GPL-3.0-or-later](LICENSE) — it links
+[`rustables`](https://crates.io/crates/rustables), which is GPL-3.0-or-later,
+and Rust links statically, so the compiled binary is a combined work.
+
+The `@wardnet/js` SDK and the web/app frontends stay
+[MIT](source/sdk/wardnet-js/LICENSE) — you can build against the SDK without
+inheriting GPL obligations.
+
+See [LICENSING.md](LICENSING.md) for the full breakdown.

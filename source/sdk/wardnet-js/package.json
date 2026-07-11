@@ -2,6 +2,7 @@
   "name": "@wardnet/js",
   "version": "0.4.0",
   "description": "TypeScript SDK for the Wardnet network privacy gateway",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

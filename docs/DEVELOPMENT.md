@@ -268,4 +268,5 @@ Keep both up to date when the project structure or conventions change.
 
 ## License
 
-[MIT](../LICENSE)
+The daemon is [GPL-3.0-or-later](../LICENSE); the SDK and frontends are MIT.
+See [LICENSING.md](../LICENSING.md).

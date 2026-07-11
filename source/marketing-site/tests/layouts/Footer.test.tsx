@@ -14,7 +14,9 @@ function renderFooter() {
 describe("Footer", () => {
   it("renders the copyright text", () => {
     renderFooter();
-    expect(screen.getByText("MIT License. Built with Rust and React.")).toBeInTheDocument();
+    expect(
+      screen.getByText("GPL-3.0-or-later (daemon), MIT (SDK). Built with Rust and React."),
+    ).toBeInTheDocument();
   });
 
   it("renders the GitHub link", () => {
