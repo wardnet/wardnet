@@ -47,6 +47,8 @@ use crate::error::AppError;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::jobs::{BoxedJobTask, JobService};
 
+use crate::tests::mac_from;
+
 const AD_BLOCKING: &str = "00000000-0000-0000-0000-000000000100";
 
 // ---------------------------------------------------------------------------
@@ -89,7 +91,7 @@ impl MemoryDeviceRepository {
             id,
             Device {
                 id,
-                mac: format!("aa:bb:cc:dd:ee:{:02x}", (id.as_u128() & 0xff) as u8),
+                mac: mac_from(id),
                 name: None,
                 hostname: None,
                 manufacturer: None,
