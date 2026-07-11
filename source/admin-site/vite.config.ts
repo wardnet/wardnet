@@ -24,10 +24,13 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Pre-bundle the CommonJS deps that the excluded workspace packages import
-    // (cronstrue via @wardnet/web, consola via @wardnet/js): excluding a
-    // linked package stops Vite bundling its deps, so its CJS deps must be
-    // pre-bundled explicitly or their `default` export won't be interop'd.
-    include: ["use-sync-external-store/shim", "cronstrue", "consola"],
+    // (cronstrue + qrcode via @wardnet/web, consola via @wardnet/js): excluding
+    // a linked package stops Vite bundling its deps, so its CJS deps must be
+    // pre-bundled explicitly or their `default`/named exports won't be
+    // interop'd — qrcode's "browser" field swaps in a plain-CJS file with
+    // internal `require()` calls that throw `ReferenceError: require is not
+    // defined` when Vite serves it unbundled.
+    include: ["use-sync-external-store/shim", "cronstrue", "consola", "qrcode"],
     // Our own source workspace packages (linked via Yarn `portal:`) must NOT be
     // pre-bundled: Vite caches a pre-bundle in node_modules/.vite/deps and does
     // not invalidate it when a portal dep's *source* changes, so edits to these

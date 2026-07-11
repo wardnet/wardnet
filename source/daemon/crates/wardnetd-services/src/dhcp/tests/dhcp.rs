@@ -360,6 +360,7 @@ impl MockDeviceRepository {
             dns_capture_enabled: false,
             dns_capture_cap_count: 0,
             dns_capture_cap_days: 0,
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         };
         self.by_mac
             .lock()
@@ -396,9 +397,18 @@ impl DeviceRepository for MockDeviceRepository {
         _id: &str,
         _ip: &str,
         _last_seen: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_last_seen_batch(&self, _updates: &[(String, String)]) -> anyhow::Result<()> {
         unimplemented!()
     }

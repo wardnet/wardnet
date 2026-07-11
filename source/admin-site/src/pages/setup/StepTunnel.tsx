@@ -51,7 +51,7 @@ export default function StepTunnel() {
           First VPN tunnel
         </Heading>
         <Text as="p" size="sm" className="mt-1 text-ink-3">
-          Optional — connect a VPN provider so opted-in devices can route
+          Optional - connect a VPN provider so opted-in devices can route
           through it. You can add more from the Tunnels page once setup is
           complete.
         </Text>
@@ -72,7 +72,7 @@ export default function StepTunnel() {
           size="sm"
           className="rounded-md border border-line bg-sunken p-4 text-ink-3"
         >
-          No tunnels yet. Add one now or skip — you can change the default
+          No tunnels yet. Add one now or skip - you can change the default
           routing policy from Settings later.
         </Text>
       )}

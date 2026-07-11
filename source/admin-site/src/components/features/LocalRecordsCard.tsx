@@ -56,7 +56,7 @@ export function LocalRecordsCard() {
   const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
   const zoneName = useMemo(() => {
     const map = new Map(zones.map((z) => [z.id, z.name]));
-    return (id?: string | null) => (id ? (map.get(id) ?? "—") : "—");
+    return (id?: string | null) => (id ? (map.get(id) ?? "-") : "-");
   }, [zones]);
 
   const records = useMemo(

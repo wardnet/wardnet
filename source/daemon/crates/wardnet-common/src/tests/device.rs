@@ -44,6 +44,7 @@ fn device_round_trip() {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: DeviceConnectionMode::Lan,
     };
     let json = serde_json::to_string(&device).unwrap();
     let back: Device = serde_json::from_str(&json).unwrap();

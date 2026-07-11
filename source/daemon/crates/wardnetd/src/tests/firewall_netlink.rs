@@ -5,7 +5,9 @@
 //! `policy_router_netlink` is covered. What we CAN test here is the comment
 //! UDATA TLV codec that drives restart-survivable rule identification.
 
-use crate::firewall_netlink::{comment_udata, parse_comment_udata};
+use crate::firewall_netlink::{
+    IFNAMSIZ, comment_udata, inbound_wg_iface_exact_value, parse_comment_udata,
+};
 
 #[test]
 fn comment_udata_encodes_type_len_value_nul() {
@@ -65,4 +67,30 @@ fn parse_comment_udata_returns_none_when_no_comment_tlv() {
     // Only a non-comment TLV present.
     let data = [7u8, 1, 0x42];
     assert_eq!(parse_comment_udata(&data), None);
+}
+
+#[test]
+fn inbound_wg_iface_exact_value_zero_pads_to_ifnamsiz() {
+    // The #810 exclusion loads `meta oifname` (a full IFNAMSIZ-wide interface
+    // name) and compares it `!=` this value, so the value must be the inbound
+    // server interface name `wg_wardin0` zero-padded to IFNAMSIZ — byte-for-byte
+    // what the kernel places in the comparison register.
+    let value = inbound_wg_iface_exact_value();
+    assert_eq!(value.len(), IFNAMSIZ, "must be exactly IFNAMSIZ bytes");
+
+    let name = b"wg_wardin0";
+    let mut expected = vec![0u8; IFNAMSIZ];
+    expected[..name.len()].copy_from_slice(name);
+    assert_eq!(value, expected, "decodes to wg_wardin0 zero-padded");
+
+    // The whole point of the exact (unmasked) match is that it must NOT collide
+    // with any other `wg_ward*`-prefixed interface (e.g. a provider tunnel
+    // `wg_ward0`), which the masked prefix match would otherwise catch.
+    let other_name = b"wg_ward0";
+    let mut other = vec![0u8; IFNAMSIZ];
+    other[..other_name.len()].copy_from_slice(other_name);
+    assert_ne!(
+        value, other,
+        "must not equal another wg_ward*-prefixed interface's padded name"
+    );
 }

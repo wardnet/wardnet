@@ -261,7 +261,7 @@ impl UpdateServiceImpl {
                     .map_err(AppError::Internal)?;
                 tracing::info!(
                     target = %target,
-                    "update installed — cancelling shutdown token to trigger systemd restart: target={target}",
+                    "update installed - cancelling shutdown token to trigger systemd restart: target={target}",
                     target = target,
                 );
                 self.shutdown_token.cancel();
@@ -666,10 +666,10 @@ impl UpdateService for UpdateServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        tracing::info!("rollback staged — cancelling shutdown token to trigger systemd restart");
+        tracing::info!("rollback staged - cancelling shutdown token to trigger systemd restart");
         self.shutdown_token.cancel();
         Ok(RollbackResponse {
-            message: "rollback staged — daemon will restart".to_owned(),
+            message: "rollback staged - daemon will restart".to_owned(),
         })
     }
 

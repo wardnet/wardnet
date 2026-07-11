@@ -192,7 +192,7 @@ function ProfileIdentityCard({
                 data-testid="profile-edit-desc"
                 value={draftDesc}
                 onChange={(e) => setDraftDesc(e.target.value)}
-                placeholder="e.g. Strict — for kids' devices"
+                placeholder="e.g. Strict - for kids' devices"
               />
             </Field>
             {update.isError && (
@@ -243,7 +243,7 @@ function ProfileIdentityCard({
                 Description
               </Text>
               <Text size="sm" className="text-ink-2">
-                {description ?? "—"}
+                {description ?? "-"}
               </Text>
             </div>
           )}

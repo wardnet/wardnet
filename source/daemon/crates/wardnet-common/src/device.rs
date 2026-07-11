@@ -19,6 +19,26 @@ pub enum DeviceType {
     Unknown,
 }
 
+/// How a device is currently reachable on the network (issue #810).
+///
+/// A **live status**, not a lineage tag: a device flips between the two as it
+/// connects from different paths over time (last-observation-wins), exactly
+/// like `last_ip` already does across DHCP renewals. Set by whichever path
+/// most recently observed the device — LAN ARP/DHCP discovery sets [`Lan`], an
+/// inbound `WireGuard` handshake sets [`Remote`].
+///
+/// [`Lan`]: DeviceConnectionMode::Lan
+/// [`Remote`]: DeviceConnectionMode::Remote
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceConnectionMode {
+    /// Reachable over the LAN (ARP/DHCP). The default for a freshly discovered
+    /// device.
+    Lan,
+    /// Reachable over the inbound `WireGuard` server (#809/#810).
+    Remote,
+}
+
 /// Whether a device's IP is managed by the wardnet DHCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -51,4 +71,7 @@ pub struct Device {
     pub dns_capture_enabled: bool,
     pub dns_capture_cap_count: i64,
     pub dns_capture_cap_days: i64,
+    /// How the device is currently reachable (LAN vs. inbound `WireGuard`).
+    /// Live status, last-observation-wins — see [`DeviceConnectionMode`].
+    pub connection_mode: DeviceConnectionMode,
 }

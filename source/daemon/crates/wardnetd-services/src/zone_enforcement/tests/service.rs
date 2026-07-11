@@ -424,6 +424,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, ip: &str, zone_id: &
             last_seen: "2026-07-01T00:00:00Z".to_owned(),
             last_ip: ip.to_owned(),
             zone_id: zone_id.to_owned(),
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         })
         .await
         .unwrap();

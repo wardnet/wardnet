@@ -122,7 +122,7 @@ describe("DnsStatsSection", () => {
     renderWithProviders(<DnsStatsSection range="1h" />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     // Stat cards fall back to em dashes with no data.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows an empty chart message when the series is empty", () => {

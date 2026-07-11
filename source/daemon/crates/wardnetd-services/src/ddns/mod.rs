@@ -424,7 +424,7 @@ impl DdnsServiceImpl {
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| {
-                AppError::Conflict("not enrolled — request a code and enroll first".to_owned())
+                AppError::Conflict("not enrolled - request a code and enroll first".to_owned())
             })?;
         let seed: [u8; 32] = bytes.try_into().map_err(|_| {
             AppError::Internal(anyhow::anyhow!("daemon signing key is not 32 bytes"))
@@ -976,7 +976,7 @@ impl DdnsService for DdnsServiceImpl {
     async fn set_acme_challenge(&self, values: &[String]) -> Result<(), AppError> {
         auth_context::require_admin()?;
         let provider = self.build_provider().await?.ok_or_else(|| {
-            AppError::Conflict("DDNS is not configured — cannot publish ACME challenge".to_owned())
+            AppError::Conflict("DDNS is not configured - cannot publish ACME challenge".to_owned())
         })?;
         provider
             .set_txt(values)
@@ -987,7 +987,7 @@ impl DdnsService for DdnsServiceImpl {
     async fn clear_acme_challenge(&self) -> Result<(), AppError> {
         auth_context::require_admin()?;
         let provider = self.build_provider().await?.ok_or_else(|| {
-            AppError::Conflict("DDNS is not configured — cannot clear ACME challenge".to_owned())
+            AppError::Conflict("DDNS is not configured - cannot clear ACME challenge".to_owned())
         })?;
         provider
             .delete_txt()

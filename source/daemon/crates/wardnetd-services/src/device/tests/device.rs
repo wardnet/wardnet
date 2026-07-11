@@ -47,6 +47,14 @@ impl DeviceRepository for MockDeviceRepo {
         _id: &str,
         _ip: &str,
         _last_seen: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -288,6 +296,7 @@ fn sample_device(locked: bool) -> Device {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 
@@ -796,6 +805,14 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
             _id: &str,
             _ip: &str,
             _last_seen: &str,
+            _mode: wardnet_common::device::DeviceConnectionMode,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_connection_mode(
+            &self,
+            _id: &str,
+            _mode: wardnet_common::device::DeviceConnectionMode,
         ) -> anyhow::Result<()> {
             Ok(())
         }

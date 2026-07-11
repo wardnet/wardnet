@@ -141,6 +141,23 @@ impl MockDiscovery {
 
 #[async_trait]
 impl DeviceDiscoveryService for MockDiscovery {
+    async fn process_peer_observation(
+        &self,
+        _device_id: Uuid,
+        _ip: &str,
+    ) -> Result<ObservationResult, AppError> {
+        unimplemented!()
+    }
+    async fn touch_peer_presence(&self, _device_id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(
+        &self,
+        _device_id: Uuid,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<Uuid>, AppError> {
+        unimplemented!()
+    }
     async fn restore_devices(&self) -> Result<(), AppError> {
         Ok(())
     }

@@ -34,7 +34,7 @@ describe("RemoteAccessStatus", () => {
     expect(screen.getByText("Public hostname")).toBeInTheDocument();
     expect(screen.getByText("Not issued yet")).toBeInTheDocument();
     // Provider label fallback and resolution fallback both render em dashes.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders wardnet provider label and cert expiry", () => {

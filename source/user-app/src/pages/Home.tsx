@@ -393,8 +393,8 @@ export default function Home() {
             <div className="flex flex-col gap-3" data-testid="zone-readonly">
               <Text as="p" size="sm" className="text-ink">
                 {zone.is_default
-                  ? `You're on: ${zone.name} — the home network.`
-                  : `You're on: ${zone.name} — isolated from the home network.`}
+                  ? `You're on: ${zone.name} - the home network.`
+                  : `You're on: ${zone.name} - isolated from the home network.`}
               </Text>
               <div className="flex items-start gap-2 text-ink-3">
                 <LockIcon className="mt-0.5 size-4 shrink-0" />

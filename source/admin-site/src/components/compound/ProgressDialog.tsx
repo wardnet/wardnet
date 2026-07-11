@@ -93,28 +93,40 @@ export function ProgressDialog({
     >
       <AlertModalContent data-testid="progress-dialog">
         <AlertModalHeader>
-          <AlertModalTitle
-            className="flex items-center gap-2"
-            data-testid="progress-title"
-          >
-            {phase === "in-progress" && (
-              <Loader2Icon className="h-5 w-5 animate-spin text-ink-3" />
+          {/* Column-wrapped so the description stacks under the (icon-bearing)
+              title - the DS AlertModalHeader is a flex row. Same layout the
+              AlertModalTitleBlock helper applies; kept inline here only because
+              this title has a bespoke icon/phase row. */}
+          <div className="flex w-full min-w-0 flex-col gap-1">
+            <AlertModalTitle
+              className="flex items-center gap-2"
+              data-testid="progress-title"
+            >
+              {phase === "in-progress" && (
+                <Loader2Icon className="h-5 w-5 animate-spin text-ink-3" />
+              )}
+              {phase === "success" && successIcon}
+              {phase === "failed" && (
+                <AlertTriangleIcon className="h-5 w-5 text-danger" />
+              )}
+              {phase === "success" ? successTitle : title}
+            </AlertModalTitle>
+            {phase === "success" && successDescription && (
+              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+                {successDescription}
+              </AlertModalDescription>
             )}
-            {phase === "success" && successIcon}
-            {phase === "failed" && (
-              <AlertTriangleIcon className="h-5 w-5 text-danger" />
+            {phase === "in-progress" && description && (
+              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+                {description}
+              </AlertModalDescription>
             )}
-            {phase === "success" ? successTitle : title}
-          </AlertModalTitle>
-          {phase === "success" && successDescription && (
-            <AlertModalDescription>{successDescription}</AlertModalDescription>
-          )}
-          {phase === "in-progress" && description && (
-            <AlertModalDescription>{description}</AlertModalDescription>
-          )}
-          {phase === "failed" && description && (
-            <AlertModalDescription>{description}</AlertModalDescription>
-          )}
+            {phase === "failed" && description && (
+              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+                {description}
+              </AlertModalDescription>
+            )}
+          </div>
         </AlertModalHeader>
 
         {phase === "in-progress" && (

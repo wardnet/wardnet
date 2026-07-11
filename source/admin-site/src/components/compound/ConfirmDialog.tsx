@@ -4,10 +4,8 @@ import {
   AlertModalAction,
   AlertModalCancel,
   AlertModalContent,
-  AlertModalDescription,
   AlertModalFooter,
-  AlertModalHeader,
-  AlertModalTitle,
+  AlertModalTitleBlock,
 } from "@wardnet/web";
 
 interface ConfirmDialogProps {
@@ -33,10 +31,7 @@ export function ConfirmDialog({
   return (
     <AlertModal open={open} onOpenChange={onOpenChange}>
       <AlertModalContent>
-        <AlertModalHeader>
-          <AlertModalTitle>{title}</AlertModalTitle>
-          <AlertModalDescription>{description}</AlertModalDescription>
-        </AlertModalHeader>
+        <AlertModalTitleBlock title={title} description={description} />
         <AlertModalFooter>
           <AlertModalCancel asChild>
             <Button variant="outline" data-testid="confirm-dialog-cancel">

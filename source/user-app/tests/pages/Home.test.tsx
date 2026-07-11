@@ -220,7 +220,7 @@ describe("Home page", () => {
     renderWithProviders(<Home />);
     const card = screen.getByTestId("zone-readonly");
     expect(card).toHaveTextContent(
-      "You're on: Guest — isolated from the home network.",
+      "You're on: Guest - isolated from the home network.",
     );
     expect(card).toHaveTextContent(/network administrator can change/i);
   });
@@ -229,7 +229,7 @@ describe("Home page", () => {
     setMyDevice({ zone: { name: "Trusted", is_default: true } });
     renderWithProviders(<Home />);
     expect(screen.getByTestId("zone-readonly")).toHaveTextContent(
-      "You're on: Trusted — the home network.",
+      "You're on: Trusted - the home network.",
     );
   });
 

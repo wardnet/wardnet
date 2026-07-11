@@ -45,7 +45,7 @@ describe("StepNetwork", () => {
       isError: true,
     });
     renderWithProviders(<StepNetwork />);
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("-").length).toBeGreaterThan(0);
   });
 
   it("renders static source with no warning panel", () => {

@@ -98,7 +98,7 @@ export function useRollbackUpdate() {
   return useMutation({
     mutationFn: () => updateService.rollback(),
     onSuccess: () => {
-      toast.success("Rollback staged — daemon will restart", {
+      toast.success("Rollback staged - daemon will restart", {
         id: TOAST_ROLLBACK,
       });
       qc.invalidateQueries({ queryKey: STATUS_KEY });

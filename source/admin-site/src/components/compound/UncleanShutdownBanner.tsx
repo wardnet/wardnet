@@ -58,7 +58,7 @@ export function UncleanShutdownBanner() {
         Wardnet did not shut down cleanly
       </Text>
       <span className="ml-2 opacity-80">
-        Last seen {timeAgo(shutdown.at)} — likely a crash or power loss.
+        Last seen {timeAgo(shutdown.at)} - likely a crash or power loss.
       </span>
     </Banner>
   );

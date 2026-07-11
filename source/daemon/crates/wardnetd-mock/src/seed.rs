@@ -109,6 +109,8 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             // Seeded demo devices are the owner's known devices → Trusted zone
             // (seeded by the network_zones migration; allows direct + tunnel).
             zone_id: "00000000-0000-0000-0000-000000000201".to_owned(),
+            // Demo devices are LAN-discovered.
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         };
         device_repo.insert(&row).await?;
         device_ids.push(id);
@@ -169,7 +171,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             mac_address: mac.clone(),
             ip_address: ip.clone(),
             hostname: hostname.clone(),
-            description: Some("Smart plug — kitchen".to_owned()),
+            description: Some("Smart plug - kitchen".to_owned()),
         };
         dhcp_repo.insert_reservation(&reservation).await?;
     }

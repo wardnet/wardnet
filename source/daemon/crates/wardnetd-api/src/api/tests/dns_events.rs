@@ -122,6 +122,7 @@ fn sample_device() -> Device {
         dns_capture_enabled: true,
         dns_capture_cap_count: 500,
         dns_capture_cap_days: 14,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 
@@ -162,6 +163,15 @@ impl MockDnsEventsDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDnsEventsDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        Ok(self.device.clone())
+    }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         match &self.device {
             Some(d) => Ok(DeviceMeResponse {

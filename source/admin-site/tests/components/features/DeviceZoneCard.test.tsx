@@ -72,7 +72,7 @@ describe("DeviceZoneCard", () => {
     renderWithProviders(
       <DeviceZoneCard device={makeDevice({ zone_id: "gone" })} />,
     );
-    expect(screen.getByTestId("device-zone-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("device-zone-value")).toHaveTextContent("-");
     expect(screen.queryByText("Home")).not.toBeInTheDocument();
   });
 

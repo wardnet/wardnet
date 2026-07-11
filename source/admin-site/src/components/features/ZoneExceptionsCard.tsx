@@ -138,7 +138,7 @@ export function ZoneExceptionsCard() {
       <CardContent className="flex flex-col gap-4">
         <Text size="sm" className="text-ink-3">
           Allow one device or zone to reach another across an isolated boundary
-          — for example, casting from your phone to a TV in the IoT zone.
+          - for example, casting from your phone to a TV in the IoT zone.
         </Text>
 
         {formOpen && (
@@ -309,7 +309,7 @@ function ExceptionForm({
             className="text-danger"
             data-testid="exception-port-error"
           >
-            Add at least one valid port (0–65535, with end ≥ start).
+            Add at least one valid port (0-65535, with end ≥ start).
           </Text>
         )}
 
@@ -402,7 +402,7 @@ function CustomPortsEditor({ rows, onChange }: CustomPortsEditorProps) {
               update(i, { from: e.target.value.replace(/\D/g, "").slice(0, 5) })
             }
           />
-          <span className="text-ink-3">–</span>
+          <span className="text-ink-3">-</span>
           <Input
             aria-label={`To port row ${i + 1}`}
             data-testid={`exception-port-to-${i}`}

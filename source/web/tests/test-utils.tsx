@@ -64,8 +64,9 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     dns_capture_cap_days: 0,
     dhcp_status: "lease",
     current_rule: null,
+    connection_mode: "lan",
     ...overrides,
-  } as Device;
+  };
 }
 
 /** Build a TunnelSummary with sensible defaults. */

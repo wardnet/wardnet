@@ -51,7 +51,7 @@ export function StatusCard({ reachable, uptimeSeconds }: Props) {
             weight="medium"
             className="mt-0.5 text-side-ink"
           >
-            {uptimeSeconds != null ? formatUptime(uptimeSeconds) : "—"}
+            {uptimeSeconds != null ? formatUptime(uptimeSeconds) : "-"}
           </Text>
         </div>
       </div>

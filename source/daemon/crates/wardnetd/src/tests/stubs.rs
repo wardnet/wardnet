@@ -138,6 +138,15 @@ pub struct StubDeviceService;
 
 #[async_trait]
 impl DeviceService for StubDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        unimplemented!()
+    }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!()
     }
@@ -219,6 +228,23 @@ pub struct StubDiscoveryService;
 
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
+    async fn process_peer_observation(
+        &self,
+        _device_id: uuid::Uuid,
+        _ip: &str,
+    ) -> Result<ObservationResult, AppError> {
+        unimplemented!()
+    }
+    async fn touch_peer_presence(&self, _device_id: uuid::Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(
+        &self,
+        _device_id: uuid::Uuid,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<uuid::Uuid>, AppError> {
+        unimplemented!()
+    }
     async fn restore_devices(&self) -> Result<(), AppError> {
         unimplemented!()
     }

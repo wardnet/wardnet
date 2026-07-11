@@ -131,7 +131,7 @@ describe("StepReview", () => {
     renderWithProviders(<StepReview />);
     // Admin user and LAN IP fall back to em dashes; DNS shows the
     // empty-set label and routing defaults to direct.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("No profiles")).toBeInTheDocument();
     expect(screen.getByText("Direct (no VPN)")).toBeInTheDocument();
   });

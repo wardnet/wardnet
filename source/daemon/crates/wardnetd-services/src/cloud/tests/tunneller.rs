@@ -348,7 +348,7 @@ async fn ninth_concurrent_conn_is_rejected_at_cap() {
         &fake_open_ok,
     )
     .await;
-    assert_eq!(conns.len(), 8, "9th conn_id rejected — cap holds");
+    assert_eq!(conns.len(), 8, "9th conn_id rejected - cap holds");
     let msg = out_rx
         .try_recv()
         .expect("cap rejection must send FRAME_CLOSE");

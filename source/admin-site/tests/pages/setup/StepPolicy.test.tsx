@@ -68,7 +68,7 @@ describe("StepPolicy", () => {
   it("shows the no-tunnels hint and defaults to direct", () => {
     renderWithProviders(<StepPolicy />);
     expect(
-      screen.getByText(/No tunnels configured — defaulting to direct/),
+      screen.getByText(/No tunnels configured - defaulting to direct/),
     ).toBeInTheDocument();
     expect(screen.getByTestId("rs-value")).toHaveTextContent(
       '{"type":"direct"}',

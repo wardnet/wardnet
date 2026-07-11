@@ -129,6 +129,15 @@ impl AuthService for AlwaysAdminAuth {
 pub struct StubDeviceService;
 #[async_trait]
 impl DeviceService for StubDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        unimplemented!()
+    }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!()
     }
@@ -575,6 +584,23 @@ impl wardnetd_services::DnsLocalService for StubDnsLocalService {
 pub struct StubDiscoveryService;
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
+    async fn process_peer_observation(
+        &self,
+        _device_id: uuid::Uuid,
+        _ip: &str,
+    ) -> Result<wardnetd_services::ObservationResult, AppError> {
+        unimplemented!()
+    }
+    async fn touch_peer_presence(&self, _device_id: uuid::Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn mark_peer_gone(
+        &self,
+        _device_id: uuid::Uuid,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<uuid::Uuid>, AppError> {
+        unimplemented!()
+    }
     async fn restore_devices(&self) -> Result<(), AppError> {
         Ok(())
     }
@@ -1247,7 +1273,14 @@ impl wardnetd_services::DdnsService for StubDdnsService {
         unimplemented!()
     }
     async fn status(&self) -> Result<wardnetd_services::ddns::DdnsStatus, AppError> {
-        unimplemented!()
+        // A configured wardnet DDNS box, so handlers that derive a reachable
+        // endpoint from DDNS (inbound-wg add_peer) have a hostname to use.
+        Ok(wardnetd_services::ddns::DdnsStatus {
+            provider: Some("wardnet".to_owned()),
+            fqdn: Some("test.my.wardnet.services".to_owned()),
+            last_public_ip: Some("203.0.113.10".to_owned()),
+            suspended: false,
+        })
     }
     async fn teardown(&self) -> Result<(), AppError> {
         unimplemented!()
