@@ -419,7 +419,7 @@ async fn classify_previous_shutdown(repo_factory: &dyn RepositoryFactory) {
         Err(e) => {
             tracing::warn!(
                 error = %e,
-                "failed to classify previous shutdown — skipping detection: {e}",
+                "failed to classify previous shutdown - skipping detection: {e}",
             );
         }
     }

@@ -129,6 +129,24 @@ impl MockRemoteAccessState {
     fn clear(&self) {
         *self.sim.lock().unwrap() = None;
     }
+
+    /// Seed an already-issued demo DDNS/TLS configuration so remote-access
+    /// features that need a public endpoint (inbound-WireGuard QR codes /
+    /// `.conf` downloads) render a plausible `Endpoint` without the operator
+    /// running the enrollment flow. Called only when demo seeding is enabled.
+    pub fn configure_demo(&self) {
+        *self.sim.lock().unwrap() = Some(Sim {
+            provider: "wardnet",
+            fqdn: "home1.demo.wardnet.services".to_owned(),
+            public_ip: FAKE_PUBLIC_IP.to_owned(),
+            // Backdate so the cert reads as already `Issued`; DDNS status is
+            // configured regardless of this.
+            started: Instant::now()
+                .checked_sub(ISSUE_DELAY)
+                .unwrap_or_else(Instant::now),
+            force_failure: false,
+        });
+    }
 }
 
 /// Mock [`DdnsService`] — see [module docs](self).

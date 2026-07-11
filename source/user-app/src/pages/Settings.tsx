@@ -160,7 +160,7 @@ export default function Settings() {
         <CardContent className="flex flex-col gap-3">
           <Text as="p" size="sm" className="text-ink-3">
             Wardnet will capture your device's DNS activity and sync it to this
-            device so you can see your own stats. Data stays on this device — it
+            device so you can see your own stats. Data stays on this device - it
             is not sent anywhere else.
           </Text>
 

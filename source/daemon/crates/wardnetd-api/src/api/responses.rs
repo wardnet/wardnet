@@ -16,11 +16,11 @@ pub enum AuthErrors {
     /// Missing or invalid session cookie / API key.
     #[response(
         status = 401,
-        description = "Unauthenticated — session cookie or API key missing/invalid"
+        description = "Unauthenticated - session cookie or API key missing/invalid"
     )]
     Unauthorized(#[to_schema] ApiError),
     /// Caller authenticated but lacks admin role.
-    #[response(status = 403, description = "Forbidden — caller is not an admin")]
+    #[response(status = 403, description = "Forbidden - caller is not an admin")]
     Forbidden(#[to_schema] ApiError),
     /// Unhandled server-side failure.
     #[response(status = 500, description = "Internal server error")]

@@ -91,7 +91,7 @@ describe("useBackup", () => {
       await result.current.mutateAsync({ token: "t" } as never);
     });
     expect(toast.success).toHaveBeenCalledWith(
-      "Backup restored — restart the daemon to complete",
+      "Backup restored - restart the daemon to complete",
     );
   });
 });

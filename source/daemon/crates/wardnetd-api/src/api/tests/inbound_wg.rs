@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::routing::{delete, get, put};
+use axum::routing::{delete, get};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_common::api::{
@@ -39,12 +39,28 @@ enum AddPeerOutcome {
     AlreadyGranted,
 }
 
+/// Which outcome `set_peer_enabled` should return, mirroring
+/// [`AddPeerOutcome`] for the same reason.
+enum SetPeerEnabledOutcome {
+    Success,
+    NotFound,
+}
+
 struct MockInboundWg {
     add_peer_outcome: AddPeerOutcome,
+    set_peer_enabled_outcome: SetPeerEnabledOutcome,
 }
 
 #[async_trait]
 impl InboundWgService for MockInboundWg {
+    async fn get_config(&self) -> Result<InboundWgConfigResponse, AppError> {
+        Ok(InboundWgConfigResponse {
+            enabled: true,
+            listen_port: 51821,
+            server_public_key: Some("c2VydmVyLXB1YmtleQ==".to_owned()),
+        })
+    }
+
     async fn set_config(
         &self,
         enabled: bool,
@@ -57,14 +73,22 @@ impl InboundWgService for MockInboundWg {
         })
     }
 
-    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError> {
+    async fn add_peer(
+        &self,
+        device_id: Uuid,
+        endpoint: Option<String>,
+    ) -> Result<AddInboundWgPeerResponse, AppError> {
         match self.add_peer_outcome {
             AddPeerOutcome::Success => Ok(AddInboundWgPeerResponse {
                 id: Uuid::nil(),
                 name: "kitchen-tv".to_owned(),
                 public_key: "cHVia2V5".to_owned(),
-                private_key: "cHJpdmtleQ==".to_owned(),
                 allowed_ip: "10.100.64.2/32".to_owned(),
+                // Echo the endpoint the handler derived so the test can assert
+                // the DDNS-status → endpoint wiring ran.
+                client_config: endpoint.map(|e| {
+                    format!("[Interface]\nPrivateKey = cHJpdmtleQ==\n\n[Peer]\nEndpoint = {e}\n")
+                }),
             }),
             AddPeerOutcome::DeviceNotFound => {
                 Err(AppError::NotFound(format!("device {device_id} not found")))
@@ -79,6 +103,27 @@ impl InboundWgService for MockInboundWg {
         Ok(())
     }
 
+    async fn set_peer_enabled(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<InboundWgPeerSummary, AppError> {
+        match self.set_peer_enabled_outcome {
+            SetPeerEnabledOutcome::Success => Ok(InboundWgPeerSummary {
+                id,
+                name: "kitchen-tv".to_owned(),
+                public_key: "cHVia2V5".to_owned(),
+                allowed_ip: "10.100.64.2/32".to_owned(),
+                enabled,
+                created_at: chrono::Utc::now(),
+                device_id: Some(Uuid::new_v4()),
+            }),
+            SetPeerEnabledOutcome::NotFound => Err(AppError::NotFound(format!(
+                "inbound-wg peer {id} not found"
+            ))),
+        }
+    }
+
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError> {
         Ok(vec![InboundWgPeerSummary {
             id: Uuid::nil(),
@@ -87,6 +132,7 @@ impl InboundWgService for MockInboundWg {
             allowed_ip: "10.100.64.2/32".to_owned(),
             enabled: true,
             created_at: chrono::Utc::now(),
+            device_id: Some(Uuid::new_v4()),
         }])
     }
 
@@ -135,7 +181,7 @@ fn app(state: AppState) -> Router {
     Router::new()
         .route(
             "/api/inbound-wg/config",
-            put(crate::api::inbound_wg::set_config),
+            get(crate::api::inbound_wg::get_config).put(crate::api::inbound_wg::set_config),
         )
         .route(
             "/api/inbound-wg/peers",
@@ -143,7 +189,8 @@ fn app(state: AppState) -> Router {
         )
         .route(
             "/api/inbound-wg/peers/{id}",
-            delete(crate::api::inbound_wg::remove_peer),
+            delete(crate::api::inbound_wg::remove_peer)
+                .patch(crate::api::inbound_wg::set_peer_enabled),
         )
         .with_state(state)
 }
@@ -178,6 +225,7 @@ fn request(
 async fn set_config_enables_and_returns_server_pubkey() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request(
         "PUT",
@@ -194,9 +242,25 @@ async fn set_config_enables_and_returns_server_pubkey() {
 }
 
 #[tokio::test]
+async fn get_config_returns_current_state_without_mutating() {
+    let state = make_state(Arc::new(MockInboundWg {
+        add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
+    }));
+    let req = admin_request("GET", "/api/inbound-wg/config", None);
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: InboundWgConfigResponse = serde_json::from_slice(&body).unwrap();
+    assert!(json.enabled);
+    assert_eq!(json.listen_port, 51821);
+}
+
+#[tokio::test]
 async fn list_peers_returns_configured_peers() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request("GET", "/api/inbound-wg/peers", None);
     let resp = app(state).oneshot(req).await.unwrap();
@@ -223,6 +287,7 @@ async fn list_peers_returns_configured_peers() {
         vec![
             "allowed_ip",
             "created_at",
+            "device_id",
             "enabled",
             "id",
             "name",
@@ -232,9 +297,10 @@ async fn list_peers_returns_configured_peers() {
 }
 
 #[tokio::test]
-async fn add_peer_success_returns_private_key_once() {
+async fn add_peer_success_returns_client_config_with_endpoint() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request(
         "POST",
@@ -245,13 +311,18 @@ async fn add_peer_success_returns_private_key_once() {
     assert_eq!(resp.status(), StatusCode::CREATED);
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: AddInboundWgPeerResponse = serde_json::from_slice(&body).unwrap();
-    assert!(!json.private_key.is_empty());
+    // The handler derived an endpoint from DDNS status and the service built a
+    // config carrying the private key — the only place it is ever exposed.
+    let cfg = json.client_config.expect("client_config present");
+    assert!(cfg.contains("PrivateKey ="));
+    assert!(cfg.contains("Endpoint ="));
 }
 
 #[tokio::test]
 async fn add_peer_device_not_found_returns_404() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::DeviceNotFound,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request(
         "POST",
@@ -266,6 +337,7 @@ async fn add_peer_device_not_found_returns_404() {
 async fn add_peer_already_granted_returns_409() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::AlreadyGranted,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request(
         "POST",
@@ -280,6 +352,7 @@ async fn add_peer_already_granted_returns_409() {
 async fn remove_peer_returns_no_content() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
     }));
     let req = admin_request(
         "DELETE",
@@ -291,8 +364,42 @@ async fn remove_peer_returns_no_content() {
 }
 
 #[tokio::test]
+async fn set_peer_enabled_returns_updated_summary() {
+    let state = make_state(Arc::new(MockInboundWg {
+        add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
+    }));
+    let req = admin_request(
+        "PATCH",
+        &format!("/api/inbound-wg/peers/{}", Uuid::new_v4()),
+        Some(serde_json::json!({ "enabled": false })),
+    );
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: InboundWgPeerSummary = serde_json::from_slice(&body).unwrap();
+    assert!(!json.enabled);
+}
+
+#[tokio::test]
+async fn set_peer_enabled_not_found_returns_404() {
+    let state = make_state(Arc::new(MockInboundWg {
+        add_peer_outcome: AddPeerOutcome::Success,
+        set_peer_enabled_outcome: SetPeerEnabledOutcome::NotFound,
+    }));
+    let req = admin_request(
+        "PATCH",
+        &format!("/api/inbound-wg/peers/{}", Uuid::new_v4()),
+        Some(serde_json::json!({ "enabled": true })),
+    );
+    let resp = app(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn inbound_wg_endpoints_reject_unauthenticated() {
-    let routes: [(&str, &str, Option<serde_json::Value>); 4] = [
+    let routes: [(&str, &str, Option<serde_json::Value>); 6] = [
+        ("GET", "/api/inbound-wg/config", None),
         (
             "PUT",
             "/api/inbound-wg/config",
@@ -309,11 +416,17 @@ async fn inbound_wg_endpoints_reject_unauthenticated() {
             &format!("/api/inbound-wg/peers/{}", Uuid::new_v4()),
             None,
         ),
+        (
+            "PATCH",
+            &format!("/api/inbound-wg/peers/{}", Uuid::new_v4()),
+            Some(serde_json::json!({ "enabled": true })),
+        ),
     ];
 
     for (method, uri, body) in routes {
         let state = make_state(Arc::new(MockInboundWg {
             add_peer_outcome: AddPeerOutcome::Success,
+            set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
         }));
         let req = request(method, uri, body, false);
         let resp = app(state).oneshot(req).await.unwrap();

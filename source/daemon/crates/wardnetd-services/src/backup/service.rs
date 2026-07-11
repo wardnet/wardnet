@@ -190,7 +190,7 @@ impl BackupServiceImpl {
             return Ok((
                 false,
                 Some(format!(
-                    "bundle format version {} is newer than supported ({}) — upgrade the daemon first",
+                    "bundle format version {} is newer than supported ({}) - upgrade the daemon first",
                     manifest.bundle_format_version, CURRENT_BUNDLE_FORMAT_VERSION
                 )),
             ));
@@ -204,7 +204,7 @@ impl BackupServiceImpl {
             return Ok((
                 false,
                 Some(format!(
-                    "bundle schema version {} is newer than the running daemon's ({}) — upgrade the daemon first, then retry",
+                    "bundle schema version {} is newer than the running daemon's ({}) - upgrade the daemon first, then retry",
                     manifest.schema_version, running_schema
                 )),
             ));
@@ -677,7 +677,7 @@ impl BackupService for BackupServiceImpl {
             let mut pending = self.pending.lock().await;
             pending.remove(&req.preview_token).ok_or_else(|| {
                 AppError::BadRequest(
-                    "preview token is unknown or expired — call preview_import again".into(),
+                    "preview token is unknown or expired - call preview_import again".into(),
                 )
             })?
         };
@@ -709,7 +709,7 @@ impl BackupService for BackupServiceImpl {
                 tracing::info!(
                     schema_version = manifest.schema_version,
                     host_id = %manifest.host_id,
-                    "backup applied — daemon restart required: schema_version={sv}, host_id={host}",
+                    "backup applied - daemon restart required: schema_version={sv}, host_id={host}",
                     sv = manifest.schema_version,
                     host = manifest.host_id,
                 );

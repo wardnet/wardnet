@@ -121,7 +121,7 @@ export function DeviceZoneCard({ device }: DeviceZoneCardProps) {
                     )}
                   </span>
                 ) : (
-                  "—"
+                  "-"
                 )}
               </Text>
             </div>

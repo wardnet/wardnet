@@ -14,10 +14,8 @@ import {
   AlertModalAction,
   AlertModalCancel,
   AlertModalContent,
-  AlertModalDescription,
   AlertModalFooter,
-  AlertModalHeader,
-  AlertModalTitle,
+  AlertModalTitleBlock,
 } from "@wardnet/web";
 import { toast } from "@wardnet/ui";
 import { WardnetApiError } from "@wardnet/js";
@@ -131,7 +129,7 @@ export default function RemoteAccess() {
         toast.error("Public DNS points to the wrong IP");
         break;
       case "pending":
-        toast.warning("Public DNS isn't visible yet — still propagating");
+        toast.warning("Public DNS isn't visible yet - still propagating");
         break;
       default:
         toast("Rechecked public DNS");
@@ -155,7 +153,7 @@ export default function RemoteAccess() {
       <div className="flex flex-col gap-2">
         <ProviderOption
           label="Wardnet"
-          description="Zero-config. We assign a hostname under wardnet.services and handle DNS — enroll with your wardnet account."
+          description="Zero-config. We assign a hostname under wardnet.services and handle DNS - enroll with your wardnet account."
           selected={provider === "wardnet"}
           onSelect={() => selectProvider("wardnet")}
         />
@@ -326,14 +324,10 @@ export default function RemoteAccess() {
 
       <AlertModal open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertModalContent>
-          <AlertModalHeader>
-            <AlertModalTitle>Remove remote access?</AlertModalTitle>
-            <AlertModalDescription>
-              The public hostname will be released and the certificate deleted;
-              Wardnet reverts to plain HTTP. You can set it up again at any
-              time.
-            </AlertModalDescription>
-          </AlertModalHeader>
+          <AlertModalTitleBlock
+            title="Remove remote access?"
+            description="The public hostname will be released and the certificate deleted; Wardnet reverts to plain HTTP. You can set it up again at any time."
+          />
           <AlertModalFooter>
             <AlertModalCancel asChild>
               <Button variant="outline" disabled={teardown.isPending}>

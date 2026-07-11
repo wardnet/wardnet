@@ -143,8 +143,8 @@ function statusTooltip(tunnel: Tunnel): string | undefined {
       return "Waiting for first handshake from peer.";
     case "reconnecting":
       return tunnel.last_handshake
-        ? `Last handshake ${timeAgo(tunnel.last_handshake)} — peer not responding.`
-        : "Lost handshake — peer not responding.";
+        ? `Last handshake ${timeAgo(tunnel.last_handshake)} - peer not responding.`
+        : "Lost handshake - peer not responding.";
     case "up":
     case "down":
       return undefined;
@@ -274,7 +274,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           <div>
             <dt>Last handshake</dt>
             <dd>
-              {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "—"}
+              {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "-"}
             </dd>
           </div>
         </dl>

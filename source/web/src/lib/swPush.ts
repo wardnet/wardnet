@@ -65,7 +65,7 @@ export function registerPushHandlers(
     try {
       payload = event.data?.json() as PushPayload | undefined;
     } catch {
-      return; // Not JSON — not one of ours.
+      return; // Not JSON - not one of ours.
     }
     if (!payload?.title) return;
     const data = payload.data;

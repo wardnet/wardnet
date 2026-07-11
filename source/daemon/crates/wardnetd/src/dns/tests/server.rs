@@ -1972,7 +1972,7 @@ async fn conditional_forwarding_overrides_zone_authority() {
 
     assert!(
         !resp.metadata.authoritative,
-        "a forwarded query must NOT be answered authoritatively — the forwarding rule overrides zone authority"
+        "a forwarded query must NOT be answered authoritatively - the forwarding rule overrides zone authority"
     );
 
     server.stop().await.unwrap();

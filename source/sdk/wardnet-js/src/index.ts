@@ -241,6 +241,7 @@ export type {
   AddInboundWgPeerResponse,
   InboundWgPeerSummary,
   ListInboundWgPeersResponse,
+  SetInboundWgPeerEnabledRequest,
 } from "./types/inbound-wg.js";
 
 // Types — backup

@@ -86,7 +86,7 @@ export default function StepRouterMac() {
           className="flex flex-col gap-3"
         >
           <Field
-            label="ARP probe failed — enter the router MAC manually"
+            label="ARP probe failed - enter the router MAC manually"
             htmlFor="router-mac"
             name="mac"
           >

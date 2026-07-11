@@ -99,7 +99,7 @@ function descriptionFor(phase: ShutdownPhase): string {
     case "down":
       return "Daemon went offline. Confirming the host is fully off.";
     case "did_not_fire":
-      return "Wardnet didn't shut down. The privileged migration may not have run — try Settings → Updates, or re-run install.sh.";
+      return "Wardnet didn't shut down. The privileged migration may not have run - try Settings → Updates, or re-run install.sh.";
     case "timeout":
       return "The daemon went offline but came back before we could confirm the host had powered off. Try again.";
     default:

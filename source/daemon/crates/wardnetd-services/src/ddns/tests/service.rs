@@ -786,7 +786,7 @@ async fn configure_cloudflare_resolves_zone_and_persists_identity() {
     );
     assert!(
         !svc.entitlement().is_entitled(),
-        "BYOD-Cloudflare is a free provider — it must not flip premium entitlement"
+        "BYOD-Cloudflare is a free provider - it must not flip premium entitlement"
     );
 }
 

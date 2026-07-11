@@ -297,14 +297,14 @@ fn unpack_sync(passphrase: &str, bytes: &[u8]) -> anyhow::Result<BundleContents>
             other => {
                 tracing::warn!(
                     entry = %other,
-                    "backup bundle contained unexpected entry — ignored: entry={other}",
+                    "backup bundle contained unexpected entry - ignored: entry={other}",
                 );
             }
         }
     }
 
     let manifest = manifest
-        .ok_or_else(|| anyhow::anyhow!("bundle is missing manifest.json — not a wardnet backup"))?;
+        .ok_or_else(|| anyhow::anyhow!("bundle is missing manifest.json - not a wardnet backup"))?;
     let database_bytes =
         database_bytes.ok_or_else(|| anyhow::anyhow!("bundle is missing wardnet.db"))?;
     let config_bytes =

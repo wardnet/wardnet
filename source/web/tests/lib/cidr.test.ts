@@ -85,7 +85,7 @@ describe("cidr helpers", () => {
     expect(isPrivateCidr("8.8.0.0/16")).toBe(false);
     // Straddlers: private base but the range extends into public space.
     expect(isPrivateCidr("192.168.0.0/15")).toBe(false); // → 192.169.x
-    expect(isPrivateCidr("172.16.0.0/11")).toBe(false); // → 172.0–172.15 / 172.32+
+    expect(isPrivateCidr("172.16.0.0/11")).toBe(false); // → 172.0-172.15 / 172.32+
     expect(isPrivateCidr("10.0.0.0/7")).toBe(false); // → 11.x
     expect(isPrivateCidr("not a cidr")).toBe(false);
   });

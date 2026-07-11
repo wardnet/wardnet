@@ -110,7 +110,7 @@ export function applyEvent(db: IDBDatabase, item: DnsEventItem): Promise<void> {
     cursorReq.onsuccess = () => {
       const cursor = (cursorReq.result?.value as number | undefined) ?? 0;
       if (item.id <= cursor) {
-        return; // already aggregated — skip, tx commits as a no-op
+        return; // already aggregated - skip, tx commits as a no-op
       }
       events.put(item);
 

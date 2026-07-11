@@ -63,7 +63,7 @@ function buildColumns(
       header: "Manufacturer",
       meta: { className: "hidden lg:table-cell" },
       cell: ({ row }) => (
-        <span className="text-ink-3">{row.original.manufacturer ?? "—"}</span>
+        <span className="text-ink-3">{row.original.manufacturer ?? "-"}</span>
       ),
     },
     {
@@ -104,7 +104,7 @@ function buildColumns(
           .map((id) => profilesById.get(id)?.name)
           .filter((n): n is string => !!n);
         return (
-          <StatusBadge tone="success">{names.join(", ") || "—"}</StatusBadge>
+          <StatusBadge tone="success">{names.join(", ") || "-"}</StatusBadge>
         );
       },
     },

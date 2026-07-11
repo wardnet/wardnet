@@ -116,7 +116,7 @@ export function UpdateCard({
               next to title+pill (`ml-auto`); the Channel + Check
               group wraps to its own full-width row 2 below (via
               `w-full`) with channel-left / check-right.
-            - At ≥890px: classes get reset — Toggle drops `ml-auto`,
+            - At ≥890px: classes get reset - Toggle drops `ml-auto`,
               the group reclaims content width and uses `order-2`
               to sit between the pill and the toggle. CardAction's
               `margin-left: auto` (from `.right`) then pushes the

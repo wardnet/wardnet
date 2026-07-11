@@ -52,7 +52,7 @@ function verdictView(verdict: DdnsResolutionVerdict): {
 function providerLabel(provider: string | null | undefined): string {
   if (provider === "wardnet") return "Wardnet";
   if (provider === "cloudflare") return "Your domain (Cloudflare)";
-  return "—";
+  return "-";
 }
 
 export function RemoteAccessStatus({
@@ -80,7 +80,7 @@ export function RemoteAccessStatus({
         <div>
           <dt className="text-ink-3">Public hostname</dt>
           <Text as="dd" size="xs" className="font-mono">
-            {ddns?.fqdn ?? "—"}
+            {ddns?.fqdn ?? "-"}
           </Text>
         </div>
         <div>
@@ -100,7 +100,7 @@ export function RemoteAccessStatus({
         <div>
           <dt className="text-ink-3">Public DNS</dt>
           <dd className={verdict?.tone ?? "font-medium"}>
-            {verdict ? verdict.label : "—"}
+            {verdict ? verdict.label : "-"}
             {resolution && resolution.resolved_ips.length > 0 && (
               <Text as="span" size="xs" className="block font-mono text-ink-3">
                 {resolution.resolved_ips.join(", ")}

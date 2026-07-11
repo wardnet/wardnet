@@ -270,7 +270,7 @@ describe("usePushNotifications", () => {
       await pending;
 
       expect(toast.error).toHaveBeenCalledWith(
-        "No service worker is active — use the installed app",
+        "No service worker is active - use the installed app",
       );
       expect(pushManager.subscribe).not.toHaveBeenCalled();
       expect(result.current.isBusy).toBe(false);

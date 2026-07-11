@@ -206,7 +206,7 @@ export function BackupCard({
             <CardContent className="flex flex-col gap-4">
               <Text as="p" size="sm" className="text-ink-3">
                 Choose a passphrase of at least {MIN_PASSPHRASE_LEN} characters.
-                The passphrase is required to restore this bundle — we
+                The passphrase is required to restore this bundle - we
                 can&apos;t recover it if you lose it.
               </Text>
 

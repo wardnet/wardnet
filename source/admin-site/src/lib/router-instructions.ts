@@ -151,7 +151,7 @@ export const ROUTER_INSTRUCTIONS: RouterInstruction[] = [
       'Sign in with the admin credentials and find the "DHCP" or "LAN" settings.',
       "Disable the DHCP server / DHCP service and save.",
       "Reboot the router so the change takes effect.",
-      "If you can't find the setting, switch to the locked-router branch on the previous screen — Wardnet works without owning DHCP, you just configure each device manually.",
+      "If you can't find the setting, switch to the locked-router branch on the previous screen - Wardnet works without owning DHCP, you just configure each device manually.",
     ],
   },
 ];

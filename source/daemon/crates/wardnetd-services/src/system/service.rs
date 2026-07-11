@@ -424,7 +424,7 @@ impl SystemService for SystemServiceImpl {
         auth_context::require_admin()?;
         tracing::warn!(
             grace_ms = RESTART_GRACE.as_millis(),
-            "daemon restart requested via API — triggering graceful shutdown in {grace_ms}ms",
+            "daemon restart requested via API - triggering graceful shutdown in {grace_ms}ms",
             grace_ms = RESTART_GRACE.as_millis(),
         );
         let token = self.shutdown_token.clone();
@@ -447,7 +447,7 @@ impl SystemService for SystemServiceImpl {
         tracing::warn!(
             action = "reboot",
             grace_ms = POWER_GRACE.as_millis(),
-            "host reboot requested via API — invoking systemctl reboot in {grace_ms}ms",
+            "host reboot requested via API - invoking systemctl reboot in {grace_ms}ms",
             grace_ms = POWER_GRACE.as_millis(),
         );
         let ops = self.power_ops.clone();
@@ -471,7 +471,7 @@ impl SystemService for SystemServiceImpl {
         tracing::warn!(
             action = "shutdown",
             grace_ms = POWER_GRACE.as_millis(),
-            "host shutdown requested via API — invoking systemctl poweroff in {grace_ms}ms",
+            "host shutdown requested via API - invoking systemctl poweroff in {grace_ms}ms",
             grace_ms = POWER_GRACE.as_millis(),
         );
         let ops = self.power_ops.clone();

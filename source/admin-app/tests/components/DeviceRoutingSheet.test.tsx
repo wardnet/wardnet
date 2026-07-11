@@ -8,13 +8,26 @@ const {
   assignZone,
   useNetworkZones,
   useAssignDeviceZone,
+  useInboundWgPeers,
+  addPeerMutateAsync,
+  useAddInboundWgPeer,
 } = vi.hoisted(() => {
   const mutate = vi.fn();
   const assignZone = vi.fn();
+  const addPeerMutateAsync = vi.fn();
   return {
     mutate,
     useUpdateDevice: vi.fn(() => ({ mutate, isPending: false })),
     assignZone,
+    // The sheet reads the peer list (to decide if a device is already granted)
+    // and an add-peer mutation for the grant action. Default to no peers so
+    // every managed device is grantable; specs override as needed.
+    useInboundWgPeers: vi.fn(() => ({ data: { peers: [] } })),
+    addPeerMutateAsync,
+    useAddInboundWgPeer: vi.fn(() => ({
+      mutateAsync: addPeerMutateAsync,
+      isPending: false,
+    })),
     // The sheet reads zones + an assign mutation for its zone-reassignment
     // section; keep the list empty so these specs stay focused on routing.
     // `zones` is typed loosely — the hook is mocked, so the component's real
@@ -37,7 +50,14 @@ const {
 });
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useUpdateDevice, useNetworkZones, useAssignDeviceZone };
+  return {
+    ...actual,
+    useUpdateDevice,
+    useNetworkZones,
+    useAssignDeviceZone,
+    useInboundWgPeers,
+    useAddInboundWgPeer,
+  };
 });
 
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
@@ -51,6 +71,12 @@ describe("DeviceRoutingSheet", () => {
     useNetworkZones.mockReturnValue({ data: { zones: [] } });
     useAssignDeviceZone.mockReturnValue({
       mutate: assignZone,
+      isPending: false,
+    });
+    addPeerMutateAsync.mockReset();
+    useInboundWgPeers.mockReturnValue({ data: { peers: [] } });
+    useAddInboundWgPeer.mockReturnValue({
+      mutateAsync: addPeerMutateAsync,
       isPending: false,
     });
   });
@@ -173,5 +199,72 @@ describe("DeviceRoutingSheet", () => {
     );
     await userEvent.click(screen.getByText("Trusted"));
     expect(assignZone).not.toHaveBeenCalled();
+  });
+
+  it("grants remote access for the tapped device and shows the config", async () => {
+    addPeerMutateAsync.mockResolvedValue({
+      id: "peer-1",
+      name: "Laptop",
+      public_key: "pub",
+      allowed_ip: "10.100.64.2/32",
+      client_config: "[Interface]\nPrivateKey = k\n",
+    });
+    render(
+      <DeviceRoutingSheet
+        device={makeDevice({ id: "dev-7", name: "Laptop" })}
+        tunnels={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("device-grant-remote-access"));
+    expect(addPeerMutateAsync).toHaveBeenCalledWith({ device_id: "dev-7" });
+    // On success the sheet swaps to the one-time QR / config view.
+    expect(
+      await screen.findByText(/Remote access granted - Laptop/),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the grant action for a device that already has a peer", () => {
+    useInboundWgPeers.mockReturnValue({
+      data: {
+        peers: [
+          {
+            id: "peer-9",
+            name: "Laptop",
+            public_key: "pub",
+            allowed_ip: "10.100.64.2/32",
+            enabled: true,
+            created_at: "2026-01-01T00:00:00Z",
+            device_id: "dev-8",
+          },
+        ],
+      },
+    });
+    render(
+      <DeviceRoutingSheet
+        device={makeDevice({ id: "dev-8", name: "Laptop" })}
+        tunnels={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByTestId("device-grant-remote-access"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the grant action for an unmanaged (unnamed) device", () => {
+    render(
+      <DeviceRoutingSheet
+        device={makeDevice({ id: "dev-9", name: null })}
+        tunnels={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByTestId("device-grant-remote-access"),
+    ).not.toBeInTheDocument();
   });
 });

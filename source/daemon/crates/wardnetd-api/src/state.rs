@@ -404,6 +404,14 @@ struct NoopInboundWgService;
 
 #[async_trait::async_trait]
 impl InboundWgService for NoopInboundWgService {
+    async fn get_config(
+        &self,
+    ) -> Result<wardnet_common::api::InboundWgConfigResponse, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("inbound-wg service not configured"),
+        ))
+    }
     async fn set_config(
         &self,
         _enabled: bool,
@@ -417,6 +425,7 @@ impl InboundWgService for NoopInboundWgService {
     async fn add_peer(
         &self,
         _device_id: uuid::Uuid,
+        _endpoint: Option<String>,
     ) -> Result<wardnet_common::api::AddInboundWgPeerResponse, wardnetd_services::error::AppError>
     {
         Err(wardnetd_services::error::AppError::Internal(
@@ -425,6 +434,15 @@ impl InboundWgService for NoopInboundWgService {
     }
     async fn remove_peer(&self, _id: uuid::Uuid) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+    async fn set_peer_enabled(
+        &self,
+        _id: uuid::Uuid,
+        _enabled: bool,
+    ) -> Result<wardnet_common::api::InboundWgPeerSummary, wardnetd_services::error::AppError> {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("inbound-wg service not configured"),
+        ))
     }
     async fn list_peers(
         &self,

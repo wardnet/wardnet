@@ -171,7 +171,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             mac_address: mac.clone(),
             ip_address: ip.clone(),
             hostname: hostname.clone(),
-            description: Some("Smart plug — kitchen".to_owned()),
+            description: Some("Smart plug - kitchen".to_owned()),
         };
         dhcp_repo.insert_reservation(&reservation).await?;
     }

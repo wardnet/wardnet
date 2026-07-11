@@ -301,7 +301,7 @@ export default function Dns() {
                   <Text as="div" size="lg" weight="semibold">
                     {config.query_log_enabled
                       ? `${config.query_log_retention_days} days`
-                      : "—"}
+                      : "-"}
                   </Text>
                 </div>
               </CardContent>
