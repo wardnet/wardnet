@@ -95,7 +95,7 @@ export function TunnelLatencyChart({
             size="sm"
             className="flex h-64 items-center justify-center text-ink-3"
           >
-            No latency samples yet — bring this tunnel up to start collecting
+            No latency samples yet - bring this tunnel up to start collecting
             probes.
           </Text>
         ) : (
@@ -130,7 +130,7 @@ export function TunnelLatencyChart({
                 labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
                 formatter={(value) => [
                   value == null
-                    ? "—"
+                    ? "-"
                     : `${typeof value === "number" ? value.toFixed(1) : value} ms`,
                   "RTT",
                 ]}

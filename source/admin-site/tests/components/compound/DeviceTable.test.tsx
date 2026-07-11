@@ -54,7 +54,7 @@ describe("DeviceTable", () => {
     expect(screen.getByText("Dell")).toBeInTheDocument();
     expect(screen.getByText("Lease")).toBeInTheDocument();
     expect(screen.getByText("Reserved")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
   });
 
   it("shows the External DHCP badge", () => {
@@ -105,7 +105,7 @@ describe("DeviceTable", () => {
     expect(screen.getAllByText("(default)").length).toBeGreaterThanOrEqual(2);
     // Unknown profile id resolves to no name, rendering the em dash
     // (manufacturer columns also render em dashes here).
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("-").length).toBeGreaterThan(0);
   });
 
   it("fires onDeviceClick when a row is clicked", async () => {

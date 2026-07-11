@@ -68,7 +68,7 @@ export default function StepPolicy() {
         />
         {tunnelList.length === 0 && (
           <Text as="p" size="xs" className="text-ink-3">
-            No tunnels configured — defaulting to direct routing. You can change
+            No tunnels configured - defaulting to direct routing. You can change
             this from Settings whenever you add a tunnel.
           </Text>
         )}

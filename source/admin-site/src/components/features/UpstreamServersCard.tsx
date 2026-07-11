@@ -52,14 +52,14 @@ const MODE_META: Record<
   single: {
     label: "Single server",
     description:
-      "Every query goes to one server only — choose it with the radio in the table below. The others are never used.",
+      "Every query goes to one server only - choose it with the radio in the table below. The others are never used.",
   },
 };
 
 /** Format a probed latency for the table: rounded ms, or an em-dash when
  *  the prober hasn't produced a sample yet. */
 function formatLatency(entry: UpstreamLatency | undefined): string {
-  if (!entry || entry.avg_latency_ms == null) return "—";
+  if (!entry || entry.avg_latency_ms == null) return "-";
   return `${Math.round(entry.avg_latency_ms)} ms`;
 }
 
@@ -284,7 +284,7 @@ export function UpstreamServersCard({
       <CardContent className="flex flex-col gap-4">
         {fallbackOnly && (
           <Text as="p" size="sm" className="text-ink-3">
-            Recursive resolution is active — these upstreams are used only as a
+            Recursive resolution is active - these upstreams are used only as a
             fallback if recursion fails. Leave empty to resolve purely from the
             root servers (failures return SERVFAIL instead of forwarding).
           </Text>
@@ -349,7 +349,7 @@ export function UpstreamServersCard({
             rowActions={(row) => (
               <>
                 {/* Reordering only matters in failover mode, so only offer it
-                    there — keeps the menu honest about what does anything. */}
+                    there - keeps the menu honest about what does anything. */}
                 {effMode === "failover" && (
                   <>
                     <RowAction
@@ -371,7 +371,7 @@ export function UpstreamServersCard({
                   // first. The daemon rejects removing it (400); this makes
                   // that clear without a failed request.
                   <RowAction icon={<Lock aria-hidden />}>
-                    Selected — pick another to remove
+                    Selected - pick another to remove
                   </RowAction>
                 ) : (
                   <RowAction

@@ -964,7 +964,7 @@ impl RoutingService for RoutingServiceImpl {
                 tunnel_id = %tunnel_id,
                 affected_count = affected.len(),
                 table = ?tunnel_table,
-                "tunnel down — removing routing for affected devices"
+                "tunnel down - removing routing for affected devices"
             );
         }
 
@@ -975,7 +975,7 @@ impl RoutingService for RoutingServiceImpl {
             tracing::warn!(
                 device_id = %device_id,
                 tunnel_id = %tunnel_id,
-                "tunnel down — removing routing for device"
+                "tunnel down - removing routing for device"
             );
             if let Some(rule) = state.applied.get(device_id) {
                 affected_ips.push(rule.device_ip.clone());
@@ -1032,7 +1032,7 @@ impl RoutingService for RoutingServiceImpl {
         tracing::info!(
             tunnel_id = %tunnel_id,
             device_count = devices.len(),
-            "tunnel up — re-applying routing rules for devices"
+            "tunnel up - re-applying routing rules for devices"
         );
 
         let mut success_count = 0u32;

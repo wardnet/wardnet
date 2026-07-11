@@ -193,7 +193,7 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
               </Text>
               <dd>
                 {!settings.enabled
-                  ? "—"
+                  ? "-"
                   : assignedProfiles.length === 0
                     ? defaultProfiles.length > 0
                       ? `${defaultProfiles.map((p) => p.name).join(", ")} (default)`
@@ -230,14 +230,14 @@ function DefaultProfileHint({
   if (!enabled) {
     return (
       <Text as="p" size="xs" className="text-ink-3">
-        Filtering off — DNS queries from this device skip every profile.
+        Filtering off - DNS queries from this device skip every profile.
       </Text>
     );
   }
   if (hasExplicit) {
     return (
       <Text as="p" size="xs" className="text-ink-3">
-        Selected profiles are stacked — a domain blocked in any one of them is
+        Selected profiles are stacked - a domain blocked in any one of them is
         blocked.
       </Text>
     );
@@ -246,7 +246,7 @@ function DefaultProfileHint({
     const noun = defaultProfiles.length === 1 ? "profile" : "profiles";
     return (
       <Text as="p" size="xs" className="text-ink-3">
-        No profile selected — this device follows the global default {noun}{" "}
+        No profile selected - this device follows the global default {noun}{" "}
         <Text weight="medium" className="text-ink">
           {defaultProfiles.map((p) => p.name).join(", ")}
         </Text>
@@ -256,7 +256,7 @@ function DefaultProfileHint({
   }
   return (
     <Text as="p" size="xs" className="text-ink-3">
-      No profile selected and no global default is set — this device's traffic
+      No profile selected and no global default is set - this device's traffic
       isn't filtered.
     </Text>
   );

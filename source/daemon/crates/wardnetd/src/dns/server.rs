@@ -732,7 +732,7 @@ async fn handle_query(
                         upstream = %r.upstream,
                         domain = %domain_lower,
                         error = %e,
-                        "malformed conditional forwarding upstream — falling through to default"
+                        "malformed conditional forwarding upstream - falling through to default"
                     );
                 })
                 .ok()

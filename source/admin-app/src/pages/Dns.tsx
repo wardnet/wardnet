@@ -123,7 +123,7 @@ export default function Dns() {
                     size="base"
                     className="mt-1 text-ink tabular-nums"
                   >
-                    {dnsStats?.total.toLocaleString() ?? "—"}
+                    {dnsStats?.total.toLocaleString() ?? "-"}
                   </Text>
                   {dnsStats && dnsStats.totalSeries.length > 0 && (
                     <div className="mt-1.5 h-6">
@@ -149,7 +149,7 @@ export default function Dns() {
                     size="base"
                     className="mt-1 text-ink tabular-nums"
                   >
-                    {dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "—"}
+                    {dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "-"}
                   </Text>
                   {dnsStats && dnsStats.blockedSeries.length > 0 && (
                     <div className="mt-1.5 h-6">

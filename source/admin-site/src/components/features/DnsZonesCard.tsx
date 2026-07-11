@@ -170,7 +170,7 @@ export function DnsZonesCard() {
           if (!open) setDeleteId(null);
         }}
         title="Delete zone"
-        description={`Delete zone "${zoneToDelete?.name ?? ""}"? Its ${deleteCount} record(s) are kept (they become unzoned), but the gateway stops being authoritative for *.${zoneToDelete?.name ?? ""} — unknown names under it will be forwarded upstream again.`}
+        description={`Delete zone "${zoneToDelete?.name ?? ""}"? Its ${deleteCount} record(s) are kept (they become unzoned), but the gateway stops being authoritative for *.${zoneToDelete?.name ?? ""} - unknown names under it will be forwarded upstream again.`}
         confirmLabel="Delete"
         onConfirm={() => {
           if (deleteId) deleteZone.mutate(deleteId);

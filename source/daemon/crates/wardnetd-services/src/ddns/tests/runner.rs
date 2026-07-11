@@ -86,7 +86,7 @@ async fn runner_refreshes_then_shuts_down() {
     assert_eq!(
         mock.probes.load(Ordering::SeqCst),
         0,
-        "an entitled runner never probes — it refreshes"
+        "an entitled runner never probes - it refreshes"
     );
 }
 

@@ -166,12 +166,12 @@ export default function TunnelDetail() {
             <Field
               label="Provider"
               editing={false}
-              value={tunnel.provider ?? "—"}
+              value={tunnel.provider ?? "-"}
             />
             <Field
               label="Country"
               editing={false}
-              value={`${flag ? `${flag} ` : ""}${tunnel.country_code?.toUpperCase() ?? "—"}`}
+              value={`${flag ? `${flag} ` : ""}${tunnel.country_code?.toUpperCase() ?? "-"}`}
             />
             <Field
               label="Endpoint"

@@ -320,6 +320,26 @@ export {
   useDeleteDdns,
 } from "./hooks/useRemoteAccess";
 
+// Hooks — inbound WireGuard remote-access grants (issues #809-#813)
+export {
+  useInboundWgConfig,
+  useSetInboundWgConfig,
+  useInboundWgPeers,
+  useAddInboundWgPeer,
+  useRemoveInboundWgPeer,
+  useSetInboundWgPeerEnabled,
+} from "./hooks/useInboundWg";
+export { peerConfigFilename } from "./lib/inboundWgConfig";
+export { InboundWgQrCode } from "./components/InboundWgQrCode";
+export { triggerBrowserDownload } from "./lib/download";
+export { ModalTitleBlock } from "./components/ModalTitleBlock";
+export { AlertModalTitleBlock } from "./components/AlertModalTitleBlock";
+
+// Custom icons (composed marks not in lucide). Exported individually so
+// consumers only bundle the ones they import.
+export { ShieldWifi } from "./icons/ShieldWifi";
+export { GlobeFilter } from "./icons/GlobeFilter";
+
 // PWA helpers
 export { registerSW } from "./lib/registerSW";
 export type { RegisterSWOptions } from "./lib/registerSW";

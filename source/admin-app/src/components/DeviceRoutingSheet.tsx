@@ -1,13 +1,21 @@
-import { useRef } from "react";
-import { Drawer, DrawerContent, DrawerTitle, Text } from "@wardnet/web";
+import { useRef, useState } from "react";
+import { Drawer, DrawerContent, DrawerTitle, Text, Button } from "@wardnet/web";
 import {
   useUpdateDevice,
   useNetworkZones,
   useAssignDeviceZone,
+  useInboundWgPeers,
+  useAddInboundWgPeer,
   countryFlag,
 } from "@wardnet/web";
-import type { Device, Tunnel, RoutingTarget } from "@wardnet/js";
+import type {
+  AddInboundWgPeerResponse,
+  Device,
+  Tunnel,
+  RoutingTarget,
+} from "@wardnet/js";
 import { CheckIcon } from "lucide-react";
+import { InboundWgGrantedView } from "./InboundWgGrantedView";
 
 interface Props {
   device: Device | null;
@@ -101,7 +109,13 @@ export function DeviceRoutingSheet({
   const updateDevice = useUpdateDevice({ successMessage: "Routing updated" });
   const { data: zoneData } = useNetworkZones();
   const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
+  const { data: peersData } = useInboundWgPeers();
+  const addPeer = useAddInboundWgPeer();
   const zones = zoneData?.zones ?? [];
+
+  // The one-time grant response. When set, the sheet swaps to the QR view so
+  // the private key (embedded in `client_config`) can be scanned once.
+  const [granted, setGranted] = useState<AddInboundWgPeerResponse | null>(null);
 
   // Keep the last non-null device in a ref so the exit animation can complete
   // even if the parent clears selectedDevice while the sheet is animating closed.
@@ -113,6 +127,20 @@ export function DeviceRoutingSheet({
   const deviceLabel =
     activeDevice?.name ?? activeDevice?.hostname ?? activeDevice?.mac ?? "";
   const busy = updateDevice.isPending || assignZone.isPending;
+
+  // Grantable = managed (admin-named; the backend rejects unmanaged devices)
+  // AND has no peer row yet. `connection_mode` is monitor-driven liveness, not
+  // credential existence, so a peer-row lookup is the authoritative signal.
+  const peers = peersData?.peers ?? [];
+  const alreadyGranted =
+    activeDevice != null && peers.some((p) => p.device_id === activeDevice.id);
+  const grantable =
+    activeDevice != null && activeDevice.name != null && !alreadyGranted;
+
+  function handleOpenChange(next: boolean) {
+    if (!next) setGranted(null);
+    onOpenChange(next);
+  }
 
   function handleSelect(target: RoutingTarget) {
     if (!activeDevice) return;
@@ -131,77 +159,137 @@ export function DeviceRoutingSheet({
     );
   }
 
+  async function handleGrant() {
+    if (!activeDevice) return;
+    try {
+      const response = await addPeer.mutateAsync({
+        device_id: activeDevice.id,
+      });
+      setGranted(response);
+    } catch {
+      // The mutation's onError already surfaced a toast; keep the sheet open so
+      // the admin can retry, and swallow the rejection so it isn't an unhandled
+      // promise rejection.
+    }
+  }
+
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent side="bottom" aria-describedby={undefined}>
         <div className="mx-auto mt-3 mb-4 h-1 w-10 rounded-full bg-line" />
         <DrawerTitle className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-          Route: {deviceLabel}
+          {granted
+            ? `Remote access granted - ${granted.name}`
+            : `Route: ${deviceLabel}`}
         </DrawerTitle>
-        <div
-          data-testid="device-routing-sheet"
-          className="flex flex-col"
-          style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
-        >
-          <OptionRow
-            label="Default"
-            sublabel="Follow gateway policy"
-            active={current === "default"}
-            disabled={busy}
-            onSelect={() => handleSelect({ type: "default" })}
-            testId="device-routing-default"
-          />
-          <OptionRow
-            label="Direct"
-            sublabel="No VPN"
-            active={current === "direct"}
-            disabled={busy}
-            onSelect={() => handleSelect({ type: "direct" })}
-            testId="device-routing-direct"
-          />
-          {tunnels.length > 0 && <div className="mx-4 my-2 h-px bg-line" />}
-          {tunnels.map((tunnel) => {
-            const { label: statusLabel, tone } = tunnelSublabel(tunnel.status);
-            return (
-              <OptionRow
-                key={tunnel.id}
-                label={`${countryFlag(tunnel.country_code)} ${tunnel.label}`}
-                sublabel={statusLabel || undefined}
-                sublabelTone={tone === "ok" ? undefined : tone}
-                active={current === tunnel.id}
-                disabled={busy}
-                onSelect={() =>
-                  handleSelect({ type: "tunnel", tunnel_id: tunnel.id })
-                }
-              />
-            );
-          })}
-
-          {zones.length > 0 && (
-            <>
-              <div className="mx-4 my-2 h-px bg-line" />
-              <Text
-                as="p"
-                size="xs"
-                weight="medium"
-                className="px-4 pt-1 pb-0.5 uppercase tracking-wider text-ink-3"
-              >
-                Zone
-              </Text>
-              {zones.map((zone) => (
+        {granted ? (
+          <div
+            data-testid="device-routing-sheet"
+            className="flex flex-col"
+            style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
+          >
+            <InboundWgGrantedView
+              peer={granted}
+              onDone={() => handleOpenChange(false)}
+            />
+          </div>
+        ) : (
+          <div
+            data-testid="device-routing-sheet"
+            className="flex flex-col"
+            style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
+          >
+            <OptionRow
+              label="Default"
+              sublabel="Follow gateway policy"
+              active={current === "default"}
+              disabled={busy}
+              onSelect={() => handleSelect({ type: "default" })}
+              testId="device-routing-default"
+            />
+            <OptionRow
+              label="Direct"
+              sublabel="No VPN"
+              active={current === "direct"}
+              disabled={busy}
+              onSelect={() => handleSelect({ type: "direct" })}
+              testId="device-routing-direct"
+            />
+            {tunnels.length > 0 && <div className="mx-4 my-2 h-px bg-line" />}
+            {tunnels.map((tunnel) => {
+              const { label: statusLabel, tone } = tunnelSublabel(
+                tunnel.status,
+              );
+              return (
                 <OptionRow
-                  key={zone.id}
-                  label={zone.name}
-                  sublabel={zone.is_default ? "Home" : undefined}
-                  active={activeDevice?.zone_id === zone.id}
+                  key={tunnel.id}
+                  label={`${countryFlag(tunnel.country_code)} ${tunnel.label}`}
+                  sublabel={statusLabel || undefined}
+                  sublabelTone={tone === "ok" ? undefined : tone}
+                  active={current === tunnel.id}
                   disabled={busy}
-                  onSelect={() => handleZoneSelect(zone.id)}
-                  testId="device-zone-option"
+                  onSelect={() =>
+                    handleSelect({ type: "tunnel", tunnel_id: tunnel.id })
+                  }
                 />
-              ))}
-            </>
-          )}
-        </div>
+              );
+            })}
+
+            {zones.length > 0 && (
+              <>
+                <div className="mx-4 my-2 h-px bg-line" />
+                <Text
+                  as="p"
+                  size="xs"
+                  weight="medium"
+                  className="px-4 pt-1 pb-0.5 uppercase tracking-wider text-ink-3"
+                >
+                  Zone
+                </Text>
+                {zones.map((zone) => (
+                  <OptionRow
+                    key={zone.id}
+                    label={zone.name}
+                    sublabel={zone.is_default ? "Home" : undefined}
+                    active={activeDevice?.zone_id === zone.id}
+                    disabled={busy}
+                    onSelect={() => handleZoneSelect(zone.id)}
+                    testId="device-zone-option"
+                  />
+                ))}
+              </>
+            )}
+
+            {grantable && (
+              <>
+                <div className="mx-4 my-2 h-px bg-line" />
+                <Text
+                  as="p"
+                  size="xs"
+                  weight="medium"
+                  className="px-4 pt-1 pb-1 uppercase tracking-wider text-ink-3"
+                >
+                  Remote access
+                </Text>
+                <div className="px-4 pt-1">
+                  <Button
+                    className="w-full"
+                    data-testid="device-grant-remote-access"
+                    onClick={handleGrant}
+                    disabled={addPeer.isPending}
+                  >
+                    {addPeer.isPending ? "Granting…" : "Grant remote access"}
+                  </Button>
+                  <Text as="p" size="xs" className="pt-2 text-ink-3">
+                    Issues a WireGuard credential so this device can connect
+                    back in from off the LAN. You&apos;ll get a QR code to scan
+                    once.
+                  </Text>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </DrawerContent>
     </Drawer>
   );

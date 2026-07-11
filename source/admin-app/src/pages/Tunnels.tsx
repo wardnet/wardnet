@@ -250,7 +250,7 @@ const TunnelCard = memo(function TunnelCard({
               Last Handshake
             </Text>
             <Text as="p" size="sm" className="mt-0.5 text-ink">
-              {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "—"}
+              {tunnel.last_handshake ? timeAgo(tunnel.last_handshake) : "-"}
             </Text>
           </div>
           <div>

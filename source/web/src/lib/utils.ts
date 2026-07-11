@@ -134,7 +134,7 @@ export function formatDate(
   value: Date | string | number | null | undefined,
 ): string {
   const d = parseDate(value);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
 }
 
@@ -143,7 +143,7 @@ export function formatTime(
   value: Date | string | number | null | undefined,
 ): string {
   const d = parseDate(value);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
@@ -153,7 +153,7 @@ export function formatTimeShort(
   value: Date | string | number | null | undefined,
 ): string {
   const d = parseDate(value);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
@@ -165,7 +165,7 @@ export function formatDateTime(
   value: Date | string | number | null | undefined,
 ): string {
   const d = parseDate(value);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${formatDate(d)} ${formatTime(d)}`;
 }
 

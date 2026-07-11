@@ -5,17 +5,20 @@ import {
   useDefaultPolicy,
   usePendingDevices,
   useAssignDeviceZone,
+  useInboundWgPeers,
   countryFlag,
   deviceDisplayName,
   isDeviceOnline,
   timeAgo,
   Text,
   Heading,
+  Pill,
 } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
+import { InboundWgPeerSheet } from "@/components/InboundWgPeerSheet";
 import { ChevronRightIcon } from "lucide-react";
-import type { Device, Tunnel } from "@wardnet/js";
+import type { Device, InboundWgPeerSummary, Tunnel } from "@wardnet/js";
 
 type Filter = "all" | "online" | "vpn";
 
@@ -69,40 +72,62 @@ const DeviceRow = memo(function DeviceRow({
   device,
   online,
   tunnels,
+  remotePeer,
   onSelect,
+  onSelectPeer,
 }: {
   device: Device;
   online: boolean;
   tunnels: Tunnel[];
+  remotePeer?: InboundWgPeerSummary;
   onSelect: (id: string) => void;
+  onSelectPeer: (peer: InboundWgPeerSummary) => void;
 }) {
+  const displayName = device.name ?? device.hostname ?? device.mac;
   return (
-    <button
-      data-testid="device-row"
-      onClick={() => onSelect(device.id)}
-      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-snap active:bg-sunken first:rounded-t-xl last:rounded-b-xl"
-    >
-      <span
-        className={[
-          "mt-0.5 size-2 shrink-0 self-start rounded-full",
-          online ? "bg-accent" : "bg-line-strong",
-        ].join(" ")}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Text
-          as="span"
-          size="base"
-          weight="medium"
-          className="truncate text-ink"
+    // A row container (not itself a button): the device area and the Remote
+    // badge are separate sibling buttons. Nesting the badge inside the row
+    // button was invalid (interactive-in-interactive) and left the badge
+    // keyboard-inaccessible.
+    <div className="flex w-full items-center gap-3 px-4 py-3 transition-colors duration-snap active:bg-sunken first:rounded-t-xl last:rounded-b-xl">
+      <button
+        data-testid="device-row"
+        onClick={() => onSelect(device.id)}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <span
+          className={[
+            "mt-0.5 size-2 shrink-0 self-start rounded-full",
+            online ? "bg-accent" : "bg-line-strong",
+          ].join(" ")}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Text
+            as="span"
+            size="base"
+            weight="medium"
+            className="truncate text-ink"
+          >
+            {displayName}
+          </Text>
+          <Text as="span" size="xs" className="truncate text-ink-3">
+            {device.last_ip} · {routeLabel(device, tunnels)}
+          </Text>
+        </div>
+      </button>
+      {remotePeer && (
+        <button
+          type="button"
+          data-testid="device-remote-badge"
+          aria-label={`Manage remote access for ${displayName}`}
+          onClick={() => onSelectPeer(remotePeer)}
+          className="shrink-0"
         >
-          {device.name ?? device.hostname ?? device.mac}
-        </Text>
-        <Text as="span" size="xs" className="truncate text-ink-3">
-          {device.last_ip} · {routeLabel(device, tunnels)}
-        </Text>
-      </div>
+          <Pill variant={remotePeer.enabled ? "info" : "ghost"}>Remote</Pill>
+        </button>
+      )}
       <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
-    </button>
+    </div>
   );
 });
 
@@ -171,6 +196,7 @@ export default function Devices() {
   const { data: devicesData, isLoading: devicesLoading } = useDevices();
   const { data: tunnelsData } = useTunnels();
   const { data: policyData, isLoading: policyLoading } = useDefaultPolicy();
+  const { data: peersData } = useInboundWgPeers();
   const isLoading = devicesLoading || policyLoading;
 
   const { showingLastKnownState } = useOnlineStatusContext();
@@ -178,10 +204,26 @@ export default function Devices() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedPeer, setSelectedPeer] = useState<InboundWgPeerSummary | null>(
+    null,
+  );
+  const [peerSheetOpen, setPeerSheetOpen] = useState(false);
 
   const allDevices = devicesData?.devices ?? [];
   const tunnels = tunnelsData?.tunnels ?? [];
   const defaultPolicy = policyData?.policy;
+  const peers = peersData?.peers ?? [];
+
+  const peersByDevice = useMemo(() => {
+    const map = new Map<string, InboundWgPeerSummary>();
+    for (const p of peers) if (p.device_id) map.set(p.device_id, p);
+    return map;
+  }, [peers]);
+
+  const handleSelectPeer = useCallback((peer: InboundWgPeerSummary) => {
+    setSelectedPeer(peer);
+    setPeerSheetOpen(true);
+  }, []);
 
   // Derived from live query data — always reflects the latest refetch.
   const selectedDevice = useMemo(
@@ -313,7 +355,9 @@ export default function Devices() {
                 device={device}
                 online={online}
                 tunnels={tunnels}
+                remotePeer={peersByDevice.get(device.id)}
                 onSelect={handleDeviceClick}
+                onSelectPeer={handleSelectPeer}
               />
             ))}
           </div>
@@ -325,6 +369,12 @@ export default function Devices() {
         tunnels={tunnels}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      <InboundWgPeerSheet
+        peer={selectedPeer}
+        open={peerSheetOpen}
+        onOpenChange={setPeerSheetOpen}
       />
     </div>
   );

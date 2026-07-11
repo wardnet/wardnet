@@ -15,7 +15,7 @@ export function ConnectionBanner({ connState }: Props) {
         role="alert"
         icon={<WifiOffIcon size={15} strokeWidth={1.9} />}
       >
-        No connection to wardnet daemon — showing last known state
+        No connection to wardnet daemon - showing last known state
       </Banner>
     );
   }

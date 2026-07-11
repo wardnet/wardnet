@@ -51,7 +51,7 @@ export function DevicesCard({ deviceCount, devices, defaultPolicy }: Props) {
             </Text>
             <div className="mt-0.5 flex items-baseline gap-1.5">
               <Text as="span" size="2xl" weight="bold" className="text-ink">
-                {onlineCount !== null ? onlineCount : "—"}
+                {onlineCount !== null ? onlineCount : "-"}
               </Text>
               <Text as="span" size="sm" className="text-ink-3">
                 / {deviceCount}

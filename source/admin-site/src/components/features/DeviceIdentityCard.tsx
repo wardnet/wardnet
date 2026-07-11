@@ -38,7 +38,7 @@ export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
             >
               Hostname
             </Text>
-            <dd>{device.hostname ?? "—"}</dd>
+            <dd>{device.hostname ?? "-"}</dd>
           </div>
           <div>
             <Text
@@ -48,7 +48,7 @@ export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
             >
               Manufacturer
             </Text>
-            <dd>{device.manufacturer ?? "—"}</dd>
+            <dd>{device.manufacturer ?? "-"}</dd>
           </div>
           <div>
             <Text

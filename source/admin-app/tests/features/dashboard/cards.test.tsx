@@ -39,7 +39,7 @@ describe("StatusCard", () => {
   it("renders the unreachable badge and an em dash for null uptime", () => {
     renderWithProviders(<StatusCard reachable={false} uptimeSeconds={null} />);
     expect(screen.getByText("Daemon Unreachable")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
   });
 });
 
@@ -85,7 +85,7 @@ describe("DevicesCard", () => {
         defaultPolicy={undefined}
       />,
     );
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
     expect(
       screen.queryByText(/routed through a tunnel/),
     ).not.toBeInTheDocument();

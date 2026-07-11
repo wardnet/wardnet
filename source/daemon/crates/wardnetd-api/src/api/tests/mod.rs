@@ -9,6 +9,7 @@ mod dns_filter;
 mod dns_local;
 mod entitlement_gate;
 mod health;
+mod inbound_wg;
 mod info;
 mod jobs;
 mod logs_ws;

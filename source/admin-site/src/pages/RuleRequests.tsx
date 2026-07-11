@@ -122,7 +122,7 @@ export default function RuleRequests() {
     <>
       <PageHeader
         title="Rule requests"
-        description="Block / allow requests from household devices. Approving records the decision — apply the rule in DNS Filtering."
+        description="Block / allow requests from household devices. Approving records the decision - apply the rule in DNS Filtering."
       />
 
       <div className="flex flex-col gap-4">

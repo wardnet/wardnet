@@ -89,4 +89,9 @@ pub trait InboundWgPeerRepository: Send + Sync {
 
     /// Delete a peer by id. No-op when the id is absent.
     async fn delete(&self, id: &str) -> anyhow::Result<()>;
+
+    /// Set a peer's `enabled` flag. No-op when the id is absent — callers
+    /// that need to distinguish "not found" resolve that via `find_by_id`
+    /// first, the same pattern `remove_peer`/`add_peer` already use.
+    async fn set_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()>;
 }

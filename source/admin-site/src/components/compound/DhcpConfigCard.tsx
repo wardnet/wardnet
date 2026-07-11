@@ -102,7 +102,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
       return "Pool end must be at or after pool start.";
     // LAN addressing must be private (RFC 1918) — a public range would
     // blackhole real internet hosts.
-    const privateHint = "a private range (10.x, 172.16–31.x, or 192.168.x)";
+    const privateHint = "a private range (10.x, 172.16-31.x, or 192.168.x)";
     if (!isPrivateIpv4(poolStart)) return `Pool start must be ${privateHint}.`;
     if (!isPrivateIpv4(poolEnd)) return `Pool end must be ${privateHint}.`;
     if (routerIp !== "" && !isPrivateIpv4(routerIp))
@@ -350,7 +350,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             <div>
               <dt className="text-ink-3">Fallback router</dt>
               <Text as="dd" size="xs" className="font-mono">
-                {config.router_ip ?? "—"}
+                {config.router_ip ?? "-"}
               </Text>
             </div>
             <div>
@@ -358,7 +358,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               <dd className={dnsEnabled ? "font-medium" : "font-mono text-xs"}>
                 {dnsEnabled
                   ? "Wardnet DNS"
-                  : config.upstream_dns.join(", ") || "—"}
+                  : config.upstream_dns.join(", ") || "-"}
               </dd>
             </div>
           </dl>

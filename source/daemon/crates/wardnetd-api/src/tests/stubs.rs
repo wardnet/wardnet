@@ -1273,7 +1273,14 @@ impl wardnetd_services::DdnsService for StubDdnsService {
         unimplemented!()
     }
     async fn status(&self) -> Result<wardnetd_services::ddns::DdnsStatus, AppError> {
-        unimplemented!()
+        // A configured wardnet DDNS box, so handlers that derive a reachable
+        // endpoint from DDNS (inbound-wg add_peer) have a hostname to use.
+        Ok(wardnetd_services::ddns::DdnsStatus {
+            provider: Some("wardnet".to_owned()),
+            fqdn: Some("test.my.wardnet.services".to_owned()),
+            last_public_ip: Some("203.0.113.10".to_owned()),
+            suspended: false,
+        })
     }
     async fn teardown(&self) -> Result<(), AppError> {
         unimplemented!()

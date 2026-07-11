@@ -28,13 +28,22 @@ struct MockDeviceService {
 }
 
 impl MockDeviceService {
-    /// Register a device with the given display name and return its id.
+    /// Register a managed device with the given display name and return its id.
     fn add_device(&self, name: &str) -> Uuid {
+        self.insert_device(Some(name.to_owned()))
+    }
+
+    /// Register an unmanaged (never-named) device and return its id.
+    fn add_unmanaged_device(&self) -> Uuid {
+        self.insert_device(None)
+    }
+
+    fn insert_device(&self, name: Option<String>) -> Uuid {
         let id = Uuid::new_v4();
         let device = Device {
             id,
             mac: format!("aa:bb:cc:00:00:{:02x}", self.devices.lock().unwrap().len()),
-            name: Some(name.to_owned()),
+            name,
             hostname: None,
             manufacturer: None,
             device_type: DeviceType::Unknown,
@@ -199,6 +208,12 @@ impl InboundWgPeerRepository for MockPeerRepo {
     }
     async fn delete(&self, id: &str) -> anyhow::Result<()> {
         self.rows.lock().unwrap().retain(|r| r.id != id);
+        Ok(())
+    }
+    async fn set_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()> {
+        if let Some(row) = self.rows.lock().unwrap().iter_mut().find(|r| r.id == id) {
+            row.enabled = enabled;
+        }
         Ok(())
     }
 }
@@ -469,10 +484,65 @@ async fn enable_persists_config_and_calls_backends() {
 }
 
 #[tokio::test]
+async fn get_config_reads_without_mutating() {
+    let h = harness();
+    let before = auth_context::with_context(admin_ctx(), h.service.get_config())
+        .await
+        .unwrap();
+    assert!(!before.enabled);
+    assert!(before.server_public_key.is_none());
+    // A read must not stand up the interface or touch the firewall.
+    assert!(h.interface.ensure_calls.lock().unwrap().is_empty());
+
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let after = auth_context::with_context(admin_ctx(), h.service.get_config())
+        .await
+        .unwrap();
+    assert!(after.enabled);
+    assert_eq!(after.listen_port, 51821);
+    assert!(after.server_public_key.is_some());
+}
+
+#[tokio::test]
+async fn enable_caches_public_key_when_keypair_predates_cache() {
+    let h = harness();
+    // Simulate a key store that already holds a key while system_config has no
+    // cached public key — e.g. the DB was reset but the key-store file
+    // survived. Before the fix this made the server read back enabled with a
+    // null public key, so generated client configs got an empty `PublicKey =`.
+    h.keys
+        .save_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        .await
+        .unwrap();
+    assert!(
+        h.system_config
+            .inbound_wg_server_pubkey()
+            .await
+            .unwrap()
+            .is_none(),
+        "precondition: no cached public key"
+    );
+
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+
+    let cfg = auth_context::with_context(admin_ctx(), h.service.get_config())
+        .await
+        .unwrap();
+    assert!(
+        cfg.server_public_key.is_some(),
+        "get_config must derive/cache a public key from the existing keypair"
+    );
+}
+
+#[tokio::test]
 async fn add_peer_rejected_when_disabled() {
     let h = harness();
     let device_id = h.add_device("laptop");
-    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id)).await;
+    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None)).await;
     assert!(result.is_err(), "add_peer must fail when server disabled");
     // Nothing was persisted or pushed to the interface.
     assert!(h.peers.find_all().await.unwrap().is_empty());
@@ -480,30 +550,63 @@ async fn add_peer_rejected_when_disabled() {
 }
 
 #[tokio::test]
-async fn add_peer_generates_private_key_never_persisted() {
+async fn add_peer_rejected_for_unmanaged_device() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.devices.add_unmanaged_device();
+
+    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None)).await;
+    assert!(
+        matches!(result, Err(AppError::Conflict(_))),
+        "an unmanaged (unnamed) device must be rejected, got {result:?}"
+    );
+    // Nothing was persisted or pushed to the interface.
+    assert!(h.peers.find_all().await.unwrap().is_empty());
+    assert!(h.interface.added_peers.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn add_peer_config_carries_private_key_never_persisted() {
     let h = harness();
     auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
         .await
         .unwrap();
 
     let device_id = h.add_device("phone");
-    let resp = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
-        .await
-        .expect("add_peer succeeds when enabled");
+    let resp = auth_context::with_context(
+        admin_ctx(),
+        h.service
+            .add_peer(device_id, Some("vpn.example.com:51821".to_owned())),
+    )
+    .await
+    .expect("add_peer succeeds when enabled");
 
     assert_eq!(resp.name, "phone");
-    assert!(!resp.private_key.is_empty());
-    assert_ne!(resp.private_key, resp.public_key);
     assert_eq!(resp.allowed_ip, "10.100.64.2/32", "first peer gets .2");
 
-    // The row stores only the public key + allocated IP — never the private key.
+    // The full client config is returned, carrying the private key and the
+    // derived endpoint/address; that is the only place the private key exists.
+    let cfg = resp
+        .client_config
+        .expect("client_config present when enabled + endpoint");
+    assert!(cfg.contains("PrivateKey = "));
+    assert!(cfg.contains("Endpoint = vpn.example.com:51821"));
+    assert!(cfg.contains("Address = 10.100.64.2/32"));
+
+    // The row stores only the public key + allocated IP, never the private key.
     let rows = h.peers.find_all().await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].public_key, resp.public_key);
     assert_eq!(rows[0].allowed_ip, resp.allowed_ip);
+    let private_key = cfg
+        .lines()
+        .find_map(|l| l.strip_prefix("PrivateKey = "))
+        .expect("config has a PrivateKey line");
     let serialized = format!("{:?}", rows[0]);
     assert!(
-        !serialized.contains(&resp.private_key),
+        !serialized.contains(private_key),
         "private key must not be persisted anywhere on the row"
     );
 
@@ -522,7 +625,7 @@ async fn add_peer_rolls_back_row_when_interface_fails() {
     h.interface.fail_add_peer.store(true, Ordering::SeqCst);
 
     let device_id = h.add_device("laptop");
-    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id)).await;
+    let result = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None)).await;
     assert!(
         result.is_err(),
         "add_peer must fail when the interface rejects the peer"
@@ -546,10 +649,10 @@ async fn second_peer_gets_next_free_ip() {
         .unwrap();
     let id_a = h.add_device("a");
     let id_b = h.add_device("b");
-    let a = auth_context::with_context(admin_ctx(), h.service.add_peer(id_a))
+    let a = auth_context::with_context(admin_ctx(), h.service.add_peer(id_a, None))
         .await
         .unwrap();
-    let b = auth_context::with_context(admin_ctx(), h.service.add_peer(id_b))
+    let b = auth_context::with_context(admin_ctx(), h.service.add_peer(id_b, None))
         .await
         .unwrap();
     assert_eq!(a.allowed_ip, "10.100.64.2/32");
@@ -563,7 +666,7 @@ async fn remove_peer_deletes_row() {
         .await
         .unwrap();
     let device_id = h.add_device("x");
-    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
         .await
         .unwrap();
     assert_eq!(h.peers.find_all().await.unwrap().len(), 1);
@@ -582,7 +685,7 @@ async fn disable_does_not_delete_peer_rows() {
         .await
         .unwrap();
     let device_id = h.add_device("keep");
-    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
         .await
         .unwrap();
 
@@ -606,6 +709,97 @@ async fn disable_does_not_delete_peer_rows() {
 }
 
 #[tokio::test]
+async fn set_peer_enabled_disable_removes_from_interface_but_keeps_row() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
+        .await
+        .unwrap();
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 1);
+
+    let summary =
+        auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, false))
+            .await
+            .expect("disable succeeds");
+
+    assert!(!summary.enabled);
+    // Row survives — distinct from `remove_peer`.
+    assert_eq!(h.peers.find_all().await.unwrap().len(), 1);
+    assert!(
+        !h.peers
+            .find_by_id(&peer.id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .enabled
+    );
+    // Best-effort removed from the live interface.
+    assert_eq!(h.interface.removed_peers.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn set_peer_enabled_reenable_readmits_same_credential() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
+        .await
+        .unwrap();
+    auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, false))
+        .await
+        .unwrap();
+
+    let summary =
+        auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, true))
+            .await
+            .expect("re-enable succeeds");
+
+    assert!(summary.enabled);
+    assert_eq!(
+        summary.public_key, peer.public_key,
+        "same credential, no new keypair"
+    );
+    // add_peer once (initial grant) + re-admit once on re-enable.
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn set_peer_enabled_not_found_returns_404() {
+    let h = harness();
+    let result = auth_context::with_context(
+        admin_ctx(),
+        h.service.set_peer_enabled(Uuid::new_v4(), false),
+    )
+    .await;
+    assert!(result.is_err(), "unknown peer id must 404");
+}
+
+#[tokio::test]
+async fn set_peer_enabled_noop_when_already_in_requested_state() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .unwrap();
+    let device_id = h.add_device("laptop");
+    let peer = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
+        .await
+        .unwrap();
+
+    auth_context::with_context(admin_ctx(), h.service.set_peer_enabled(peer.id, true))
+        .await
+        .expect("no-op enable succeeds");
+
+    // No extra interface calls beyond the initial grant.
+    assert_eq!(h.interface.added_peers.lock().unwrap().len(), 1);
+    assert!(h.interface.removed_peers.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn requires_admin() {
     let h = harness();
     // No auth context — must be rejected.
@@ -620,7 +814,7 @@ async fn reconcile_reenables_peers_when_enabled() {
         .await
         .unwrap();
     let device_id = h.add_device("p");
-    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id))
+    auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
         .await
         .unwrap();
 

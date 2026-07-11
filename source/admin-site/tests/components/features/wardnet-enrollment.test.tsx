@@ -120,7 +120,7 @@ describe("AvailabilityHint", () => {
       <AvailabilityHint availability="invalid" slug="admin" />,
     );
     expect(
-      screen.getByText("This name is reserved — try another."),
+      screen.getByText("This name is reserved - try another."),
     ).toBeInTheDocument();
   });
 
@@ -150,7 +150,7 @@ describe("AvailabilityHint", () => {
       <AvailabilityHint availability="taken" slug="cool-name" />,
     );
     expect(
-      screen.getByText("cool-name is taken — try another"),
+      screen.getByText("cool-name is taken - try another"),
     ).toBeInTheDocument();
   });
 

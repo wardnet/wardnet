@@ -157,7 +157,7 @@ function descriptionFor(phase: RestartPhase): string {
     case "timeout":
       return "The daemon didn't come back within 45 seconds. This usually means the supervisor (systemd) needs attention.";
     case "did_not_fire":
-      return "Wardnet didn't restart. The privileged migration may not have run — try Settings → Updates, or re-run install.sh.";
+      return "Wardnet didn't restart. The privileged migration may not have run - try Settings → Updates, or re-run install.sh.";
     default:
       return "";
   }

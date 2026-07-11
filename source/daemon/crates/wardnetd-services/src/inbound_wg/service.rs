@@ -79,6 +79,11 @@ const SERVER_HOST: u8 = 1;
 /// `Remote` via the discovery service, driven by the inbound-WireGuard monitor.
 #[async_trait]
 pub trait InboundWgService: Send + Sync {
+    /// Read the current server config (enabled, listen port, public key)
+    /// without mutating anything — for UI surfaces that need to show live
+    /// state on load rather than only after a `set_config` call.
+    async fn get_config(&self) -> Result<InboundWgConfigResponse, AppError>;
+
     /// Enable or disable the inbound server and set its listen port.
     ///
     /// On enable: generates + persists the server keypair if none exists,
@@ -94,14 +99,33 @@ pub trait InboundWgService: Send + Sync {
 
     /// Grant remote access to an already-managed device: generate a keypair,
     /// allocate an IP, persist the row (public key + `device_id`), add it to
-    /// the interface, and return the private key **once**. The peer's
-    /// user-facing name is taken from the device itself. Rejected when the
-    /// server is disabled, when the device does not exist, or when the device
-    /// already has a credential (one per device).
-    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError>;
+    /// the interface, and return the **full client config** (with the private
+    /// key) exactly once. The peer's user-facing name is taken from the device
+    /// itself. `endpoint` is the reachable `host:port` the client dials, which
+    /// the caller derives (DDNS today, cloud relay per #824) — `None` yields a
+    /// response with no `client_config`. Rejected when the server is disabled,
+    /// the device does not exist or is unmanaged, or it already has a
+    /// credential (one per device).
+    async fn add_peer(
+        &self,
+        device_id: Uuid,
+        endpoint: Option<String>,
+    ) -> Result<AddInboundWgPeerResponse, AppError>;
 
     /// Remove a peer by id from both the interface and the database.
     async fn remove_peer(&self, id: Uuid) -> Result<(), AppError>;
+
+    /// Pause or resume a peer without deleting its credential: re-admit it
+    /// onto the live interface (enable) or best-effort remove it (disable),
+    /// then persist the flag. Distinct from `remove_peer` — the keypair and
+    /// allocated IP survive, so re-enabling never needs a fresh QR scan.
+    /// No-op (returns the current summary) if the peer is already in the
+    /// requested state. 404 if the peer does not exist.
+    async fn set_peer_enabled(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<InboundWgPeerSummary, AppError>;
 
     /// List every peer (no private keys).
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError>;
@@ -199,22 +223,61 @@ impl InboundWgServiceImpl {
         IpNetwork::new(ip.into(), SUBNET_MASK).expect("valid /24 server address")
     }
 
+    /// Assemble the full `WireGuard` client `.conf` for a freshly-granted peer.
+    /// It embeds the peer's private key, so it is only ever produced here (for
+    /// the one-time `add_peer` response) and never persisted. The client's
+    /// `DNS` is the inbound server's own address (`10.100.64.1`) so filtering
+    /// still applies, and the tunnel is full (`AllowedIPs = 0.0.0.0/0, ::/0`)
+    /// so a remote device routes everything through the home gateway.
+    /// `allowed_ip` already carries its `/32`.
+    fn build_client_config(
+        private_key_b64: &str,
+        allowed_ip: &str,
+        server_pubkey_b64: &str,
+        endpoint: &str,
+    ) -> String {
+        let dns = format!(
+            "{}.{}.{}.{SERVER_HOST}",
+            SUBNET_PREFIX[0], SUBNET_PREFIX[1], SUBNET_PREFIX[2]
+        );
+        format!(
+            "[Interface]\n\
+             PrivateKey = {private_key_b64}\n\
+             Address = {allowed_ip}\n\
+             DNS = {dns}\n\
+             \n\
+             [Peer]\n\
+             PublicKey = {server_pubkey_b64}\n\
+             Endpoint = {endpoint}\n\
+             AllowedIPs = 0.0.0.0/0, ::/0\n\
+             PersistentKeepalive = 25\n"
+        )
+    }
+
     /// Load the persisted server private key, or generate + persist a fresh
     /// keypair if none exists. Returns the raw private key and the base64
-    /// public key. The public key is persisted to `system_config`.
+    /// public key, and (idempotently) caches the public key in `system_config`.
     async fn ensure_server_keypair(&self) -> Result<([u8; 32], String), AppError> {
-        if let Some(priv_b64) = self.keys.load_key().await.map_err(AppError::Internal)? {
-            let private = Self::decode_key(&priv_b64)?;
-            let public = x25519_dalek::x25519(private, x25519_dalek::X25519_BASEPOINT_BYTES);
-            return Ok((private, Self::encode_key(&public)));
-        }
-        let (private, public) = generate_keypair();
-        let priv_b64 = Self::encode_key(&private);
-        let pub_b64 = Self::encode_key(&public);
-        self.keys
-            .save_key(&priv_b64)
-            .await
-            .map_err(AppError::Internal)?;
+        let (private, pub_b64) =
+            if let Some(priv_b64) = self.keys.load_key().await.map_err(AppError::Internal)? {
+                let private = Self::decode_key(&priv_b64)?;
+                let public = x25519_dalek::x25519(private, x25519_dalek::X25519_BASEPOINT_BYTES);
+                (private, Self::encode_key(&public))
+            } else {
+                let (private, public) = generate_keypair();
+                let priv_b64 = Self::encode_key(&private);
+                self.keys
+                    .save_key(&priv_b64)
+                    .await
+                    .map_err(AppError::Internal)?;
+                (private, Self::encode_key(&public))
+            };
+        // Persist the public key on EVERY call, not just first keygen: the
+        // `system_config` copy is a cache of what the key store holds, and the
+        // two can desync (e.g. the DB is reset while the key-store file
+        // survives). Without this, an enabled server whose key predates the
+        // cache reads back with a `null` public key, and every generated client
+        // config gets an empty `PublicKey =` line (WireGuard "syntax error").
         self.system_config
             .set_inbound_wg_server_pubkey(&pub_b64)
             .await
@@ -255,7 +318,7 @@ impl InboundWgServiceImpl {
             }
         }
         Err(AppError::Conflict(
-            "inbound WireGuard subnet is full — no free address".to_owned(),
+            "inbound WireGuard subnet is full - no free address".to_owned(),
         ))
     }
 
@@ -295,10 +358,79 @@ impl InboundWgServiceImpl {
         }
         Ok(())
     }
+
+    /// Best-effort removal of a peer from the live `wg_wardin0` interface. The
+    /// DB row is the source of truth, so a kernel-side removal failure is
+    /// logged and swallowed. A malformed stored public key IS fatal (it
+    /// signals corruption the caller should surface). Shared by revoke
+    /// ([`Self::remove_peer`]) and pause ([`Self::set_peer_enabled`]) so the
+    /// eviction path stays identical.
+    async fn remove_peer_from_interface(&self, row: &InboundWgPeerRow) -> Result<(), AppError> {
+        let public_key = Self::decode_key(&row.public_key)?;
+        if let Err(e) = self
+            .interface
+            .remove_peer(INBOUND_WG_INTERFACE, public_key)
+            .await
+        {
+            tracing::warn!(
+                peer_id = %row.id,
+                error = %e,
+                "inbound-wg: failed to remove peer {} from interface, continuing: {e}",
+                row.id,
+            );
+        }
+        Ok(())
+    }
+
+    /// Reset the peer's device back off `Remote` `connection_mode`. A peer
+    /// with no live path (revoked or paused) must not leave its device stuck
+    /// `Remote` with nothing to correct it. Best-effort — the primary state
+    /// change is already persisted, so a failure here is logged, not fatal.
+    /// Shared by revoke ([`Self::remove_peer`]) and pause
+    /// ([`Self::set_peer_enabled`]).
+    async fn reset_peer_connection_mode(&self, row: &InboundWgPeerRow) {
+        if let Some(device_id) = &row.device_id
+            && let Err(e) = self.devices.clear_remote_connection_mode(device_id).await
+        {
+            tracing::warn!(
+                peer_id = %row.id,
+                device_id = %device_id,
+                error = %e,
+                "inbound-wg: failed to reset device connection_mode for peer {}: {e}",
+                row.id,
+            );
+        }
+    }
 }
 
 #[async_trait]
 impl InboundWgService for InboundWgServiceImpl {
+    async fn get_config(&self) -> Result<InboundWgConfigResponse, AppError> {
+        auth_context::require_admin()?;
+
+        let enabled = self
+            .system_config
+            .inbound_wg_enabled()
+            .await
+            .map_err(AppError::Internal)?;
+        let listen_port = self
+            .system_config
+            .inbound_wg_listen_port()
+            .await
+            .map_err(AppError::Internal)?;
+        let server_public_key = self
+            .system_config
+            .inbound_wg_server_pubkey()
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(InboundWgConfigResponse {
+            enabled,
+            listen_port,
+            server_public_key,
+        })
+    }
+
     async fn set_config(
         &self,
         enabled: bool,
@@ -367,7 +499,11 @@ impl InboundWgService for InboundWgServiceImpl {
         }
     }
 
-    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError> {
+    async fn add_peer(
+        &self,
+        device_id: Uuid,
+        endpoint: Option<String>,
+    ) -> Result<AddInboundWgPeerResponse, AppError> {
         auth_context::require_admin()?;
 
         // Precondition first: no keygen / DB work if the server is off.
@@ -378,7 +514,7 @@ impl InboundWgService for InboundWgServiceImpl {
             .map_err(AppError::Internal)?
         {
             return Err(AppError::Conflict(
-                "inbound WireGuard server is disabled — enable it before adding peers".to_owned(),
+                "inbound WireGuard server is disabled - enable it before adding peers".to_owned(),
             ));
         }
 
@@ -405,13 +541,16 @@ impl InboundWgService for InboundWgServiceImpl {
             )));
         }
 
-        // User-facing label comes from the device, not a free-text param:
-        // admin-set name, else hostname, else MAC as a last resort.
-        let name = device
-            .name
-            .clone()
-            .or_else(|| device.hostname.clone())
-            .unwrap_or_else(|| device.mac.clone());
+        // Only a *managed* device — one an admin has named — can be granted
+        // remote access; a bare discovered device must be adopted (named)
+        // first. The admin UI filters unmanaged devices out of the picker, so
+        // this is defense-in-depth. The peer's user-facing label is that
+        // admin-set name (never a free-text param).
+        let Some(name) = device.name.clone() else {
+            return Err(AppError::Conflict(format!(
+                "device {device_id} is unmanaged - name (adopt) it before granting remote access"
+            )));
+        };
 
         let (private, public) = generate_keypair();
         let private_b64 = Self::encode_key(&private);
@@ -463,12 +602,31 @@ impl InboundWgService for InboundWgServiceImpl {
             return Err(AppError::Internal(error));
         }
 
+        // Assemble the full client config server-side (the private key never
+        // leaves this method's memory otherwise). The server public key is the
+        // one persisted on enable; if it is somehow absent, or no endpoint is
+        // known, there is no usable config to return.
+        let server_pubkey = self
+            .system_config
+            .inbound_wg_server_pubkey()
+            .await
+            .map_err(AppError::Internal)?;
+        let client_config = match (server_pubkey, endpoint) {
+            (Some(pubkey), Some(endpoint)) => Some(Self::build_client_config(
+                &private_b64,
+                &allowed_ip,
+                &pubkey,
+                &endpoint,
+            )),
+            _ => None,
+        };
+
         Ok(AddInboundWgPeerResponse {
             id,
             name,
             public_key: public_b64,
-            private_key: private_b64,
             allowed_ip,
+            client_config,
         })
     }
 
@@ -482,16 +640,7 @@ impl InboundWgService for InboundWgServiceImpl {
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::NotFound(format!("inbound-wg peer {id} not found")))?;
 
-        let public_key = Self::decode_key(&row.public_key)?;
-        // Best-effort removal from the live interface; the DB row is the source
-        // of truth, so a failed kernel removal is logged, not fatal.
-        if let Err(e) = self
-            .interface
-            .remove_peer(INBOUND_WG_INTERFACE, public_key)
-            .await
-        {
-            tracing::warn!(peer_id = %id, error = %e, "inbound-wg: failed to remove peer from interface, deleting row anyway");
-        }
+        self.remove_peer_from_interface(&row).await?;
 
         self.peers
             .delete(&id.to_string())
@@ -499,21 +648,66 @@ impl InboundWgService for InboundWgServiceImpl {
             .map_err(AppError::Internal)?;
 
         // The revoked credential was this device's only remote-access path, so
-        // its `connection_mode` (set to `Remote` by the inbound-WG monitor)
-        // would otherwise stay stuck with no live path left to correct it.
-        // Best-effort: the primary revoke already succeeded, so a failure here
-        // is logged, not fatal.
-        if let Some(device_id) = &row.device_id
-            && let Err(e) = self.devices.clear_remote_connection_mode(device_id).await
-        {
-            tracing::warn!(
-                peer_id = %id,
-                device_id = %device_id,
-                error = %e,
-                "inbound-wg: failed to reset device connection_mode after revoke: {e}",
-            );
-        }
+        // clear its (monitor-set) `Remote` connection_mode now that nothing is
+        // left to correct it.
+        self.reset_peer_connection_mode(&row).await;
         Ok(())
+    }
+
+    async fn set_peer_enabled(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<InboundWgPeerSummary, AppError> {
+        auth_context::require_admin()?;
+
+        let row = self
+            .peers
+            .find_by_id(&id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound(format!("inbound-wg peer {id} not found")))?;
+
+        if row.enabled == enabled {
+            return row_to_summary(row);
+        }
+
+        // Only touch the live interface when the server itself is up —
+        // otherwise nothing is admitted to add/remove, and `bring_up_server`'s
+        // `find_enabled()` re-admit sweep picks up the persisted flag on the
+        // next enable.
+        let server_up = self
+            .system_config
+            .inbound_wg_enabled()
+            .await
+            .map_err(AppError::Internal)?;
+
+        if server_up {
+            if enabled {
+                let config = Self::peer_row_to_config(&row)?;
+                self.interface
+                    .add_peer(INBOUND_WG_INTERFACE, config)
+                    .await
+                    .map_err(AppError::Internal)?;
+            } else {
+                self.remove_peer_from_interface(&row).await?;
+            }
+        }
+
+        self.peers
+            .set_enabled(&id.to_string(), enabled)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // A disabled peer has no live path, so clear its device's (monitor-set)
+        // `Remote` connection_mode — same teardown revoke applies.
+        if !enabled {
+            self.reset_peer_connection_mode(&row).await;
+        }
+
+        let mut updated = row;
+        updated.enabled = enabled;
+        row_to_summary(updated)
     }
 
     async fn list_peers(&self) -> Result<Vec<InboundWgPeerSummary>, AppError> {
@@ -614,6 +808,15 @@ fn row_to_summary(row: InboundWgPeerRow) -> Result<InboundWgPeerSummary, AppErro
     let created_at = chrono::DateTime::parse_from_rfc3339(&row.created_at)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid stored created_at: {e}")))?
         .with_timezone(&chrono::Utc);
+    // Unparseable is treated the same as absent (logged, not fatal) — a
+    // single bad row must not break the whole listing.
+    let device_id = row.device_id.as_deref().and_then(|s| match s.parse() {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(peer_id = %row.id, error = %e, "inbound-wg: unparseable device_id for peer {}", row.id);
+            None
+        }
+    });
     Ok(InboundWgPeerSummary {
         id,
         name: row.name,
@@ -621,5 +824,6 @@ fn row_to_summary(row: InboundWgPeerRow) -> Result<InboundWgPeerSummary, AppErro
         allowed_ip: row.allowed_ip,
         enabled: row.enabled,
         created_at,
+        device_id,
     })
 }
