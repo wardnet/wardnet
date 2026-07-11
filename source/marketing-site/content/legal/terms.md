@@ -20,11 +20,15 @@ formal legal notices is available on request via that email.
 
 Wardnet's core software, the daemon and every self-hosted feature
 described in our [documentation](/docs), is open source under the
-[MIT License](https://github.com/wardnet/wardnet/blob/main/LICENSE).
-You may run it on your own hardware without an account, a
-subscription, or any data leaving your network. Nothing in these Terms
-restricts your rights under the MIT License; where the two conflict
-for the software itself, the MIT License controls.
+[GNU General Public License v3.0 or
+later](https://github.com/wardnet/wardnet/blob/main/LICENSE). The
+`@wardnet/js` SDK and the web frontends are MIT-licensed; see
+[LICENSING.md](https://github.com/wardnet/wardnet/blob/main/LICENSING.md)
+for which license covers which part of the source tree. You may run
+Wardnet on your own hardware without an account, a subscription, or any
+data leaving your network. Nothing in these Terms restricts your rights
+under those licenses; where the two conflict for the software itself,
+the software's own license controls.
 
 ## 2. Premium
 
@@ -55,7 +59,7 @@ You agree not to use Wardnet or Premium to:
   Wardnet's cloud services or another user's account.
 - Reverse engineer Premium's cloud-side services (as opposed to the
   open-source daemon, which you're welcome to inspect and modify under
-  the MIT License).
+  the GPL).
 
 We may suspend or terminate Premium access for accounts that violate
 this section.
@@ -78,10 +82,10 @@ every device on that network. Use accordingly.
 ## 6. Limitation of liability
 
 If you only run the self-hosted software, with no account and no
-Premium subscription, your use is governed entirely by the MIT
-License's own liability disclaimer, we have no contractual
-relationship with you at all, so nothing in this section adds any
-further cap or floor.
+Premium subscription, your use is governed entirely by the software
+license's own liability disclaimer (sections 15–17 of the GPL for the
+daemon), we have no contractual relationship with you at all, so
+nothing in this section adds any further cap or floor.
 
 For Premium, to the fullest extent permitted by law, **Pedro Gomes,
 trading as Wardnet**, is not liable for indirect, incidental, special,

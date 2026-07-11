@@ -20,7 +20,11 @@ resolver = "3"
 version = "0.4.1"
 edition = "2024"
 rust-version = "1.96"
-license = "MIT"
+# GPL-3.0-or-later, not MIT: the daemon links `rustables` (GPL-3.0-or-later,
+# never published under any other license), and Rust links statically — so the
+# compiled binary is a combined work GPL-3.0's terms extend to. The SDK and web
+# UI stay MIT; see LICENSING.md at the repo root.
+license = "GPL-3.0-or-later"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

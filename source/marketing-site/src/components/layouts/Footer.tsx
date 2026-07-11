@@ -8,8 +8,8 @@ const EXTERNAL_LINKS = [
     href: "https://github.com/wardnet/wardnet/releases",
   },
   {
-    label: "MIT License",
-    href: "https://github.com/wardnet/wardnet/blob/main/LICENSE",
+    label: "License",
+    href: "https://github.com/wardnet/wardnet/blob/main/LICENSING.md",
   },
   { label: "Status", href: "https://status.wardnet.network" },
 ] as const;
@@ -45,7 +45,9 @@ export function Footer() {
             </a>
           ))}
         </nav>
-        <p className="t-size-xs text-ink-4">MIT License. Built with Rust and React.</p>
+        <p className="t-size-xs text-ink-4">
+          GPL-3.0-or-later (daemon), MIT (SDK). Built with Rust and React.
+        </p>
       </div>
     </footer>
   );

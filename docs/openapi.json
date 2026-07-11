@@ -4,7 +4,7 @@
     "title": "Wardnet API",
     "description": "Self-hosted network privacy gateway — REST API for device, tunnel, routing, DHCP, DNS, and update management.",
     "license": {
-      "name": "MIT"
+      "name": "GPL-3.0-or-later"
     },
     "version": "2026.06.00-beta.2"
   },

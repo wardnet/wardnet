@@ -35,7 +35,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         version = RELEASE_VERSION,
         description = "Self-hosted network privacy gateway — REST API for device, \
                        tunnel, routing, DHCP, DNS, and update management.",
-        license(name = "MIT")
+        license(name = "GPL-3.0-or-later")
     ),
     modifiers(&SecurityAddon),
     tags(
