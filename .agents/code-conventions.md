@@ -66,7 +66,10 @@
   ```
 - **Parameterised queries only** (`.bind()`) — never string-interpolate user input into SQL.
 - `format!()` is acceptable for `PRAGMA` statements with **numeric constants** (e.g. `PRAGMA incremental_vacuum({N})`), not for WHERE clauses or column lists.
+- Interpolating a `const` column list into an otherwise-fixed query is **still a violation**, even though it is not an injection risk: if every component is constant, the whole statement is constant — hoist it to a `const` instead of paying a `format!()` allocation on every call.
 
 ## Dependencies
 
-- Always add a comment with the crates.io or npmjs URL before each dependency in `Cargo.toml` / `package.json`.
+- Always add a comment with the crates.io URL before each dependency in `Cargo.toml`.
+  (`package.json` is standard JSON and cannot carry inline comments — no equivalent
+  convention applies to the JS/TS packages.)

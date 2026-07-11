@@ -67,7 +67,10 @@ Tests **must** live in separate files. Never put `#[test]` or `#[tokio::test]` b
 
 **Repository tests** follow the same layout under `src/repository/tests/`. The shared `test_pool()` helper lives in `src/repository/tests/mod.rs`.
 
-This rule is enforced by clippy and code review — no exceptions.
+This rule is enforced by code review — no exceptions. (It is *not* currently
+enforced by a clippy lint, so review is the only gate. Source files that still
+carry an inline `#[cfg(test)] mod tests` block are pre-existing debt, not
+precedent.)
 
 ## Test patterns
 
